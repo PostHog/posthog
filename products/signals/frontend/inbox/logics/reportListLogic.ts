@@ -159,8 +159,8 @@ export interface reportListLogicValues {
         hasActiveFilters: boolean
         scope: InboxScope
     } | null
-    primarySectionKey: InboxReportSectionKey
     loadedQueryKey: string | null
+    primarySectionKey: InboxReportSectionKey
     reports: SignalReport[]
     reportsLoadFailed: boolean
     reportsResponse: ReportListResponse | null
@@ -221,15 +221,6 @@ export interface reportListLogicActions {
             | 'wontfix_irrelevant'
         reportId: string
     }
-    resolveReport: (
-        reportId: string,
-        reason: ResolveReasonValue,
-        note: string
-    ) => {
-        note: string
-        reason: 'already_fixed' | 'fixed_outside_posthog' | 'other'
-        reportId: string
-    }
     ensureLoaded: () => {
         value: true
     }
@@ -287,6 +278,15 @@ export interface reportListLogicActions {
     removeReport: (reportId: string) => {
         reportId: string
     }
+    resolveReport: (
+        reportId: string,
+        reason: ResolveReasonValue,
+        note: string
+    ) => {
+        note: string
+        reason: 'already_fixed' | 'fixed_outside_posthog' | 'other' | 'pr_merged'
+        reportId: string
+    }
     restoreReport: (reportId: string) => {
         reportId: string
     }
@@ -299,6 +299,7 @@ export interface reportListLogicActions {
 export interface reportListLogicMeta {
     key: 'dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     __keaTypeGenInternalSelectorTypes: {
+        primarySectionKey: (featureFlags: FeatureFlagsSet) => InboxReportSectionKey
         listApiParams: (
             searchQuery: string,
             sortField: InboxSortField,
@@ -310,7 +311,6 @@ export interface reportListLogicMeta {
             user: UserType | null,
             arg: any
         ) => any
-        primarySectionKey: (featureFlags: FeatureFlagsSet) => InboxReportSectionKey
         reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
         visibleReports: (reports: SignalReport[], visibleCount: number) => SignalReport[]
         hiddenReportCount: (totalCount: number | null, count: number | null, visibleReports: SignalReport[]) => number

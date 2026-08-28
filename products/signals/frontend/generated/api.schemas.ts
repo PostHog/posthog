@@ -1559,6 +1559,7 @@ export const SignalReportStateEnumApi = {
  * * `wontfix_intentional` - Won't fix - intentional behavior
  * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
  * * `fixed_outside_posthog` - Fixed outside PostHog
+ * * `pr_merged` - PR was merged
  * * `other` - Something else…
  */
 export type DismissalReasonEnumApi = (typeof DismissalReasonEnumApi)[keyof typeof DismissalReasonEnumApi]
@@ -1570,6 +1571,7 @@ export const DismissalReasonEnumApi = {
     WontfixIntentional: 'wontfix_intentional',
     WontfixIrrelevant: 'wontfix_irrelevant',
     FixedOutsidePosthog: 'fixed_outside_posthog',
+    PrMerged: 'pr_merged',
     Other: 'other',
 } as const
 
@@ -1580,7 +1582,7 @@ export interface SignalReportStateRequestApi {
      * * `potential` - potential
      * * `resolved` - resolved */
     state: SignalReportStateEnumApi
-    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without an inbox PR) or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wontfix_*) go with state='suppressed'. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wontfix_*) go with state='suppressed'. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
@@ -1588,6 +1590,7 @@ export interface SignalReportStateRequestApi {
      * * `wontfix_intentional` - Won't fix - intentional behavior
      * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
      * * `fixed_outside_posthog` - Fixed outside PostHog
+     * * `pr_merged` - PR was merged
      * * `other` - Something else… */
     dismissal_reason?: DismissalReasonEnumApi
     /**
@@ -1746,7 +1749,7 @@ export interface SignalReportBulkStateRequestApi {
      * * `potential` - potential
      * * `resolved` - resolved */
     state: SignalReportStateEnumApi
-    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without an inbox PR) or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wontfix_*) go with state='suppressed'. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wontfix_*) go with state='suppressed'. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
@@ -1754,6 +1757,7 @@ export interface SignalReportBulkStateRequestApi {
      * * `wontfix_intentional` - Won't fix - intentional behavior
      * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
      * * `fixed_outside_posthog` - Fixed outside PostHog
+     * * `pr_merged` - PR was merged
      * * `other` - Something else… */
     dismissal_reason?: DismissalReasonEnumApi
     /**

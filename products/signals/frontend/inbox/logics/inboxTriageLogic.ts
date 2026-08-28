@@ -90,27 +90,11 @@ export interface inboxTriageLogicActions {
             | 'wontfix_irrelevant'
         reportId: string
     } // reportListLogic
-    resolveReport: (
-        reportId: string,
-        reason: 'already_fixed' | 'fixed_outside_posthog' | 'other',
-        note: string
-    ) => {
-        note: string
-        reason: 'already_fixed' | 'fixed_outside_posthog' | 'other'
-        reportId: string
-    } // reportListLogic
     ensureLoaded: () => {
         value: true
     } // reportListLogic
     loadMore: () => {
         value: true
-    } // reportListLogic
-    loadMoreReportsSuccess: (
-        reportsResponse: import('./reportListLogic').ReportListResponse,
-        payload?: any
-    ) => {
-        payload?: any
-        reportsResponse: import('./reportListLogic').ReportListResponse
     } // reportListLogic
     loadMoreReportsFailure: (
         error: string,
@@ -118,6 +102,13 @@ export interface inboxTriageLogicActions {
     ) => {
         error: string
         errorObject?: any
+    } // reportListLogic
+    loadMoreReportsSuccess: (
+        reportsResponse: import('./reportListLogic').ReportListResponse,
+        payload?: any
+    ) => {
+        payload?: any
+        reportsResponse: import('./reportListLogic').ReportListResponse
     } // reportListLogic
     loadReportsSuccess: (
         reportsResponse: import('./reportListLogic').ReportListResponse,
@@ -129,13 +120,19 @@ export interface inboxTriageLogicActions {
     removeReport: (reportId: string) => {
         reportId: string
     } // reportListLogic
-    dismissCurrent: () => {
-        value: true
-    }
-    resolveCurrent: () => {
-        value: true
-    }
+    resolveReport: (
+        reportId: string,
+        reason: 'already_fixed' | 'fixed_outside_posthog' | 'other' | 'pr_merged',
+        note: string
+    ) => {
+        note: string
+        reason: 'already_fixed' | 'fixed_outside_posthog' | 'other' | 'pr_merged'
+        reportId: string
+    } // reportListLogic
     createPrForCurrent: () => {
+        value: true
+    }
+    dismissCurrent: () => {
         value: true
     }
     focusReport: (
@@ -149,6 +146,9 @@ export interface inboxTriageLogicActions {
         delta: number
     }
     openCurrent: () => {
+        value: true
+    }
+    resolveCurrent: () => {
         value: true
     }
     setExpanded: (expanded: boolean) => {

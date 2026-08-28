@@ -368,14 +368,15 @@ inbox-reports-set-state
   resolve work that has actually landed.** A fix shipping as a PR resolves itself on merge (see
   _Step 4_); resolve by hand only where the webhook can never reach — a skill-body edit, a config
   change, a `NO_REPO` report. Record `dismissal_reason: "fixed_outside_posthog"` for that (the fix
-  landed without an inbox PR); reserve `already_fixed` for an issue fixed before the report was
-  filed. Don't use `already_fixed` + `state: "potential"` when _you_ did the fixing: that pairing
-  means "fixed by something else, might recur", so the report comes back.
+  landed without a pull request); use `pr_merged` when a pull request with the fix was merged but
+  did not resolve the report on its own; reserve `already_fixed` for an issue fixed before the
+  report was filed. Don't use `already_fixed` + `state: "potential"` when _you_ did the fixing:
+  that pairing means "fixed by something else, might recur", so the report comes back.
 - `state: "suppressed"` dismisses the report from the inbox; `state: "potential"` snoozes it back
   into the pipeline. When snoozing, `snooze_for: <N>` holds it until it accumulates N more signals.
-- `dismissal_reason` must be one of seven server-validated canonical codes — `already_fixed`,
+- `dismissal_reason` must be one of eight server-validated canonical codes — `already_fixed`,
   `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`,
-  `fixed_outside_posthog`, `other` — an unlisted value returns `400`. Reach for `other` plus a
+  `fixed_outside_posthog`, `pr_merged`, `other` — an unlisted value returns `400`. Reach for `other` plus a
   `dismissal_note` for anything that doesn't fit a specific code. `dismissal_note` is free-form
   (≤ 4000 chars). Both persist as a DISMISSAL
   artefact, so the rationale survives later transitions — **always include them**, on a resolve too,

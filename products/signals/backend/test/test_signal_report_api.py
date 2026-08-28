@@ -1492,6 +1492,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 {"state": "resolved", "dismissal_reason": "fixed_outside_posthog"},
                 "fixed_outside_posthog",
             ),
+            ("resolve_pr_merged", {"state": "resolved", "dismissal_reason": "pr_merged"}, "pr_merged"),
             # A resolve carrying no feedback must not pick a reason up from anywhere.
             ("resolve_without_reason", {"state": "resolved"}, None),
         ]

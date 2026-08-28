@@ -234,10 +234,11 @@ tools:
             suppressed report — other statuses return 409. Dismissing or resolving closes the report's open
             implementation PR, if it has one; a resolved report never reopens, and a recurrence starts a fresh report
             linked to it. Optionally include a `dismissal_reason` — a canonical code from the inbox UI
-            (`fixed_outside_posthog`, `already_fixed`, `report_unclear`, `analysis_wrong`, `wontfix_intentional`,
-            `wontfix_irrelevant`, `other`), so it renders as a labelled chip rather than a raw string. With
-            state='resolved' use `fixed_outside_posthog` when the fix landed without an inbox PR, or `already_fixed`
-            when it was fixed before the report was filed; the other codes describe a dismissal. Use `other` plus a
+            (`fixed_outside_posthog`, `pr_merged`, `already_fixed`, `report_unclear`, `analysis_wrong`,
+            `wontfix_intentional`, `wontfix_irrelevant`, `other`), so it renders as a labelled chip rather than a raw
+            string. With state='resolved' use `fixed_outside_posthog` when the fix landed without a pull request,
+            `pr_merged` when a pull request with the fix was merged but did not resolve the report on its own, or
+            `already_fixed` when it was fixed before the report was filed; the other codes describe a dismissal. Use `other` plus a
             `dismissal_note` (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted
             as a DISMISSAL artefact on the report so the rationale survives later transitions. Returns 409 if the
             transition is not allowed from the report's current status. To transition several reports at once, use

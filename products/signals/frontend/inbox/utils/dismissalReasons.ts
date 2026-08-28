@@ -19,6 +19,7 @@ export const DISMISSAL_REASON_OPTIONS = [
  */
 export const RESOLVE_REASON_OPTIONS = [
     { value: 'fixed_outside_posthog', label: 'Fixed outside PostHog' },
+    { value: 'pr_merged', label: 'PR was merged' },
     { value: 'already_fixed', label: 'Was already fixed before this report' },
     { value: 'other', label: 'Something else…' },
 ] as const
@@ -35,7 +36,7 @@ export type ResolveReasonValue = (typeof RESOLVE_REASON_OPTIONS)[number]['value'
  * its old dismiss reason, and showing that on finished work would mislabel it.
  */
 export function isResolveReason(value: string | null | undefined): boolean {
-    return value === 'fixed_outside_posthog' || value === 'already_fixed'
+    return value === 'fixed_outside_posthog' || value === 'pr_merged' || value === 'already_fixed'
 }
 
 // Reason codes persisted by flows outside the two dialogs (never user-selectable there), so the
