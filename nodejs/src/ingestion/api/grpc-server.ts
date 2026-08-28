@@ -16,6 +16,7 @@ import {
     WorkerIngest,
 } from '~/common/generated/ingestion-worker/ingestion/worker/v1/worker_pb'
 import { logger } from '~/common/utils/logger'
+import { budgetDeadline } from '~/ingestion/framework/batch-budget'
 import { FeedResult } from '~/ingestion/framework/batching-pipeline'
 
 import { AcceptedBatch, batchAccepted, batchFailed, batchProcessed, batchReleased } from './batch-metrics'
@@ -52,6 +53,11 @@ const grpcFeedSlotWaiters = new Gauge({
 const grpcCapacityRetries = new Counter({
     name: 'ingestion_api_grpc_capacity_retries_total',
     help: 'Feeds rejected at_capacity despite holding an admission slot (capacity accounting drift)',
+})
+
+const grpcAdmissionExpired = new Counter({
+    name: 'ingestion_api_grpc_admission_expired_total',
+    help: 'Sub-batches whose soft deadline passed while they waited for an admission slot',
 })
 
 const grpcConnectionsRejected = new Counter({
@@ -311,6 +317,20 @@ function okAck(seq: number, accepted: number): IngestStreamResponse {
         msg: {
             case: 'ack',
             value: create(SubBatchAckSchema, { seq: BigInt(seq), status: SubBatchStatus.OK, accepted }),
+        },
+    })
+}
+
+function partialAck(seq: number, accepted: number, timedOut: number[]): IngestStreamResponse {
+    return create(IngestStreamResponseSchema, {
+        msg: {
+            case: 'ack',
+            value: create(SubBatchAckSchema, {
+                seq: BigInt(seq),
+                status: SubBatchStatus.PARTIAL,
+                accepted,
+                timedOut,
+            }),
         },
     })
 }
@@ -608,6 +628,19 @@ export class WorkerIngestServer {
         this.maybeFinish(stream)
     }
 
+    /**
+     * A sub-batch that ran out of soft budget while parked never entered the
+     * pipeline, so no worker state exists for it: ack every message timed out
+     * and let the consumer redeliver the whole sub-batch.
+     */
+    private expireParked(stream: StreamState, seq: number, messageCount: number): void {
+        grpcAdmissionExpired.inc()
+        stream.inFlight.delete(seq)
+        stream.acks.push(partialAck(seq, 0, messageIndices(messageCount)))
+        grpcSubBatches.inc({ status: 'partial' })
+        this.maybeFinish(stream)
+    }
+
     private maybeFinish(stream: StreamState): void {
         if (stream.readerDone && stream.inFlight.size === 0) {
             stream.acks.end()
@@ -757,14 +790,30 @@ export class WorkerIngestServer {
                 // order because a retry race here let busy streams starve
                 // quiet ones, wedging whole consumers.
                 stream.inFlight.add(seq)
+                // The budget bounds the wait itself: a sub-batch that spends its
+                // whole soft allowance parked here is given up rather than
+                // started with nothing left.
+                const softAt = budgetDeadline(budget.armedAt, budget.softBudgetMs)
+                const parkedTooLong = new AbortController()
+                const expiryTimer =
+                    softAt === null ? null : setTimeout(() => parkedTooLong.abort(), Math.max(0, softAt - Date.now()))
+                expiryTimer?.unref?.()
                 try {
-                    await this.slots.acquire(admissionSignal)
+                    await this.slots.acquire(AbortSignal.any([admissionSignal, parkedTooLong.signal]))
                 } catch (error) {
                     if (error instanceof SlotAcquisitionAborted) {
+                        if (parkedTooLong.signal.aborted && !admissionSignal.aborted) {
+                            this.expireParked(stream, seq, serialized.length)
+                            continue
+                        }
                         this.finishReader(stream, seq)
                         return
                     }
                     throw error
+                } finally {
+                    if (expiryTimer) {
+                        clearTimeout(expiryTimer)
+                    }
                 }
                 if (signal?.aborted) {
                     // Cancelled between the slot grant and here: hand the slot
@@ -836,6 +885,11 @@ export class WorkerIngestServer {
         logger.warn('⚠️', 'WorkerIngest protocol violation', { streamId: stream.id, kind, message })
         return new ConnectError(message, Code.FailedPrecondition)
     }
+}
+
+/** Every position of a sub-batch's messages, for an ack that covers all of them. */
+function messageIndices(count: number): number[] {
+    return Array.from({ length: count }, (_, index) => index)
 }
 
 function sleep(ms: number): Promise<void> {

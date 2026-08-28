@@ -589,6 +589,42 @@ describe('WorkerIngestServer', () => {
         expect(await outOfOrderCount()).toBe(before + 1)
     })
 
+    it('acks a parked sub-batch PARTIAL when its soft budget runs out before a slot frees', async () => {
+        // Nothing entered the pipeline, so there is no worker state to reconcile:
+        // every message goes back to the consumer for redelivery.
+        const budgeted = new WorkerIngestServer(
+            { port: 0, maxConcurrentBatches: 1, capacityRetryMs: 1, pumpIdleMs: 1 },
+            { driver, feedOrderSentinel: sentinel, onFatal }
+        )
+        await budgeted.start()
+        try {
+            const source = new FrameSource()
+            const collected = collect(budgeted, source)
+
+            source.push(hello())
+            source.push(subBatch(1, [10]))
+            await until(() => driver.feeds.length === 1)
+            // The one slot is held by sub-batch 1, so sub-batch 2 parks.
+            source.push(subBatch(2, [11, 12], { softBudgetMs: 20n }))
+            await until(() => collected.acks.length === 1)
+
+            const ack = collected.acks[0]
+            expect(ack.seq).toBe(2n)
+            expect(ack.status).toBe(SubBatchStatus.PARTIAL)
+            expect(ack.accepted).toBe(0)
+            expect(ack.timedOut).toEqual([0, 1])
+            expect(driver.feeds.map((feed) => feed.seq)).toEqual([1])
+
+            // The stream stays usable: the reader moved on to the next frame.
+            driver.complete({ streamId: driver.feeds[0].streamId, seq: 1, accepted: 1 })
+            source.end()
+            await collected.ended
+            expect(collected.error).toBeNull()
+        } finally {
+            await budgeted.stop()
+        }
+    })
+
     it('refuses a stream past the total concurrency ceiling with ResourceExhausted', async () => {
         // The ceiling bounds total open streams so a peer that ignores the
         // per-session SETTINGS limit cannot make the server accumulate streams
