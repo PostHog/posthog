@@ -1277,9 +1277,11 @@ def create_webhook(
 
         if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
             if auth_method == "oauth":
+                # Stripe refuses an app manifest that requests webhook write, so reconnecting
+                # cannot grant it. Manual setup is the only route for an app-connected source.
                 return WebhookCreationResult(
                     success=False,
-                    error="Your Stripe integration doesn't have permission to create webhooks. Set up the webhook manually below, or reconnect your Stripe integration and grant webhook access.",
+                    error="The PostHog Stripe app cannot create webhooks. Set up the webhook manually below.",
                 )
             return WebhookCreationResult(
                 success=False,
