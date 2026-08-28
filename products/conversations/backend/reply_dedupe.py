@@ -37,9 +37,17 @@ from products.conversations.backend.models import Channel, Ticket
 logger = structlog.get_logger(__name__)
 
 
-class _HasKey(Protocol):
+class _DedupeFingerprint(Protocol):
+    """What the reservation protocol needs from any fingerprint: a key, and a way to find or
+    re-verify the object an earlier attempt created. ``ReplyFingerprint`` and ``ComposeFingerprint``
+    both satisfy it, over comments and tickets respectively."""
+
     @property
     def key(self) -> str: ...
+
+    def find_persisted_match(self, *, created_after: datetime) -> Any: ...
+
+    def load_replay_target(self, object_id: str | None) -> Any: ...
 
 
 # A reservation only has to outlive one request, and a worker killed mid-create self-heals this
@@ -245,34 +253,34 @@ class GuardedCreate:
     comment: Comment | None = None
 
 
-def create_deduplicated(fingerprint: ReplyFingerprint, create: Callable[[], Comment]) -> GuardedCreate:
-    """Run ``create`` at most once per fingerprint, and report what happened.
+def _run_deduplicated(fingerprint: _DedupeFingerprint, create: Callable[[], Any]) -> tuple[CreateOutcome, Any]:
+    """Run ``create`` at most once per fingerprint, and report the outcome plus the object.
 
-    Both support-message endpoints go through here so the protocol can't drift between them. The
-    caller owns the response shape: a REPLAYED outcome is theirs to render as a 200 and a CONFLICT
-    as a 409. Exceptions from ``create`` propagate unchanged after the reservation is settled.
+    The shared core for both create endpoints, so the reservation protocol can't drift between
+    them. The caller owns the response shape: a REPLAYED outcome is theirs to render as a 200 and a
+    CONFLICT as a 409. Exceptions from ``create`` propagate unchanged after the reservation is
+    settled. On CONFLICT the object is None.
     """
     reservation = reserve(fingerprint)
     if reservation.state is ReservationState.REPLAY:
         replayed = fingerprint.load_replay_target(reservation.object_id)
         if replayed is not None:
-            return GuardedCreate(outcome=CreateOutcome.REPLAYED, comment=replayed)
+            return CreateOutcome.REPLAYED, replayed
         # A mapping we can't verify is treated as no mapping, rather than serving an unrelated row.
     elif reservation.state is ReservationState.IN_FLIGHT:
-        return GuardedCreate(outcome=CreateOutcome.CONFLICT)
+        return CreateOutcome.CONFLICT, None
 
     attempted_at = timezone.now()
     already_created = fingerprint.find_persisted_match(created_after=_replay_window_start(attempted_at))
     if already_created is not None:
         publish(reservation, already_created.id)
-        return GuardedCreate(outcome=CreateOutcome.REPLAYED, comment=already_created)
+        return CreateOutcome.REPLAYED, already_created
 
     try:
-        comment = create()
+        created_object = create()
     except Exception:
-        # Mention fan-out and post_save receivers run after the INSERT, so an exception does not
-        # mean the row is absent. Releasing blindly would make an already-delivered message
-        # immediately repeatable.
+        # Receivers and mention fan-out run after the INSERT, so an exception does not mean the row
+        # is absent. Releasing blindly would make an already-delivered object immediately repeatable.
         recovered = fingerprint.find_persisted_match(created_after=attempted_at)
         if recovered is not None:
             publish(reservation, recovered.id)
@@ -280,15 +288,21 @@ def create_deduplicated(fingerprint: ReplyFingerprint, create: Callable[[], Comm
             release(reservation)
         raise
 
-    publish(reservation, comment.id)
-    return GuardedCreate(outcome=CreateOutcome.CREATED, comment=comment)
+    publish(reservation, created_object.id)
+    return CreateOutcome.CREATED, created_object
+
+
+def create_deduplicated(fingerprint: ReplyFingerprint, create: Callable[[], Comment]) -> GuardedCreate:
+    """Deduplicate a support-message create. See ``_run_deduplicated`` for the outcome contract."""
+    outcome, comment = _run_deduplicated(fingerprint, create)
+    return GuardedCreate(outcome=outcome, comment=comment)
 
 
 def _replay_window_start(attempted_at: datetime) -> datetime:
     return attempted_at - timedelta(seconds=REPLAY_WINDOW_SECONDS)
 
 
-def reserve(fingerprint: _HasKey) -> Reservation:
+def reserve(fingerprint: _DedupeFingerprint) -> Reservation:
     """Claim the right to create this message, or report who got there first.
 
     Fails open (ACQUIRED without a token) once Redis has failed twice. That degrades to the caller's
@@ -478,40 +492,10 @@ class GuardedTicketCreate:
 
 
 def create_ticket_deduplicated(fingerprint: ComposeFingerprint, create: Callable[[], Ticket]) -> GuardedTicketCreate:
-    """Run ``create`` at most once per fingerprint, and report what happened.
+    """Deduplicate an outbound compose. See ``_run_deduplicated`` for the outcome contract.
 
-    Mirrors ``create_deduplicated`` for outbound compose. The caller owns the response shape: a
-    REPLAYED outcome is theirs to render as a 200 and a CONFLICT as a 409. This is what stops a
-    caller that retries a slow compose from opening the same ticket — and emailing the customer —
-    more than once. Exceptions from ``create`` propagate unchanged after the reservation is settled.
+    This is what stops a caller that retries a slow compose from opening the same ticket — and
+    emailing the customer — more than once.
     """
-    reservation = reserve(fingerprint)
-    if reservation.state is ReservationState.REPLAY:
-        replayed = fingerprint.load_replay_target(reservation.object_id)
-        if replayed is not None:
-            return GuardedTicketCreate(outcome=CreateOutcome.REPLAYED, ticket=replayed)
-        # A mapping we can't verify is treated as no mapping, rather than serving an unrelated row.
-    elif reservation.state is ReservationState.IN_FLIGHT:
-        return GuardedTicketCreate(outcome=CreateOutcome.CONFLICT)
-
-    attempted_at = timezone.now()
-    already_created = fingerprint.find_persisted_match(created_after=_replay_window_start(attempted_at))
-    if already_created is not None:
-        publish(reservation, already_created.id)
-        return GuardedTicketCreate(outcome=CreateOutcome.REPLAYED, ticket=already_created)
-
-    try:
-        ticket = create()
-    except Exception:
-        # post_save receivers (outbound send) run after the INSERT, so an exception does not mean
-        # the row is absent. Releasing blindly would make an already-sent ticket immediately
-        # repeatable.
-        recovered = fingerprint.find_persisted_match(created_after=attempted_at)
-        if recovered is not None:
-            publish(reservation, recovered.id)
-        else:
-            release(reservation)
-        raise
-
-    publish(reservation, ticket.id)
-    return GuardedTicketCreate(outcome=CreateOutcome.CREATED, ticket=ticket)
+    outcome, ticket = _run_deduplicated(fingerprint, create)
+    return GuardedTicketCreate(outcome=outcome, ticket=ticket)
