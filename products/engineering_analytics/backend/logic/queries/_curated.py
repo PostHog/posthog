@@ -25,6 +25,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import (
@@ -33,6 +34,7 @@ from products.engineering_analytics.backend.logic.sources import (
     resolve_trunk_merge_queue_table,
 )
 from products.engineering_analytics.backend.logic.views import (
+    deployments,
     issue_events,
     job_costs,
     pull_requests,
@@ -52,6 +54,14 @@ class _IssueEventsWindow:
 
     start: str
     end: str
+
+
+@frozen
+class DeploySources:
+    """The curated deploy pair's ``SELECT`` subqueries, resolved and gated together."""
+
+    deployments: str
+    statuses: str
 
 
 _READY_BY_PR_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
@@ -204,6 +214,17 @@ class CuratedGitHubSource:
         if not self._tables.issue_events:
             return None
         return f"({issue_events.build_query(self._tables.issue_events)})"
+
+    def deploy_sources(self) -> "DeploySources | None":
+        """The curated deploy ``SELECT`` subqueries, or None when the optional deploy pair isn't
+        fully synced. Gated on BOTH tables in one place: a deployment's outcome lives on its
+        status rows, so one table without the other can't serve an honest read."""
+        if not (self._tables.deployments and self._tables.deployment_statuses):
+            return None
+        return DeploySources(
+            deployments=f"({deployments.build_deployments_query(self._tables.deployments)})",
+            statuses=f"({deployments.build_deployment_statuses_query(self._tables.deployment_statuses)})",
+        )
 
     def ready_to_merge_sql(self) -> ReadyToMergeSql:
         """SQL for the per-PR ready-to-merge measure, off the PR source aliased ``pr``. Degrades to

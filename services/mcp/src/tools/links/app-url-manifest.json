@@ -574,6 +574,11 @@
         "params": ["handle"],
         "scope": "project"
     },
+    "engineeringAnalyticsHealth": {
+        "template": "/engineering-analytics/health",
+        "params": [],
+        "scope": "project"
+    },
     "engineeringAnalyticsPullRequest": {
         "template": "/engineering-analytics/repos/{repoOwner}/{repoName}/pull-requests/{number}",
         "params": ["repoOwner", "repoName", "number"],
