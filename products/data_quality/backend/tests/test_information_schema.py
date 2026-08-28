@@ -277,6 +277,48 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
 
         assert rows == []
 
+    def test_a_run_without_a_declared_stamp_is_withheld_from_a_restricted_member(self) -> None:
+        # A run recorded before runs stamped their own subject has no declared row, so what it
+        # touched cannot be established from the stamps. Withheld, never read as touching nothing.
+        check = self._check(subject_name="orders")
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            quality_check=check,
+            suite_run=suite_run,
+            subject_type=check.subject_type,
+            subject_uuid=check.subject_uuid,
+            subject_name="orders",
+            check_type=check.check_type,
+            check_fingerprint=check.fingerprint,
+            status=CheckRunStatus.FAILED,
+            referenced_subjects=[],
+        )
+
+        rows = self._query(
+            "SELECT subject_name FROM system.information_schema.data_quality_check_runs",
+            context=self._context(denied_tables={"secrets"}),
+        )
+
+        assert rows == []
+
+    def test_a_run_whose_declared_subject_was_deleted_and_unclaimed_stays_visible(self) -> None:
+        # History outlives deletions: a run's own subject can be deleted and its name left unclaimed,
+        # and the run stays readable. Only a denied object taking that freed name withholds it.
+        temp = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="temp_orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        check = self._check(subject_name="temp_orders", saved_query_id=temp.id)
+        self._run_for(check)
+        temp.delete()
+
+        rows = self._query(
+            "SELECT subject_name FROM system.information_schema.data_quality_check_runs",
+            context=self._context(denied_tables={"secrets"}),
+        )
+
+        assert rows == [("temp_orders",)]
+
     def test_the_tables_are_absent_when_the_catalog_flag_is_off(self) -> None:
         with patch("products.data_quality.backend.facade.flags.is_data_quality_checks_enabled", return_value=False):
             listing = self._query(

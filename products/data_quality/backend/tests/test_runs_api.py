@@ -231,6 +231,20 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert [row["id"] for row in listed.json()["results"]] == []
         assert self.client.get(f"{self.url}{suite_run.id}/").status_code == status.HTTP_404_NOT_FOUND
 
+    def test_history_withholds_a_suite_whose_run_declared_a_recreated_denied_subject(self) -> None:
+        # A run's own subject was deleted and its name taken by a denied object. The suite reporting
+        # on it still carries counters over the original's rows, so the freed name being reused by
+        # something denied has to withhold it -- matched by the name the run stamped, not its id.
+        temp = self._make_view("temp_orders")
+        suite_run = self._sweep_covering(temp)
+        temp.delete()
+        self._deny(self._make_view("temp_orders"))
+
+        listed = self.client.get(self.url)
+
+        assert [row["id"] for row in listed.json()["results"]] == []
+        assert self.client.get(f"{self.url}{suite_run.id}/").status_code == status.HTTP_404_NOT_FOUND
+
     def _suite_reading(self, read: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
         """A suite whose one run sits on the allowed "customers" but read another subject."""
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")

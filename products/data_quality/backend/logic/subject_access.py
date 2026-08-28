@@ -12,7 +12,7 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.information_schema import _references_denied_table
@@ -20,7 +20,7 @@ from posthog.hogql.database.schema.information_schema import _references_denied_
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
-from ..facade.enums import SubjectType
+from ..facade.enums import SubjectRelation, SubjectType
 from ..models import DataQualityCheckRunSubject
 from .contracts import SubjectIdentity
 from .registry import all_specs, get_spec
@@ -217,51 +217,82 @@ def run_reads_unreadable_subject(
 
 
 def unreadable_runs_q(team_id: int, denied: set[str]) -> Q:
-    """Match, in SQL, every run that read a subject this caller cannot be shown to be allowed.
+    """Match, in SQL, every run that touched a subject this caller cannot be shown to be allowed.
 
     The set form of :func:`run_reads_unreadable_subject`, for the surfaces that have to exclude
-    before a window or a page count and so cannot judge run by run in Python. Three ways a run is
-    out of reach, and none of them aggregates over the recorded JSON:
+    before a window or a page count and so cannot judge run by run in Python. Each stamp row is
+    probed by run id against the unique-constraint index, so the cost tracks the candidate runs a
+    call examines, not the length of retained history. Four ways a run is out of reach:
 
-    - it read a subject that no longer resolves, or resolves to a name the caller is denied, which
-      the index answers by id;
-    - it pinned nothing and its type can read past its own subject, so what it read cannot be
+    - it has no declared stamp, so it was recorded before runs stamped their own subject and what it
+      touched cannot be established -- withheld, and backfillable from the run's own columns whenever
+      needed;
+    - it pinned nothing and its type can read past its own subject, so its references cannot be
       established;
-    - it recorded references but has no index rows for them, which is the same "cannot be
-      established" in a different form and is treated the same way.
+    - it recorded references but stamped no row for them, the same "cannot be established" in a
+      different form;
+    - a stamp it wrote points at a subject the caller may not read, declared or referenced together.
 
-    The last case is what makes the index safe to add without rewriting history: a run written
-    before it existed is withheld rather than read as one that referenced nothing.
+    The first case is what makes the stamps safe to add without rewriting history: a run predating
+    them is withheld rather than read as one that touched nothing readable.
     """
     indexed = DataQualityCheckRunSubject.objects.for_team(team_id)
-    matched = Q(referenced_subjects__isnull=True, check_type__in=referencing_check_types())
-    matched |= ~Q(referenced_subjects__isnull=True) & ~Q(referenced_subjects=[]) & ~Q(id__in=indexed.values("run_id"))
+    declared = indexed.filter(relation=SubjectRelation.DECLARED, run_id=OuterRef("pk"))
+    referenced = indexed.filter(relation=SubjectRelation.REFERENCED, run_id=OuterRef("pk"))
+    matched = ~Q(Exists(declared))
+    matched |= Q(referenced_subjects__isnull=True, check_type__in=referencing_check_types())
+    matched |= ~Q(referenced_subjects__isnull=True) & ~Q(referenced_subjects=[]) & ~Q(Exists(referenced))
     if blocked := _blocked_subjects(team_id, denied):
-        matched |= Q(id__in=indexed.filter(blocked).values("run_id"))
+        matched |= Q(Exists(indexed.filter(blocked, run_id=OuterRef("pk"))))
     return matched
 
 
 def _blocked_subjects(team_id: int, denied: set[str]) -> Q:
-    """The indexed subjects this caller may not read, as a filter over the index. One query to list.
+    """The stamped subjects this caller may not read, as a relation-aware filter over the stamps.
 
-    Distinct over two narrow indexed columns, so the cost tracks how many subjects the project has
-    rather than how long its run history is.
+    Two DISTINCTs, each index-only over the composite index: referenced subjects by identity, and
+    declared subjects by identity and stamped name. The declared and referenced verdicts differ, so
+    the filter carries ``relation``: a run blocked because its own declared subject is denied is a
+    different row from one blocked because a subject it read is.
+
+    - A referenced subject that no longer resolves took its denial with it, so nothing left proves
+      the caller was allowed it: unresolvable, or currently denied, is out of reach.
+    - A declared subject that no longer resolves is judged by the name it ran under: out of reach
+      only if a denied object now holds that name. An unclaimed name stays visible -- history
+      outlives deletions.
     """
-    referenced = [
-        SubjectIdentity(subject_type=subject_type, subject_uuid=str(subject_uuid))
-        for subject_type, subject_uuid in DataQualityCheckRunSubject.objects.for_team(team_id)
-        .values_list("subject_type", "subject_uuid")
+    indexed = DataQualityCheckRunSubject.objects.for_team(team_id)
+    referenced = list(
+        indexed.filter(relation=SubjectRelation.REFERENCED).values_list("subject_type", "subject_uuid").distinct()
+    )
+    declared = list(
+        indexed.filter(relation=SubjectRelation.DECLARED)
+        .values_list("subject_type", "subject_uuid", "subject_name")
         .distinct()
-    ]
-    current_names = resolve_subject_names(team_id, referenced)
-    by_type: dict[str, list[UUID]] = defaultdict(list)
-    for subject in referenced:
-        name = current_names.get(subject)
-        if name is None or is_subject_denied(name, denied):
-            by_type[subject.subject_type].append(UUID(subject.subject_uuid))
+    )
+    referenced_identities = [SubjectIdentity(subject_type=t, subject_uuid=str(u)) for t, u in referenced]
+    declared_identities = [SubjectIdentity(subject_type=t, subject_uuid=str(u)) for t, u, _ in declared]
+    current_names = resolve_subject_names(team_id, referenced_identities + declared_identities)
+
     blocked = Q()
+    by_type: dict[str, list[UUID]] = defaultdict(list)
+    for subject_type, subject_uuid in referenced:
+        identity = SubjectIdentity(subject_type=subject_type, subject_uuid=str(subject_uuid))
+        name = current_names.get(identity)
+        if name is None or is_subject_denied(name, denied):
+            by_type[subject_type].append(UUID(str(subject_uuid)))
     for subject_type, uuids in by_type.items():
-        blocked |= Q(subject_type=subject_type, subject_uuid__in=uuids)
+        blocked |= Q(relation=SubjectRelation.REFERENCED, subject_type=subject_type, subject_uuid__in=uuids)
+
+    for subject_type, subject_uuid, stamped in declared:
+        identity = SubjectIdentity(subject_type=subject_type, subject_uuid=str(subject_uuid))
+        if is_subject_denied(current_names.get(identity, stamped), denied):
+            blocked |= Q(
+                relation=SubjectRelation.DECLARED,
+                subject_type=subject_type,
+                subject_uuid=subject_uuid,
+                subject_name=stamped,
+            )
     return blocked
 
 

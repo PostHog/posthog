@@ -679,46 +679,36 @@ class DataQualityRunViewSet(
         queryset = super().filter_queryset(queryset)
         if not self._can_be_object_denied():
             return queryset
-        runs = DataQualityCheckRun.objects.for_team(self.team_id)
+        # A suite with runs is withheld when any of them touched a denied subject, the same rule the
+        # check routes apply. A suite that swept nothing has no run to gate on, so its own subject
+        # gates it directly -- which is the only path that reaches an empty suite.
         denied_uuids = self._denied_subject_uuids()
         if denied_uuids:
-            queryset = queryset.exclude(subject_uuid__in=denied_uuids).exclude(
-                id__in=runs.filter(subject_uuid__in=denied_uuids).values("suite_run_id")
-            )
-        # A run's declared subject is not the only one it read, so the same test the check routes
-        # apply to a definition has to reach the suites reporting on it.
+            queryset = queryset.exclude(subject_uuid__in=denied_uuids)
         unreadable = api.unreadable_runs_q(self.team_id, self._denied_subject_names())
-        return queryset.exclude(id__in=runs.filter(unreadable).values("suite_run_id"))
+        runs = DataQualityCheckRun.objects.for_team(self.team_id).filter(unreadable)
+        return queryset.exclude(id__in=runs.values("suite_run_id"))
 
     def _denied_subject_uuids(self) -> set[UUID]:
-        """The ids of the subjects this caller is denied, as suite and check runs record them.
+        """The ids of the subjects a suite in this project targets that the caller is denied.
 
-        Resolved from the subjects themselves rather than from the name denormalized onto a check,
-        so a subject renamed since its last run still matches its own denial.
+        Resolved from the subjects themselves rather than a name a suite denormalized, so a subject
+        renamed since still matches its own denial. A suite records only its subject's id, not a
+        name, so one that no longer resolves cannot be judged by the name it ran under here.
         """
         denied = self._denied_subject_names()
-        checks = DataQualityCheck.objects.for_team(self.team_id).values_list(
-            "subject_type", "saved_query_id", "table_id", "subject_name"
-        )
-        stamped = {
-            api.subject_identity(subject_type, saved_query_id or table_id): name
-            for subject_type, saved_query_id, table_id, name in checks
-            if saved_query_id or table_id
-        }
-        # A hard-deleted check leaves its runs behind with the FK nulled, so its subject would drop
-        # out of the set above while its suites still report on it.
-        stamped |= {
-            api.subject_identity(subject_type, subject_uuid): name
-            for subject_type, subject_uuid, name in DataQualityCheckRun.objects.for_team(self.team_id)
-            .filter(quality_check__isnull=True)
-            .values_list("subject_type", "subject_uuid", "subject_name")
+        identities = {
+            api.subject_identity(subject_type, subject_uuid)
+            for subject_type, subject_uuid in DataQualitySuiteRun.objects.for_team(self.team_id)
+            .values_list("subject_type", "subject_uuid")
             .distinct()
+            if subject_uuid is not None
         }
-        current_names = api.resolve_subject_names(self.team_id, stamped.keys())
+        current_names = api.resolve_subject_names(self.team_id, identities)
         return {
             UUID(identity.subject_uuid)
-            for identity, name in stamped.items()
-            if api.is_subject_denied(current_names.get(identity, name), denied)
+            for identity in identities
+            if (name := current_names.get(identity)) is not None and api.is_subject_denied(name, denied)
         }
 
     @extend_schema(

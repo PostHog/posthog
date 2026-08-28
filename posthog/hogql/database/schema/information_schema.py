@@ -19,8 +19,6 @@ import hashlib
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
-from django.db.models import Q
-
 import structlog
 
 from posthog.hogql import ast
@@ -1172,37 +1170,22 @@ def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[st
 
 
 def _without_denied_runs(team_id: int, runs: Any, denied: set[str]) -> Any:
-    """Exclude, in SQL, every run that read a subject the caller is denied.
+    """Exclude, in SQL, every run that touched a subject the caller is denied.
 
-    A run is judged on the identities it pinned as it executed, by the same rule the REST routes
-    apply, so the two surfaces cannot come to different answers about the same run. Editing a check
-    therefore cannot rewrite what its history discloses, and deleting a subject cannot free its name
-    for something else to answer for it. A referencing run that pinned nothing predates the
-    recording and is withheld rather than assumed harmless.
+    A run is judged on the subjects it stamped as it executed -- its own declared one and each it
+    read -- by the same rule the REST routes apply, so the two surfaces cannot come to different
+    answers about the same run. Editing a check therefore cannot rewrite what its history discloses,
+    and deleting a subject cannot free its name for something else to answer for it. A run stamped
+    before this gate existed is withheld rather than assumed harmless.
 
-    Both halves resolve identities rather than aggregating over what each run recorded, so the cost
-    tracks the number of subjects the project has rather than the length of its retained history --
-    which matters here, because this runs before the window that bounds the rows served.
+    The gate probes the stamp rows by run id and lists the denied ones with one index-only DISTINCT
+    over stamp entries, rather than aggregating over the run table, so the cost tracks the subjects
+    the project has and the candidate runs the window examines -- not the length of retained history,
+    which matters here because this runs before the window that bounds the rows served.
     """
     from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
 
-    subjects = set(runs.values_list("subject_type", "subject_uuid", "subject_name").distinct())
-    current_names = data_quality.resolve_subject_names(
-        team_id,
-        [data_quality.subject_identity(subject_type, subject_uuid) for subject_type, subject_uuid, _ in subjects],
-    )
-    blocked_subjects = [
-        subject_uuid
-        for subject_type, subject_uuid, stamped in subjects
-        if _references_denied_table(
-            [current_names.get(data_quality.subject_identity(subject_type, subject_uuid), stamped)], denied
-        )
-    ]
-    if blocked_subjects:
-        runs = runs.exclude(subject_uuid__in=blocked_subjects)
-
-    runs = runs.exclude(data_quality.unreadable_runs_q(team_id, denied))
-    return runs
+    return runs.exclude(data_quality.unreadable_runs_q(team_id, denied))
 
 
 def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
