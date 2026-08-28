@@ -13,6 +13,19 @@ REQUIRED_INDEXES = (
 PREFLIGHT_PRIMARY = "SELECT pg_is_in_recovery(), current_database()"
 PREFLIGHT_INDEXES = "SELECT indexname FROM pg_indexes WHERE tablename = %(table)s"
 PREFLIGHT_REPLICATION_SLOTS = "SELECT slot_name, active FROM pg_replication_slots"
+# Without pg_read_all_stats, pg_stat_activity hides other sessions' wait events and the
+# blocked-propdefs pause signal silently reads zero.
+PREFLIGHT_ACTIVITY_VISIBILITY = """
+SELECT pg_has_role(current_user, 'pg_read_all_stats', 'member')
+       OR (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
+"""
+
+# Mode 2c. Cheap mid-unit re-check: has any event for the tenant been seen inside the window?
+DORMANT_RECHECK = """
+SELECT max(last_seen_at) >= now() - make_interval(days => %(days)s)
+FROM posthog_eventdefinition
+WHERE team_id = %(team_id)s
+"""
 
 TEAM_ORG_STATE = """
 SELECT t.id AS team_id,
@@ -25,9 +38,17 @@ WHERE t.id = ANY(%(team_ids)s)
 ORDER BY o.has_active_subscription NULLS FIRST, t.id
 """
 
-# Mode 2a. Teams that own at least one non-event property definition. Index-only on
-# posthog_pro_team_id_eac36d_idx (team_id, type, is_numerical).
-POLLUTION_TEAM_UNIVERSE = "SELECT DISTINCT team_id FROM posthog_propertydefinition WHERE type <> 1"
+MAX_TEAM_ID = "SELECT coalesce(max(id), 0) FROM posthog_team"
+
+# Mode 2a. Teams in a team_id range that own at least one non-event property definition. A bounded
+# range scan on posthog_pro_team_id_eac36d_idx (team_id, type, is_numerical), so discovery never
+# issues one statement over the whole table.
+POLLUTION_TEAM_UNIVERSE = """
+SELECT DISTINCT team_id
+FROM posthog_propertydefinition
+WHERE team_id > %(lo)s AND team_id <= %(hi)s AND type <> 1
+ORDER BY team_id
+"""
 
 # Mode 2a. Property names that exist only as non-event definitions in the project. Nested Loop
 # Anti Join on posthog_pro_project_3583d2_idx and posthog_propdef_proj_uniq.
@@ -63,12 +84,14 @@ WHERE ctid = ANY(ARRAY(
         AND e.type = 1)
 """
 
-# Mode 2b. Teams that own at least one stale event definition. One scan of posthog_eventdefinition
-# instead of one query per team.
+# Mode 2b. Teams in a team_id range that own at least one stale event definition. Bounded range scan
+# on posthog_eventdefinition_team_id_818ed0f2.
 RETENTION_TEAM_UNIVERSE = """
 SELECT DISTINCT team_id
 FROM posthog_eventdefinition
-WHERE last_seen_at IS NOT NULL AND last_seen_at < now() - make_interval(days => %(days)s)
+WHERE team_id > %(lo)s AND team_id <= %(hi)s
+  AND last_seen_at IS NOT NULL AND last_seen_at < now() - make_interval(days => %(days)s)
+ORDER BY team_id
 """
 
 # Mode 2b. Event names not seen for N days. NULL last_seen_at is unknown and never eligible.

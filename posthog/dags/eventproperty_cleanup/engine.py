@@ -4,7 +4,6 @@ import time
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from django.conf import settings
 from django.db import connection, transaction
 from django.db.utils import DatabaseError
 
@@ -65,6 +64,10 @@ class DeleteBackend(Protocol):
 class DjangoPostgresBackend:
     """Runs against the Django default connection (the cloud primary in Dagster)."""
 
+    def __init__(self, *, backend_waits_visible: bool = True) -> None:
+        # False when the role cannot read other sessions' wait events; the probe then reports 0.
+        self.backend_waits_visible = backend_waits_visible
+
     def delete_batch(self, statement: str, params: dict[str, Any], lock_timeout: str, statement_timeout: str) -> int:
         with transaction.atomic(), connection.cursor() as cursor:
             cursor.execute("SET LOCAL lock_timeout = %s", (lock_timeout,))
@@ -77,21 +80,22 @@ class DjangoPostgresBackend:
             cursor.execute(sql.HEALTH_TABLE_STATS)
             row = cursor.fetchone()
             live, dead = (row[0], row[1]) if row else (0, 0)
-            cursor.execute(sql.HEALTH_BLOCKED_PROPDEFS)
-            blocked = int(cursor.fetchone()[0])
+            blocked = 0
+            if self.backend_waits_visible:
+                cursor.execute(sql.HEALTH_BLOCKED_PROPDEFS)
+                blocked = int(cursor.fetchone()[0])
         ratio = float(dead) / float(live) if live else 0.0
         return HealthProbe(dead_tuple_ratio=ratio, blocked_propdefs_backends=blocked)
 
     def vacuum(self, cost_delay_ms: int, cost_limit: int) -> list[str]:
-        # VACUUM cannot run inside a transaction, so it needs its own autocommit connection.
-        db = settings.DATABASES["default"]
-        conn = psycopg2.connect(
-            host=db["HOST"],
-            port=int(db["PORT"] or 5432),
-            dbname=db["NAME"],
-            user=db["USER"],
-            password=db["PASSWORD"],
-        )
+        # VACUUM cannot run inside a transaction, so it needs its own autocommit connection built
+        # from the same parameters Django uses (host, sslmode, ...).
+        params = {
+            k: v
+            for k, v in connection.get_connection_params().items()
+            if k not in ("cursor_factory", "context", "prepare_threshold", "server_side_binding")
+        }
+        conn = psycopg2.connect(**params)
         try:
             conn.autocommit = True
             with conn.cursor() as cursor:
@@ -156,7 +160,8 @@ class DeleteEngine:
         self._last_probe_at: float | None = None
         self._last_probe: HealthProbe | None = None
 
-    def run_unit(self, unit: WorkUnit) -> UnitResult:
+    def run_unit(self, unit: WorkUnit, revalidate: Callable[[], bool] | None = None) -> UnitResult:
+        """Delete one unit. `revalidate` is called every `revalidate_every_batches`; False stops the unit."""
         started = self.clock()
         statement, params = delete_statement(unit, self.config.batch_size, self.config.retention_days)
         rows_deleted = batches = pauses = vacuums = rows_since_vacuum = 0
@@ -168,6 +173,11 @@ class DeleteEngine:
             stopped_reason = self._limit_reached()
             if stopped_reason:
                 break
+            if revalidate is not None and batches and batches % self.config.revalidate_every_batches == 0:
+                if not revalidate():
+                    stopped_reason = "revalidation_failed"
+                    self._count("eventproperty_cleanup_revalidation_stops")
+                    break
             pauses += self._pause_while_unhealthy(force_pause)
             force_pause = False
             try:

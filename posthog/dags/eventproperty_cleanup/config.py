@@ -14,6 +14,13 @@ class EventPropertyCleanupConfig(dagster.Config):
         default=True,
         description="Fail preflight unless the Django default connection is a writable primary.",
     )
+    require_discovery_replica: bool = Field(
+        default=False,
+        description=(
+            "Fail preflight when no read replica connection is configured. When false, discovery and "
+            "scoring read the primary with a warning. Deletes always run on the primary."
+        ),
+    )
     require_no_replication_slots: bool = Field(
         default=True,
         description=(
@@ -35,6 +42,12 @@ class EventPropertyCleanupConfig(dagster.Config):
     )
 
     # Pacing
+    discovery_team_chunk: int = Field(
+        default=5_000,
+        gt=0,
+        description="Team ids per discovery statement. Discovery walks team_id ranges instead of scanning whole tables.",
+    )
+    discovery_sleep_seconds: float = Field(default=0.2, ge=0, description="Sleep between discovery statements.")
     batch_size: int = Field(default=30_000, gt=0, description="Rows per DELETE statement.")
     sleep_seconds: float = Field(default=0.5, ge=0, description="Sleep between batches.")
     lock_timeout: str = Field(default="2s", description="Postgres lock_timeout per DELETE.")
@@ -49,6 +62,18 @@ class EventPropertyCleanupConfig(dagster.Config):
     )
     pause_seconds: float = Field(default=30.0, ge=0, description="Sleep per pause before re-probing health.")
     health_probe_interval_seconds: float = Field(default=10.0, ge=0, description="Minimum time between health probes.")
+    require_activity_visibility: bool = Field(
+        default=False,
+        description=(
+            "Fail preflight when the database role cannot see other sessions' wait events "
+            "(pg_read_all_stats). When false the blocked-propdefs pause signal is disabled with a warning."
+        ),
+    )
+    revalidate_every_batches: int = Field(
+        default=50,
+        gt=0,
+        description="Re-check a unit's eligibility every N batches and stop the unit if it no longer qualifies.",
+    )
 
     # Vacuum
     vacuum: bool = Field(default=True, description="Run explicit VACUUM (INDEX_CLEANUP ON) during the run.")
@@ -88,7 +113,15 @@ class EventPropertyCleanupConfig(dagster.Config):
         description="Score the largest tenants for dormancy and report the scorecard.",
     )
     dormant_days: int = Field(default=180, gt=0, description="Every dormancy signal must be older than this.")
-    dormant_top_n: int = Field(default=25, gt=0, description="Score at most this many tenants, largest first.")
+    dormant_top_n: int = Field(
+        default=25,
+        gt=0,
+        le=100,
+        description=(
+            "Score at most this many tenants, largest first. Candidates come from the planner's "
+            "most-common-values list for team_id, which holds at most 100 entries."
+        ),
+    )
     dormant_approved_team_ids: list[int] = Field(
         default_factory=list,
         description="Dormant tenants to delete. A team is deleted only if it is in this list AND passes every signal now.",

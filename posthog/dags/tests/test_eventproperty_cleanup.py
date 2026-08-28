@@ -12,7 +12,13 @@ from parameterized import parameterized
 
 from posthog.dags.eventproperty_cleanup import ops
 from posthog.dags.eventproperty_cleanup.config import EventPropertyCleanupConfig
-from posthog.dags.eventproperty_cleanup.dormancy import PROBE_UNAVAILABLE, DormancySignals, TenantEstimate, evaluate
+from posthog.dags.eventproperty_cleanup.dormancy import (
+    PROBE_UNAVAILABLE,
+    DormancySignals,
+    TenantEstimate,
+    evaluate,
+    still_dormant,
+)
 from posthog.dags.eventproperty_cleanup.engine import (
     MAX_RETRY_ATTEMPTS,
     DeleteEngine,
@@ -20,7 +26,12 @@ from posthog.dags.eventproperty_cleanup.engine import (
     HealthProbe,
     delete_statement,
 )
-from posthog.dags.eventproperty_cleanup.units import WorkUnit, discover_pollution_units, discover_retention_units
+from posthog.dags.eventproperty_cleanup.units import (
+    WorkUnit,
+    discover_pollution_units,
+    discover_retention_units,
+    iter_team_chunks,
+)
 from posthog.models import EventDefinition, EventProperty, Organization, PropertyDefinition, Team
 
 NOW = datetime(2026, 8, 27, tzinfo=UTC)
@@ -146,6 +157,39 @@ class TestDeleteEngine:
 
         with pytest.raises(DatabaseError):
             engine.run_unit(POLLUTION_UNIT)
+
+    def test_failed_revalidation_stops_the_unit(self):
+        backend = FakeBackend([100, 100, 100, 100, 7])
+        engine, _ = make_engine(backend, revalidate_every_batches=2)
+        answers = iter([True, False])
+
+        result = engine.run_unit(POLLUTION_UNIT, revalidate=lambda: next(answers))
+
+        assert result.stopped_reason == "revalidation_failed"
+        assert result.batches == 4
+        assert len(backend.batches) == 1
+
+
+class TestTeamChunking:
+    def test_walks_team_id_ranges_without_a_whole_table_statement(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (12,)
+        cursor.fetchall.side_effect = [[(3,), (4,)], [], [(11,)]]
+        config = EventPropertyCleanupConfig(discovery_team_chunk=5, discovery_sleep_seconds=0)
+
+        chunks = list(iter_team_chunks(cursor, config, "UNIVERSE", {"days": 7}, sleep=lambda _: None))
+
+        ranges = [c.kwargs or c.args[1] for c in cursor.execute.call_args_list[1:]]
+        assert [(r["lo"], r["hi"]) for r in ranges] == [(0, 5), (5, 10), (10, 12)]
+        assert all(r["days"] == 7 for r in ranges)
+        assert chunks == [[3, 4], [11]]
+
+    def test_explicit_team_ids_skip_the_range_walk(self):
+        cursor = MagicMock()
+        config = EventPropertyCleanupConfig(team_ids=[9, 2])
+
+        assert list(iter_team_chunks(cursor, config, "UNIVERSE", {})) == [[2, 9]]
+        cursor.execute.assert_not_called()
 
 
 class TestDeleteStatement:
@@ -323,6 +367,22 @@ class TestPredicatesAgainstPostgres:
         with connection.cursor() as cursor:
             assert list(discover_pollution_units(cursor, config)) == []
 
+    @parameterized.expand(
+        [
+            ("stale_and_quiet", 400, 0, True),
+            ("recent_event_definition", 10, 0, False),
+            ("recent_clickhouse_events", 400, 5, False),
+            ("clickhouse_unavailable", 400, None, False),
+        ]
+    )
+    def test_still_dormant_recheck(self, _name: str, age_days: int, recent_events: int | None, expected: bool):
+        EventDefinition.objects.create(
+            team=self.team, project_id=self.project_id, name="e", last_seen_at=NOW - timedelta(days=age_days)
+        )
+
+        with connection.cursor() as cursor:
+            assert still_dormant(cursor, self.team.id, 180, lambda *_: recent_events) is expected
+
 
 def replace_config(config: EventPropertyCleanupConfig, **overrides: Any) -> EventPropertyCleanupConfig:
     return EventPropertyCleanupConfig(**{**config.model_dump(), **overrides})
@@ -330,21 +390,37 @@ def replace_config(config: EventPropertyCleanupConfig, **overrides: Any) -> Even
 
 @pytest.mark.django_db(transaction=True)
 class TestJobWiring:
-    def test_default_config_is_a_dry_run_that_deletes_nothing(self):
+    def seed_team(self) -> Team:
         org = Organization.objects.create(name="eventproperty-cleanup-job")
         team = Team.objects.create(organization=org, name="eventproperty-cleanup-job")
         PropertyDefinition.objects.create(
             team=team, project_id=team.project_id, name="$initial_os", type=PropertyDefinition.Type.PERSON
         )
         EventProperty.objects.create(team=team, project_id=team.project_id, event="$pageview", property="$initial_os")
+        return team
 
+    def run_job(self, **config: Any) -> dict[str, int]:
         result = ops.eventproperty_cleanup_job.execute_in_process(
-            run_config={"team_ids": [team.id], "skip_paying_orgs": False},
+            run_config={"skip_paying_orgs": False, **config},
             resources={"cluster": MagicMock(), "persons_database_reader": MagicMock()},
         )
-
         assert result.success
+        return result.output_for_node("collect_and_vacuum_op")
+
+    def test_default_config_is_a_dry_run_that_deletes_nothing(self):
+        team = self.seed_team()
+
+        summary = self.run_job(team_ids=[team.id])
+
         assert EventProperty.objects.filter(team=team).count() == 1
-        summary = result.output_for_node("collect_and_vacuum_op")
         assert summary["units"] == 1
         assert summary["rows_deleted"] == 0
+
+    def test_live_run_deletes_through_the_sequential_ops(self):
+        team = self.seed_team()
+
+        summary = self.run_job(team_ids=[team.id], dry_run=False, vacuum=False)
+
+        assert EventProperty.objects.filter(team=team).count() == 0
+        assert summary["rows_deleted"] == 1
+        assert summary["vacuums"] == 0

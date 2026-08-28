@@ -267,6 +267,9 @@ Modes, all gated by config in `posthog/dags/eventproperty_cleanup/config.py`:
 - `dormant_discovery_enabled` (default off): scores the largest tenants on cloud DB, persons DB and ClickHouse signals and reports a scorecard. Rows are deleted only for teams that are both eligible now and listed in `dormant_approved_team_ids`.
 
 Every unit re-checks its predicate inside the `DELETE`, so a failed run is resumed by launching the same config again.
+The job runs as five sequential ops in one pod at a time; nothing is parallelized because the table lives on the shared cloud primary.
+Discovery and scoring read the Django `replica` connection when Dagster has one configured (`POSTHOG_POSTGRES_READ_HOST`), else the primary with a warning. Discovery walks `team_id` ranges (`discovery_team_chunk`) so no statement scans a whole table.
+Before the first non-dry run on US, check `pg_replication_slots` on the primary: preflight refuses to run while a slot exists.
 
 ## Additional Resources
 

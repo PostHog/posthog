@@ -1,13 +1,16 @@
 """Dagster ops and job for the posthog_eventproperty cleanup crawler.
 
-Manual-only: no schedule, no sensor, dry run by default. Launch from the Dagster launchpad.
+Manual-only: no schedule, no sensor, dry run by default. Five sequential ops, one pod each: nothing runs
+in parallel because the table lives on the shared cloud primary and every unit is resumable by relaunch.
+Discovery and scoring read the replica when one is configured; only deletes touch the primary.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 
 from django.conf import settings
-from django.db import connection
+from django.db import connection, connections
+from django.db.backends.base.base import BaseDatabaseWrapper
 
 import dagster
 import psycopg2
@@ -21,17 +24,23 @@ from posthog.dataclasses import frozen
 from . import sql
 from .config import EventPropertyCleanupConfig
 from .dormancy import (
+    ClickHouseProbe,
     DormancyVerdict,
+    PersonsProbe,
     clickhouse_probe_for,
     dormant_unit,
     evaluate,
     persons_probe_for,
     score_team,
     scorecard_csv,
+    still_dormant,
     top_teams,
 )
 from .engine import DeleteEngine, DjangoPostgresBackend, UnitResult
 from .units import WorkUnit, discover_pollution_units, discover_retention_units
+
+REPLICA_ALIAS = "replica"
+UNIT_LOG_LIMIT = 200
 
 
 @frozen
@@ -40,11 +49,50 @@ class PreflightReport:
     is_primary: bool
     indexes: tuple[str, ...]
     replication_slots: tuple[str, ...]
+    backend_waits_visible: bool
+    discovery_on_replica: bool
     vacuumed: bool
+
+
+@frozen
+class ModeResult:
+    mode: str
+    units: int
+    teams: int
+    estimated_rows: int
+    rows_deleted: int
+    batches: int
+    pauses: int
+    vacuums: int
+    # Rows deleted after the last VACUUM, so the collect step knows whether one more is due.
+    rows_since_vacuum: int
+    stopped_units: int
+    stopped_reason: str | None
 
 
 def _region() -> str:
     return str(getattr(settings, "CLOUD_DEPLOYMENT", None) or "local")
+
+
+def discovery_connection() -> BaseDatabaseWrapper:
+    """The replica when Dagster has one configured, else the primary."""
+    return connections[REPLICA_ALIAS] if REPLICA_ALIAS in connections.databases else connection
+
+
+def _skipped(mode: str) -> ModeResult:
+    return ModeResult(
+        mode=mode,
+        units=0,
+        teams=0,
+        estimated_rows=0,
+        rows_deleted=0,
+        batches=0,
+        pauses=0,
+        vacuums=0,
+        rows_since_vacuum=0,
+        stopped_units=0,
+        stopped_reason="disabled",
+    )
 
 
 @dagster.op
@@ -56,6 +104,8 @@ def preflight_op(context: dagster.OpExecutionContext, config: EventPropertyClean
         indexes = tuple(sorted(row[0] for row in cursor.fetchall()))
         cursor.execute(sql.PREFLIGHT_REPLICATION_SLOTS)
         slots = tuple(f"{row[0]}(active={row[1]})" for row in cursor.fetchall())
+        cursor.execute(sql.PREFLIGHT_ACTIVITY_VISIBILITY)
+        backend_waits_visible = bool(cursor.fetchone()[0])
 
     if config.require_primary and in_recovery:
         raise dagster.Failure(f"{database} is a replica; the cleanup needs the primary")
@@ -66,6 +116,21 @@ def preflight_op(context: dagster.OpExecutionContext, config: EventPropertyClean
         raise dagster.Failure(
             f"replication slots exist: {slots}. A logical slot would retain every byte of WAL this job writes."
         )
+    if not backend_waits_visible:
+        message = (
+            "role cannot read other sessions' wait events (needs pg_read_all_stats); "
+            "the blocked-propdefs pause signal is disabled"
+        )
+        if config.require_activity_visibility:
+            raise dagster.Failure(message)
+        context.log.warning(message)
+
+    discovery_on_replica = REPLICA_ALIAS in connections.databases
+    if not discovery_on_replica:
+        message = "no replica connection configured; discovery and scoring will read the primary"
+        if config.require_discovery_replica:
+            raise dagster.Failure(message)
+        context.log.warning(message)
 
     vacuumed = False
     if config.vacuum_on_start and config.vacuum and not config.dry_run:
@@ -78,6 +143,8 @@ def preflight_op(context: dagster.OpExecutionContext, config: EventPropertyClean
         is_primary=not in_recovery,
         indexes=indexes,
         replication_slots=slots,
+        backend_waits_visible=backend_waits_visible,
+        discovery_on_replica=discovery_on_replica,
         vacuumed=vacuumed,
     )
     context.add_output_metadata(
@@ -86,63 +153,127 @@ def preflight_op(context: dagster.OpExecutionContext, config: EventPropertyClean
             "is_primary": not in_recovery,
             "indexes": ", ".join(indexes),
             "replication_slots": ", ".join(slots) or "none",
+            "backend_waits_visible": backend_waits_visible,
+            "discovery_on_replica": discovery_on_replica,
             "dry_run": config.dry_run,
         }
     )
     return report
 
 
-def _emit_units(
-    context: dagster.OpExecutionContext, units: list[WorkUnit], output_name: str = "result"
-) -> Iterator[dagster.DynamicOutput]:
-    # Dynamic outputs cannot carry op-level metadata, so the summary goes to the log and each
-    # output carries its own estimate.
-    context.log.info(
-        "%d units over %d teams, ~%s rows estimated",
-        len(units),
-        len({u.team_id for u in units}),
-        f"{sum(u.est_rows for u in units):,}",
+def run_units(
+    context: dagster.OpExecutionContext,
+    config: EventPropertyCleanupConfig,
+    preflight: PreflightReport,
+    mode: str,
+    units: Iterator[WorkUnit],
+    cluster: ClickhouseCluster,
+    revalidator: Callable[[WorkUnit], Callable[[], bool]] | None = None,
+) -> ModeResult:
+    """Stream units through one engine, deleting as they are discovered. Dry runs only estimate."""
+    engine = DeleteEngine(
+        config,
+        DjangoPostgresBackend(backend_waits_visible=preflight.backend_waits_visible),
+        metrics=None if config.dry_run else MetricsClient(cluster),
+        metric_labels={"mode": mode, "region": _region()},
     )
-    for unit in units[:50]:
-        context.log.info("unit %s ~%s rows (%s)", unit.label, f"{unit.est_rows:,}", unit.reason)
-    for index, unit in enumerate(units):
-        yield dagster.DynamicOutput(
-            unit,
-            mapping_key=f"{unit.mode}_{index}",
-            output_name=output_name,
-            metadata={"label": unit.label, "estimated_rows": unit.est_rows, "reason": unit.reason},
-        )
+    results: list[UnitResult] = []
+    teams: set[int] = set()
+    estimated = 0
+    seen = 0
+    stopped_reason: str | None = None
+    for unit in units:
+        if unit.team_id in config.never_delete_team_ids:
+            continue
+        seen += 1
+        teams.add(unit.team_id)
+        estimated += unit.est_rows
+        if seen <= UNIT_LOG_LIMIT:
+            context.log.info("unit %s ~%s rows (%s)", unit.label, f"{unit.est_rows:,}", unit.reason)
+        if config.dry_run:
+            continue
+        try:
+            result = engine.run_unit(unit, revalidator(unit) if revalidator else None)
+        except Exception as exc:
+            raise dagster.Failure(
+                f"{unit.label} failed: {exc}",
+                metadata={
+                    "mode": mode,
+                    "team_id": unit.team_id,
+                    "key": str(unit.key),
+                    "rows_deleted_so_far": engine.rows_deleted_total,
+                },
+            ) from exc
+        results.append(result)
+        if result.stopped_reason in ("max_rows", "max_runtime"):
+            stopped_reason = result.stopped_reason
+            context.log.warning("stopping %s mode: %s", mode, stopped_reason)
+            break
+
+    mode_result = ModeResult(
+        mode=mode,
+        units=seen,
+        teams=len(teams),
+        estimated_rows=estimated,
+        rows_deleted=sum(r.rows_deleted for r in results),
+        batches=sum(r.batches for r in results),
+        pauses=sum(r.pauses for r in results),
+        vacuums=engine.vacuums,
+        rows_since_vacuum=engine.rows_since_vacuum,
+        stopped_units=sum(1 for r in results if r.stopped_reason),
+        stopped_reason=stopped_reason or ("dry_run" if config.dry_run else None),
+    )
+    context.add_output_metadata(
+        {
+            "mode": mode,
+            "units": mode_result.units,
+            "teams": mode_result.teams,
+            "estimated_rows": mode_result.estimated_rows,
+            "rows_deleted": mode_result.rows_deleted,
+            "batches": mode_result.batches,
+            "pauses": mode_result.pauses,
+            "vacuums": mode_result.vacuums,
+            "stopped_units": mode_result.stopped_units,
+            "stopped_reason": mode_result.stopped_reason or "none",
+        }
+    )
+    return mode_result
 
 
-@dagster.op(out=dagster.DynamicOut(WorkUnit))
-def discover_pollution_op(
-    context: dagster.OpExecutionContext, config: EventPropertyCleanupConfig, preflight: PreflightReport
-) -> Iterator[dagster.DynamicOutput]:
+@dagster.op
+def run_pollution_op(
+    context: dagster.OpExecutionContext,
+    config: EventPropertyCleanupConfig,
+    preflight: PreflightReport,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> ModeResult:
     if not config.pollution_enabled:
         context.log.info("pollution mode disabled")
-        return
-    with connection.cursor() as cursor:
-        units = list(discover_pollution_units(cursor, config))
-    yield from _emit_units(context, units)
+        return _skipped("pollution")
+    with discovery_connection().cursor() as cursor:
+        return run_units(context, config, preflight, "pollution", discover_pollution_units(cursor, config), cluster)
 
 
-@dagster.op(out=dagster.DynamicOut(WorkUnit))
-def discover_retention_op(
-    context: dagster.OpExecutionContext, config: EventPropertyCleanupConfig, preflight: PreflightReport
-) -> Iterator[dagster.DynamicOutput]:
+@dagster.op
+def run_retention_op(
+    context: dagster.OpExecutionContext,
+    config: EventPropertyCleanupConfig,
+    preflight: PreflightReport,
+    previous: ModeResult,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> ModeResult:
     if config.retention_days is None:
         context.log.info("retention mode disabled (retention_days is None)")
-        return
-    with connection.cursor() as cursor:
-        units = list(discover_retention_units(cursor, config))
-    yield from _emit_units(context, units)
+        return _skipped("retention")
+    with discovery_connection().cursor() as cursor:
+        return run_units(context, config, preflight, "retention", discover_retention_units(cursor, config), cluster)
 
 
 def score_dormant_teams(
     cursor,
     config: EventPropertyCleanupConfig,
-    persons_probe,
-    clickhouse_probe,
+    persons_probe: PersonsProbe,
+    clickhouse_probe: ClickHouseProbe,
     now: datetime,
 ) -> tuple[list[DormancyVerdict], list[WorkUnit]]:
     """Score the largest tenants; return every verdict and the delete units for approved eligible teams."""
@@ -159,138 +290,96 @@ def score_dormant_teams(
     return verdicts, units
 
 
-@dagster.op(out={"scorecard": dagster.Out(str), "units": dagster.DynamicOut(WorkUnit)})
-def score_dormant_teams_op(
+@dagster.op(out={"scorecard": dagster.Out(str), "result": dagster.Out(ModeResult)})
+def run_dormant_op(
     context: dagster.OpExecutionContext,
     config: EventPropertyCleanupConfig,
     preflight: PreflightReport,
+    previous: ModeResult,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     persons_database_reader: dagster.ResourceParam[psycopg2.extensions.connection],
-) -> Iterator[dagster.Output | dagster.DynamicOutput]:
+) -> Iterator[dagster.Output]:
     if not config.dormant_discovery_enabled:
         context.log.info("dormant-tenant discovery disabled")
         yield dagster.Output("", output_name="scorecard", metadata={"scored": 0})
+        yield dagster.Output(_skipped("dormant"), output_name="result")
         return
-    with connection.cursor() as cursor:
+
+    clickhouse_probe = clickhouse_probe_for(cluster)
+    with discovery_connection().cursor() as cursor:
         verdicts, units = score_dormant_teams(
             cursor,
             config,
             persons_probe_for(persons_database_reader, config.dormant_persons_probe_timeout),
-            clickhouse_probe_for(cluster),
+            clickhouse_probe,
             datetime.now(UTC),
         )
     csv_text = scorecard_csv(verdicts)
     context.log.info("dormancy scorecard\n%s", csv_text)
     eligible = [v.signals.team_id for v in verdicts if v.eligible]
-    unapproved = [t for t in eligible if t not in config.dormant_approved_team_ids]
     yield dagster.Output(
         csv_text,
         output_name="scorecard",
         metadata={
             "scored": len(verdicts),
             "eligible_team_ids": str(eligible),
-            "eligible_but_not_approved": str(unapproved),
+            "eligible_but_not_approved": str([t for t in eligible if t not in config.dormant_approved_team_ids]),
             "approved_and_deleting": str([u.team_id for u in units]),
             "scorecard_csv": dagster.MetadataValue.md(f"```\n{csv_text}\n```"),
         },
     )
-    yield from _emit_units(context, units, output_name="units")
 
+    def revalidator(unit: WorkUnit) -> Callable[[], bool]:
+        def check() -> bool:
+            with discovery_connection().cursor() as cursor:
+                ok = still_dormant(cursor, unit.team_id, config.dormant_days, clickhouse_probe)
+            if not ok:
+                context.log.warning("team %s is no longer dormant; stopping its unit", unit.team_id)
+            return ok
 
-@dagster.op
-def delete_unit_op(
-    context: dagster.OpExecutionContext,
-    config: EventPropertyCleanupConfig,
-    unit: WorkUnit,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-) -> UnitResult:
-    if unit.team_id in config.never_delete_team_ids:
-        raise dagster.Failure(f"{unit.label} is on never_delete_team_ids")
-    if config.dry_run:
-        context.log.info("dry run: would delete ~%s rows for %s", unit.est_rows, unit.label)
-        return UnitResult(
-            mode=unit.mode,
-            team_id=unit.team_id,
-            label=unit.label,
-            est_rows=unit.est_rows,
-            rows_deleted=0,
-            batches=0,
-            pauses=0,
-            vacuums=0,
-            seconds=0.0,
-            rows_since_vacuum=0,
-            stopped_reason="dry_run",
-        )
-    engine = DeleteEngine(
-        config,
-        DjangoPostgresBackend(),
-        metrics=MetricsClient(cluster),
-        metric_labels={"mode": unit.mode, "region": _region()},
+        return check
+
+    yield dagster.Output(
+        run_units(context, config, preflight, "dormant", iter(units), cluster, revalidator),
+        output_name="result",
     )
-    try:
-        result = engine.run_unit(unit)
-    except Exception as exc:
-        raise dagster.Failure(
-            f"{unit.label} failed: {exc}",
-            metadata={
-                "mode": unit.mode,
-                "team_id": unit.team_id,
-                "key": str(unit.key),
-                "rows_deleted_so_far": engine.rows_deleted_total,
-            },
-        ) from exc
-    context.add_output_metadata(
-        {
-            "label": result.label,
-            "rows_deleted": result.rows_deleted,
-            "estimated_rows": result.est_rows,
-            "batches": result.batches,
-            "pauses": result.pauses,
-            "vacuums": result.vacuums,
-            "seconds": round(result.seconds, 1),
-            "stopped_reason": result.stopped_reason or "exhausted",
-        }
-    )
-    return result
 
 
 @dagster.op
 def collect_and_vacuum_op(
     context: dagster.OpExecutionContext,
     config: EventPropertyCleanupConfig,
-    pollution: list[UnitResult],
-    retention: list[UnitResult],
-    dormant: list[UnitResult],
+    pollution: ModeResult,
+    retention: ModeResult,
+    dormant: ModeResult,
 ) -> dict[str, int]:
-    results = [*pollution, *retention, *dormant]
-    rows_deleted = sum(r.rows_deleted for r in results)
+    results = [pollution, retention, dormant]
     rows_since_vacuum = sum(r.rows_since_vacuum for r in results)
+    final_vacuums = 0
     if config.vacuum and not config.dry_run and rows_since_vacuum > 0:
         notices = DjangoPostgresBackend().vacuum(config.vacuum_cost_delay_ms, config.vacuum_cost_limit)
         context.log.info("final vacuum: %s", notices[-12:])
+        final_vacuums = 1
     summary = {
-        "units": len(results),
-        "rows_deleted": rows_deleted,
-        "estimated_rows": sum(r.est_rows for r in results),
+        "units": sum(r.units for r in results),
+        "rows_deleted": sum(r.rows_deleted for r in results),
+        "estimated_rows": sum(r.estimated_rows for r in results),
         "pauses": sum(r.pauses for r in results),
-        "vacuums": sum(r.vacuums for r in results),
-        "stopped_early": sum(1 for r in results if r.stopped_reason not in (None, "dry_run")),
+        "vacuums": sum(r.vacuums for r in results) + final_vacuums,
+        "stopped_units": sum(r.stopped_units for r in results),
     }
     context.add_output_metadata({k: dagster.MetadataValue.int(v) for k, v in summary.items()})
     return summary
 
 
-# One DELETE stream per region: the table is on the shared cloud primary.
+# One pod at a time: the table is on the shared cloud primary and every unit is resumable by relaunch.
 executor_def = dagster.in_process_executor if settings.DEBUG else k8s_job_executor.configured({"max_concurrent": 1})
 
 OP_NAMES = (
     "preflight_op",
-    "discover_pollution_op",
-    "discover_retention_op",
-    "score_dormant_teams_op",
-    "delete_pollution_unit",
-    "delete_retention_unit",
-    "delete_dormant_unit",
+    "run_pollution_op",
+    "run_retention_op",
+    "run_dormant_op",
     "collect_and_vacuum_op",
 )
 
@@ -309,7 +398,7 @@ def fan_out_config(config: dict) -> dict:
 def eventproperty_cleanup_job():
     """Shrink posthog_eventproperty: pollution rows, stale-event rows and dormant tenants, paced and vacuumed."""
     preflight = preflight_op()
-    pollution = discover_pollution_op(preflight).map(delete_unit_op.alias("delete_pollution_unit"))
-    retention = discover_retention_op(preflight).map(delete_unit_op.alias("delete_retention_unit"))
-    dormant = score_dormant_teams_op(preflight).units.map(delete_unit_op.alias("delete_dormant_unit"))
-    collect_and_vacuum_op(pollution.collect(), retention.collect(), dormant.collect())
+    pollution = run_pollution_op(preflight)
+    retention = run_retention_op(preflight, pollution)
+    dormant = run_dormant_op(preflight, retention)
+    collect_and_vacuum_op(pollution, retention, dormant.result)
