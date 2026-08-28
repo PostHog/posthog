@@ -1,14 +1,15 @@
 import { LemonCheckbox, LemonDialog } from '@posthog/lemon-ui'
 
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+
+import { Experiment } from '~/types'
+
 import {
     hasEnded,
     isExperimentExposureFrozen,
     isExperimentPaused,
     isLaunched,
-} from 'scenes/experiments/experimentStatus'
-
-import { Experiment } from '~/types'
+} from 'products/experiments/frontend/experimentStatus'
 
 /** Whether an experiment is in a state where it can be archived (ignoring permissions). */
 export function canArchiveExperiment(
