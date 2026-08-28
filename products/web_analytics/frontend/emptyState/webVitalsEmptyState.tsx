@@ -37,17 +37,20 @@ export const webVitalsEmptyState: SceneProductEmptyState = {
                 lead: 'Web vitals arrive with your next page visits. Open your site in another tab and the first samples show up here on their own.',
             },
         },
+        // Autocapture is already on in `waiting-for-data`, so the opt-in only belongs on the setup screen.
         primaryAction: {
-            label: 'Enable web vitals autocapture',
-            onClick: () => {
-                teamLogic.findMounted()?.actions.updateCurrentTeam({ autocapture_web_vitals_opt_in: true })
+            'needs-setup': {
+                label: 'Enable web vitals autocapture',
+                onClick: () => {
+                    teamLogic.findMounted()?.actions.updateCurrentTeam({ autocapture_web_vitals_opt_in: true })
+                },
+                accessControl: {
+                    resourceType: AccessControlResourceType.WebAnalytics,
+                    minAccessLevel: AccessControlLevel.Editor,
+                },
+                // pinned: Playwright and autocapture dashboards select the old enable button by this attr
+                dataAttr: 'web-vitals-enable',
             },
-            accessControl: {
-                resourceType: AccessControlResourceType.WebAnalytics,
-                minAccessLevel: AccessControlLevel.Editor,
-            },
-            // pinned: Playwright and autocapture dashboards select the old enable button by this attr
-            dataAttr: 'web-vitals-enable',
         },
         docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
         previewLabel: 'Your vitals, once samples arrive',
