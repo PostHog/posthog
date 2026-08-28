@@ -90,7 +90,7 @@
     "fzf": "^0.5.2",
     "inversify": "catalog:",
     "lucide-react": "^1.7.0",
-    "posthog-js": "^1.422.0",
+    "posthog-js": "^1.422.2",
     "radix-themes-tw": "0.2.3",
     "react-hotkeys-hook": "^4.4.4",
     "react-markdown": "^10.1.0",
