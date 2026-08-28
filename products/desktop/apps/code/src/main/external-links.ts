@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isSafeExternalUrl } from "@posthog/shared";
 import { type BrowserWindow, type Session, shell } from "electron";
+import { decorateOutboundUrl } from "./session-stitching";
 import { logger } from "./utils/logger";
 
 const log = logger.scope("external-links");
@@ -36,7 +37,7 @@ function openExternalIfSafe(url: string): void {
   // openExternal rejects when the OS has no handler for the scheme (or the user
   // dismisses the confirmation prompt on some platforms). Swallow it so a failed
   // open never surfaces as an unhandled rejection in the main process.
-  shell.openExternal(url).catch((error) => {
+  shell.openExternal(decorateOutboundUrl(url)).catch((error) => {
     log.warn("shell.openExternal rejected", { scheme: urlScheme(url), error });
   });
 }

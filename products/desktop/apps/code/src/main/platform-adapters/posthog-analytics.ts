@@ -10,6 +10,10 @@ export class PosthogNodeAnalytics implements IAnalytics {
   private client: PostHog | null = null;
   private currentUserId: string | null = null;
   private sessionId: string | null = null;
+  // Kept separate from the boot-time sessionId above: the renderer's posthog-js
+  // session rotates on idle and logout, while the boot id stays fixed for the
+  // process lifetime and keeps seeding the renderer via preload argv.
+  private rendererSessionId: string | null = null;
 
   initialize(): void {
     if (this.client) {
@@ -46,6 +50,14 @@ export class PosthogNodeAnalytics implements IAnalytics {
     return this.sessionId;
   }
 
+  setRendererSessionId(sessionId: string | null): void {
+    this.rendererSessionId = sessionId;
+  }
+
+  getRendererSessionId(): string | null {
+    return this.rendererSessionId;
+  }
+
   track(eventName: string, properties?: AnalyticsProperties): void {
     if (!this.client) {
       return;
@@ -58,6 +70,12 @@ export class PosthogNodeAnalytics implements IAnalytics {
       event: eventName,
       properties: {
         team: "posthog-code",
+        // Joins main-process events into the same session as renderer and web
+        // events. Only set while cross-surface stitching is enabled, because
+        // the renderer pushes null otherwise.
+        ...(this.rendererSessionId
+          ? { $session_id: this.rendererSessionId }
+          : {}),
         ...properties,
         app_version: getAppVersion(),
         os_platform: process.platform,
@@ -93,10 +111,13 @@ export class PosthogNodeAnalytics implements IAnalytics {
     }
 
     const distinctId = this.currentUserId || "anonymous-app-event";
+    // Prefer the renderer's live session id: the boot id goes stale once the
+    // renderer's posthog-js session rotates on idle or reset.
+    const sessionId = this.rendererSessionId ?? this.sessionId;
     this.client.captureException(error, distinctId, {
       team: "posthog-code",
       ...additionalProperties,
-      ...(this.sessionId ? { $session_id: this.sessionId } : {}),
+      ...(sessionId ? { $session_id: sessionId } : {}),
       app_version: getAppVersion(),
       os_platform: process.platform,
       os_arch: process.arch,

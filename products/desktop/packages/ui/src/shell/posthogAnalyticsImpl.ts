@@ -378,6 +378,29 @@ export function captureException(
 // ============================================================================
 
 /**
+ * The live posthog-js session id, or null before initializePostHog has run
+ * (e.g. no API key configured). Unlike the boot-time id handed to
+ * initializePostHog, this reflects rotations from idle timeouts and resets.
+ */
+export function getCurrentSessionId(): string | null {
+  if (!isInitialized) {
+    return null;
+  }
+  return posthog.get_session_id() || null;
+}
+
+/**
+ * Subscribe to posthog-js session id changes (rotation on idle/reset).
+ * Returns an unsubscribe function; no-ops when PostHog never initialized.
+ */
+export function onSessionIdChanged(callback: () => void): () => void {
+  if (!isInitialized) {
+    return () => {};
+  }
+  return posthog.onSessionId(() => callback());
+}
+
+/**
  * Check if a feature flag is enabled for the current user.
  * Returns false if PostHog is not initialized or flag is not found.
  */
@@ -510,6 +533,9 @@ export const posthogAnalyticsService: IAnalytics = {
     if (!analyticsSessionId) analyticsSessionId = crypto.randomUUID();
     return analyticsSessionId;
   },
+  // Web/mobile hosts have no separate main process opening external links, so
+  // there is nothing to push the renderer session id to.
+  setRendererSessionId: () => {},
   resetUser: () => {
     analyticsCurrentUserId = null;
     resetUser();
