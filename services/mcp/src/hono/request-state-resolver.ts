@@ -325,22 +325,36 @@ export class RequestStateResolver {
         // changed pin, discards the switch, and reverts to the pin mid-session.
         await sessionCache.refreshTtl(['appliedPinOrgId', 'appliedPinProjectId', 'activeOrgId', 'activeProjectId'])
 
-        const pinChanged =
-            (organizationId !== undefined && appliedPinOrg !== organizationId) ||
-            (projectId !== undefined && appliedPinProject !== projectId)
+        // Compare the pin as one whole shape. Per-field markers that only compare
+        // the fields this request carries miss a pin that drops a field: the old
+        // marker survives, so it still matches when that field comes back and the
+        // session can never retarget to it.
+        const pinChanged = appliedPinOrg !== organizationId || appliedPinProject !== projectId
+
+        // An explicitly pinned organization is a hard lock — `switchToolsToExclude`
+        // drops `switch-organization` for it. A cross-org `switch-project` records
+        // the other organization, so honoring that override would break the lock
+        // and leave org-scoped tools outside the pin. Discard it, and the project
+        // override that belongs to that organization with it.
+        const overrideLeftPinnedOrg =
+            organizationId !== undefined && activeOrg !== undefined && activeOrg !== organizationId
 
         let overrideOrg = activeOrg
         let overrideProject = activeProject
-        if (pinChanged) {
+        if (pinChanged || overrideLeftPinnedOrg) {
             overrideOrg = undefined
             overrideProject = undefined
             await Promise.all([
                 sessionCache.delete('activeOrgId'),
                 sessionCache.delete('activeProjectId'),
-                sessionCache.setMany({
-                    ...(organizationId ? { appliedPinOrgId: organizationId } : {}),
-                    ...(projectId ? { appliedPinProjectId: projectId } : {}),
-                }),
+                // Record the pin exactly, clearing the marker for a field the pin
+                // no longer carries, so the next comparison sees the true shape.
+                organizationId
+                    ? sessionCache.set('appliedPinOrgId', organizationId)
+                    : sessionCache.delete('appliedPinOrgId'),
+                projectId
+                    ? sessionCache.set('appliedPinProjectId', projectId)
+                    : sessionCache.delete('appliedPinProjectId'),
             ])
         }
 

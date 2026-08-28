@@ -80,14 +80,19 @@ export class RequestContext {
      * session's in-session context switches and last-applied request pin. The
      * token cache can't hold these: it is shared by every concurrent session on
      * the same credential. Undefined when the request carries no session id.
+     *
+     * The scope covers the credential as well as the session id, because the
+     * session id arrives in a caller-supplied header. Two callers sending the
+     * same one would otherwise share one active project, and each resolver would
+     * copy the other's switch into its own token cache.
      */
     get sessionScopedCache(): RedisCache<SessionScopedState> | undefined {
         const mcpSessionId = this.requestContext.mcpSessionId
-        if (!mcpSessionId) {
+        if (!mcpSessionId || !this.props.userHash) {
             return undefined
         }
         if (!this.sessionScopedCacheInstance) {
-            const digest = createHash('sha256').update(mcpSessionId).digest()
+            const digest = createHash('sha256').update(`${this.props.userHash}:${mcpSessionId}`).digest()
             this.sessionScopedCacheInstance = new RedisCache<SessionScopedState>(
                 digest.subarray(0, 16).toString('base64url'),
                 this.redis,

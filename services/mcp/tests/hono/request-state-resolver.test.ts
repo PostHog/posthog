@@ -396,6 +396,47 @@ describe('RequestStateResolver MCP client contexts', () => {
             expect(mockTokenStore.get('projectId')).toBe('9')
         })
 
+        it.each([
+            {
+                label: 'discards a switch that left it',
+                switchedOrg: 'org-2',
+                expectedOrg: 'org-1',
+                expectedProject: '1',
+            },
+            {
+                label: 'keeps a switch that stayed inside it',
+                switchedOrg: 'org-1',
+                expectedOrg: 'org-1',
+                expectedProject: '2',
+            },
+        ])('a resent organization pin $label', async ({ switchedOrg, expectedOrg, expectedProject }) => {
+            // An organization pin is a hard lock — switchToolsToExclude drops
+            // switch-organization for it. A cross-org switch-project records the
+            // other organization, and honoring that would put org-scoped tools
+            // outside the pin. Switching project inside the pin stays allowed.
+            await makeResolver().resolve(makeProps({ organizationId: 'org-1', projectId: '1' }))
+
+            mockSessionScopedStores.get('mcp-session-1')?.set('activeOrgId', switchedOrg)
+            mockSessionScopedStores.get('mcp-session-1')?.set('activeProjectId', '2')
+
+            await makeResolver().resolve(makeProps({ organizationId: 'org-1', projectId: '1' }))
+            expect(mockTokenStore.get('orgId')).toBe(expectedOrg)
+            expect(mockTokenStore.get('projectId')).toBe(expectedProject)
+        })
+
+        it('retargets to a project pin that returns after an organization-only pin', async () => {
+            // Per-field markers that only compare the fields a request carries leave
+            // the old project marker behind when the pin drops that field. The marker
+            // then matches when the project pin comes back, so the session keeps the
+            // switch and can never retarget to its pin.
+            await makeResolver().resolve(makeProps({ projectId: '1' }))
+            await makeResolver().resolve(makeProps({ organizationId: 'org-1', projectId: undefined }))
+            simulateSwitch('mcp-session-1', '2')
+
+            await makeResolver().resolve(makeProps({ projectId: '1' }))
+            expect(mockTokenStore.get('projectId')).toBe('1')
+        })
+
         it('applies the pin on every request without an MCP session id', async () => {
             // No session means no cross-request continuity to protect, so the pin
             // must keep winning each request (single-exec CLI stands alone).
