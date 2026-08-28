@@ -38,6 +38,7 @@ from django.utils.cache import patch_cache_control
 import pytz
 import orjson
 import lzstring
+import requests
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync, sync_to_async
@@ -1501,7 +1502,10 @@ def is_plugin_server_alive() -> bool:
 
         plugin_server_status = get_plugin_server_status()
         return plugin_server_status.status_code == 200
-    except BaseException:
+    except requests.exceptions.RequestException as e:
+        # A refused connection is expected during a plugin server rollout. Log it and
+        # report the server as down, so exception autocapture does not open a noisy issue.
+        logger.warning("plugin_server_health_check_failed", error=str(e))
         return False
 
 

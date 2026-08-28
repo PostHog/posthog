@@ -19,6 +19,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils.timezone import now
 
+import requests
 from parameterized import parameterized
 from rest_framework.request import Request
 
@@ -53,6 +54,7 @@ from posthog.utils import (
     get_js_url,
     get_self_capture_team_id,
     get_short_user_agent,
+    is_plugin_server_alive,
     load_data_from_request,
     refresh_requested_by_client,
     relative_date_parse,
@@ -1547,3 +1549,19 @@ class TestDayRange(SimpleTestCase):
     def test_rejects_reversed_bounds(self) -> None:
         with pytest.raises(ValueError, match="start"):
             DayRange(start=self.START, end=self.START - timedelta(seconds=1))
+
+
+class TestIsPluginServerAlive(SimpleTestCase):
+    @patch("posthog.plugins.plugin_server_api.get_plugin_server_status")
+    def test_connection_error_is_handled_and_reported_down(self, mock_status: Any) -> None:
+        # A refused connection during a rollout must return False, not raise into autocapture.
+        mock_status.side_effect = requests.exceptions.ConnectionError("Connection refused")
+
+        assert is_plugin_server_alive() is False
+
+    @patch("posthog.plugins.plugin_server_api.get_plugin_server_status")
+    def test_unexpected_error_propagates(self, mock_status: Any) -> None:
+        mock_status.side_effect = RuntimeError("boom")
+
+        with pytest.raises(RuntimeError):
+            is_plugin_server_alive()
