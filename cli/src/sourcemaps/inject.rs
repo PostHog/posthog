@@ -123,7 +123,7 @@ pub fn inject_impl(
                 }
                 EventReleaseSource::AppMetadata => None,
             };
-            pairs = inject_pairs(pairs, release_id.as_deref())?;
+            pairs = inject_pairs(pairs, release_id.as_deref(), *no_embed_release)?;
         }
         ReleaseMode::SymbolSet => {
             // Fetch or create a release over the API and stamp its id into the sourcemap,
@@ -151,9 +151,14 @@ pub fn inject_impl(
 /// Event-mode injection (`--release-mode=event`): content-addressed chunk ids plus an optional
 /// `_posthogReleaseId` payload. A bundler-emitted debug id, when present, is adopted as the
 /// chunk id so one id identifies the chunk across the whole toolchain.
+///
+/// `strip_existing_release` is set by `--no-embed-release`: it removes a release id an earlier
+/// run embedded, so re-running over an existing dist honors the no-embed contract instead of
+/// leaving the old id in the chunk.
 pub fn inject_pairs(
     mut pairs: Vec<SourcePair>,
     release_id: Option<&str>,
+    strip_existing_release: bool,
 ) -> Result<Vec<SourcePair>> {
     for pair in &mut pairs {
         let Some(chunk_id) = pair.get_chunk_id() else {
@@ -166,9 +171,17 @@ pub fn inject_pairs(
         // Already injected: the chunk id is content-addressed and the content didn't change,
         // so keep it — but refresh the embedded release id when a different release resolved,
         // or a re-run over an existing dist would keep reporting the old release on every
-        // event. When no release resolves, leave the pair untouched: failing to resolve is
-        // missing information (e.g. no git context), not evidence the embedded id is stale.
+        // event.
         let Some(release_id) = release_id else {
+            // No release id to embed. With `--no-embed-release` the user asked for none, so
+            // strip one an earlier run left behind, or the chunk keeps reporting it on every
+            // event. Otherwise `None` only means resolution found nothing (e.g. no git
+            // context) — missing information, not evidence the embedded id is stale — so leave
+            // the pair untouched.
+            if strip_existing_release && pair.get_injected_release_id().is_some() {
+                pair.remove_chunk_id(chunk_id.clone())?;
+                pair.add_chunk_id(chunk_id, None)?;
+            }
             continue;
         };
         if pair.get_injected_release_id().as_deref() == Some(release_id) {
@@ -430,7 +443,7 @@ mod tests {
             .expect("failed to build selection");
         let pairs = read_pairs(selection.into_iter().filter(is_javascript_file), &None);
 
-        inject_pairs(pairs, None)
+        inject_pairs(pairs, None, false)
             .expect("failed to inject pairs")
             .first()
             .and_then(SourcePair::get_chunk_id)
@@ -499,6 +512,44 @@ mod tests {
         let pair = injected_pair(dir.path());
         assert!(pair.get_chunk_id().is_some());
         assert_eq!(pair.get_injected_release_id(), None);
+    }
+
+    #[test]
+    fn no_embed_release_strips_a_release_a_previous_run_embedded() {
+        let dir = tempfile::tempdir().expect("failed to create temporary directory");
+        write_bundle(dir.path());
+        let release = Release {
+            id: uuid::Uuid::parse_str("00000000-0000-0000-0000-0000000000aa").unwrap(),
+            hash_id: "hash".to_string(),
+            version: "1.0.0".to_string(),
+            project: "app".to_string(),
+        };
+
+        // First run embeds the release id, as an ordinary event-mode inject would.
+        inject_impl(
+            &inject_args_for(dir.path(), false),
+            is_javascript_file,
+            Some(&release),
+            EventReleaseSource::EmbeddedInChunk,
+        )
+        .expect("first inject should succeed");
+        let first = injected_pair(dir.path());
+        let chunk_id = first.get_chunk_id().expect("first run injects a chunk id");
+        assert_eq!(first.get_injected_release_id(), Some(release.id.to_string()));
+
+        // Re-running with the flag over the already-injected dist must remove the embedded id
+        // while keeping the content-addressed chunk id.
+        inject_impl(
+            &inject_args_for(dir.path(), true),
+            is_javascript_file,
+            Some(&release),
+            EventReleaseSource::EmbeddedInChunk,
+        )
+        .expect("second inject should succeed");
+
+        let second = injected_pair(dir.path());
+        assert_eq!(second.get_chunk_id(), Some(chunk_id));
+        assert_eq!(second.get_injected_release_id(), None);
     }
 
     #[test]

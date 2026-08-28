@@ -364,7 +364,7 @@ mod tests {
         let pairs = read_pairs(selection.into_iter().filter(is_javascript_file), &None);
         assert_eq!(pairs.len(), 2);
 
-        let injected = inject_pairs(pairs, None).expect("Failed to inject pairs");
+        let injected = inject_pairs(pairs, None, false).expect("Failed to inject pairs");
         let chunk_ids: Vec<_> = injected.iter().map(|pair| pair.get_chunk_id()).collect();
         assert_eq!(chunk_ids[0], chunk_ids[1]);
 
