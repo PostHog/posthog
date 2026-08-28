@@ -311,12 +311,24 @@ class CuratedGitHubSource:
         """
         return f"runs AS {self.run_source()}"
 
-    def ci_rollup_cte(self) -> str:
+    def _pr_scope_set(self, column: str, pr_scope_where: str) -> str:
+        """IN-subquery over the curated PR source: the ``column`` values of PRs matching
+        ``pr_scope_where`` (a predicate over unqualified curated PR columns).
+
+        The runs rollups only ever join back to PRs the consuming query keeps, so they
+        prefilter the runs scan to that set. Unscoped, they aggregate the team's whole
+        run history — millions of ``(head_sha, workflow)`` groups on a busy repo — and
+        the query runs out of memory before the join discards almost all of it.
+        """
+        return f"(SELECT {column} FROM {self.pr_source()} AS scope_pr WHERE {pr_scope_where})"
+
+    def ci_rollup_cte(self, *, pr_scope_where: str) -> str:
         """CTE collapsing each head SHA's workflow runs into pass/fail/pending counts.
 
         Takes the latest run per ``(head_sha, workflow_name)`` via ``argMax`` (a PR's CI status
         is its newest run per workflow), then aggregates per SHA. Reads the shared ``runs`` CTE
-        (see ``runs_cte``); ``head_sha`` is the only link between a PR and its CI.
+        (see ``runs_cte``); ``head_sha`` is the only link between a PR and its CI. Scoped to the
+        head SHAs of PRs matching ``pr_scope_where`` (see ``_pr_scope_set``).
         """
         return f"""
             ci_rollup AS (
@@ -338,23 +350,27 @@ class CuratedGitHubSource:
                         argMax(status, run_started_at) AS s,
                         argMax(conclusion, run_started_at) AS c
                     FROM runs AS r
+                    WHERE r.head_sha IN {self._pr_scope_set("head_sha", pr_scope_where)}
                     GROUP BY head_sha, workflow_name
                 )
                 GROUP BY head_sha
             )
         """
 
-    def pr_rollup_query(self, select: str) -> str:
+    def pr_rollup_query(self, select: str, *, pr_scope_where: str) -> str:
         """Compose a pull-requests query that reads ``FROM __PR_SOURCE__ AS pr LEFT JOIN ci_rollup``.
 
         Prefixes ``select`` with the CI rollup CTE and fills its ``__PR_SOURCE__`` placeholder
         with the curated pull-requests source — the two steps the cards and PR-list queries always
-        do together.
+        do together. ``pr_scope_where`` must keep every PR the ``select`` reads CI for (it prunes
+        the rollup scan, see ``_pr_scope_set``); a PR outside it joins as if it had no runs.
         """
-        return self._compose_pr_query([self.runs_cte(), self.ci_rollup_cte()], select)
+        return self._compose_pr_query([self.runs_cte(), self.ci_rollup_cte(pr_scope_where=pr_scope_where)], select)
 
-    def runs_by_pr_cte(self) -> str:
-        """CTE: per-PR activity from the workflow runs attributed to each PR.
+    def runs_by_pr_cte(self, *, pr_scope_where: str) -> str:
+        """CTE: per-PR activity from the workflow runs attributed to each PR. Scoped to the
+        numbers of PRs matching ``pr_scope_where`` (see ``_pr_scope_set``); the scope is a
+        prefilter — the repo-qualified join below still decides correctness.
 
         A run records the PR(s) it ran for in ``pull_requests``; the curated run source surfaces
         the first as ``pr_number``. ``pushes`` counts the distinct head SHAs that triggered CI
@@ -384,14 +400,20 @@ class CuratedGitHubSource:
                     countIf(run_attempt > 1) AS rerun_cycles
                 FROM runs AS r
                 WHERE pr_number > 0 AND NOT is_merge_queue
+                    AND pr_number IN {self._pr_scope_set("number", pr_scope_where)}
                 GROUP BY repo_owner, repo_name, pr_number
             )
         """
 
-    def pr_list_rollup_query(self, select: str) -> str:
+    def pr_list_rollup_query(self, select: str, *, pr_scope_where: str) -> str:
         """``pr_rollup_query`` plus the per-PR runs rollup and, when it is observable, the
-        ``ready_by_pr`` rollup ``ready_to_merge_sql`` reads."""
-        ctes = [self.runs_cte(), self.ci_rollup_cte(), self.runs_by_pr_cte()]
+        ``ready_by_pr`` rollup ``ready_to_merge_sql`` reads. ``pr_scope_where`` scopes both
+        runs rollups (see ``pr_rollup_query``)."""
+        ctes = [
+            self.runs_cte(),
+            self.ci_rollup_cte(pr_scope_where=pr_scope_where),
+            self.runs_by_pr_cte(pr_scope_where=pr_scope_where),
+        ]
         ready_cte = self.ready_to_merge_sql().cte
         if ready_cte:
             ctes.append(ready_cte)

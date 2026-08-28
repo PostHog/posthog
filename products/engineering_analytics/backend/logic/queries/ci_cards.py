@@ -24,7 +24,11 @@ _SELECT = """
 
 
 def query_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:
-    response = curated.run(curated.pr_rollup_query(_SELECT), query_type="engineering_analytics.ci_cards")
+    # Every count only reads CI for open PRs, so the rollup scan is scoped to their head SHAs.
+    response = curated.run(
+        curated.pr_rollup_query(_SELECT, pr_scope_where="state = 'open'"),
+        query_type="engineering_analytics.ci_cards",
+    )
     if not response.results:
         return _EMPTY
     open_prs, repos, stuck, failing_ci = response.results[0]
