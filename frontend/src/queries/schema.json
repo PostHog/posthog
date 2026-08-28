@@ -1587,6 +1587,9 @@
                     "$ref": "#/definitions/MarketingAnalyticsAttributionPathsQuery"
                 },
                 {
+                    "$ref": "#/definitions/MarketingAnalyticsRetentionQuery"
+                },
+                {
                     "$ref": "#/definitions/NonIntegratedConversionsTableQuery"
                 },
                 {
@@ -11691,6 +11694,138 @@
             ],
             "type": "object"
         },
+        "CachedMarketingAnalyticsRetentionQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "interval": {
+                    "$ref": "#/definitions/MarketingAnalyticsRetentionInterval"
+                },
+                "intervalCount": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Column count. Every row's values array has this length."
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "labels": {
+                    "description": "Column headers, e.g. ['Week 0', 'Week 1', ...].",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "otherBreakdownCount": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many breakdown values were folded into 'Other', so the table can say so."
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRetentionRow"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "totalCohortSize": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct persons acquired across every cohort and breakdown value."
+                },
+                "truncatedCohorts": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Older cohorts dropped to bound the matrix. Non-zero means the table covers less than the date range the filter bar shows, so the table has to say so."
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "interval",
+                "intervalCount",
+                "is_cached",
+                "labels",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "otherBreakdownCount",
+                "results",
+                "timezone",
+                "totalCohortSize",
+                "truncatedCohorts"
+            ],
+            "type": "object"
+        },
         "CachedMarketingAnalyticsTableQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -16060,6 +16195,9 @@
                 },
                 "seriesBreakdownColumn": {
                     "type": ["string", "null"]
+                },
+                "showAnnotations": {
+                    "type": "boolean"
                 },
                 "showLegend": {
                     "type": "boolean"
@@ -34076,7 +34214,7 @@
             "type": "object"
         },
         "MarketingAnalyticsAttributionBreakdown": {
-            "description": "Row dimension for the Attribution table. String values match MarketingAnalyticsDrillDownLevel for the levels they share, so both surfaces speak the same vocabulary. It's a separate enum because `ad_group`/`ad` can't be attributed to events at all (no ad identifier reaches the events table), while `referring_domain`/`landing_page` have no cost-side expression and so don't belong in the drill-down.",
+            "description": "Dimension a session is sliced by, shared by the Attribution table and the Retention explorer. String values match MarketingAnalyticsDrillDownLevel for the levels they share, so both surfaces speak the same vocabulary. It's a separate enum because `ad_group`/`ad` can't be attributed to events at all (no ad identifier reaches the events table), while `referring_domain`/`landing_page` have no cost-side expression and so don't belong in the drill-down.",
             "enum": ["channel", "source", "campaign", "medium", "content", "term", "referring_domain", "landing_page"],
             "type": "string"
         },
@@ -34753,6 +34891,250 @@
             "maxItems": 2,
             "minItems": 2,
             "type": "array"
+        },
+        "MarketingAnalyticsRetentionCell": {
+            "additionalProperties": false,
+            "description": "One cohort's activity in one period since acquisition.",
+            "properties": {
+                "complete": {
+                    "description": "False when this period has not fully elapsed within the queried range, so a low cell reads as unfinished instead of as churn.",
+                    "type": "boolean"
+                },
+                "count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct persons from this cohort active in this period."
+                },
+                "rate": {
+                    "description": "count / cohortSize. Null when the cohort is empty.",
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["count", "rate", "complete"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRetentionInterval": {
+            "description": "Cohort and column period for the Retention explorer. Narrower than IntervalType, because hour and minute grains produce a matrix nobody can read.",
+            "enum": ["day", "week", "month"],
+            "type": "string"
+        },
+        "MarketingAnalyticsRetentionQuery": {
+            "additionalProperties": false,
+            "description": "The omitted fields are ones this runner ignores, so leaving them settable would let a caller ask for something that does nothing. `interval` goes because `retentionInterval` shadows it, and `conversionGoal` because this table counts return visits rather than conversions.",
+            "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
+                "breakdownBy": {
+                    "$ref": "#/definitions/MarketingAnalyticsAttributionBreakdown",
+                    "description": "Cohort dimension, read off each person's first session. Defaults to channel."
+                },
+                "breakdownLimit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Breakdown values kept before the rest roll into 'Other'. Defaults to 20."
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "excludeDirectTraffic": {
+                    "description": "Drop direct sessions when deciding first touch, mirroring the attribution explorer.",
+                    "type": "boolean"
+                },
+                "excludeUnattributed": {
+                    "description": "Drop persons whose first session names nothing for the current breakdown.",
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "MarketingAnalyticsRetentionQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "newUserLookbackDays": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How far back to look for a prior session. Defaults to 90, clamped to 365."
+                },
+                "onlyNewUsers": {
+                    "description": "Only count persons with no session before the range, so a channel's cohorts are not inflated by users it acquired long ago. Defaults to true.",
+                    "type": "boolean"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/MarketingAnalyticsRetentionQueryResponse"
+                },
+                "retentionInterval": {
+                    "$ref": "#/definitions/MarketingAnalyticsRetentionInterval",
+                    "description": "Period for both the cohort rows and the return columns. Defaults to week."
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "totalIntervals": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Return columns, counting period 0. Defaults to 8, clamped to 40."
+                },
+                "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
+                    "type": "boolean"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "properties"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRetentionQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "interval": {
+                    "$ref": "#/definitions/MarketingAnalyticsRetentionInterval"
+                },
+                "intervalCount": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Column count. Every row's values array has this length."
+                },
+                "labels": {
+                    "description": "Column headers, e.g. ['Week 0', 'Week 1', ...].",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "otherBreakdownCount": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many breakdown values were folded into 'Other', so the table can say so."
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRetentionRow"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "totalCohortSize": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct persons acquired across every cohort and breakdown value."
+                },
+                "truncatedCohorts": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Older cohorts dropped to bound the matrix. Non-zero means the table covers less than the date range the filter bar shows, so the table has to say so."
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "interval",
+                "intervalCount",
+                "labels",
+                "otherBreakdownCount",
+                "results",
+                "totalCohortSize",
+                "truncatedCohorts"
+            ],
+            "type": "object"
+        },
+        "MarketingAnalyticsRetentionRow": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdownValue": {
+                    "type": "string"
+                },
+                "cohortDate": {
+                    "description": "Start of the cohort's period, in the team's timezone.",
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "cohortIndex": {
+                    "$ref": "#/definitions/integer",
+                    "description": "0-based position of this cohort from the range start."
+                },
+                "cohortSize": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Persons acquired in this period under this breakdown value. The denominator for every cell."
+                },
+                "values": {
+                    "description": "One per column, index = periods since the cohort started. Always intervalCount long.",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRetentionCell"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["breakdownValue", "cohortDate", "cohortIndex", "cohortSize", "values"],
+            "type": "object"
         },
         "MarketingAnalyticsSchemaField": {
             "additionalProperties": false,
@@ -37509,6 +37891,7 @@
                 "MarketingAnalyticsAggregatedQuery",
                 "MarketingAnalyticsAttributionQuery",
                 "MarketingAnalyticsAttributionPathsQuery",
+                "MarketingAnalyticsRetentionQuery",
                 "NonIntegratedConversionsTableQuery",
                 "ExperimentMetric",
                 "ExperimentQuery",
@@ -42432,6 +42815,105 @@
                         "hasValue",
                         "results",
                         "totalConversions"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "interval": {
+                            "$ref": "#/definitions/MarketingAnalyticsRetentionInterval"
+                        },
+                        "intervalCount": {
+                            "$ref": "#/definitions/integer",
+                            "description": "Column count. Every row's values array has this length."
+                        },
+                        "labels": {
+                            "description": "Column headers, e.g. ['Week 0', 'Week 1', ...].",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "otherBreakdownCount": {
+                            "$ref": "#/definitions/integer",
+                            "description": "How many breakdown values were folded into 'Other', so the table can say so."
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsRetentionRow"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "totalCohortSize": {
+                            "$ref": "#/definitions/integer",
+                            "description": "Distinct persons acquired across every cohort and breakdown value."
+                        },
+                        "truncatedCohorts": {
+                            "$ref": "#/definitions/integer",
+                            "description": "Older cohorts dropped to bound the matrix. Non-zero means the table covers less than the date range the filter bar shows, so the table has to say so."
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "interval",
+                        "intervalCount",
+                        "labels",
+                        "otherBreakdownCount",
+                        "results",
+                        "totalCohortSize",
+                        "truncatedCohorts"
                     ],
                     "type": "object"
                 },
@@ -47988,6 +48470,9 @@
                 },
                 {
                     "$ref": "#/definitions/MarketingAnalyticsAttributionPathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/MarketingAnalyticsRetentionQuery"
                 },
                 {
                     "$ref": "#/definitions/NonIntegratedConversionsTableQuery"
