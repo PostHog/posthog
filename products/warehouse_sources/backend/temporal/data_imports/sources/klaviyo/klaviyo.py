@@ -282,7 +282,10 @@ def _iter_resource_ids(
     page_size: int,
 ) -> Iterator[str]:
     """Page through a Klaviyo collection and yield each row's id, following the cursor links."""
-    url = _build_url(f"{KLAVIYO_BASE_URL}{path}", {"page[size]": page_size})
+    # Some collections (e.g. /object-types) reject page[size]; page_size <= 0 means "omit it and
+    # page by cursor links alone", mirroring _build_initial_params for top-level endpoints.
+    params = {"page[size]": page_size} if page_size > 0 else {}
+    url = _build_url(f"{KLAVIYO_BASE_URL}{path}", params)
     while True:
         data = _fetch_page(session, url, headers, logger)
         for item in data.get("data", []):
