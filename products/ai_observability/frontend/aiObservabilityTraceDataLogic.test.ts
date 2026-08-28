@@ -48,6 +48,56 @@ describe('aiObservabilityTraceDataLogic: restoreTree', () => {
         ])
     })
 
+    // A span sums what its children reported. A sum over nothing known is not
+    // zero, so a span whose generations all went unpriced has no cost to show.
+    it('leaves a span cost unknown when no child reported one', () => {
+        const events: LLMTraceEvent[] = [
+            {
+                id: 'span',
+                event: '$ai_span',
+                properties: { $ai_parent_id: 'trace' },
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+            {
+                id: 'generation',
+                event: '$ai_generation',
+                properties: { $ai_parent_id: 'span' },
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+        ]
+
+        const tree = restoreTree(events, 'trace')
+
+        expect(tree[0].aggregation?.totalCost).toBeNull()
+    })
+
+    it('sums only the children that reported a cost', () => {
+        const events: LLMTraceEvent[] = [
+            {
+                id: 'span',
+                event: '$ai_span',
+                properties: { $ai_parent_id: 'trace' },
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+            {
+                id: 'priced',
+                event: '$ai_generation',
+                properties: { $ai_parent_id: 'span', $ai_total_cost_usd: 0.25 },
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+            {
+                id: 'unpriced',
+                event: '$ai_generation',
+                properties: { $ai_parent_id: 'span' },
+                createdAt: '2024-01-01T00:00:00Z',
+            },
+        ]
+
+        const tree = restoreTree(events, 'trace')
+
+        expect(tree[0].aggregation?.totalCost).toBe(0.25)
+    })
+
     it('should build a nested tree', () => {
         const events: LLMTraceEvent[] = [
             {
@@ -81,7 +131,7 @@ describe('aiObservabilityTraceDataLogic: restoreTree', () => {
             {
                 event: events[0],
                 aggregation: expect.objectContaining({
-                    totalCost: 0,
+                    totalCost: null,
                     totalLatency: 0,
                     inputTokens: 0,
                     outputTokens: 0,
@@ -90,7 +140,7 @@ describe('aiObservabilityTraceDataLogic: restoreTree', () => {
                     {
                         event: events[1],
                         aggregation: expect.objectContaining({
-                            totalCost: 0,
+                            totalCost: null,
                             totalLatency: 0,
                             inputTokens: 0,
                             outputTokens: 0,
@@ -203,7 +253,7 @@ describe('aiObservabilityTraceDataLogic: restoreTree', () => {
             {
                 event: events[0],
                 aggregation: expect.objectContaining({
-                    totalCost: 0,
+                    totalCost: null,
                 }),
                 children: [
                     {
