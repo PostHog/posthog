@@ -129,3 +129,7 @@ export const SAMLNeedsUpgrade: Story = {
 }
 export const SCIM: Story = { args: { configScope: ConfigScopeEnumApi.Scim } }
 export const XAA: Story = { args: { configScope: ConfigScopeEnumApi.Xaa } }
+export const XAANeedsUpgrade: Story = {
+    args: { configScope: ConfigScopeEnumApi.Xaa },
+    decorators: [needsUpgradeDecorator],
+}
