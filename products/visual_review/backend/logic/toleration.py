@@ -34,10 +34,18 @@ def mark_snapshot_as_tolerated(
     if not snapshot.current_hash:
         raise ValueError("Snapshot has no current hash")
 
+    # update_or_create, not get_or_create: the same tuple may already carry a row
+    # the classifier no longer matches, because `complete_run` only reads rows whose
+    # expires_at is null or in the future. get_or_create returns that dead row and
+    # drops the defaults, so the toleration would look like it worked and change
+    # nothing. Clearing expires_at revives it, and rewriting reason and creator
+    # attributes it to whoever decided this time, which also upgrades a row the diff
+    # pipeline minted as auto_threshold into a decision.
+    #
     # Explicit team_id in the lookup (not just defaults) so the IDOR audit
     # rule sees the scope; ProductTeamManager also auto-filters by canonical
     # team — both belt and suspenders.
-    tolerated, _ = ToleratedHash.objects.get_or_create(
+    tolerated, _ = ToleratedHash.objects.update_or_create(
         team_id=team_id,
         repo_id=run.repo_id,
         identifier=snapshot.identifier,
@@ -48,6 +56,7 @@ def mark_snapshot_as_tolerated(
             "source_run": run,
             "created_by_id": user_id,
             "diff_percentage": snapshot.diff_percentage,
+            "expires_at": None,
         },
     )
 
