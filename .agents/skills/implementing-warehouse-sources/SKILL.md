@@ -119,6 +119,10 @@ Follow this order. Each step maps to TODOs in `source.template`.
     `lists_tables_without_credentials = True` (see below) so the doc's Supported tables section
     renders. A finished source ships with a consistent doc, not a stub.
 15. **Delete the template TODO comments** before PR.
+16. **Evaluate where CI cannot.** Run `/evaluating-warehouse-sources` before opening the PR: the
+    contract-assumption audit at minimum, plus a live smoke sync when credentials exist. Every claim
+    about vendor behavior whose only evidence is your own fixture is listed in the PR body as
+    unverified — that list is what the post-merge watch and the next live tester work from.
 
 ## Source architecture contract
 
@@ -852,6 +856,8 @@ Tests & handoff:
 - [ ] Source tests (test_<source>_source.py) — branches only, no declaration restatements
 - [ ] Transport tests (test_<source>.py) — paginators, error mapping, request shaping
 - [ ] User-facing doc written/updated per /documenting-warehouse-sources (docsUrl matches filename; `audit_source_docs` passes)
+- [ ] Evaluation run per /evaluating-warehouse-sources (Tier 0 contract audit always; live smoke sync when
+      credentials exist; remaining unverified claims listed in the PR body)
 - [ ] `ruff check . --fix` and `ruff format .`
 - [ ] List any new env vars (OAuth client IDs/secrets, etc) in the PR / handoff
 - [ ] (Only if the source syncs an issues/tickets/conversations table) Note it as a Self-driving Inbox
