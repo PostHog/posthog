@@ -690,41 +690,39 @@ def _guard_superseded_before_write(client: StamphogGitHubClient, run: ReviewRun,
     )
 
 
-def _detect_review_drift(run: ReviewRun, output: dict, current_pr: dict) -> tuple[str, str] | None:
-    """Report the reviewed head or base drifting on GitHub, or None when the run is still current.
+def _base_moved(reviewed_base: dict, current_base: dict) -> bool:
+    """Report the reviewed base ref or sha drifting from the current one on GitHub.
 
     A base retarget (a stacked PR's parent merged, or a manual base switch) rewrites the reviewed
     diff with the head SHA unchanged, so the head guard alone can't see it. GitHub pins base.sha at
     the last PR event rather than tracking the trunk tip, so it only moves when the PR itself was
     touched — the diff the sandbox reviewed is stale then.
     """
-    current_head = ((current_pr.get("head") or {}).get("sha") or "").strip()
-    if current_head and current_head != run.head_sha:
-        return ("head_moved", f"head moved {run.head_sha} -> {current_head}")
-    reviewed_base = (output.get("pr") or {}).get("base") or {}
-    current_base = current_pr.get("base") or {}
-    reviewed_base_ref = reviewed_base.get("ref") or ""
-    reviewed_base_sha = reviewed_base.get("sha") or ""
-    current_base_ref = (current_base.get("ref") or "").strip()
-    current_base_sha = (current_base.get("sha") or "").strip()
-    base_ref_moved = bool(reviewed_base_ref and current_base_ref and reviewed_base_ref != current_base_ref)
-    base_sha_moved = bool(reviewed_base_sha and current_base_sha and reviewed_base_sha != current_base_sha)
-    if base_ref_moved or base_sha_moved:
-        return (
-            "base_retargeted",
-            f"base moved {reviewed_base_ref}@{reviewed_base_sha} -> {current_base_ref}@{current_base_sha}",
-        )
-    return None
+    reviewed_ref = reviewed_base.get("ref") or ""
+    reviewed_sha = reviewed_base.get("sha") or ""
+    current_ref = (current_base.get("ref") or "").strip()
+    current_sha = (current_base.get("sha") or "").strip()
+    ref_moved = bool(reviewed_ref and current_ref and reviewed_ref != current_ref)
+    sha_moved = bool(reviewed_sha and current_sha and reviewed_sha != current_sha)
+    return ref_moved or sha_moved
 
 
 def _guard_head_or_base_drift(
     client: StamphogGitHubClient, run: ReviewRun, team_id: int, output: dict, current_pr: dict
 ) -> dict | None:
     """Supersede and skip a run whose reviewed head or base drifted on GitHub. See post_verdict."""
-    drift = _detect_review_drift(run, output, current_pr)
-    if drift is None:
+    current_head = ((current_pr.get("head") or {}).get("sha") or "").strip()
+    reviewed_base = (output.get("pr") or {}).get("base") or {}
+    current_base = current_pr.get("base") or {}
+    if current_head and current_head != run.head_sha:
+        kind, detail = "head_moved", f"head moved {run.head_sha} -> {current_head}"
+    elif _base_moved(reviewed_base, current_base):
+        current_base_ref = (current_base.get("ref") or "").strip()
+        current_base_sha = (current_base.get("sha") or "").strip()
+        kind = "base_retargeted"
+        detail = f"base moved {reviewed_base.get('ref') or ''}@{reviewed_base.get('sha') or ''} -> {current_base_ref}@{current_base_sha}"
+    else:
         return None
-    kind, detail = drift
     # Conditional: a retry after the terminal save already committed (e.g. the trailing digest stamp
     # crashed) must not rewrite a delivered COMPLETED outcome to SUPERSEDED — terminal states are
     # history. The stale-approval sweep retires that approval on the next delivery.
