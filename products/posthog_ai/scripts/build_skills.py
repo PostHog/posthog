@@ -405,6 +405,22 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     return metadata, body
 
 
+def _shipped_skill_name(skill: DiscoveredSkill) -> str:
+    """Return the name the skill ships under.
+
+    ``SkillBuilder.build_skill`` writes each skill to ``dist/skills/<name>``
+    where ``<name>`` is the entry-point frontmatter ``name`` when present, and
+    the discovered path name otherwise. The lint runs without rendering, so read
+    the raw frontmatter; a templated or unparseable name is not resolvable until
+    build and falls back to the path name.
+    """
+    try:
+        metadata, _ = parse_frontmatter(skill.source_file.read_text())
+    except (OSError, yaml.YAMLError):
+        return skill.name
+    return metadata.get("name") or skill.name
+
+
 class SkillDiscoverer:
     """Discovers skill source files from products/*/skills/."""
 
@@ -656,9 +672,12 @@ class SkillBuilder:
             else:
                 seen[skill.name] = skill
 
-            if skill.name in OMNIBUS_SKILL_NAMES:
+            # build_skill ships each skill under its frontmatter name, not its
+            # discovered path, so check the name that actually reaches dist/.
+            shipped_name = _shipped_skill_name(skill)
+            if shipped_name in OMNIBUS_SKILL_NAMES:
                 errors.append(
-                    f"'{skill.name}' is owned by PostHog/context-mill, which every consumer "
+                    f"'{shipped_name}' is owned by PostHog/context-mill, which every consumer "
                     f"overlays on top of this repo's skills, so a copy here is overwritten "
                     f"rather than shipped. Remove {skill.source_file.relative_to(self.repo_root)} "
                     f"and change the context-mill source instead."
