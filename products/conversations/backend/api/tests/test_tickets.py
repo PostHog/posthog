@@ -1990,6 +1990,23 @@ class TestComposeTicketAPI(APIBaseTest):
         assert search.status_code == status.HTTP_200_OK
         assert [t["id"] for t in search.json()["results"]] == [str(ticket.id)]
 
+    def test_compose_applies_tags_to_the_new_ticket(self, mock_on_commit):
+        # Tags let support filter composed tickets by source (e.g. roadmap pitches). If compose
+        # drops the field, the ticket lands untagged and that filtering breaks.
+        response = self._compose(
+            {
+                "recipient_email": "pitch@test.com",
+                "email_config_id": str(self.email_config.id),
+                "message": "Great idea, we logged it.",
+                "tags": ["roadmap_pitch"],
+            }
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{response.json()['id']}/")
+        assert detail.status_code == status.HTTP_200_OK
+        assert detail.json()["tags"] == ["roadmap_pitch"]
+
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):
     def _auth_with_pak(self, scopes: list[str]) -> None:
