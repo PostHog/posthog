@@ -1,6 +1,10 @@
 import { avatarColor } from "@posthog/core/auth/avatarColor";
 import type { UserLike } from "@posthog/core/auth/userInitials";
 import { Avatar, AvatarFallback, AvatarImage } from "@posthog/quill";
+import {
+  rememberAvatarImageStatus,
+  rememberedAvatarImageStatus,
+} from "@posthog/ui/features/auth/avatarImageStatus";
 import { useGravatarUrl } from "@posthog/ui/features/auth/useGravatarUrl";
 import { getUserInitials } from "@posthog/ui/features/auth/userInitials";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
@@ -21,8 +25,6 @@ interface UserAvatarProps {
   title?: string;
 }
 
-const imageStatus = new Map<string, "loaded" | "error">();
-
 const KNOWN_IMAGE_FALLBACK_DELAY_MS = 300;
 
 // A person's avatar: Gravatar (by email) when one exists, otherwise a colored
@@ -36,7 +38,7 @@ export function UserAvatar({
 }: UserAvatarProps) {
   const gravatarUrl = useGravatarUrl(user?.email);
   const src = gravatarUrl ? cachedImageUrl(gravatarUrl) : undefined;
-  const knownStatus = src ? imageStatus.get(src) : undefined;
+  const knownStatus = rememberedAvatarImageStatus(src);
   const seed = user?.uuid ?? user?.email ?? userDisplayName(user);
   const color = avatarColor(seed);
 
@@ -48,7 +50,7 @@ export function UserAvatar({
           alt={userDisplayName(user)}
           onLoadingStatusChange={(status) => {
             if (status === "loaded" || status === "error") {
-              imageStatus.set(src, status);
+              rememberAvatarImageStatus(src, status);
             }
           }}
         />
