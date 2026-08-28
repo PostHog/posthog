@@ -255,7 +255,7 @@ class CuratedGitHubSource:
             )
         """
 
-    def job_cost_source(self) -> str | None:
+    def job_cost_source(self, *, created_floor: bool = False) -> str | None:
         """Per-job cost ``SELECT`` subquery — the same view body ``engineering_analytics_job_costs``
         exposes, but with the endpoint-only run pass-through columns (``run_started_at`` /
         ``run_head_branch``). None when the jobs table isn't synced, exactly like ``jobs_source``.
@@ -264,6 +264,12 @@ class CuratedGitHubSource:
         / ``estimated_cost_usd`` are rendered from ``logic.cost`` in ClickHouse, so every endpoint cost
         query aggregates the same per-job figures the exposed view (and the parity test) do — there is
         no separate Python cost rollup to drift.
+
+        ``created_floor`` adds the raw-string scan floor inside the jobs builder — callers must
+        register {job_created_floor} (see run_windowed_job_created_floor_constant, the right slack for
+        the run-windowed predicates every cost query uses). Every windowed caller wants it: the cost
+        source's window predicates read the RUN's columns and so can never prune the jobs scan, which
+        the ``is_rerun_copy`` window would otherwise sort in full on every call.
         """
         if not self._tables.workflow_jobs:
             return None
@@ -271,6 +277,7 @@ class CuratedGitHubSource:
             jobs_table=self._tables.workflow_jobs,
             runs_table=self._tables.workflow_runs,
             include_run_columns=True,
+            created_floor=created_floor,
         )
         return f"({query})"
 

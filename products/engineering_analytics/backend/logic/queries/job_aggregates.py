@@ -23,6 +23,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     DURATION_PERCENTILE_CONDITION,
     branch_filter_clause,
     date_to_filter_clause,
+    job_created_floor_constant,
 )
 
 _LIMIT = 200
@@ -93,8 +94,10 @@ def query_job_aggregates(
     date_to: datetime | None,
     branch: str | None,
 ) -> list[WorkflowJobAggregate]:
-    jobs_source = curated.jobs_source()
-    cost_source = curated.job_cost_source()
+    # Both templates window the job's OWN created_at, so the tight floor is exact here — it only has
+    # to absorb the timezone offset, not a re-run's spread across attempts.
+    jobs_source = curated.jobs_source(created_floor=True)
+    cost_source = curated.job_cost_source(created_floor=True)
     if jobs_source is None or cost_source is None:
         return []
 
@@ -102,6 +105,7 @@ def query_job_aggregates(
     placeholders: dict[str, ast.Expr] = {
         "workflow_name": ast.Constant(value=workflow_name),
         "date_from": ast.Constant(value=date_from),
+        "job_created_floor": job_created_floor_constant(date_from),
     }
     # Shared filter clauses (each registers its own placeholder). The jobs/cost templates window and
     # branch-filter on the per-job created_at + head_branch; the run-count template reads the run

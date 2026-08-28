@@ -20,6 +20,15 @@ qualifying source into the single view body. The join is a LEFT JOIN (all jobs a
 whose run row is missing keeps NULL attribution) rather than the INNER join the per-PR cost
 queries use, because the view is the full per-job substrate, not a PR-scoped rollup.
 
+It joins on ``run_id`` ALONE, never ``(run_id, run_attempt)`` — the same key ``ci_job_history`` uses,
+for the same reason. The runs snapshot upserts by ``id``, so only the newest attempt's row survives;
+requiring attempt equality blanked ``repo_owner`` / ``repo_name`` / ``pr_number`` / ``is_merge_queue``
+for every earlier-attempt job, which is precisely the population that actually executed after a
+partial re-run. Attribution is attempt-invariant (a re-run is the same commit, branch, and PR), so
+``run_id`` is the correct key; ``run_attempt`` in the output comes from the jobs side. The bug was
+masked until re-run copies stopped being costed: the attempt-2 copies joined and carried the same
+durations, so the totals looked right while the rows behind them were the wrong ones.
+
 Nothing here is registered as a global HogQL view; the view is provisioned per-team as a
 non-materialized ``DataWarehouseSavedQuery`` by data_modeling's managed-viewset sync.
 """
@@ -126,7 +135,9 @@ def _run_passthrough_aliases() -> str:
     return "".join(f",\n            {alias}" for alias, _ in _RUN_PASSTHROUGH)
 
 
-def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool = False) -> str:
+def build_query(
+    *, jobs_table: str, runs_table: str, include_run_columns: bool = False, created_floor: bool = False
+) -> str:
     """The per-job cost SELECT for one GitHub source: curated jobs LEFT JOIN curated runs.
 
     Grain is one row per job attempt (a retry appears once per attempt — correct for cost). The
@@ -143,8 +154,15 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
 
     ``include_run_columns`` threads the ``_RUN_PASSTHROUGH`` run columns through every layer — used
     only by the endpoint cost queries; the public view omits them.
+
+    ``created_floor`` threads the jobs builder's raw-string scan floor (its ``{job_created_floor}``
+    placeholder, which the caller must register) down to the jobs scan. Every windowed cost query
+    should pass it: the window predicate reads the RUN's attributes, so it can never prune the jobs
+    side, and without a floor the ``is_rerun_copy`` window sorts the team's whole job history on every
+    call. The public saved view can't take one — it is stored SQL with no window of its own — so it is
+    built without it and its consumers filter it themselves.
     """
-    jobs = workflow_jobs.build_query(jobs_table)
+    jobs = workflow_jobs.build_query(jobs_table, created_floor=created_floor)
     runs = workflow_runs.build_query(runs_table)
 
     # labels is already ifNull'd to '[]' by the jobs builder; JSONExtract to Array(String) yields
@@ -255,7 +273,7 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
                         j.is_rerun_copy AS is_rerun_copy,
                         {labels_array} AS labels_arr{inner_run_columns}
                     FROM ({jobs}) AS j
-                    LEFT JOIN ({runs}) AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
+                    LEFT JOIN ({runs}) AS r ON j.run_id = r.id
                 )
             )
         )

@@ -23,7 +23,11 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
-from products.engineering_analytics.backend.tests._github_fixtures import seeding_object_storage
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    pr_association_entry,
+    repo_id,
+    seeding_object_storage,
+)
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.job_costs"
@@ -103,6 +107,28 @@ def _job_row(
         "started_at": started,
         "completed_at": completed,
         "steps": steps,
+    }
+
+
+_REPO = "PostHog/posthog"
+
+
+def _run_row(run_id: int, *, run_attempt: int, pr_number: int) -> dict[str, Any]:
+    """One runs-snapshot row. The snapshot upserts by id, so a re-run leaves ONLY the newest
+    attempt's row — which is what the jobs↔runs join has to cope with."""
+    return dict.fromkeys(WORKFLOW_RUNS_COLUMNS) | {
+        "id": run_id,
+        "name": "CI",
+        "head_sha": "sha-head",
+        "head_branch": "feature-branch",
+        "status": "completed",
+        "conclusion": "failure",
+        "created_at": _BASE,
+        "run_started_at": _BASE,
+        "updated_at": _plus(1000),
+        "run_attempt": run_attempt,
+        "pull_requests": json.dumps([pr_association_entry(pr_number, base_repo=_REPO)]),
+        "repository": json.dumps({"full_name": _REPO, "id": repo_id(_REPO)}),
     }
 
 
@@ -226,6 +252,60 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         assert duration == 600
         assert billable == billed_elapsed_seconds(600, None) == 600
         assert cost == pytest.approx(estimate_job_cost_usd(labels, 600))
+
+    def test_earlier_attempt_jobs_keep_their_run_attribution(self) -> None:
+        # The runs snapshot upserts by id, so after a partial re-run only the attempt-2 run row
+        # exists. Joining on (run_id, run_attempt) left every attempt-1 job unjoined — NULL repo,
+        # NULL pr_number — which is exactly the population that actually executed: attempt 2 mostly
+        # re-lists it. That silently dropped those jobs from every repo-/PR-scoped cost aggregate.
+        # Joining on run_id alone attributes them, and the PR total must then be the two real
+        # executions (the passed job from attempt 1 + the genuine re-run), with no double count.
+        labels = ["depot-ubuntu-latest"]
+        run_id, pr_number = 8800, 42
+        jobs_table = self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(1, labels, _BASE, _plus(600), "completed", run_id=run_id, run_attempt=1, name="passed"),
+                _job_row(2, labels, _BASE, _plus(300), "completed", run_id=run_id, run_attempt=1, name="failed"),
+                # attempt 2: the passed job is re-listed verbatim, the failed one genuinely re-runs.
+                _job_row(3, labels, _BASE, _plus(600), "completed", run_id=run_id, run_attempt=2, name="passed"),
+                _job_row(4, labels, _plus(700), _plus(1000), "completed", run_id=run_id, run_attempt=2, name="failed"),
+            ],
+        )
+        # Only the newest attempt's run row — the snapshot shape the join has to survive.
+        runs_table = self._create_table(
+            "github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [_run_row(run_id, run_attempt=2, pr_number=pr_number)]
+        )
+
+        sql = (
+            "SELECT job_name, run_attempt, repo_owner, repo_name, pr_number, is_rerun_copy, estimated_cost_usd "
+            f"FROM ({job_costs.build_query(jobs_table=jobs_table, runs_table=runs_table)}) "
+            "ORDER BY job_name, run_attempt"
+        )
+        rows = execute_hogql_query(query=sql, team=self.team, query_type="engineering_analytics.test").results
+        by_attempt = {(row[0], row[1]): row for row in rows}
+
+        # Every row is attributed, whichever attempt it belongs to — this is the regression.
+        for row in rows:
+            assert (row[2], row[3], row[4]) == ("PostHog", "posthog", pr_number), row[0]
+
+        # The attempt-1 job that really ran keeps its cost...
+        assert not by_attempt[("passed", 1)][5]
+        assert by_attempt[("passed", 1)][6] == pytest.approx(estimate_job_cost_usd(labels, 600))
+        # ...and its attempt-2 re-listing is attributed but costs nothing, so there's no double count.
+        assert by_attempt[("passed", 2)][5]
+        assert by_attempt[("passed", 2)][6] is None
+
+        # The PR's whole bill is the three executions that happened — the passed job once, the failed
+        # job twice (failing, then re-run) — and nothing else. Before the join fix the two attempt-1
+        # rows were unattributed and dropped from this PR-scoped scan, leaving only the re-run;
+        # counting the copy instead would put the passed job's minutes back under the wrong attempt.
+        passed_cost = estimate_job_cost_usd(labels, 600)
+        failed_cost = estimate_job_cost_usd(labels, 300)
+        assert passed_cost is not None and failed_cost is not None
+        total = sum(row[6] for row in rows if row[6] is not None)
+        assert total == pytest.approx(passed_cost + 2 * failed_cost)
 
     def test_rerun_copies_are_flagged_and_not_costed(self) -> None:
         # "Re-run failed jobs" on a run whose 'passed' job succeeded and whose 'failed' job did not:

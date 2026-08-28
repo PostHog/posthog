@@ -8,7 +8,10 @@ from posthog.hogql import ast
 from posthog.clickhouse.workload import Workload
 
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
-from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    job_created_floor_constant,
+    run_started_floor_constant,
+)
 
 # A job that failed in under this many seconds did no real work: it's a required-check aggregator
 # echoing a dependency's failure, which double-counts every real flake. The floor separates a job
@@ -87,10 +90,11 @@ def query_workflow_flakiness(
             "date_from": ast.Constant(value=date_from),
             "min_failed_duration_seconds": ast.Constant(value=min_failed_duration_seconds),
             "by_design_failures": ast.Constant(value=list(BY_DESIGN_FAILURES)),
-            # Same date-only floor for both tables: prunes the runs subquery (run_started_floor) and
-            # the jobs subquery (job_created_floor).
+            # Same date-only floor for both tables — each query filters the column it floors, so both
+            # take the tight one-day slack: the runs subquery (run_started_floor) and the jobs
+            # subquery (job_created_floor).
             "run_started_floor": run_started_floor_constant(date_from),
-            "job_created_floor": run_started_floor_constant(date_from),
+            "job_created_floor": job_created_floor_constant(date_from),
         },
     )
     return [

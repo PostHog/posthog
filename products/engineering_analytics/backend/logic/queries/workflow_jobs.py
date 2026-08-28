@@ -31,6 +31,11 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 # Explicit high LIMIT: without it HogQL caps at DEFAULT_RETURNED_ROWS (100), and since the rows are ordered
 # by start, a run with >100 jobs (matrix builds, re-run attempts) would silently drop its latest-starting
 # jobs — the breakdown would then miss jobs and not add up to the run's cost.
+# No scan floor here, unlike every windowed jobs read: this filters `run_id = {run_id}`, and run_id is
+# the leading PARTITION BY column of the builder's is_rerun_copy window — the one filter shape
+# ClickHouse can push below a window step. A floor would also need the run's created_at, which this
+# entry point isn't given (it takes a run id and nothing else), so bounding it would cost a round trip
+# to buy a bound the run filter already provides.
 _SELECT = """
     SELECT id, run_id, run_attempt, name, status, conclusion, labels, runner_name, started_at, completed_at, duration_seconds, provisioning_seconds, is_rerun_copy
     FROM __JOBS_SOURCE__ AS j

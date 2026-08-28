@@ -30,7 +30,7 @@ spread like any other — ``pr_only`` for a single merge attempt, ``flaky`` or `
 several — which buries the one failure class the queue was installed to surface.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from posthog.hogql import ast
 
@@ -44,6 +44,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.merge_queue import looks_like_merge_queue_branch_expr
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import job_created_floor_constant
 from products.engineering_analytics.backend.logic.views import ci_failures
 
 # Branch names treated as trunk — the failure "hit master" and job-status filters key on these.
@@ -275,7 +276,7 @@ def query_broken_tests(
                 query_type="engineering_analytics.broken_tests_master_jobs",
                 placeholders={
                     "default_branches": ast.Constant(value=_DEFAULT_BRANCHES),
-                    "job_created_floor": ast.Constant(value=(date_from - timedelta(days=1)).strftime("%Y-%m-%d")),
+                    "job_created_floor": job_created_floor_constant(date_from),
                     "date_from": ast.Constant(value=date_from),
                 },
             ).results
