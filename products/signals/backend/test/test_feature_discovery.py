@@ -154,10 +154,11 @@ async def test_feature_discovery_stops_when_agent_says_there_are_no_more_feature
         ]
     )
     session.end = AsyncMock()
+    start_session = AsyncMock(return_value=(session, _exploration()))
 
     with patch(
         "products.signals.backend.features.discovery.MultiTurnSession.start",
-        new=AsyncMock(return_value=(session, _exploration())),
+        new=start_session,
     ):
         result = await run_multi_turn_feature_discovery(
             repository="PostHog/posthog",
@@ -167,13 +168,21 @@ async def test_feature_discovery_stops_when_agent_says_there_are_no_more_feature
 
     assert [feature.title for feature in result.features] == ["Session replay"]
     assert session.send_followup.await_count == 2
+    exploration_prompt = start_session.await_args.kwargs["prompt"]
+    assert "open pull requests or merge requests" in exploration_prompt
+    assert "active remote branches" in exploration_prompt
+    assert "relevant open issues" in exploration_prompt
+    assert "Do not infer that no work is in flight from the default branch alone" in exploration_prompt
+    assert "record which active-work sources were checked" in exploration_prompt
     feature_prompt = session.send_followup.await_args_list[0].args[0]
     assert "Only replay features" in feature_prompt
     assert "living overview" in feature_prompt
     assert "## Current status" in feature_prompt
     assert "open_questions" in feature_prompt
     assert "Do not guess about intended behavior" in feature_prompt
-    assert "Aim for 1,500 to 2,500 characters total" in feature_prompt
+    assert "Treat 2,500 characters as the response budget, not a suggestion" in feature_prompt
+    assert 'instead of writing a bare "None found"' in feature_prompt
+    assert "Do not merge distinct workflows merely because they share files" in feature_prompt
     assert "target 4 to 8 contiguous lines and never exceed 10" in feature_prompt
     assert "end_line = start_line + line_count - 1" in feature_prompt
     prompt_schema = json.loads(feature_prompt.split("<jsonschema>\n", 1)[1].split("\n</jsonschema>", 1)[0])
@@ -181,6 +190,8 @@ async def test_feature_discovery_stops_when_agent_says_there_are_no_more_feature
     assert "title" not in prompt_schema
     continuation_prompt = session.send_followup.await_args_list[1].args[0]
     assert "name only the next strongest candidate" in continuation_prompt
+    assert "user journeys, entry points, and relevant active work" in continuation_prompt
+    assert "even if another feature mentions it or it shares implementation files" in continuation_prompt
     session.end.assert_awaited_once_with()
 
 

@@ -47,10 +47,15 @@ The workflow provisions the same trusted, full-clone sandbox used by report rese
 The agent:
 
 1. explores the primary repository and builds a codebase-level product map;
-2. shallow-clones a related repository only when an in-scope feature cannot be understood without it;
-3. emits one structured feature document with a living overview, current status, user journey, implementation boundaries, in-flight work, measurement and health, and next steps;
-4. decides whether another distinct feature remains in scope;
-5. repeats the document and continuation turns until no feature remains or the safety cap is reached.
+2. checks repository-host metadata and remote branches for relevant work that is not on the default branch;
+3. shallow-clones a related repository only when an in-scope feature cannot be understood without it;
+4. emits one structured feature document with a living overview, current status, user journey, implementation boundaries, in-flight work, measurement and health, and next steps;
+5. decides whether another distinct feature remains in scope;
+6. repeats the document and continuation turns until no feature remains or the safety cap is reached.
+
+Discovery separates features by user goal, lifecycle, success measures, and ownership needs rather than by source-tree layout.
+Shared files do not collapse distinct workflows into one feature, while internal mechanisms do not become standalone features merely because they have separate modules.
+An in-flight-work section states which available repository-host and version-control sources were checked when no relevant work is found.
 
 The agent records every uncertainty about intended functionality as an open question instead of guessing.
 Those questions become task-attributed `question` artefacts on the staged feature so a human can answer them before dependent implementation work begins.
