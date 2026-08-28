@@ -821,6 +821,14 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('billing-spend-get')
     })
 
+    it('customer-analytics-csp flag gates account meeting tools', () => {
+        const off = getToolsForFeatures({ featureFlags: { 'customer-analytics-csp': false } })
+        expect(off).not.toContain('accounts-meetings-list')
+
+        const on = getToolsForFeatures({ featureFlags: { 'customer-analytics-csp': true } })
+        expect(on).toContain('accounts-meetings-list')
+    })
+
     it('revamped-py-notebooks flag swaps the notebook surface without duplicates', () => {
         // Flag ON: the cell tools take over create/read/edit — the model never sees two
         // tools for the same job. Flag OFF: only the legacy surface.

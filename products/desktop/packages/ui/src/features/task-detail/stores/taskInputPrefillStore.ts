@@ -1,3 +1,4 @@
+import type { EditorContent } from "@posthog/core/message-editor/content";
 import { create } from "zustand";
 
 export interface TaskInputReportAssociation {
@@ -11,6 +12,18 @@ export interface TaskInputPrefill {
   /** `owner/repo` of the picked sidebar group, for groups with no folder. */
   folderRepository?: string;
   initialPrompt?: string;
+  /**
+   * Full editor content to restore, including file chips and attachments.
+   * Preferred over initialPrompt when set (e.g. recovering an interrupted
+   * prompt); initialPrompt stays for plain-text callers.
+   */
+  initialContent?: EditorContent;
+  /**
+   * Pending-prompt record key this prefill was recovered from. The composer
+   * clears that record once it applies the content, so the durable record
+   * outlives the transient prefill until the prompt is safely in the composer.
+   */
+  recoveredFromKey?: string;
   initialCloudRepository?: string;
   initialModel?: string;
   initialMode?: string;
@@ -53,6 +66,8 @@ export const useTaskInputPrefillStore = create<PrefillStoreState>((set) => ({
             prefill: {
               ...s.prefill,
               initialPrompt: undefined,
+              initialContent: undefined,
+              recoveredFromKey: undefined,
               requestId: undefined,
             },
           }

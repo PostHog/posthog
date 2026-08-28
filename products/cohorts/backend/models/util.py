@@ -152,7 +152,7 @@ COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to 
 logger = structlog.get_logger(__name__)
 
 
-def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int) -> None:
+def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int | None = None) -> None:
     """Persist post-calculation bookkeeping, surviving a Postgres connection dropped mid-recalculation.
 
     A long recalculation can outlive its connection (the server closes it unexpectedly); the first

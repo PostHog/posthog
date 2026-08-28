@@ -66,6 +66,7 @@ from ..models import (
 )
 from ..oauth import (
     DcrClientRegistration,
+    DCRRegistrationRejectedError,
     OAuthAuthorizeURLError,
     OAuthTokenExchangeError,
     discover_oauth_metadata,
@@ -107,7 +108,20 @@ class DCRNotSupportedError(Exception):
 
 
 class DCRRegistrationFailedError(Exception):
-    """Raised when Dynamic Client Registration fails."""
+    """Raised when Dynamic Client Registration fails.
+
+    `detail` holds a short, user-safe message from the provider when one exists.
+    """
+
+    def __init__(self, detail: str | None = None) -> None:
+        super().__init__(detail or "")
+        self.detail = detail
+
+
+def _dcr_failed_detail(error: "DCRRegistrationFailedError") -> str:
+    if error.detail:
+        return f"OAuth registration failed. {error.detail}"
+    return "OAuth registration failed."
 
 
 def _hash_oauth_state_token(token: str) -> str:
@@ -265,6 +279,9 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
     needs_reauth = serializers.SerializerMethodField()
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField(
+        help_text="Installation description, falling back to the linked template description."
+    )
     icon_domain = serializers.CharField(
         source="template.icon_domain",
         read_only=True,
@@ -325,6 +342,13 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             return obj.display_name
         if obj.template:
             return obj.template.name
+        return ""
+
+    def get_description(self, obj: MCPServerInstallation) -> str:
+        if obj.description:
+            return obj.description
+        if obj.template:
+            return obj.template.description
         return ""
 
     def get_needs_reauth(self, obj: MCPServerInstallation) -> bool:
@@ -975,6 +999,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             log_context["error"] = str(e)
             logger.warning("DCR not supported", **log_context)
             raise DCRNotSupportedError from e
+        except DCRRegistrationRejectedError as e:
+            log_context["error"] = str(e)
+            logger.warning("DCR registration rejected by provider", **log_context)
+            raise DCRRegistrationFailedError(e.provider_message) from e
         except Exception as e:
             log_context["error"] = str(e)
             logger.exception("DCR registration failed", **log_context)
@@ -1426,10 +1454,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            except DCRRegistrationFailedError:
+            except DCRRegistrationFailedError as e:
                 if created:
                     installation.delete()
-                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": _dcr_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
             client_id = registration.client_id
 
             # Cache the discovered metadata and minted per-user client on the
@@ -1695,10 +1723,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            except DCRRegistrationFailedError:
+            except DCRRegistrationFailedError as e:
                 if created:
                     installation.delete()
-                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": _dcr_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
             client_id = registration.client_id
             dcr_client_secret = registration.client_secret
             token_endpoint_auth_method = registration.token_endpoint_auth_method
