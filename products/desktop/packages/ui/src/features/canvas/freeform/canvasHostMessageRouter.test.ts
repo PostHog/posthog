@@ -289,6 +289,53 @@ describe("createCanvasHostMessageRouter", () => {
     expect(handlerB).not.toHaveBeenCalled();
   });
 
+  it("times out a request that waited past its deadline in the queue instead of running it", async () => {
+    vi.useFakeTimers();
+    try {
+      const post = vi.fn();
+      // In-flight requests that never settle, to hold all 8 slots.
+      const onDataRequest = vi.fn(() => new Promise<unknown>(() => {}));
+      const route = createCanvasHostMessageRouter({
+        post,
+        callbacks: () => ({ onDataRequest }),
+        hasUserActivation: () => true,
+        openExternal: vi.fn(),
+      });
+      const fire = (id: string): Promise<void> =>
+        route({
+          channel: "posthog-canvas",
+          type: "data-request",
+          id,
+          method: "stateSet",
+          payload: { scope: "user", key: id, value: 1 },
+        });
+
+      // Fill all 8 slots, then queue a 9th behind them.
+      for (let i = 0; i < 8; i++) {
+        void fire(`slot-${i}`);
+      }
+      void fire("queued");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(onDataRequest).toHaveBeenCalledTimes(8);
+
+      // Elapse the whole 30s budget. The 8 in-flight requests time out and free
+      // their slots, which drains the 9th — but it has already outwaited its own
+      // deadline, so it must be timed out, not run late.
+      await vi.advanceTimersByTimeAsync(30_001);
+
+      expect(onDataRequest).toHaveBeenCalledTimes(8);
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "queued",
+          ok: false,
+          error: "Canvas data request timed out",
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects a data request once the wait queue is also full", async () => {
     const post = vi.fn();
     // Nothing ever resolves, so every slot and queue place stays occupied.

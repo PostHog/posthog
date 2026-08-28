@@ -174,11 +174,21 @@ export function createCanvasHostMessageRouter(
         // read/write/action against whichever canvas is current when the slot
         // frees, not the one that issued it.
         const onDataRequest = options.callbacks().onDataRequest;
-        // Over-cap requests wait here for a slot; the timeout below only starts
-        // once the request actually runs, so a queued request isn't timed out
-        // while waiting.
+        // Anchor the deadline at receipt, not at drain. The published-artifact
+        // runtime starts its own 30s timer when the canvas calls ph.*, and drops
+        // the request when it fires; counting the host's budget only from when a
+        // slot frees would let a request that waited out that budget in the queue
+        // still run — a late stateSet/capture/actionInvoke write against a canvas
+        // that already gave up on it, doubled if the canvas retried.
+        const deadline = Date.now() + DATA_REQUEST_TIMEOUT_MS;
         if (holdsSlot) await acquireSlot();
+        // Time left once a slot is in hand; a request that outwaited its budget
+        // in the queue is timed out rather than run late.
+        const remainingMs = deadline - Date.now();
         try {
+          if (holdsSlot && remainingMs <= 0) {
+            throw new Error("Canvas data request timed out");
+          }
           const call = onDataRequest(message.method, message.payload);
           // agentRequest settles only when a viewer approves or cancels the
           // request in a dialog, which can take arbitrarily long. Racing it
@@ -193,7 +203,7 @@ export function createCanvasHostMessageRouter(
                   new Promise<never>((_, reject) =>
                     setTimeout(
                       () => reject(new Error("Canvas data request timed out")),
-                      DATA_REQUEST_TIMEOUT_MS,
+                      remainingMs,
                     ),
                   ),
                 ]);
