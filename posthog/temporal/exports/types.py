@@ -1,6 +1,7 @@
 import dataclasses
 from typing import Final, Literal, Optional, TypedDict
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.errors import find_temporal_timeout_error, resolve_error_trace, unwrap_temporal_cause
 
 from products.exports.backend.tasks.failure_handler import SLO_FAILURE_CATEGORY_QUERY, is_user_query_error_type
@@ -19,7 +20,7 @@ class ExportAssetActivityInputs:
     source: Optional[str] = None
 
 
-@dataclasses.dataclass
+@frozen
 class ExportError:
     exception_class: str
     error_trace: str = ""
