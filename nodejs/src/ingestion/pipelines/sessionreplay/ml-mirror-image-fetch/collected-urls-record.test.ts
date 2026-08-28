@@ -54,12 +54,19 @@ describe('frontier record', () => {
         expect(parsed).toEqual({ ok: true, candidates: [candidate()], urlCount: 1, rejected: [] })
     })
 
-    it('round trips the optional low-origin-diversity marker', () => {
-        const marked = candidate({ lowOriginDiversityDeferred: true })
+    it('does not persist source partition attribution', () => {
+        const parsed = parseCollectedUrlsRecord(
+            serializeFrontierRecord([candidate({ sourcePartitions: [7] })]),
+            'example.com'
+        )
 
-        expect(parseCollectedUrlsRecord(serializeFrontierRecord([marked]), 'example.com')).toEqual({
+        expect(parsed).toEqual({ ok: true, candidates: [candidate()], urlCount: 1, rejected: [] })
+    })
+
+    it('accepts and removes the legacy low-origin-diversity marker', () => {
+        expect(parseCollectedUrlsRecord(record({ lowOriginDiversityDeferred: true }), 'example.com')).toEqual({
             ok: true,
-            candidates: [marked],
+            candidates: [candidate()],
             urlCount: 1,
             rejected: [],
         })
