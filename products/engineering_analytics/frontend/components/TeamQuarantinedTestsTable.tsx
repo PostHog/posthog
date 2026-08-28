@@ -28,6 +28,9 @@ export function TeamQuarantinedTestsTable({
         {
             title: 'Test',
             key: 'nodeid',
+            // max-w-0 lets the auto-layout cell shrink to the distributed width, so a long
+            // nodeid truncates instead of pushing the table wider than the scene.
+            className: 'w-full max-w-0',
             render: (_, row) => (
                 <Tooltip title={row.nodeid}>
                     <Link
