@@ -1109,6 +1109,8 @@ Pin to v{skill.version} explicitly, since the run row, your tool resolution, and
 
 The body tells you what to investigate, in what order, with what hypotheses. Pull files on demand with `skill-file-get` only when the body references them. Don't start investigating before you've read it.
 
+`skill-get` and `skill-file-get` read this team's skills store: your bound scout and the companion skills seeded next to it. PostHog's built-in skills, such as `querying-posthog-data`, are not rows in that store. They are installed in this sandbox as local skills. When your skill body or a tool description tells you to read one of them, use the local copy: pick it from your available skills, or read its `SKILL.md` from the installed skills directory. A 404 from `skill-get` for a built-in skill is expected, not a gap: do not retry it and do not report it through `agent-feedback`.
+
 # Then: orient on this project
 
 Once you've read your skill, call:
