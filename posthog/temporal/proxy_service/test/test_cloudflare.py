@@ -147,6 +147,17 @@ class TestCreateCustomHostname(SimpleTestCase):
             timeout=8.0,
         )
 
+    @patch("posthog.temporal.proxy_service.cloudflare.requests.post")
+    def test_omits_redirect_metadata_when_root_redirect_is_disabled(self, post_request):
+        response = Mock()
+        response.json.return_value = {"success": True, "result": _hostname_payload()}
+        post_request.return_value = response
+
+        create_custom_hostname("p.example.com")
+
+        request_payload = post_request.call_args.kwargs["json"]
+        assert "custom_metadata" not in request_payload
+
     @patch("posthog.temporal.proxy_service.cloudflare.requests.patch")
     def test_preserves_existing_metadata(self, patch_request):
         hostname = _parse_hostname(_hostname_payload(custom_metadata={"existing": "value"}))

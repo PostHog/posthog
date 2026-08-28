@@ -21,6 +21,7 @@ import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
 import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
+import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
@@ -49,6 +50,7 @@ export interface HogExecutorAsyncConfig {
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
     siteUrl: string
+    internalApiBaseUrl: string
 }
 
 /**
@@ -58,6 +60,7 @@ export interface HogExecutorAsyncConfig {
  */
 export interface HogExecutorAsyncDependencies {
     teamManager: TeamManager
+    conversationsTicketsJwt: ScopedServiceJwt
     hogInputsService: HogInputsService
     emailService: EmailService
     recipientTokensService: RecipientTokensService
@@ -97,6 +100,20 @@ export class HogExecutorAsyncService {
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         let asyncFunctionCount = 0
         const maxAsyncFunctions = options?.maxAsyncFunctions ?? 1
+
+        // Shared with inline async handlers (see AsyncFunctionContext.consumeInlineAsyncBudget):
+        // they do real network I/O without ever setting queueParameters, so the queued-type
+        // counting below never sees them. Without this they could run unbounded up to the VM's
+        // own step cap, each holding this worker slot for the full retry round instead of
+        // rescheduling like a queued fetch does.
+        const consumeInlineAsyncBudget = (): void => {
+            asyncFunctionCount++
+            if (asyncFunctionCount > maxAsyncFunctions) {
+                throw new Error(
+                    `Max async functions reached: ${maxAsyncFunctions}. This function performed too many API calls in a single execution.`
+                )
+            }
+        }
 
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = null
         const metrics: MinimalAppMetric[] = []
@@ -175,7 +192,12 @@ export class HogExecutorAsyncService {
                 // Finish execution, carrying forward previous execResult
                 // Tricky: We don't pass metrics in previousResult as they're accumulated in the local metrics array
                 const { metrics: _m, logs: _l, ...previousResultWithoutMetrics } = result || {}
-                result = await this.execute(nextInvocation, options, previousResultWithoutMetrics)
+                result = await this.execute(
+                    nextInvocation,
+                    options,
+                    previousResultWithoutMetrics,
+                    consumeInlineAsyncBudget
+                )
             }
 
             logs.push(...result.logs)
@@ -208,7 +230,10 @@ export class HogExecutorAsyncService {
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
         options: HogExecutorExecuteOptions = {},
-        previousResult: HogExecutorPreviousResult = {}
+        previousResult: HogExecutorPreviousResult = {},
+        // Callers outside executeWithAsyncFunctions' loop (e.g. the source-webhooks consumer)
+        // run at most one async step per execute() call already, so a no-op budget is safe there.
+        consumeInlineAsyncBudget: () => void = () => {}
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         return this.hogExecutor.execute(
             invocation,
@@ -243,6 +268,9 @@ export class HogExecutorAsyncService {
                             globals,
                             teamManager: this.deps.teamManager,
                             siteUrl: this.config.siteUrl,
+                            internalApiBaseUrl: this.config.internalApiBaseUrl,
+                            conversationsTicketsJwt: this.deps.conversationsTicketsJwt,
+                            consumeInlineAsyncBudget,
                         },
                         result
                     )

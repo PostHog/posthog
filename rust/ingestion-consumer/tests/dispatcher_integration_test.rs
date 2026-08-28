@@ -103,18 +103,15 @@ fn fast_config() -> WorkerRegistryConfig {
     }
 }
 
-fn make_msg(token: &str, distinct_id: &str) -> SerializedKafkaMessage {
-    let mut headers = HashMap::new();
-    headers.insert("token".to_string(), token.to_string());
-    headers.insert("distinct_id".to_string(), distinct_id.to_string());
+fn make_msg(key: &str) -> SerializedKafkaMessage {
     SerializedKafkaMessage {
         topic: "test".to_string(),
         partition: 0,
         offset: 0,
         timestamp: 0,
-        key: None,
+        key: Some(key.to_string()),
         value: None,
-        headers,
+        headers: HashMap::new(),
     }
 }
 
@@ -179,9 +176,7 @@ async fn test_new_keys_skip_unhealthy_worker() {
     w1.set_healthy(false);
     wait_for_state(&registry, &w1.url, WorkerState::Unhealthy).await;
 
-    let keys: Vec<_> = (0..10)
-        .map(|i| make_msg("t", &format!("user-{i}")))
-        .collect();
+    let keys: Vec<_> = (0..10).map(|i| make_msg(&format!("t:user-{i}"))).collect();
     let sub_batches = dispatcher.assign("b", keys);
 
     assert!(
@@ -212,7 +207,7 @@ async fn test_pinned_key_rerouted_after_dead_declaration() {
 
     // Pin "t:user-1" to whichever worker gets it first. Hold the sub-batch
     // open (don't call on_sub_batch_resolved) so the pin stays alive.
-    let b1 = dispatcher.assign("b", vec![make_msg("t", "user-1")]);
+    let b1 = dispatcher.assign("b", vec![make_msg("t:user-1")]);
     assert_eq!(b1.len(), 1);
     let pinned_to = b1[0].worker.clone();
     let other = if pinned_to.as_ref() == w0.url {
@@ -244,7 +239,7 @@ async fn test_pinned_key_rerouted_after_dead_declaration() {
     );
 
     // Next assign: the evicted pin means the key re-routes to the live worker.
-    let b2 = dispatcher.assign("b", vec![make_msg("t", "user-1")]);
+    let b2 = dispatcher.assign("b", vec![make_msg("t:user-1")]);
     assert_eq!(b2.len(), 1, "expected exactly one sub-batch");
     assert_eq!(
         b2[0].worker.as_ref(),
@@ -283,9 +278,7 @@ async fn test_worker_recovery_detected_by_probe() {
 
     // Assign a large set of fresh keys. Both workers should get some, since w1
     // is now at least Degraded (Healthy | Degraded both receive assignments).
-    let keys: Vec<_> = (0..40)
-        .map(|i| make_msg("t", &format!("user-{i}")))
-        .collect();
+    let keys: Vec<_> = (0..40).map(|i| make_msg(&format!("t:user-{i}"))).collect();
     let sub_batches = dispatcher.assign("b", keys);
 
     let workers_used: std::collections::HashSet<String> =
@@ -320,9 +313,9 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
     let first = dispatcher.assign(
         "b",
         vec![
-            make_msg("t", "key-a"),
-            make_msg("t", "key-b"),
-            make_msg("t", "key-c"),
+            make_msg("t:key-a"),
+            make_msg("t:key-b"),
+            make_msg("t:key-c"),
         ],
     );
     assert_eq!(
@@ -352,9 +345,9 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
     let fresh = dispatcher.assign(
         "b",
         vec![
-            make_msg("t", "new-1"),
-            make_msg("t", "new-2"),
-            make_msg("t", "new-3"),
+            make_msg("t:new-1"),
+            make_msg("t:new-2"),
+            make_msg("t:new-3"),
         ],
     );
     assert!(
@@ -378,8 +371,7 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
     );
 
     // The key that was pinned to w1 must re-route to w0 or w2 on its next assign.
-    let (_, distinct_id) = w1_key.split_once(':').unwrap();
-    let rerouted = dispatcher.assign("b", vec![make_msg("t", distinct_id)]);
+    let rerouted = dispatcher.assign("b", vec![make_msg(&w1_key)]);
     assert_eq!(
         rerouted.len(),
         1,
@@ -414,7 +406,7 @@ async fn test_all_workers_unhealthy_returns_empty() {
     wait_for_state(&registry, &w0.url, WorkerState::Unhealthy).await;
     wait_for_state(&registry, &w1.url, WorkerState::Unhealthy).await;
 
-    let sub_batches = dispatcher.assign("b", vec![make_msg("t", "user-1")]);
+    let sub_batches = dispatcher.assign("b", vec![make_msg("t:user-1")]);
     assert!(
         sub_batches.is_empty(),
         "expected empty assignment when all workers are unhealthy"
@@ -440,7 +432,7 @@ async fn test_draining_worker_defers_then_flushes_to_survivor() {
     Arc::clone(&registry).start_probing(token.clone());
 
     // Pin user-1 to whichever worker gets it; hold the sub-batch open.
-    let b1 = dispatcher.assign("batch-1", vec![make_msg("t", "user-1")]);
+    let b1 = dispatcher.assign("batch-1", vec![make_msg("t:user-1")]);
     let pinned = b1[0].worker.clone();
     let other = if pinned.as_ref() == w0.url {
         w1.url.clone()
@@ -452,7 +444,7 @@ async fn test_draining_worker_defers_then_flushes_to_survivor() {
     registry.start_draining(&pinned);
 
     // New messages for user-1 defer — not sent to the drainer, not yet rerouted.
-    let b2 = dispatcher.assign("batch-2", vec![make_msg("t", "user-1")]);
+    let b2 = dispatcher.assign("batch-2", vec![make_msg("t:user-1")]);
     assert!(
         b2.is_empty(),
         "must defer while the pinned worker is draining"

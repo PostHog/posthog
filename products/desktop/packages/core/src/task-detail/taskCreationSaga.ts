@@ -576,6 +576,8 @@ export class TaskCreationSaga extends Saga<
           if (input.executionMode)
             connectParams.executionMode = input.executionMode;
           if (input.adapter) connectParams.adapter = input.adapter;
+          if (input.codexModelAccess)
+            connectParams.codexModelAccess = input.codexModelAccess;
           if (input.model) connectParams.model = input.model;
           if (input.reasoningLevel)
             connectParams.reasoningLevel = input.reasoningLevel;

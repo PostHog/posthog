@@ -1,11 +1,36 @@
-import type { SignalScoutConfigApi, SignalScoutRunSummaryApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    SignalScoutConfigApi,
+    SignalScoutRunSummaryApi,
+    UserBasicApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 type MockScoutOverrides = Pick<SignalScoutConfigApi, 'id' | 'skill_name' | 'description'> &
     Partial<Omit<SignalScoutConfigApi, 'id' | 'skill_name' | 'description'>>
 
+function makeMockOwner(id: number, firstName: string, lastName: string): UserBasicApi {
+    return {
+        id,
+        uuid: `0000000${id}-0000-0000-0000-000000000000`,
+        distinct_id: `owner-${id}`,
+        first_name: firstName,
+        last_name: lastName,
+        email: `${firstName.toLowerCase()}@example.com`,
+        is_email_verified: true,
+        hedgehog_config: null,
+    }
+}
+
+const MOCK_SCOUT_OWNERS = [
+    makeMockOwner(1, 'Ada', 'Ellis'),
+    makeMockOwner(2, 'Bo', 'Nakamura'),
+    makeMockOwner(3, 'Cleo', 'Farah'),
+    makeMockOwner(4, 'Devi', 'Osei'),
+]
+
 function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
     return {
         scout_origin: 'canonical',
+        owners: [],
         enabled: true,
         status: 'active',
         pause_reason: null,
@@ -92,6 +117,7 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         skill_name: 'signals-scout-checkout-health',
         description: 'checkout failures and unusual drops in completed purchases',
         scout_origin: 'custom',
+        owners: [MOCK_SCOUT_OWNERS[0]],
         run_interval_minutes: 30,
         last_run_at: '2026-06-10T23:50:00Z',
         tags: ['checkout', 'revenue'],
@@ -114,6 +140,7 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         skill_name: 'signals-scout-enterprise-adoption',
         description: 'changes in feature adoption across enterprise accounts',
         scout_origin: 'custom',
+        owners: MOCK_SCOUT_OWNERS,
         run_cron_schedule: '30 8 * * 1',
         tags: ['adoption'],
     }),

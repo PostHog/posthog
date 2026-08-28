@@ -50,6 +50,39 @@ describe("createRuntimeMcpServers", () => {
     });
   });
 
+  it("carries a server description so search finds it before it connects", () => {
+    // Lazy servers hold no tool metadata until first use, so pi's `mcp` search matches
+    // them on name and description alone.
+    expect(
+      createRuntimeMcpServers([
+        {
+          name: "Linear",
+          type: "http",
+          url: "https://mcp.example/linear",
+          headers: [],
+          description: "Manage Linear issues, projects, and workflows.",
+        },
+      ]),
+    ).toMatchObject({
+      Linear: {
+        description: "Manage Linear issues, projects, and workflows.",
+      },
+    });
+  });
+
+  it("omits the description key for servers without one", () => {
+    expect(
+      createRuntimeMcpServers([
+        {
+          name: "plain",
+          type: "http",
+          url: "https://mcp.example/mcp",
+          headers: [],
+        },
+      ]).plain,
+    ).not.toHaveProperty("description");
+  });
+
   it("maps local tools to an eager direct stdio server", () => {
     expect(
       createRuntimeMcpStdioServers([
