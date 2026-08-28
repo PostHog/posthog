@@ -302,8 +302,13 @@ async def delete_recordings(input: DeleteRecordingsInput) -> DeleteRecordingsRes
         response.raise_for_status()
         data = response.json()
 
-    deleted = [r["sessionId"] for r in data if r.get("ok")]
-    failed_count = len(data) - len(deleted)
+    # Count failures against the request, not the response. The team metadata sweep is
+    # gated on zero failures, so a session the response omits must count as failed —
+    # its key was not confirmed shredded.
+    requested = list(dict.fromkeys(input.session_ids))
+    confirmed = {r["sessionId"] for r in data if r.get("ok")}
+    deleted = [session_id for session_id in requested if session_id in confirmed]
+    failed_count = len(requested) - len(deleted)
 
     logger.info(
         "Delete batch completed",

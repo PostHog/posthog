@@ -48,8 +48,24 @@ from posthog.temporal.session_replay.delete_recordings.types import (
         pytest.param(
             [],
             [],
+            2,
+            id="empty_response_counts_all_requested_as_failed",
+        ),
+        pytest.param(
+            [{"sessionId": "s1", "ok": True, "status": "deleted", "deletedAt": 1700000000}],
+            ["s1"],
+            1,
+            id="short_response_counts_missing_session_as_failed",
+        ),
+        pytest.param(
+            [
+                {"sessionId": "s1", "ok": True, "status": "deleted", "deletedAt": 1700000000},
+                {"sessionId": "s2", "ok": True, "status": "deleted", "deletedAt": 1700000000},
+                {"sessionId": "unrequested", "ok": True, "status": "deleted", "deletedAt": 1700000000},
+            ],
+            ["s1", "s2"],
             0,
-            id="empty_results",
+            id="unrequested_session_in_response_is_ignored",
         ),
     ],
 )
