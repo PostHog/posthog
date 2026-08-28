@@ -38,6 +38,7 @@ import {
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     WebAnalyticsTile,
+    isContentAutopilotEnabled,
     tabSplitIndicesMap,
 } from 'scenes/web-analytics/common'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
@@ -60,6 +61,7 @@ import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '
 
 import { AgentAnalytics } from 'products/web_analytics/frontend/agent_analytics/AgentAnalytics'
 import { AgentAnalyticsFilters } from 'products/web_analytics/frontend/agent_analytics/AgentAnalyticsFilters'
+import { ContentAutopilot } from 'products/web_analytics/frontend/contentAutopilot/ContentAutopilot'
 
 import { BotAnalyticsFilters } from './BotAnalyticsFilters'
 import { botAnalyticsLogic } from './botAnalyticsLogic'
@@ -652,6 +654,8 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
             return <PagePerformanceFilters tabs={tabs} />
         case ProductTab.AGENTS:
             return <AgentAnalyticsFilters tabs={tabs} />
+        case ProductTab.CONTENT_AUTOPILOT:
+            return null
         default:
             return <WebAnalyticsFilters tabs={tabs} />
     }
@@ -682,6 +686,10 @@ const MainContent = (): JSX.Element => {
 
     if (productTab === ProductTab.AGENTS) {
         return <AgentAnalytics />
+    }
+
+    if (productTab === ProductTab.CONTENT_AUTOPILOT) {
+        return <ContentAutopilot />
     }
 
     return <Tiles />
@@ -807,6 +815,29 @@ const agentAnalyticsTab = (
     ]
 }
 
+const contentAutopilotTab = (
+    featureFlags: FeatureFlagsSet
+): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
+    if (!isContentAutopilotEnabled(featureFlags)) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.CONTENT_AUTOPILOT,
+            label: (
+                <div className="flex items-center gap-1">
+                    Content autopilot
+                    <LemonTag type="completion" className="uppercase">
+                        Alpha
+                    </LemonTag>
+                </div>
+            ),
+            link: urls.webAnalyticsContentAutopilot(),
+        },
+    ]
+}
+
 const WebAnalyticsSurveyModal = (): JSX.Element | null => {
     const { surveyModalPath } = useValues(webAnalyticsLogic)
     const { closeSurveyModal } = useActions(webAnalyticsLogic)
@@ -922,6 +953,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 ...botAnalyticsTab(featureFlags),
                 ...pagePerformanceTab(featureFlags),
                 ...agentAnalyticsTab(featureFlags),
+                ...contentAutopilotTab(featureFlags),
                 ...healthTab(),
             ]}
             sceneInset
