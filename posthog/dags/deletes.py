@@ -833,7 +833,7 @@ class VerifiedDeletionResources:
 def _delete_predicate_params(
     pending_deletes_dictionary: "PendingDeletesDictionary",
     adhoc_event_deletes_dictionary: "AdhocEventDeletesDictionary",
-) -> dict:
+) -> dict[str, str | int]:
     return {
         "pending_deletes_dictionary": pending_deletes_dictionary.qualified_name,
         "person_deletion_type": DeletionType.Person,
@@ -868,6 +868,10 @@ def _count_unswept_rows(
             settings={"max_execution_time": str(max_execution_time)},
         )
         try:
+            # The job's own handle, not placement.cluster: `table` is the Distributed proxy, which
+            # routes to whichever cluster its engine names. That is what lets one query see rows on
+            # a cluster this handle cannot dispatch a mutation to, which is the whole point of
+            # counting here rather than on the storage tables.
             rows = cluster.any_host_by_role(query, NodeRole.DATA).result()
             counts[table] = int(rows[0][0]) if rows else 0
         except Exception as e:
