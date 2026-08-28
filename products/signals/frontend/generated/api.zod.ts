@@ -324,7 +324,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
  */
 export const signalsScoutCreateBodyNameMax = 64
 
-export const signalsScoutCreateBodyDescriptionMax = 4096
+export const signalsScoutCreateBodyDescriptionMax = 1024
 
 export const signalsScoutCreateBodyFilesItemPathMax = 500
 
