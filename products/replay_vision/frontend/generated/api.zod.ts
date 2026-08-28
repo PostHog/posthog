@@ -1287,7 +1287,7 @@ export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */
  */
 export const visionScannersScoutsCreateBodyNameMax = 64
 
-export const visionScannersScoutsCreateBodyDescriptionMax = 4096
+export const visionScannersScoutsCreateBodyDescriptionMax = 1024
 
 export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMin = 30
 export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMax = 43200
