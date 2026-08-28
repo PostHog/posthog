@@ -45,6 +45,7 @@ from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import (
     PostHogFeatureFlagPermission,
+    TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     get_authenticator_scopes,
     is_service_auth,
@@ -875,6 +876,7 @@ class CustomPropertyDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    permission_classes = [TeamMemberLightManagementPermission]
     # ``values`` is a custom read action; without listing it here it carries no required scope and
     # rejects token auth outright ("does not support personal API key access") before the group gate runs.
     scope_object_read_actions = ["list", "retrieve", "values"]
