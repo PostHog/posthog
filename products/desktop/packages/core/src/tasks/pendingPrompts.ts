@@ -1,4 +1,33 @@
+import {
+  type EditorContent,
+  textToContent,
+  xmlToContent,
+} from "@posthog/core/message-editor/content";
+
 export const MAX_RECOVERABLE_PROMPTS = 20;
+
+/** Why a submitted prompt never reached a running task. */
+export type PendingPromptInterruptReason = "offline" | "failed";
+
+/** The fields a recovered prompt restores its composer content from. */
+export interface RecoverablePromptContent {
+  /** Serialized editor content (chips + attachments), preferred on restore. */
+  contentXml?: string;
+  /** Plain-text fallback for records written before contentXml existed. */
+  promptText: string;
+}
+
+/**
+ * Reconstruct the editor content to drop back into the composer on recovery.
+ * Prefers the serialized content so file chips and attachments survive; falls
+ * back to plain text for records written before contentXml was captured.
+ */
+export function pendingPromptToContent(
+  record: RecoverablePromptContent,
+): EditorContent {
+  const xml = record.contentXml?.trim();
+  return xml ? xmlToContent(xml) : textToContent(record.promptText);
+}
 
 export interface TimestampedPendingPrompt {
   createdAt: number;

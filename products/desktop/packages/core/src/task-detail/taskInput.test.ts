@@ -38,6 +38,16 @@ describe("prepareTaskInput", () => {
     expect(input.runtime).toBe("pi");
   });
 
+  it("preserves the selected Codex model access", () => {
+    const input = prepareTaskInput("do the thing", [], {
+      workspaceMode: "local",
+      adapter: "codex",
+      codexModelAccess: "own-subscription",
+    });
+
+    expect(input.codexModelAccess).toBe("own-subscription");
+  });
+
   it("drops customInstructions for cloud when none is set", () => {
     const input = prepareTaskInput("do the thing", [], {
       workspaceMode: "cloud",
