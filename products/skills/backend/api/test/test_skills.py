@@ -7,7 +7,7 @@ from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
@@ -1829,6 +1829,13 @@ class TestLLMSkillDescriptionCapSplit(SimpleTestCase):
     def test_write_serializers_cap_at_spec_limit_while_reads_reflect_storage(self) -> None:
         # The 1024 spec cap gates writes only. Reads expose the 4096 column limit so legacy rows above
         # the cap serialize out; a read schema capped at 1024 would misdescribe those rows.
-        assert LLMSkillCreateSerializer().fields["description"].max_length == SPEC_DESCRIPTION_MAX_LENGTH
-        assert LLMSkillSerializer().fields["description"].max_length == 4096
-        assert LLMSkillListSerializer().fields["description"].max_length == 4096
+        create_description = LLMSkillCreateSerializer().fields["description"]
+        detail_description = LLMSkillSerializer().fields["description"]
+        list_description = LLMSkillListSerializer().fields["description"]
+
+        assert isinstance(create_description, serializers.CharField)
+        assert isinstance(detail_description, serializers.CharField)
+        assert isinstance(list_description, serializers.CharField)
+        assert create_description.max_length == SPEC_DESCRIPTION_MAX_LENGTH
+        assert detail_description.max_length == 4096
+        assert list_description.max_length == 4096
