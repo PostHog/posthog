@@ -256,13 +256,29 @@ def test_table_from_py_list_with_lists():
     )
 
 
-def test_table_from_py_list_with_same_length_tuple_columns():
-    # A column of same-length tuples (e.g. a Postgres composite/record type) makes the NumPy
-    # object-array fallback build a 2D array. Without the ndim guard, pa.Table.from_pydict raises
-    # ArrowInvalid ("only handle 1-dimensional arrays"). The column must JSON-stringify instead.
-    table = table_from_py_list([{"column": ("a", 1)}, {"column": ("b", 2)}])
+@pytest.mark.parametrize(
+    "rows,expected",
+    [
+        # Same-length non-null tuples make the NumPy object-array fallback stack into a 2D array,
+        # which the ndim guard catches. Without a guard, pa.Table.from_pydict raises ArrowInvalid
+        # ("only handle 1-dimensional arrays").
+        ([{"column": ("a", 1)}, {"column": ("b", 2)}], ['["a",1]', '["b",2]']),
+        # A None row keeps the fallback array 1-dimensional, so the ndim guard does not fire; the
+        # tuple must still JSON-stringify instead of reaching pa.array() as a raw tuple.
+        ([{"column": ("a", 1)}, {"column": None}, {"column": ("b", 2)}], ['["a",1]', None, '["b",2]']),
+        # Ragged tuples also stay 1-dimensional.
+        ([{"column": ("a", 1)}, {"column": ("b", 2, 3)}], ['["a",1]', '["b",2,3]']),
+        # Homogeneous tuples stay a pyarrow list array rather than an object ndarray, so neither the
+        # ndim guard nor a 2D stack applies; they must still land as JSON text.
+        ([{"column": (1, 2)}, {"column": (3, 4)}], ["[1,2]", "[3,4]"]),
+    ],
+)
+def test_table_from_py_list_with_tuple_columns(rows, expected):
+    # A column of tuples (e.g. a Postgres composite/record type) must import as JSON text instead
+    # of crashing the sync, whatever shape the tuples take.
+    table = table_from_py_list(rows)
 
-    assert table.equals(pa.table({"column": ['["a",1]', '["b",2]']}))
+    assert table.equals(pa.table({"column": expected}))
     assert table.schema.equals(
         pa.schema(
             [
