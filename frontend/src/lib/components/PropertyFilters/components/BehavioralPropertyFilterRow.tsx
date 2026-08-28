@@ -134,7 +134,9 @@ export function BehavioralPropertyFilterRow({
                         size={size}
                         value={!!filter.negation}
                         onChange={(negation) => {
-                            posthog.capture('behavioral filter behavior changed', { negation })
+                            posthog.capture('behavioral filter behavior changed', {
+                                behavior: negation ? 'did_not_perform' : 'performed',
+                            })
                             onChange(withBehavioralNegation(filter, negation))
                         }}
                         options={[
