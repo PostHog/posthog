@@ -132,7 +132,8 @@ def send_slack_timeout_notification(
             lines.append(line)
         blocks.append(_section(f":red_circle: *Still running ({len(running_tests)}):*\n" + "\n".join(lines)))
 
-    blocks.append(_metadata_section(config, failure_class="event_missing", severity="warning"))
+    timeout_class = _timeout_failure_class(running_tests or [])
+    blocks.append(_metadata_section(config, failure_class=timeout_class, severity=_severity(timeout_class)))
     now = datetime.now().astimezone()
     blocks.append(
         _links_context(
@@ -306,6 +307,21 @@ def _loki_explore_url(config: Config, start: datetime, end: datetime) -> str | N
         "range": {"from": str(int(start.timestamp() * 1000)), "to": str(int(end.timestamp() * 1000))},
     }
     return f"{grafana}/explore?left={quote(json.dumps(state, separators=(',', ':')), safe='')}"
+
+
+def _timeout_failure_class(running_tests: list[RunningTestSnapshot]) -> FailureClass:
+    """Classify an activity timeout by what the still-running tests were waiting for.
+
+    A test still polling for an event or a person when the budget runs out is
+    the same failure as its assertion timing out. No pending poll means the
+    harness itself was stuck.
+    """
+    pending = [t.pending_poll for t in running_tests if t.pending_poll]
+    if any(p.startswith("event") for p in pending):
+        return "event_missing"
+    if any(p.startswith("person") for p in pending):
+        return "person_missing"
+    return "error"
 
 
 def _suite_failure_class(failed: list[TestResult]) -> FailureClass:

@@ -373,7 +373,36 @@ class TestSendSlackTimeoutNotification:
         assert "phc_test_k..." in context_text
         all_text = " ".join(str(b) for b in payload["blocks"])
         assert "Environment: dev" in all_text
+        assert "Failure class: error" in all_text
         assert "Severity: warning" in all_text
+
+    @pytest.mark.parametrize(
+        "pending_polls, expected_class, expected_severity",
+        [
+            (["event UUID 'abc'"], "event_missing", "critical"),
+            (["person with distinct_id 'abc'"], "person_missing", "critical"),
+            (["events for person 'p1'", "person with distinct_id 'abc'"], "event_missing", "critical"),
+            ([None], "error", "warning"),
+        ],
+        ids=["event_poll", "person_poll", "mixed_polls", "no_poll"],
+    )
+    @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
+    def test_timeout_is_classified_by_what_was_pending(
+        self,
+        mock_post: MagicMock,
+        config: Config,
+        pending_polls: list[str | None],
+        expected_class: str,
+        expected_severity: str,
+    ) -> None:
+        mock_post.return_value.raise_for_status = MagicMock()
+        running = [RunningTestSnapshot(name=f"t{i}", pending_poll=p) for i, p in enumerate(pending_polls)]
+
+        send_slack_timeout_notification(config, running_tests=running)
+
+        all_text = " ".join(str(b) for b in mock_post.call_args[1]["json"]["blocks"])
+        assert f"Failure class: {expected_class}" in all_text
+        assert f"Severity: {expected_severity}" in all_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_does_nothing_when_no_webhook_url(self, mock_post: MagicMock) -> None:

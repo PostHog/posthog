@@ -167,3 +167,5 @@ Failure classes:
 | `error`            | Any other exception in the test                                   | The traceback in the Temporal run                               |
 
 The suite-level class is the most serious one present. `connection_error` and `error` are reported as `Severity: warning`; the others as `critical`.
+
+The timeout alert classifies the run by what the still-running tests were waiting for: an event poll gives `event_missing`, a person poll `person_missing`, and no pending poll `error`.
