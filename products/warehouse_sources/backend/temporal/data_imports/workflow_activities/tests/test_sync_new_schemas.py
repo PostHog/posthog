@@ -46,26 +46,35 @@ def _run_activity(source_mock, schemas_created=None, source_api_version=None):
 
 
 @pytest.mark.parametrize(
-    "error_msg,non_retryable,expected_exc",
+    "error_msg,non_retryable,retryable,expected_exc",
     [
         (
             "('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})",
             {"invalid_grant": None},
+            set(),
+            None,
+        ),
+        (
+            "250001: Could not connect to Snowflake backend after 3 attempt(s)",
+            {},
+            {"Could not connect to Snowflake backend after"},
             None,
         ),
         (
             "UNAVAILABLE: transient network blip",
             {"invalid_grant": None},
+            set(),
             "transient network blip",
         ),
     ],
-    ids=["non_retryable_error_is_skipped", "unknown_error_propagates"],
+    ids=["non_retryable_error_is_skipped", "retryable_error_is_skipped", "unknown_error_propagates"],
 )
-def test_get_schemas_error_handling(error_msg, non_retryable, expected_exc):
+def test_get_schemas_error_handling(error_msg, non_retryable, retryable, expected_exc):
     source_mock = mock.MagicMock()
     source_mock.parse_config.return_value = {}
     source_mock.get_schemas.side_effect = Exception(error_msg)
     source_mock.get_non_retryable_errors.return_value = non_retryable
+    source_mock.get_retryable_errors.return_value = retryable
 
     if expected_exc is None:
         _run_activity(source_mock)

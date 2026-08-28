@@ -955,6 +955,14 @@ class TestSnowflakeSourceRetryableErrors:
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Snowflake login internal-error should be classified retryable: {error_msg}"
 
+    def test_connect_backend_after_attempts_is_retryable(self, source):
+        # The real shape from production: opening the connection failed after the connector
+        # exhausted its own login retries. A fresh Temporal retry opens a new connection.
+        error_msg = "250001: Could not connect to Snowflake backend after 3 attempt(s)"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Snowflake connect-backend error should be classified retryable: {error_msg}"
+
 
 class TestSnowflakeValidateCredentials:
     @pytest.fixture

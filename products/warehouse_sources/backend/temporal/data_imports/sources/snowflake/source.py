@@ -337,6 +337,13 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # self-recovering failure it is. The request id in brackets is volatile, so we match the
             # stable phrase.
             "Internal error:",
+            # Snowflake error 250001: opening the connection failed after the connector exhausted its
+            # own login retries ("Could not connect to Snowflake backend after N attempt(s)"). This is
+            # a transient blip on Snowflake's side or on the network path to it, not a credential or
+            # config problem, so a fresh Temporal-level retry opens a new connection and usually
+            # succeeds. Without this marker every retry logs it as unclassified error-tracking noise.
+            # The attempt count is volatile, so we match the stable phrase.
+            "Could not connect to Snowflake backend after",
         }
 
     def reconcile_schema_metadata(

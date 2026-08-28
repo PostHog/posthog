@@ -97,6 +97,15 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             if error_message_matches(error_msg, non_retryable_errors):
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {error_msg}")
                 return
+            # Retryable source errors (a transient connect blip, a self-recovering HTTP status) reach
+            # us only after the source exhausted its own retries. The next discovery run on the ~6h
+            # cadence opens a fresh connection and usually succeeds, so skip quietly rather than report
+            # this as error-tracking noise. import_data_sync consults get_retryable_errors on the sync
+            # path; without this the discovery path would keep reporting the same transient failure.
+            retryable_errors = new_source.get_retryable_errors()
+            if error_message_matches(error_msg, retryable_errors):
+                logger.warning(f"Skipping schema discovery due to retryable source error: {error_msg}")
+                return
             raise
 
         schemas_to_sync = {s.name: s.label for s in schemas}
