@@ -4,6 +4,7 @@ import { Meta } from '@storybook/react'
 
 import { IconTrash } from '@posthog/icons'
 
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
@@ -18,6 +19,9 @@ const meta: Meta = {
     title: 'Products/Workflows/Template library cards',
 }
 export default meta
+
+// Relative to now so the cards keep rendering the same durations as real time passes.
+const daysAgo = (days: number): string => dayjs().subtract(days, 'day').toISOString()
 
 const createdBy = {
     id: 1,
@@ -43,7 +47,7 @@ const emailTemplate: MessageTemplate = {
             to: '{{ person.properties.email }}',
         },
     },
-    created_at: '2026-08-10T10:00:00Z',
+    created_at: daysAgo(8),
     updated_at: null,
     created_by: createdBy,
 }
@@ -63,7 +67,7 @@ const webhookTemplate: MessageTemplate = {
             },
         },
     },
-    created_at: '2026-08-11T10:00:00Z',
+    created_at: daysAgo(7),
     updated_at: null,
     created_by: createdBy,
 }
@@ -75,7 +79,7 @@ const teamWorkflowTemplate = {
     tags: ['onboarding'],
     scope: 'team',
     image_url: null,
-    created_at: '2026-08-12T10:00:00Z',
+    created_at: daysAgo(6),
     created_by: createdBy,
 } as HogFlowTemplate
 
@@ -86,7 +90,7 @@ const orgWorkflowTemplate = {
     description: 'Re-engages accounts that went quiet for 30 days',
     tags: [],
     scope: 'organization',
-    created_at: '2026-08-09T10:00:00Z',
+    created_at: daysAgo(9),
 } as HogFlowTemplate
 
 const cardActions = (
