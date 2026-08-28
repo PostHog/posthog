@@ -2608,6 +2608,9 @@ class ExternalDataSourceType(StrEnum):
     TANA = "Tana"
     ZENCHEF = "Zenchef"
     LOVABLE = "Lovable"
+    ANVIL = "Anvil"
+    COOLIFY = "Coolify"
+    SOCIAL_PILOT = "SocialPilot"
 
 
 class ExternalQueryErrorCode(StrEnum):
