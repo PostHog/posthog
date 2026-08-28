@@ -38,12 +38,20 @@ const hoisted = vi.hoisted(() => ({
       },
     ],
   },
+  activeRun: {
+    run_status: "in_progress" as const,
+    started_at: "2026-08-18T04:00:00Z",
+  },
   refetch: vi.fn(),
 }));
 
 vi.mock("../hooks/useContextWiki", () => ({
   useContextWikiDreams: () => ({
-    data: { head_sha: "head-1", dreams: hoisted.dreams },
+    data: {
+      head_sha: "head-1",
+      dreams: hoisted.dreams,
+      active_run: hoisted.activeRun,
+    },
     isLoading: false,
     error: null,
     refetch: hoisted.refetch,
@@ -79,6 +87,8 @@ describe("ContextWikiDreamsPane", () => {
     const user = userEvent.setup();
     render(<ContextWikiDreamsPane />);
 
+    expect(screen.getByText("Dreaming now")).toBeInTheDocument();
+
     // Newest first, and the newest is selected without a click.
     expect(screen.getAllByText("Second night summary.")).toHaveLength(2);
     expect(
@@ -93,6 +103,22 @@ describe("ContextWikiDreamsPane", () => {
     // The detail pane follows the selection; the list keeps both previews.
     expect(screen.getByText("Dream run: 2026-08-17")).toBeInTheDocument();
     expect(screen.queryByText("Dream run: 2026-08-18")).toBeNull();
+  });
+
+  it("shows an active first dream before any history has landed", () => {
+    const landedDreams = hoisted.dreams.splice(0);
+    try {
+      render(<ContextWikiDreamsPane />);
+      expect(screen.getByText("Dreaming now")).toBeInTheDocument();
+      expect(screen.getByText("Dream in progress")).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "This run will appear in the history after it lands its changes.",
+        ),
+      ).toBeInTheDocument();
+    } finally {
+      hoisted.dreams.push(...landedDreams);
+    }
   });
 
   it.each([

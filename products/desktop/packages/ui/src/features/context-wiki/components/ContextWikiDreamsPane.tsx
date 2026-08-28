@@ -2,6 +2,7 @@ import { MoonIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { processFile } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
 import type {
+  ContextWikiActiveDreamRun,
   ContextWikiDreamFile,
   ContextWikiDreamRun,
 } from "@posthog/api-client/posthog-client";
@@ -48,6 +49,7 @@ export function ContextWikiDreamsPane() {
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
 
   const dreams = useMemo(() => data?.dreams ?? [], [data]);
+  const activeRun = data?.active_run ?? null;
   const effectiveSha =
     selectedSha && dreams.some((dream) => dream.sha === selectedSha)
       ? selectedSha
@@ -81,7 +83,7 @@ export function ContextWikiDreamsPane() {
     );
   }
 
-  if (!selectedRun) {
+  if (!selectedRun && !activeRun) {
     return (
       <Empty>
         <EmptyHeader>
@@ -101,6 +103,7 @@ export function ContextWikiDreamsPane() {
   return (
     <div className="flex h-full min-h-0">
       <div className="flex w-72 shrink-0 flex-col overflow-y-auto border-(--gray-5) border-r">
+        {activeRun ? <ActiveDreamListItem run={activeRun} /> : null}
         {dreams.map((dream) => (
           <DreamListItem
             key={dream.sha}
@@ -111,8 +114,50 @@ export function ContextWikiDreamsPane() {
         ))}
       </div>
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <DreamDetail key={selectedRun.sha} run={selectedRun} />
+        {selectedRun ? (
+          <DreamDetail key={selectedRun.sha} run={selectedRun} />
+        ) : (
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <MoonIcon size={28} />
+              </EmptyMedia>
+              <EmptyTitle>Dream in progress</EmptyTitle>
+              <EmptyDescription>
+                This run will appear in the history after it lands its changes.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
       </div>
+    </div>
+  );
+}
+
+const ACTIVE_DREAM_LABELS: Record<
+  ContextWikiActiveDreamRun["run_status"],
+  string
+> = {
+  not_started: "Preparing dream",
+  queued: "Dream queued",
+  in_progress: "Dreaming now",
+};
+
+function ActiveDreamListItem({ run }: { run: ContextWikiActiveDreamRun }) {
+  return (
+    <div className="flex flex-col gap-1 border-(--gray-5) border-b bg-(--gray-2) px-4 py-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Spinner className="size-3.5" />
+          <Text size="sm" weight="medium">
+            {ACTIVE_DREAM_LABELS[run.run_status]}
+          </Text>
+        </div>
+        <RelativeTimestamp timestamp={run.started_at} />
+      </div>
+      <Text size="xs" variant="muted">
+        Reading recent activity and updating the wiki.
+      </Text>
     </div>
   );
 }

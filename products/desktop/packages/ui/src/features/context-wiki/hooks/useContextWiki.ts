@@ -114,7 +114,12 @@ export function useContextWikiDreams() {
   return useAuthenticatedQuery<ContextWikiDreamList | null>(
     CONTEXT_WIKI_DREAMS_KEY,
     (client) => client.getContextWikiDreams(),
-    { staleTime: 30_000, refetchOnMount: "always" },
+    {
+      staleTime: 30_000,
+      refetchOnMount: "always",
+      refetchInterval: (query) =>
+        query.state.data?.active_run ? 5_000 : false,
+    },
   );
 }
 

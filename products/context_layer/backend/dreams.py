@@ -17,9 +17,11 @@ from posthog.dataclasses import frozen
 from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.context_layer.backend import store
+from products.tasks.backend.facade import api as tasks_facade
 
 CACHE_TTL_SECONDS = 24 * 60 * 60
 DREAM_SUBJECT_PREFIX = "dream: "
+DREAM_AI_STAGE = "context-layer-dream"
 # A dream touches content pages only; these caps keep one oversized night from
 # ballooning the API response. Files past the cap are still listed, with their
 # patch replaced by a truncation note.
@@ -48,6 +50,12 @@ class DreamRun:
 
 
 @frozen
+class ActiveDreamRun:
+    run_status: str
+    started_at: datetime
+
+
+@frozen
 class DreamFileDiff:
     path: str
     status: str  # added | modified | deleted
@@ -65,6 +73,7 @@ class DreamRunDetail:
 class DreamRunList:
     head_sha: str
     dreams: list[DreamRun]
+    active_run: ActiveDreamRun | None
 
 
 _STATUS_MAP = {"A": "added", "M": "modified", "D": "deleted"}
@@ -81,10 +90,13 @@ def _detail_cache_key(organization_id: uuid.UUID | str, head_sha: str, sha: str)
 def list_dream_runs(organization_id: uuid.UUID | str) -> DreamRunList:
     """Every dream run on the wiki's main branch, newest first."""
     head_sha = store.get_config(organization_id).head_sha
+    active_run = _get_active_dream_run(organization_id)
     cached = get_safe_cache(_list_cache_key(organization_id, head_sha))
     if cached is not None:
         return DreamRunList(
-            head_sha=head_sha, dreams=[_dream_run_from_dict(entry) for entry in cached if isinstance(entry, dict)]
+            head_sha=head_sha,
+            dreams=[_dream_run_from_dict(entry) for entry in cached if isinstance(entry, dict)],
+            active_run=active_run,
         )
     with store.checkout_repo(organization_id) as checkout:
         dreams = _read_dream_runs(checkout)
@@ -93,7 +105,14 @@ def list_dream_runs(organization_id: uuid.UUID | str) -> DreamRunList:
         [_dream_run_to_dict(dream) for dream in dreams],
         CACHE_TTL_SECONDS,
     )
-    return DreamRunList(head_sha=head_sha, dreams=dreams)
+    return DreamRunList(head_sha=head_sha, dreams=dreams, active_run=active_run)
+
+
+def _get_active_dream_run(organization_id: uuid.UUID | str) -> ActiveDreamRun | None:
+    run = tasks_facade.get_latest_active_internal_task_run_for_organization(organization_id, ai_stage=DREAM_AI_STAGE)
+    if run is None or run.created_at is None:
+        return None
+    return ActiveDreamRun(run_status=run.status, started_at=run.created_at)
 
 
 def get_dream_run(organization_id: uuid.UUID | str, sha: str) -> DreamRunDetail:

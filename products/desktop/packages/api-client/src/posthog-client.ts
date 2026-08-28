@@ -770,8 +770,14 @@ export interface ContextWikiDreamRun {
   pages_deleted: number;
 }
 
+export interface ContextWikiActiveDreamRun {
+  run_status: "not_started" | "queued" | "in_progress";
+  started_at: string;
+}
+
 export interface ContextWikiDreamList {
   head_sha: string;
+  active_run: ContextWikiActiveDreamRun | null;
   dreams: ContextWikiDreamRun[];
 }
 

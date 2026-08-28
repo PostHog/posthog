@@ -55,6 +55,34 @@ export interface LintErrorApi {
 }
 
 /**
+ * * `not_started` - not_started
+ * * `queued` - queued
+ * * `in_progress` - in_progress
+ */
+export type ActiveDreamRunRunStatusEnumApi =
+    (typeof ActiveDreamRunRunStatusEnumApi)[keyof typeof ActiveDreamRunRunStatusEnumApi]
+
+export const ActiveDreamRunRunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+} as const
+
+/**
+ * A dreaming task that has not reached a terminal state yet.
+ */
+export interface ActiveDreamRunApi {
+    /** The current task-run state for the active dream.
+     *
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress */
+    run_status: ActiveDreamRunRunStatusEnumApi
+    /** When the active dream task was created. */
+    started_at: string
+}
+
+/**
  * One dreaming run: the merge commit it landed as, plus what it changed.
  */
 export interface DreamRunApi {
@@ -80,6 +108,8 @@ export interface DreamRunApi {
 export interface DreamRunListApi {
     /** Commit sha of the wiki's current head. */
     head_sha: string
+    /** The organization's active dreaming task, or null when no dream is running. */
+    active_run: ActiveDreamRunApi | null
     /** Every landed dream run, newest first. */
     dreams: DreamRunApi[]
 }

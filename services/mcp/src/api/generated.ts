@@ -2745,6 +2745,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress
+     */
+    export type ActiveDreamRunRunStatusEnum = typeof ActiveDreamRunRunStatusEnum[keyof typeof ActiveDreamRunRunStatusEnum];
+
+
+    export const ActiveDreamRunRunStatusEnum = {
+      NotStarted: 'not_started',
+      Queued: 'queued',
+      InProgress: 'in_progress',
+    } as const;
+
+    /**
+     * A dreaming task that has not reached a terminal state yet.
+     */
+    export interface ActiveDreamRun {
+      /** The current task-run state for the active dream.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress */
+      run_status: ActiveDreamRunRunStatusEnum;
+      /** When the active dream task was created. */
+      started_at: string;
+    }
+
+    /**
      * * `true` - true
      * * `false` - false
      * * `STALE` - STALE
@@ -29086,6 +29114,8 @@ export namespace Schemas {
     export interface DreamRunList {
       /** Commit sha of the wiki's current head. */
       head_sha: string;
+      /** The organization's active dreaming task, or null when no dream is running. */
+      active_run: ActiveDreamRun | null;
       /** Every landed dream run, newest first. */
       dreams: DreamRun[];
     }

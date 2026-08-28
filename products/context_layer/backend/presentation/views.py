@@ -374,8 +374,8 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: DreamRunListSerializer, 404: OpenApiResponse(description="The context layer is not enabled.")},
         summary="List dream runs",
         description=(
-            "Every landed dreaming run, newest first. A run lands as one merge commit `dream: <date>` "
-            "whose body is the run summary; the diff of what it changed is on the detail read."
+            "The active dreaming task, when present, plus every landed run newest first. A landed run is one "
+            "merge commit `dream: <date>` whose body is the summary; its changes are on the detail read."
         ),
     )
     @action(methods=["GET"], detail=False)

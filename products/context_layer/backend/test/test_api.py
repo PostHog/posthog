@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -742,15 +742,26 @@ class TestContextLayerAPI(APIBaseTest):
         self._land_dream("areas/dreamt-one.md", _page("Dreamt one"), "dream/2026-08-17")
         self._land_dream("areas/dreamt-two.md", _page("Dreamt two"), "dream/2026-08-18")
 
-        response = self.client.get(f"{self.base_url}/dreams/")
+        started_at = timezone.now()
+        with patch.object(
+            dreams.tasks_facade,
+            "get_latest_active_internal_task_run_for_organization",
+            return_value=MagicMock(status="in_progress", created_at=started_at),
+        ):
+            response = self.client.get(f"{self.base_url}/dreams/")
         assert response.status_code == 200, response.content
-        dreams = response.json()["dreams"]
-        assert [dream["date"] for dream in dreams] == ["2026-08-18", "2026-08-17"]
-        assert dreams[0]["pages_added"] == 1
-        assert dreams[0]["pages_modified"] == 0
-        assert dreams[0]["pages_deleted"] == 0
-        assert "Did things." in dreams[0]["summary"]
-        assert dreams[0]["sha"]
+        body = response.json()
+        assert body["active_run"] == {
+            "run_status": "in_progress",
+            "started_at": started_at.isoformat().replace("+00:00", "Z"),
+        }
+        dream_runs = body["dreams"]
+        assert [dream["date"] for dream in dream_runs] == ["2026-08-18", "2026-08-17"]
+        assert dream_runs[0]["pages_added"] == 1
+        assert dream_runs[0]["pages_modified"] == 0
+        assert dream_runs[0]["pages_deleted"] == 0
+        assert "Did things." in dream_runs[0]["summary"]
+        assert dream_runs[0]["sha"]
 
     def test_dreams_404_before_enablement(self, _flag) -> None:
         assert self.client.get(f"{self.base_url}/dreams/").status_code == 404

@@ -45,10 +45,28 @@ class DreamRunSerializer(serializers.Serializer):
     pages_deleted = serializers.IntegerField(help_text="Pages the run removed.")
 
 
+class ActiveDreamRunSerializer(serializers.Serializer):
+    """A dreaming task that has not reached a terminal state yet."""
+
+    run_status = serializers.ChoiceField(
+        choices=[
+            ("not_started", "not_started"),
+            ("queued", "queued"),
+            ("in_progress", "in_progress"),
+        ],
+        help_text="The current task-run state for the active dream.",
+    )
+    started_at = serializers.DateTimeField(help_text="When the active dream task was created.")
+
+
 class DreamRunListSerializer(serializers.Serializer):
     """Response shape for the wiki's dream run listing."""
 
     head_sha = serializers.CharField(help_text="Commit sha of the wiki's current head.")
+    active_run = ActiveDreamRunSerializer(
+        allow_null=True,
+        help_text="The organization's active dreaming task, or null when no dream is running.",
+    )
     dreams = DreamRunSerializer(many=True, help_text="Every landed dream run, newest first.")
 
 

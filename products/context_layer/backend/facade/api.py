@@ -17,6 +17,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 
 from products.context_layer.backend import store
 from products.context_layer.backend.dreams import (
+    ActiveDreamRun,
     DreamFileDiff,
     DreamNotFoundError,
     DreamRun,
@@ -82,6 +83,7 @@ __all__ = [
     "ContextLayerMount",
     "ContextLayerStoreError",
     "DependencyUnavailableError",
+    "ActiveDreamRun",
     "DreamFileDiff",
     "DreamNotFoundError",
     "DreamRun",
