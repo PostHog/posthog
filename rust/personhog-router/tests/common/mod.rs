@@ -645,7 +645,7 @@ pub struct TestLeaderService {
     fenced: Arc<AtomicBool>,
     /// The lifecycle operation holding this person, if any. Unlike the
     /// partition fence above this one names its holder, which is the fact
-    /// the refusal has to carry all the way back to ingestion.
+    /// the refusal has to carry all the way back to the caller.
     person_fence_op: Arc<Mutex<Option<String>>>,
 }
 

@@ -3136,9 +3136,9 @@ async fn a_retry_with_drifted_event_properties_replays_the_recorded_outcome() {
     h.ctx.cleanup().await.expect("cleanup");
 }
 
-/// U+0085 (NEL) survives JavaScript's trim, so ingestion treats a NEL-only
-/// id as legal; the server must agree or every merge naming one bounces
-/// INVALID_ARGUMENT on a whole-request check the client cannot predict.
+/// U+0085 (NEL) survives JavaScript's trim, so a JavaScript client reads a
+/// NEL-only id as legal; the server must agree or every merge naming one
+/// bounces INVALID_ARGUMENT on a check the client cannot predict.
 #[test]
 fn nel_only_ids_match_the_javascript_trim_semantics() {
     use personhog_identity::lifecycle::validation::is_distinct_id_illegal;

@@ -525,9 +525,12 @@ fn merge_original(
     event_set: &Value,
     event_set_once: &Value,
 ) -> Value {
-    // event_uuid is deliberately absent: the proto documents it as
-    // advisory data the merge never reads, so a retry that regenerated
-    // its event uuids must still match the recorded request.
+    // event_uuid and creator_event_uuid are deliberately absent: the proto
+    // documents both as advisory, so a retry that regenerated either must
+    // still match the recorded request. Comparing the creator would refuse
+    // a retry that a deploy gave one to, and the refusal is terminal, so it
+    // would trade an attribution label for a lost merge. The fences keep
+    // the recorded creator, which is why ownership keys on the op id.
     serde_json::json!({
         "target_distinct_id": request.target_distinct_id,
         "sources": request
