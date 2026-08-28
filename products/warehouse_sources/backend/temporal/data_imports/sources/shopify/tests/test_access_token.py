@@ -4,6 +4,7 @@ from unittest import mock
 from requests.exceptions import ChunkedEncodingError, SSLError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
+    SHOPIFY_ACCESS_TOKEN_APP_NOT_INSTALLED_ERROR,
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
     SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
@@ -55,6 +56,7 @@ def test_get_access_token_4xx_is_non_retryable(status_code):
         ("invalid_client", SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR),
         ("unsupported_grant_type", SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR),
         ("shop_not_permitted", SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR),
+        ("app_not_installed", SHOPIFY_ACCESS_TOKEN_APP_NOT_INSTALLED_ERROR),
     ],
 )
 def test_get_access_token_4xx_maps_shopify_error_code(error_code, expected_message):

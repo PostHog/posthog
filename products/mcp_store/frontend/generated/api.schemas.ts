@@ -869,7 +869,8 @@ export interface MCPServerInstallationApi {
     display_name?: string
     /** @maxLength 2048 */
     url?: string
-    description?: string
+    /** Installation description, falling back to the linked template description. */
+    readonly description: string
     auth_type?: MCPAuthTypeEnumApi
     is_enabled?: boolean
     readonly scope: MCPServerInstallationScopeEnumApi

@@ -358,6 +358,15 @@ class ErrorTrackingRelease(UUIDTModel):
         db_table = "posthog_errortrackingrelease"
 
 
+def symbol_set_cleanup_bucket_expression() -> models.Func:
+    return models.Func(
+        models.Func(models.F("id"), function="uuid_send", output_field=models.BinaryField()),
+        models.Value(15),
+        function="get_byte",
+        output_field=models.IntegerField(),
+    )
+
+
 class ErrorTrackingSymbolSet(UUIDTModel):
     # Derived from the symbol set reference
     ref = models.TextField(null=False, blank=False)
@@ -402,6 +411,13 @@ class ErrorTrackingSymbolSet(UUIDTModel):
             # (leading column) and `last_used IS NULL AND created_at < cutoff` (NULL group
             # then created_at range), so batch cleanup avoids a full PK-ordered scan.
             models.Index(fields=["last_used", "created_at"], name="et_symset_used_created_idx"),
+            models.Index(
+                symbol_set_cleanup_bucket_expression(),
+                models.F("last_used"),
+                models.F("created_at"),
+                models.F("id"),
+                name="et_symset_bucket_cleanup_idx",
+            ),
         ]
 
         constraints = [

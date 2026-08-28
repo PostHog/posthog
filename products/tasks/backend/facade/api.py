@@ -629,6 +629,7 @@ def _task_detail_to_dto(
         latest_run_id=latest_run_id,
         channel=task.channel_id,
         slack_thread_references=_task_slack_thread_references(task),
+        origin_key=task.origin_key,
     )
 
 

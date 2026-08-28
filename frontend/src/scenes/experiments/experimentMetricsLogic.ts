@@ -5,7 +5,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { isLaunched } from 'scenes/experiments/experimentStatus'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
@@ -13,6 +12,7 @@ import type { Breakdown, CachedNewExperimentQueryResponse, ExperimentMetric } fr
 import { Experiment } from '~/types'
 import type { ExperimentIdType } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
     experimentsMetricsRecalculationCreate,
     experimentsMetricsRecalculationLatestRetrieve,

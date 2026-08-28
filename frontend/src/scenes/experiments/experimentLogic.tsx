@@ -32,7 +32,6 @@ import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBann
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
-import { hasEnded, isLaunched } from 'scenes/experiments/experimentStatus'
 import {
     hasMultipleVariantsActive,
     hasZeroRollout,
@@ -88,6 +87,7 @@ import {
     PropertyMathType,
 } from '~/types'
 
+import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
     legacyExpectedRunningTime,
     legacyMinimumSampleSizePerVariant,
