@@ -20,6 +20,7 @@ import { examples } from '~/queries/examples'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
 import {
+    DataVisualizationNode,
     FunnelsQuery,
     InsightVizNode,
     Node,
@@ -29,7 +30,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
-import { FunnelVizType, InsightShortId, InsightType } from '~/types'
+import { ChartDisplayType, FunnelVizType, InsightShortId, InsightType } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 
@@ -594,6 +595,139 @@ describe('insightDataLogic', () => {
                 findMountedSpy.mockRestore()
                 sceneLogic.unmount()
             }
+        })
+    })
+
+    describe('persistVisualizationType', () => {
+        const insightId = 43
+        const Insight43 = '43' as InsightShortId
+        const cachedQuery = {
+            kind: NodeKind.DataVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'select old_day, old_total from events' },
+            display: ChartDisplayType.ActionsTable,
+        } as DataVisualizationNode
+        const latestQuery = {
+            kind: NodeKind.DataVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'select day, total from events' },
+            display: ChartDisplayType.ActionsTable,
+            chartSettings: {
+                xAxis: { column: 'day' },
+                yAxis: [{ column: 'total' }],
+                showLegend: false,
+            },
+        } as DataVisualizationNode
+
+        let logic: ReturnType<typeof insightDataLogic.build>
+        let patchBodies: Record<string, any>[]
+
+        beforeEach(() => {
+            patchBodies = []
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': {
+                        results: [
+                            {
+                                id: insightId,
+                                short_id: Insight43,
+                                query: latestQuery,
+                                columns: ['day', 'total'],
+                                types: [
+                                    ['day', 'DateTime'],
+                                    ['total', 'UInt64'],
+                                ],
+                                result: [
+                                    ['2026-08-27', 12],
+                                    ['2026-08-28', 15],
+                                ],
+                            },
+                        ],
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/insights/:id': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        patchBodies.push(body)
+                        return [200, { id: insightId, short_id: Insight43, ...body }]
+                    },
+                },
+            })
+
+            const props = {
+                dashboardItemId: Insight43,
+                cachedInsight: { id: insightId, short_id: Insight43, query: cachedQuery } as any,
+            }
+            insightsModel.mount()
+            insightLogic(props).mount()
+            logic = insightDataLogic(props)
+            logic.mount()
+        })
+
+        it('derives the picked chart from the latest clean insight', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.persistVisualizationType(ChartDisplayType.ActionsLineGraph)
+            })
+                .toFinishAllListeners()
+                .toDispatchActions(['renameInsightSuccess'])
+
+            expect(patchBodies).toHaveLength(1)
+            expect(patchBodies[0].query).toMatchObject({
+                source: latestQuery.source,
+                display: ChartDisplayType.ActionsLineGraph,
+                chartSettings: {
+                    xAxis: { column: 'day' },
+                    yAxis: [{ column: 'total' }],
+                    showLegend: false,
+                },
+            })
+        })
+
+        it('does not save when the latest SQL result no longer supports the picked chart', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': {
+                        results: [
+                            {
+                                id: insightId,
+                                short_id: Insight43,
+                                query: latestQuery,
+                                columns: ['country'],
+                                types: [['country', 'String']],
+                                result: [['NL']],
+                            },
+                        ],
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.persistVisualizationType(ChartDisplayType.ActionsLineGraph)
+            }).toFinishAllListeners()
+
+            expect(patchBodies).toHaveLength(0)
+            expect(logic.values.savingVisualizationType).toBe(false)
+        })
+
+        it('does not overwrite an insight that changed away from SQL', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': {
+                        results: [
+                            {
+                                id: insightId,
+                                short_id: Insight43,
+                                query: { ...latestQuery, source: { kind: NodeKind.EventsQuery } },
+                            },
+                        ],
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.persistVisualizationType(ChartDisplayType.ActionsLineGraph)
+            }).toFinishAllListeners()
+
+            expect(patchBodies).toHaveLength(0)
+            expect(logic.values.savingVisualizationType).toBe(false)
         })
     })
 

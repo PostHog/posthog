@@ -4,7 +4,8 @@ import { LemonBanner, LemonLabel, LemonSelect, LemonTag } from '@posthog/lemon-u
 
 import { BoxPlotSettings } from '~/queries/schema/schema-general'
 
-import { Column, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { dataVisualizationLogic } from '../dataVisualizationLogic'
+import { Column } from '../types'
 import { BOX_PLOT_STATISTICS } from './Charts/sqlBoxPlotAdapter'
 
 const NONE_COLUMN = '__posthog_box_plot_none__'

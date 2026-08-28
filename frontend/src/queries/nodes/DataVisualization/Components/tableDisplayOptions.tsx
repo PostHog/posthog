@@ -18,6 +18,7 @@ const DISPLAY_TYPE_LABELS: Record<ChartDisplayType, string> = {
     [ChartDisplayType.BoldNumber]: 'Big number',
     [ChartDisplayType.Metric]: 'Metric',
     [ChartDisplayType.ActionsPie]: 'Pie chart',
+    [ChartDisplayType.ActionsDonut]: 'Donut chart',
     [ChartDisplayType.ActionsBarValue]: 'Value chart',
     [ChartDisplayType.ActionsTable]: 'Table',
     [ChartDisplayType.WorldMap]: 'World map',
@@ -46,7 +47,8 @@ export function getTableDisplayOptions(
     autoVisualizationType: ChartDisplayType,
     /** Extra reason a surface cannot offer a type, checked before this list's own reasons. A surface
      * that can configure every type omits it. */
-    disabledReasonFor?: (displayType: ChartDisplayType) => string | undefined
+    disabledReasonFor?: (displayType: ChartDisplayType) => string | undefined,
+    showBoxPlot = false
 ): LemonSelectOptions<ChartDisplayType> {
     const canDisplayContinuousChart = columns.length > 1 && numericalColumns.length > 0
     // Both scatter axes are numeric measures, so one numeric column can't fill both.
@@ -120,6 +122,17 @@ export function getTableDisplayOptions(
                         ? 'Requires at least two numeric columns, one for each axis'
                         : undefined,
                 },
+                ...(showBoxPlot
+                    ? [
+                          {
+                              value: ChartDisplayType.BoxPlot,
+                              icon: <IconGraph />,
+                              label: 'Box plot',
+                              disabledReason:
+                                  numericalColumns.length < 6 ? 'Requires six numeric summary columns' : undefined,
+                          },
+                      ]
+                    : []),
                 {
                     value: ChartDisplayType.TwoDimensionalHeatmap,
                     icon: <IconHeatmap />,

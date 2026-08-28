@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
-import { ChartSettings, DataVisualizationNode, HogQLVariable, Node } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, HogQLVariable, Node } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -33,7 +33,7 @@ export function useDashboardVisualizationOptions({
     loading?: boolean
     saving?: boolean
     /** Present only when the viewer can save; also the gate for showing the picker at all. */
-    persistVisualizationType?: (display: ChartDisplayType, chartSettings: ChartSettings) => void
+    persistVisualizationType?: (display: ChartDisplayType) => void
 }): LemonMenuItems {
     const sqlQuery = sqlQueryForVisualizationPicker(query, !!persistVisualizationType)
 

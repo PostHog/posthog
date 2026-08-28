@@ -57,14 +57,10 @@ import type {
 } from '../../schema/schema-general'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
-import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
 import { columnsFromResponse, deriveDefaultAxes, getAutoVisualizationType, rowCountFromResponse } from './columnUtils'
+import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
 import { AxisSeriesSettings, Column, ColumnScalar, FORMATTING_TEMPLATES, defaultAxisSettings } from './types'
-import {
-    getHeatmapAutoSettings,
-    resolveScatterXAxisColumn,
-    shouldPromoteFirstNumericToX,
-} from './visualizationTypeSetup'
+import { applyVisualizationType, getHeatmapAutoSettings, resolveScatterXAxisColumn } from './visualizationTypeSetup'
 
 export enum SideBarTab {
     Series = 'series',
@@ -292,24 +288,10 @@ const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): Char
 const selectedYAxisNames = (selectedYAxis: (SelectedYAxis | null)[] | null): string[] =>
     (selectedYAxis ?? []).map((series) => series?.name).filter((name): name is string => !!name)
 
-const shouldUseFirstNumericColumnAsContinuousChartXAxis = (
-    columns: Column[],
-    numericalColumns: Column[],
-    selectedXAxis: string | null,
-    selectedYAxis: (SelectedYAxis | null)[] | null
-): boolean => {
-    // A null entry in selectedYAxis is a series the user has not picked a column for yet, and the
-    // shared rule counts columns, so an unfilled row has to keep its place in the count.
-    if (selectedYAxis && selectedYAxis.length !== selectedYAxisNames(selectedYAxis).length) {
-        return false
-    }
-    return shouldPromoteFirstNumericToX(columns, numericalColumns, selectedXAxis, selectedYAxisNames(selectedYAxis))
-}
-
 /**
  * Establishes the scatter x-axis invariant: a numeric column on the x axis that isn't also a
- * y-series. Runs from every entry path a scatter can arrive through — the type being picked, the
- * query's columns changing, and a persisted/assistant-created insight loading — so the chart never
+ * y-series. Runs from every entry path a scatter can arrive through, including column changes and
+ * persisted or assistant-created insights, so the chart never
  * renders blank or plots a column against itself. A no-op when there's nothing to fix.
  */
 const applyScatterXAxis = (
@@ -465,6 +447,7 @@ export interface dataVisualizationLogicActions {
         transpose: boolean
     }
     setVisualizationType: (visualizationType: ChartDisplayType) => {
+        node: DataVisualizationNode
         visualizationType: ChartDisplayType
     }
     toggleChartSettingsPanel: (open?: boolean) => {
@@ -736,7 +719,15 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     }),
     props({ query: { source: {} } } as DataVisualizationLogicProps),
     actions(({ values }) => ({
-        setVisualizationType: (visualizationType: ChartDisplayType) => ({ visualizationType }),
+        setVisualizationType: (visualizationType: ChartDisplayType) => ({
+            visualizationType,
+            node: applyVisualizationType(
+                values.query,
+                visualizationType,
+                values.columns,
+                rowCountFromResponse(values.response)
+            ),
+        }),
         updateXSeries: (columnName: string) => ({
             columnName,
         }),
@@ -782,6 +773,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             props.query,
             {
                 setQuery: (state, { setter }) => setter(state),
+                setVisualizationType: (_, { node }) => node,
                 _setQuery: (_, { node }) => node,
             },
         ],
@@ -867,6 +859,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         selectedXAxis: [
             props.query.chartSettings?.xAxis?.column ?? null,
             {
+                setVisualizationType: (_, { node }) => node.chartSettings?.xAxis?.column ?? null,
                 _setQuery: (_, { node }) => node.chartSettings?.xAxis?.column ?? null,
                 clearAxis: () => null,
                 updateXSeries: (_, { columnName }) => columnName,
@@ -878,6 +871,15 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 settings: cloneOrDefaultSettings(axis.settings),
             })) ?? null) as (SelectedYAxis | null)[] | null,
             {
+                setVisualizationType: (state, { node }) => {
+                    if (node.chartSettings?.yAxis) {
+                        return node.chartSettings.yAxis.map((axis) => ({
+                            name: axis.column,
+                            settings: cloneOrDefaultSettings(axis.settings),
+                        }))
+                    }
+                    return state
+                },
                 _setQuery: (state, { node }) => {
                     if (node.chartSettings?.yAxis) {
                         return node.chartSettings.yAxis.map((axis) => ({
@@ -973,6 +975,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         chartSettings: [
             props.query.chartSettings ?? ({} as ChartSettings),
             {
+                setVisualizationType: (state, { node }) => node.chartSettings ?? state,
                 _setQuery: (state, { node }) => node.chartSettings ?? state,
                 updateChartSettings: (state, { settings }) => {
                     return mergeChartSettings(state, settings)
@@ -1652,59 +1655,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 props.setQuery(setter)
             }
         },
-        setVisualizationType: ({ visualizationType }) => {
-            actions.setQuery((query) => ({
-                ...query,
-                display: visualizationType,
-            }))
-
-            // Newly-picked pies default to labels on slices; existing pies (loaded with the type
-            // already set, so this listener never fires) keep the legacy value-on-slice default.
-            if (
-                visualizationType === ChartDisplayType.ActionsPie &&
-                values.chartSettings.pie?.sliceContent === undefined
-            ) {
-                actions.updateChartSettings({ pie: { sliceContent: 'labels' } })
-            }
-
-            if (
-                [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsAreaGraph].includes(visualizationType) &&
-                shouldUseFirstNumericColumnAsContinuousChartXAxis(
-                    values.columns,
-                    values.numericalColumns,
-                    values.selectedXAxis,
-                    values.selectedYAxis
-                )
-            ) {
-                const [xAxisColumn] = values.numericalColumns
-                const xAxisSeriesIndex =
-                    values.selectedYAxis?.findIndex((series) => series?.name === xAxisColumn.name) ?? -1
-
-                actions.updateXSeries(xAxisColumn.name)
-
-                if (xAxisSeriesIndex > -1) {
-                    actions.deleteYSeries(xAxisSeriesIndex)
-                }
-            }
-
-            if (visualizationType === ChartDisplayType.ScatterPlot) {
-                applyScatterXAxis(actions, values.columns, values.selectedXAxis, values.selectedYAxis)
-            }
-
-            if (visualizationType === ChartDisplayType.BoxPlot) {
-                actions.updateChartSettings({
-                    boxPlot: getAutoBoxPlotSettings(values.columns, values.chartSettings.boxPlot),
-                })
-            }
-
-            const isAutoHeatmap =
-                visualizationType === ChartDisplayType.Auto &&
-                getAutoVisualizationType(values.columns, rowCountFromResponse(values.response)) ===
-                    ChartDisplayType.TwoDimensionalHeatmap
-
-            if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap || isAutoHeatmap) {
-                applyAutoHeatmapSettings(actions, values.columns, values.chartSettings.heatmap ?? {})
-            }
+        setVisualizationType: ({ node }) => {
+            props.setQuery?.(() => node)
         },
         setTransposeResults: ({ transpose }) => {
             actions.setQuery((query) => ({

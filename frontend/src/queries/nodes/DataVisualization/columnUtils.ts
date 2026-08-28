@@ -47,14 +47,7 @@ const isNumericalType = (type: ColumnScalar): boolean => {
     return false
 }
 
-export const columnsFromResponse = (response: AnyResponseType | null): Column[] => {
-    if (!response) {
-        return []
-    }
-
-    const columns: string[] = 'columns' in response && Array.isArray(response.columns) ? response.columns : []
-    const types: string[][] = 'types' in response && Array.isArray(response.types) ? response.types : []
-
+export const columnsFromResponseFields = (columns: string[] = [], types: string[][] = []): Column[] => {
     return columns.map((column, index) => {
         const type = types[index]?.[1]
         const friendlyClickhouseTypeName = toFriendlyClickhouseTypeName(type)
@@ -69,6 +62,17 @@ export const columnsFromResponse = (response: AnyResponseType | null): Column[] 
             dataIndex: index,
         }
     })
+}
+
+export const columnsFromResponse = (response: AnyResponseType | null): Column[] => {
+    if (!response) {
+        return []
+    }
+
+    return columnsFromResponseFields(
+        'columns' in response && Array.isArray(response.columns) ? response.columns : [],
+        'types' in response && Array.isArray(response.types) ? response.types : []
+    )
 }
 
 // Which columns a chart plots when nothing has been picked yet: every numeric column on the y axis,

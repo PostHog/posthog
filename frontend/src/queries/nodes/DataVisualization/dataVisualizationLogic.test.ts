@@ -500,13 +500,13 @@ describe('dataVisualizationLogic', () => {
         await expectLogic(logic).toMatchValues({
             visualizationType: ChartDisplayType.Auto,
             effectiveVisualizationType: ChartDisplayType.TwoDimensionalHeatmap,
-            chartSettings: {
+            chartSettings: expect.objectContaining({
                 heatmap: {
                     xAxisColumn: 'region',
                     yAxisColumn: 'segment',
                     valueColumn: 'count',
                 },
-            },
+            }),
         })
     })
 

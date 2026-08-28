@@ -185,6 +185,7 @@ export interface insightLogicActions {
             _create_in_folder?: string | null | undefined
             alerts?: AlertType[] | undefined
             cache_target_age?: string | null | undefined
+            columns?: string[] | null | undefined
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
@@ -214,6 +215,7 @@ export interface insightLogicActions {
             short_id: InsightShortId
             tags?: string[] | undefined
             timezone?: string | null | undefined
+            types?: string[][] | null | undefined
             updated_at: string
             user_access_level: AccessControlLevel
             view_count?: number | undefined
@@ -230,6 +232,7 @@ export interface insightLogicActions {
             _create_in_folder?: string | null | undefined
             alerts?: AlertType[] | undefined
             cache_target_age?: string | null | undefined
+            columns?: string[] | null | undefined
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
@@ -259,6 +262,7 @@ export interface insightLogicActions {
             short_id: InsightShortId
             tags?: string[] | undefined
             timezone?: string | null | undefined
+            types?: string[][] | null | undefined
             updated_at: string
             user_access_level: AccessControlLevel
             view_count?: number | undefined
@@ -352,6 +356,7 @@ export interface insightLogicActions {
             _create_in_folder?: string | null | undefined
             alerts?: AlertType[] | undefined
             cache_target_age?: string | null | undefined
+            columns?: string[] | null | undefined
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
             dashboard_tiles?: DashboardTileBasicType[] | null | undefined
@@ -381,6 +386,7 @@ export interface insightLogicActions {
             short_id?: InsightShortId | undefined
             tags?: string[] | undefined
             timezone?: string | null | undefined
+            types?: string[][] | null | undefined
             updated_at?: string | undefined
             user_access_level?: AccessControlLevel | undefined
             view_count?: number | undefined
@@ -396,6 +402,7 @@ export interface insightLogicActions {
             _create_in_folder?: string | null | undefined
             alerts?: AlertType[] | undefined
             cache_target_age?: string | null | undefined
+            columns?: string[] | null | undefined
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
             dashboard_tiles?: DashboardTileBasicType[] | null | undefined
@@ -425,6 +432,7 @@ export interface insightLogicActions {
             short_id?: InsightShortId | undefined
             tags?: string[] | undefined
             timezone?: string | null | undefined
+            types?: string[][] | null | undefined
             updated_at?: string | undefined
             user_access_level?: AccessControlLevel | undefined
             view_count?: number | undefined

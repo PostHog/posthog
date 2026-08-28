@@ -2,17 +2,10 @@ import { ChartSettings, DataVisualizationNode, HeatmapSettings } from '~/queries
 import { ChartDisplayType } from '~/types'
 
 import { deriveDefaultAxes, getAutoVisualizationType } from './columnUtils'
+import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
 import { Column, defaultAxisSettings } from './types'
 
-/**
- * The setup a chart type needs beyond its `display`, as a change to the query.
- *
- * `dataVisualizationLogic.setVisualizationType` performs the same setup through its own actions,
- * because the editor keeps axis state locally. A surface with no such state — a dashboard card,
- * which renders its query read-only — applies the result here instead. Both answer to these rules,
- * so the same pick produces the same chart wherever it is made, and `visualizationTypeSetup.test.ts`
- * holds the two together.
- */
+/** Applies display-specific defaults to a query so the editor and dashboard persistence cannot drift. */
 
 const isNumerical = (columns: Column[], name: string | undefined): boolean =>
     !!name && !!columns.find((column) => column.name === name)?.type.isNumerical
@@ -77,13 +70,6 @@ export function getHeatmapAutoSettings(columns: Column[], heatmapSettings: Heatm
     return next
 }
 
-/**
- * The query a pick produces: the display, plus whatever else that type needs to draw.
- *
- * Seeds the axes first, which the editor gets from the subscription that runs when its columns
- * arrive, then applies the per-type setup. A card has neither, so it needs both to land on the same
- * query. `rowCount` resolves what Auto means here, which is all Auto reads of the result.
- */
 export function applyVisualizationType(
     query: DataVisualizationNode,
     visualizationType: ChartDisplayType,
@@ -93,9 +79,7 @@ export function applyVisualizationType(
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
     const chartSettings: ChartSettings = { ...query.chartSettings }
 
-    // The editor's columns subscription drops the axes when one names a column the result no longer
-    // has, or a y series that is not numeric, and re-seeds from scratch. A card is handed the saved
-    // query rather than that repaired one, so it has to do the same before deciding anything.
+    // Saved axes can outlive SQL column changes. Re-seed them together so x and y stay compatible.
     const columnNames = new Set(columns.map((column) => column.name))
     const invalidX = chartSettings.xAxis !== undefined && !columnNames.has(chartSettings.xAxis.column)
     const invalidY =
@@ -108,8 +92,7 @@ export function applyVisualizationType(
         chartSettings.yAxis = undefined
     }
 
-    // Matches the editor, which seeds only when neither axis has been set. An empty yAxis is a user
-    // who deleted every series, not an unset one, so it is left alone.
+    // An empty yAxis records that the user deleted every series, so only absent axes are seeded.
     if (chartSettings.xAxis === undefined && chartSettings.yAxis === undefined) {
         const seeded = deriveDefaultAxes(columns)
         chartSettings.yAxis = seeded.yAxis.map((column) => ({ column, settings: defaultAxisSettings() }))
@@ -145,6 +128,10 @@ export function applyVisualizationType(
         }
     }
 
+    if (visualizationType === ChartDisplayType.BoxPlot) {
+        chartSettings.boxPlot = getAutoBoxPlotSettings(columns, chartSettings.boxPlot)
+    }
+
     const isAutoHeatmap =
         visualizationType === ChartDisplayType.Auto &&
         getAutoVisualizationType(columns, rowCount) === ChartDisplayType.TwoDimensionalHeatmap
@@ -157,8 +144,7 @@ export function applyVisualizationType(
         }
     }
 
-    // Always written, matching the editor: a query carrying `yAxis: []` means the series were
-    // cleared, while an absent key means they were never set and get seeded on the next load.
+    // Preserve the distinction between cleared series and axes that have never been initialized.
     chartSettings.yAxis = yAxis
 
     return { ...query, display: visualizationType, chartSettings }
