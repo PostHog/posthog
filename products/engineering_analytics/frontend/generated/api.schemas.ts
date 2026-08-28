@@ -208,7 +208,7 @@ export interface DeploymentFrequencyBucketApi {
     deployment_count: number
 }
 
-export interface MergeToDeployBucketApi {
+export interface LeadTimeBucketApi {
     /** Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). Keyed on deploy time: a PR lands in the bucket its first post-merge deploy succeeded in. */
     bucket_start: string
     /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). */
@@ -249,7 +249,11 @@ export interface DoraOverviewApi {
     /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
     deployment_frequency_series: DeploymentFrequencyBucketApi[]
     /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
-    merge_to_deploy_series: MergeToDeployBucketApi[]
+    merge_to_deploy_series: LeadTimeBucketApi[]
+    /** Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series, so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time. Empty in the same cases as merge_to_deploy_series. */
+    open_to_merge_series: LeadTimeBucketApi[]
+    /** Open-to-deploy distribution over the same deployed PRs and buckets: the full open to first-successful-deploy span the two stages above compose into. Empty in the same cases as merge_to_deploy_series. */
+    open_to_deploy_series: LeadTimeBucketApi[]
     /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
     deploy_data_available: boolean
     /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
