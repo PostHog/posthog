@@ -1668,6 +1668,11 @@ export const fileSystemTypes = {
 /** This const is auto-generated, as is the whole file */
 export const productSetupProbes: ProductSetupProbe[] = [
     {
+        productKey: ProductKey.AI_OBSERVABILITY,
+        hasDataEvents: ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding'],
+        staleAfterDays: 90,
+    },
+    {
         productKey: ProductKey.MCP_ANALYTICS,
         hasDataEvents: ['$mcp_tool_call'],
         waitingEvents: ['$mcp_initialize'],
