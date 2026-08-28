@@ -62,6 +62,7 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
     task.mcp_builtin_agent_key = None
     task.mcp_credential_owner_id = None
     task.mcp_gateway_server_allowlist = None
+    task.mcp_service_account_id = None
     if created_by_id is not None:
         task.created_by = MagicMock(id=created_by_id, distinct_id=f"user-{created_by_id}")
     else:
@@ -125,6 +126,7 @@ class TestRefreshSandboxMcp:
             allowed_installation_ids=None,
             origin_product="support_reply",
             task_agent_key="support",
+            task_service_account_id=None,
             credential_owner_id=99,
             allowed_gateway_server_ids=["srv-9"],
         )

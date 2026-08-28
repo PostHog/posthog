@@ -429,6 +429,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             include_personal=True,
             task_origin=None,
             task_agent_key=None,
+            task_service_account_id=None,
             credential_owner_id=None,
             allowed_gateway_server_ids=None,
         )
@@ -549,6 +550,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             include_personal=True,
             task_origin="support_reply",
             task_agent_key="support",
+            task_service_account_id=None,
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
             allowed_gateway_server_ids=["server-1"],
         )
@@ -580,6 +582,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             include_personal=include_personal,
             task_origin=None,
             task_agent_key=None,
+            task_service_account_id=None,
             credential_owner_id=None,
             allowed_gateway_server_ids=None,
         )
