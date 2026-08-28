@@ -79,11 +79,15 @@ Its schedule is disabled and it stays dispatchable by hand, so it is a fallback 
 Both write the same `autoresolve-attempt` marker format, so if both do end up running they never double-attempt the same `(head, master)` state.
 Keep exactly one of them scheduled; the Loop version keeps API traffic on a dedicated rate-limit bucket and burns no Actions runners.
 
-Do not re-enable that schedule yet. The workflow carries two defects, both flagged in `commit-resolved.mjs`:
+That workflow cannot land a resolution today, and `commit-resolved.mjs` now says so on the PR instead of failing silently.
+It used to gate the commit on `branches/<ref>.protected`, which matches every branch because an org-level ruleset targets all of them, so it never committed and nobody saw the real blocker underneath.
 
-- Its `branches/<ref>.protected` pre-check matches every branch, because an org-level ruleset targets all of them, so the script never commits. That is why nobody has noticed the second defect.
-- `createCommitOnBranch` cannot express a second parent, so it can only land the flattened commit this skill now forbids. Fixing the first defect alone would start producing PRs whose diff includes every file master touched since the branch fell behind.
+The real blocker is that no mechanism available to it can record two parents:
 
-Whichever path runs needs a commit mechanism that records two parents.
-A Claude routine sandbox allows `git merge` plus `git push`, which does.
-If the Loop sandbox's git guard blocks raw `git push`, then `git_signed_commit` has to gain two-parent support before the Loop can resolve anything; until then SKILL.md has it flag those PRs for a human rather than flatten them.
+- `createCommitOnBranch` is the only way to get GitHub to sign a commit without holding a signing key, and it creates one commit with one parent.
+- `git/commits` does accept two parents, but produces an unsigned commit, and a `required_signatures` ruleset covers PR branches, so the ref update is rejected.
+- The `finalize` job holds the write token and deliberately checks out only trusted scripts, so it has no merged tree to commit from.
+
+Unblocking it means giving the App a signing key, after which `finalize` can fetch both refs, merge, and push a real merge commit.
+Until then the CI path marks conflicting PRs for a human, and the Loop path is the only one that resolves anything.
+A sandbox that provides a commit signer can run `git merge` plus `git push` directly, which records both parents; where the sandbox blocks raw git and the signing tool takes only one parent, SKILL.md has the agent flag the PR rather than flatten the merge.
