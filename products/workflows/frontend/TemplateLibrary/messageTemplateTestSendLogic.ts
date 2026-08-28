@@ -199,7 +199,9 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
         emailIntegrations: [
             (s) => [s.integrations],
             (integrations: IntegrationType[] | null): IntegrationType[] =>
-                integrations?.filter((integration) => integration.kind === 'email') ?? [],
+                integrations?.filter(
+                    (integration) => integration.kind === 'email' && integration.config?.verified === true
+                ) ?? [],
         ],
         senderIntegrationId: [
             (s) => [s.senderIntegrationIdOverride, s.emailIntegrations],
