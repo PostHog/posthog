@@ -1,6 +1,6 @@
 import importlib
 import threading
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
@@ -268,7 +268,11 @@ class TestFacadeReadsAndMappers(TestCase):
             task=task,
             team=self.team,
             status=TaskRun.Status.QUEUED,
-            state={"initial_prompt_override": "framed prompt", "sandbox_jwt_kid": "secret"},
+            state={
+                "initial_prompt_override": "framed prompt",
+                "end_run_when_done": True,
+                "sandbox_jwt_kid": "secret",
+            },
         )
 
         detail = facade.get_task_run_detail(run.id, task.id, self.team.id, include_agent_state=include_agent_state)
@@ -276,6 +280,9 @@ class TestFacadeReadsAndMappers(TestCase):
         assert detail is not None
         expected = "framed prompt" if include_agent_state else None
         assert detail.state.get("initial_prompt_override") == expected
+        # The finish-tool gate reads this key at agent boot; a filter that drops it makes
+        # every unbound workflow run idle out instead of ending itself.
+        assert detail.state.get("end_run_when_done") == (True if include_agent_state else None)
         assert "sandbox_jwt_kid" not in detail.state
 
     def test_get_task_run_maps_all_fields(self):
@@ -328,7 +335,12 @@ class TestFacadeReadsAndMappers(TestCase):
 
     def test_resume_in_cloud_rejects_invalid_origin(self):
         task = self._make_task(origin_product="automation")
-        run = task.create_run(environment=TaskRun.Environment.LOCAL)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.COMPLETED,
+        )
 
         outcome, resumed_run, _ = facade.resume_task_run_in_cloud(
             run.id,
@@ -340,7 +352,7 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(outcome, "invalid_origin")
         self.assertIsNone(resumed_run)
         run.refresh_from_db()
-        self.assertEqual(run.environment, TaskRun.Environment.LOCAL)
+        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
 
     def test_task_exists_and_visibility(self):
         task = self._make_task()
@@ -1263,6 +1275,86 @@ class TestAppendLogAgentActivity(TestCase):
             run.reset_mock()
             facade.append_task_run_log("r", "t", 1, entries=[{"notification": {"method": "session/update"}}])
             run.heartbeat_workflow.assert_called_once_with(agent_active=True)
+
+    def test_append_task_run_log_retires_followups_the_entries_echo(self):
+        run = MagicMock()
+        entries = [{"notification": {"method": "session/prompt", "params": {"prompt": []}}}]
+        with (
+            patch.object(facade, "_get_visible_run", return_value=run),
+            patch.object(facade, "_task_run_detail_to_dto", return_value=None),
+        ):
+            facade.append_task_run_log("r", "t", 1, entries=entries)
+
+        run.clear_echoed_followup_messages.assert_called_once_with(entries)
+
+
+class TestSignalTaskRunUserMessage(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Signal Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Signal Team")
+        cls.user = User.objects.create(email="signal@test.com", distinct_id="signal-distinct")
+
+    def _run(self) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            title="A task",
+            description="desc",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+            repository="posthog/posthog",
+        )
+        return TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+    def _signal(self, run: TaskRun, **kwargs) -> bool | None:
+        defaults: dict[str, Any] = {"content": "check the paste path", "artifact_ids": [], "message_id": "m1"}
+        with patch("products.tasks.backend.temporal.client.signal_task_followup_message"):
+            return facade.signal_task_run_user_message(run.id, run.task_id, self.team.id, **{**defaults, **kwargs})
+
+    def test_records_the_message_so_a_reload_can_show_it_before_the_agent_takes_it(self):
+        run = self._run()
+
+        self.assertTrue(self._signal(run))
+
+        run.refresh_from_db()
+        recorded = run.state["pending_followup_messages"]
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(recorded[0]["id"], "m1")
+        self.assertEqual(recorded[0]["content"], "check the paste path")
+
+    def test_the_recorded_time_predates_the_signal(self):
+        run = self._run()
+        signalled_at: list[datetime] = []
+
+        with patch(
+            "products.tasks.backend.temporal.client.signal_task_followup_message",
+            side_effect=lambda *args, **kwargs: signalled_at.append(django_timezone.now()),
+        ):
+            facade.signal_task_run_user_message(
+                run.id,
+                run.task_id,
+                self.team.id,
+                content="check the paste path",
+                artifact_ids=[],
+                message_id="m1",
+            )
+
+        run.refresh_from_db()
+        recorded_at = datetime.fromisoformat(run.state["pending_followup_messages"][0]["ts"])
+        self.assertLessEqual(recorded_at, signalled_at[0])
+
+    @parameterized.expand([("no message id", {"message_id": None}), ("no content", {"content": "  "})])
+    def test_records_nothing_without_an_identifiable_message(self, _name, overrides):
+        run = self._run()
+
+        self.assertTrue(self._signal(run, **overrides))
+
+        run.refresh_from_db()
+        self.assertNotIn("pending_followup_messages", run.state or {})
 
 
 class TestRecentWizardCloudRunTimes(TestCase):

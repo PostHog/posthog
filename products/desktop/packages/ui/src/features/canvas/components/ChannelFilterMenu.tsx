@@ -232,6 +232,22 @@ export function ChannelFilterMenu({
         sideOffset={6}
         className="min-w-fit"
       >
+        {/* A canvas has no repository, so the canvas tab cannot group by repository. */}
+        {showRunFilters && (
+          <FilterSubmenu
+            label="Group by"
+            options={GROUPING_OPTIONS}
+            value={grouping}
+            onChange={onGroupingChange}
+          />
+        )}
+        <FilterSubmenu
+          label="Sort by"
+          options={SORT_OPTIONS}
+          value={sort}
+          onChange={onSortChange}
+        />
+        <DropdownMenuSeparator />
         {showRunFilters && (
           <FilterSubmenu
             label="Status"
@@ -273,23 +289,9 @@ export function ChannelFilterMenu({
             />
           </>
         )}
-        <DropdownMenuSeparator />
-        <FilterSubmenu
-          label="Sort by"
-          options={SORT_OPTIONS}
-          value={sort}
-          onChange={onSortChange}
-        />
-        {/* A canvas has no repository, and no second row to configure, so the
-            tab that lists them is offered neither. */}
+        {/* A canvas has no configurable second row, so the canvas tab has no appearance editor. */}
         {showRunFilters && (
           <>
-            <FilterSubmenu
-              label="Group by"
-              options={GROUPING_OPTIONS}
-              value={grouping}
-              onChange={onGroupingChange}
-            />
             <DropdownMenuSeparator />
             <DropdownMenuItem
               data-attr="edit-list-item-appearance"

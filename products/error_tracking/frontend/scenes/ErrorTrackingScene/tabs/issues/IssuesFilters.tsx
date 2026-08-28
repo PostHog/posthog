@@ -1,5 +1,3 @@
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { ErrorFilters } from 'products/error_tracking/frontend/components/IssueFilters'
 import { ErrorTrackingQuickFilters } from 'products/error_tracking/frontend/components/IssueFilters/QuickFilters'
 import {
@@ -8,8 +6,6 @@ import {
 } from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
 
 export function IssuesFilters(): JSX.Element {
-    const hasSeverityRules = useFeatureFlag('ERROR_TRACKING_SEVERITY_RULES')
-
     return (
         <ErrorFilters.Root>
             <div className="flex flex-col gap-2">
@@ -18,7 +14,7 @@ export function IssuesFilters(): JSX.Element {
                         <ReloadIssuesButton />
                         <ErrorFilters.DateRange />
                         <ErrorFilters.Status />
-                        {hasSeverityRules ? <ErrorFilters.Severity /> : null}
+                        <ErrorFilters.Severity />
                         <ErrorFilters.Assignee />
                         <ErrorFilters.InternalAccounts />
                     </div>

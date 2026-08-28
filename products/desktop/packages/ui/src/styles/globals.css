@@ -1480,6 +1480,18 @@ body.ph-window-blurred .app-fade-in {
  * caps are utility classes on the elements themselves, and a rule inside
  * @layer components would lose to them.
  */
+@layer components {
+  /*
+   * Arrow navigation can place one row under a stationary pointer while another row stays highlighted.
+   * Remove the non-highlighted row's hover style so the list shows one active row.
+  */
+  .sidebar-autocomplete-tree:has([data-highlighted])
+  [role="option"]:not([data-highlighted]):hover {
+    color: inherit;
+    background-color: transparent;
+  }
+}
+
 /*
  * @posthog/quill Tabs — quill paints an active trigger `var(--background)` with
  * `!important`, and `!important` inverts cascade-layer order, so no utility

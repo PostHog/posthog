@@ -5,6 +5,7 @@ import {
   HouseSimple,
   type IconProps,
   Lightning,
+  ShapesIcon,
 } from "@phosphor-icons/react";
 import type { RailVisit } from "@posthog/shared";
 import type { SidebarNavItem } from "@posthog/shared/analytics-events";
@@ -24,6 +25,7 @@ import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
   navigateToActivity,
+  navigateToCanvases,
   navigateToChannel,
   navigateToCommandCenter,
   navigateToHome,
@@ -163,6 +165,14 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     href: "/activity",
     onPick: navigateToActivity,
     count: (counts) => counts.activity,
+  },
+  {
+    pane: "canvases",
+    label: "Canvases",
+    analyticsId: "canvases",
+    Icon: ShapesIcon,
+    href: "/canvases",
+    onPick: () => navigateToCanvases(),
   },
   {
     pane: "inbox",

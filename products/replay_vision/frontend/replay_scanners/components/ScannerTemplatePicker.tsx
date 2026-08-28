@@ -21,6 +21,7 @@ import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerTemplate, ScannerTemplateIcon, defaultScannerTemplates } from '../scannerTemplates'
 import { scannerTypeOutputHint } from '../types'
+import { scannerStartSearchParams } from './scannerStartParams'
 
 const TEMPLATE_ICONS: Record<ScannerTemplateIcon, JSX.Element> = {
     warning: <IconWarning />,
@@ -38,8 +39,9 @@ export function TemplateCard({ template }: { template: ScannerTemplate | 'blank'
     const start = (): void => {
         const templateKey = isBlank ? null : template.key
         replayScannerLogic({ id: 'new' }).actions.startFromTemplate(templateKey)
-        const params = isBlank ? searchParams : { ...searchParams, template: template.key }
-        router.actions.push(combineUrl(urls.replayVisionScannerDetails('new'), params).url)
+        router.actions.push(
+            combineUrl(urls.replayVisionScannerDetails('new'), scannerStartSearchParams(searchParams, templateKey)).url
+        )
     }
 
     const handleClick = (): void => {
