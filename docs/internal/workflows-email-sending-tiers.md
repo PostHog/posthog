@@ -49,11 +49,12 @@ Pinned teams never move automatically.
 2. Run `python manage.py backfill_workflows_email_sending_tiers` per region, read the printed distribution, then re-run with `--apply`. This lands established senders on their earned tier in one step.
 3. Set both modes to `shadow` via charts. Nothing is delayed; would-be delays log and count in `cdp_team_email_cap_delayed_total{mode="shadow"}`. Watch that against real traffic.
 4. Set both modes to `enforce`, optionally with the created-after cutoffs so only new projects are enforced first. The Reputation tab's allowance card appears for enforced teams at this point.
+   Never set the Django mode to `enforce` on a deployment whose email worker does not carry the send-time caps: the batch audience cap alone can be sidestepped by editing a workflow while a batch is queued, and the send-time buckets are what bound that.
 5. To back out, set the modes back to `off`; the tiers keep computing and nothing else changes.
 
 ## Known limits
 
-- The batch audience cap is decided when the batch is dispatched. Adding an email step to the workflow while a batch is queued does not re-cap it; the send-time buckets still cap every email at execution.
+- The batch audience cap is decided when the batch is dispatched. Adding an email step to the workflow while a batch is queued does not re-cap it; the send-time buckets still cap every email at execution. This is why enforcement requires the worker caps to be deployed (see the rollout order).
 - Test-panel sends bypass the team buckets on purpose, matching the per-workflow rate limit.
 - The buckets are token buckets: a full idle bucket plus refill allows up to roughly twice the stated cap in the very first period. The bucket TTLs exceed the refill periods so this does not recur from idling.
 - Gmail provides no per-message feedback loop, so complaint rates (ours and AWS's) cannot see Gmail complaints at all.
