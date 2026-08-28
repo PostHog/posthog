@@ -327,7 +327,7 @@ export function isRevenueAnalyticsPropertyFilter(
     return filter?.type === PropertyFilterType.RevenueAnalytics
 }
 export function isAccountRelationshipPropertyFilter(
-    filter?: AnyFilterLike | null
+    filter?: { type?: PropertyFilterType } | null
 ): filter is AccountRelationshipPropertyFilter {
     return filter?.type === PropertyFilterType.AccountRelationship
 }

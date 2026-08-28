@@ -247,7 +247,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
 
                 // The key is the definition id (a UUID), so keep the human-readable name for display
                 if (propertyType === PropertyFilterType.AccountRelationship && item?.name) {
-                    const accountRelationshipFilter = filter as AccountRelationshipPropertyFilter
+                    const accountRelationshipFilter = filter as unknown as AccountRelationshipPropertyFilter
                     accountRelationshipFilter.label = item.name
                 }
 
