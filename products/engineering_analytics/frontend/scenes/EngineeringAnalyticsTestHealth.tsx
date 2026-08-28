@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { IconExternal } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -72,7 +73,21 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <h3 className="m-0 text-base font-semibold">Quarantine debt by team</h3>
+            <div className="flex items-center justify-between gap-2">
+                <h3 className="m-0 text-base font-semibold">Quarantine debt by team</h3>
+                {trunkQuarantine?.trunkUrl && (
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        to={trunkQuarantine.trunkUrl}
+                        targetBlank
+                        sideIcon={<IconExternal />}
+                        data-attr="engineering-analytics-trunk-debt-open-trunk"
+                    >
+                        Open in Trunk
+                    </LemonButton>
+                )}
+            </div>
             <div className="grid grid-cols-1 gap-3 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-4">
                 <StatCard
                     label="Quarantined tests"
@@ -115,6 +130,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
                         <TeamQuarantinedTestsTable
                             tests={trunkQuarantineTestsByTeam[row.ownerTeam] ?? []}
                             ttlDays={ttlDays}
+                            repository={trunkQuarantine?.repository ?? ''}
                         />
                     ),
                 }}

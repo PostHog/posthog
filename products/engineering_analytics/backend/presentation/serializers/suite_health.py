@@ -116,6 +116,13 @@ class TrunkQuarantineDebtSerializer(DataclassSerializer):
                 "help_text": "False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error.",
             },
             "ttl_days": {"help_text": "Days a quarantine may stand before it counts as overdue."},
+            "repository": {
+                "help_text": "The 'owner/name' repository the debt was read for; test file paths are relative to it.",
+            },
+            "trunk_url": {
+                "help_text": "The Trunk app's flaky-tests page for this repository; null when the connected "
+                "source has no organization slug.",
+            },
         }
 
 

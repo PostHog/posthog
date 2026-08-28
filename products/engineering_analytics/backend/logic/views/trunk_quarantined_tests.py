@@ -17,9 +17,11 @@ def build_query(table: str) -> str:
         runner,
         concat(file, '::', if(cls = '', '', concat(cls, '::')), name) AS nodeid,
         file,
-        status,
-        quarantine_setting,
-        quarantined_at
+        any(status) AS status,
+        any(quarantine_setting) AS quarantine_setting,
+        -- Trunk keys a test per variant (e.g. one row per browser), so collapse to one row per
+        -- test; the oldest quarantine carries the honest age.
+        min(quarantined_at_parsed) AS quarantined_at
     FROM (
         SELECT
             if(parent = 'pytest', 'pytest', 'jest') AS runner,
@@ -27,12 +29,13 @@ def build_query(table: str) -> str:
             ifNull(name, '') AS name,
             ifNull(status, '') AS status,
             ifNull(quarantine_setting, '') AS quarantine_setting,
-            parseDateTimeBestEffort(quarantined_at) AS quarantined_at,
+            parseDateTimeBestEffort(quarantined_at) AS quarantined_at_parsed,
             replaceAll(substring(ifNull(file, ''), 1, length(ifNull(file, '')) - 3), '/', '.') AS module,
             if(parent = 'pytest' AND startsWith(ifNull(classname, ''), concat(module, '.')),
                replaceAll(substring(ifNull(classname, ''), length(module) + 2, length(ifNull(classname, ''))), '.', '::'),
                '') AS cls
         FROM {table}
     )
-    WHERE file != '' AND name != '' AND quarantined_at IS NOT NULL
+    WHERE file != '' AND name != '' AND quarantined_at_parsed IS NOT NULL
+    GROUP BY runner, nodeid, file
 """

@@ -30,9 +30,10 @@ from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
+    TrunkQuarantineSource,
     resolve_github_tables,
     resolve_trunk_merge_queue_table,
-    resolve_trunk_quarantined_tests_table,
+    resolve_trunk_quarantined_tests_source,
 )
 from products.engineering_analytics.backend.logic.views import (
     deployments,
@@ -143,8 +144,8 @@ class CuratedGitHubSource:
         self._user_access_control = user_access_control
         self._trunk_table: str | None = None
         self._trunk_table_resolved = False
-        self._trunk_quarantine_table: str | None = None
-        self._trunk_quarantine_table_resolved = False
+        self._trunk_quarantine_source: TrunkQuarantineSource | None = None
+        self._trunk_quarantine_resolved = False
 
     @property
     def team(self) -> Team:
@@ -210,16 +211,27 @@ class CuratedGitHubSource:
             return None
         return f"({trunk_merge_queue.build_query(self._trunk_table)})"
 
+    def _trunk_quarantine(self) -> "TrunkQuarantineSource | None":
+        if not self._trunk_quarantine_resolved:
+            self._trunk_quarantine_source = resolve_trunk_quarantined_tests_source(
+                self._team, self._user_access_control
+            )
+            self._trunk_quarantine_resolved = True
+        return self._trunk_quarantine_source
+
     def trunk_quarantined_tests_source(self) -> str | None:
         """Curated Trunk quarantined-tests ``SELECT`` subquery, or None when no TrunkIo source has
         the QuarantinedTests endpoint synced or the requesting user can't access one; consumers
         degrade to ``available: false``. Lazily resolved and cached like the merge-queue sibling."""
-        if not self._trunk_quarantine_table_resolved:
-            self._trunk_quarantine_table = resolve_trunk_quarantined_tests_table(self._team, self._user_access_control)
-            self._trunk_quarantine_table_resolved = True
-        if self._trunk_quarantine_table is None:
+        source = self._trunk_quarantine()
+        if source is None:
             return None
-        return f"({trunk_quarantined_tests.build_query(self._trunk_quarantine_table)})"
+        return f"({trunk_quarantined_tests.build_query(source.table)})"
+
+    def trunk_org_url_slug(self) -> str | None:
+        """The TrunkIo source's org slug, for links into the Trunk app; None when unsynced or unset."""
+        source = self._trunk_quarantine()
+        return source.org_url_slug if source else None
 
     def members_source(self) -> str | None:
         """Curated team-membership ``SELECT`` subquery, or None when the optional table isn't synced."""

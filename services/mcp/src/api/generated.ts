@@ -85053,6 +85053,13 @@ export namespace Schemas {
       available: boolean;
       /** Days a quarantine may stand before it counts as overdue. */
       ttl_days: number;
+      /** The 'owner/name' repository the debt was read for; test file paths are relative to it. */
+      repository: string;
+      /**
+         * The Trunk app's flaky-tests page for this repository; null when the connected source has no organization slug.
+         * @nullable
+         */
+      trunk_url: string | null;
     }
 
     export interface UnquarantineQuery {

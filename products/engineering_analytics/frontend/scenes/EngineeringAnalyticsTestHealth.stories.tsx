@@ -37,6 +37,8 @@ const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', pref
 const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
     available: true,
     ttl_days: 30,
+    repository: 'PostHog/posthog',
+    trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog',
     teams: [
         { owner_team: 'batch-exports', test_count: 3, overdue_count: 2, oldest_age_days: 44 },
         { owner_team: 'team-replay', test_count: 2, overdue_count: 1, oldest_age_days: 38 },

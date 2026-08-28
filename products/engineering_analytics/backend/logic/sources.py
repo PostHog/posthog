@@ -27,6 +27,7 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
@@ -239,10 +240,18 @@ def resolve_trunk_merge_queue_table(team: Team, user_access_control: "UserAccess
 TRUNK_QUARANTINED_TESTS_SCHEMA = "QuarantinedTests"
 
 
-def resolve_trunk_quarantined_tests_table(
+@frozen
+class TrunkQuarantineSource:
+    """The synced Trunk quarantined-tests table plus the source's Trunk org slug (for app links)."""
+
+    table: str
+    org_url_slug: str | None
+
+
+def resolve_trunk_quarantined_tests_source(
     team: Team, user_access_control: "UserAccessControl | None" = None
-) -> str | None:
-    """The synced Trunk quarantined-tests table's warehouse name, or None.
+) -> TrunkQuarantineSource | None:
+    """The synced Trunk quarantined-tests table's warehouse name and org slug, or None.
 
     Same resolution rules as ``resolve_trunk_merge_queue_table``: team-level, oldest synced source
     wins, per-user warehouse RBAC applied, and None degrades the consumer to an honest
@@ -254,7 +263,8 @@ def resolve_trunk_quarantined_tests_table(
                 continue
             table = schema.table
             if table is not None and not table.deleted and _IDENTIFIER.match(table.name):
-                return table.name
+                slug = (source.job_inputs or {}).get("org_url_slug") or None
+                return TrunkQuarantineSource(table=table.name, org_url_slug=slug)
     return None
 
 

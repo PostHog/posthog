@@ -1196,10 +1196,17 @@ class Command(BaseCommand):
                 status=ExternalDataSourceStatus.COMPLETED,
                 source_type=ExternalDataSourceType.TRUNKIO,
                 prefix=prefix,
+                job_inputs={"org_url_slug": "posthog-inc"},
             )
+        update_fields = []
         if source.prefix != prefix:
             source.prefix = prefix
-            source.save(update_fields=["prefix", "updated_at"])
+            update_fields.append("prefix")
+        if not (source.job_inputs or {}).get("org_url_slug"):
+            source.job_inputs = {**(source.job_inputs or {}), "org_url_slug": "posthog-inc"}
+            update_fields.append("job_inputs")
+        if update_fields:
+            source.save(update_fields=[*update_fields, "updated_at"])
         return source
 
     def _upsert_schema_table(

@@ -1,4 +1,4 @@
-import { LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
@@ -17,9 +17,12 @@ function RelativeTime({ iso }: { iso: string }): JSX.Element {
 export function TeamQuarantinedTestsTable({
     tests,
     ttlDays,
+    repository,
 }: {
     tests: TrunkQuarantinedTestRow[]
     ttlDays: number
+    /** 'owner/name' the test file paths are relative to, for the GitHub links. */
+    repository: string
 }): JSX.Element {
     const columns: LemonTableColumns<TrunkQuarantinedTestRow> = [
         {
@@ -27,7 +30,13 @@ export function TeamQuarantinedTestsTable({
             key: 'nodeid',
             render: (_, row) => (
                 <Tooltip title={row.nodeid}>
-                    <span className="block max-w-full truncate font-mono text-xs">{row.nodeid}</span>
+                    <Link
+                        to={`https://github.com/${repository}/blob/master/${row.file}`}
+                        target="_blank"
+                        className="block max-w-full truncate font-mono text-xs"
+                    >
+                        {row.nodeid}
+                    </Link>
                 </Tooltip>
             ),
         },

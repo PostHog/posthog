@@ -53,8 +53,10 @@ def _nodeid_variants(nodeid: str) -> list[str]:
     return variants or [nodeid]
 
 
-def _empty(ttl_days: int) -> TrunkQuarantineDebt:
-    return TrunkQuarantineDebt(available=False, ttl_days=ttl_days, teams=[], tests=[])
+def _trunk_url(org_url_slug: str | None, repository: str) -> str | None:
+    if not org_url_slug:
+        return None
+    return f"https://app.trunk.io/{org_url_slug}/flaky-tests?repo={repository}"
 
 
 def query_trunk_quarantine_debt(
@@ -67,8 +69,11 @@ def query_trunk_quarantine_debt(
     """Every currently quarantined test with its owning team and age, plus the per-team rollup;
     the unavailable shape when no TrunkIo QuarantinedTests table is synced."""
     source = curated.trunk_quarantined_tests_source()
+    trunk_url = _trunk_url(curated.trunk_org_url_slug(), curated.repository)
     if source is None:
-        return _empty(ttl_days)
+        return TrunkQuarantineDebt(
+            available=False, ttl_days=ttl_days, repository=curated.repository, trunk_url=None, teams=[], tests=[]
+        )
 
     quarantined = curated.run(
         _QUARANTINED_SELECT.replace("__TRUNK_SOURCE__", source),
@@ -77,7 +82,9 @@ def query_trunk_quarantine_debt(
     )
     rows = quarantined.results or []
     if not rows:
-        return TrunkQuarantineDebt(available=True, ttl_days=ttl_days, teams=[], tests=[])
+        return TrunkQuarantineDebt(
+            available=True, ttl_days=ttl_days, repository=curated.repository, trunk_url=trunk_url, teams=[], tests=[]
+        )
 
     owners = curated.run(
         _OWNER_ROSTER_SELECT,
@@ -134,4 +141,6 @@ def query_trunk_quarantine_debt(
         for owner_team, owned in rollup.items()
     ]
     teams.sort(key=lambda team: (-team.overdue_count, -team.test_count, -team.oldest_age_days, team.owner_team))
-    return TrunkQuarantineDebt(available=True, ttl_days=ttl_days, teams=teams, tests=tests)
+    return TrunkQuarantineDebt(
+        available=True, ttl_days=ttl_days, repository=curated.repository, trunk_url=trunk_url, teams=teams, tests=tests
+    )

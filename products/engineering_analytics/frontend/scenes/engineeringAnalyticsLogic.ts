@@ -468,6 +468,10 @@ export interface TrunkQuarantineData {
     /** False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error. */
     available: boolean
     ttlDays: number
+    /** 'owner/name' the debt was read for; test file paths are relative to it. */
+    repository: string
+    /** The Trunk app's flaky-tests page for this repository; null when the source has no org slug. */
+    trunkUrl: string | null
     teams: TrunkQuarantineTeamRow[]
     tests: TrunkQuarantinedTestRow[]
 }
@@ -1049,6 +1053,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         return {
                             available: data.available,
                             ttlDays: data.ttl_days,
+                            repository: data.repository,
+                            trunkUrl: data.trunk_url ?? null,
                             teams: data.teams.map(
                                 (it): TrunkQuarantineTeamRow => ({
                                     ownerTeam: it.owner_team,

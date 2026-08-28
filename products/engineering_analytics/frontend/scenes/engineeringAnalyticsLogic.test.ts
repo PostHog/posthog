@@ -260,7 +260,14 @@ describe('engineeringAnalyticsLogic', () => {
         })
         // Most tests are single- or no-source; the picker tests override with SOURCES.
         mockSources.mockResolvedValue([])
-        mockTrunkQuarantine.mockResolvedValue({ available: true, ttl_days: 30, teams: [], tests: [] })
+        mockTrunkQuarantine.mockResolvedValue({
+            available: true,
+            ttl_days: 30,
+            repository: 'PostHog/posthog',
+            trunk_url: null,
+            teams: [],
+            tests: [],
+        })
     })
 
     afterEach(() => {
@@ -838,6 +845,8 @@ describe('engineeringAnalyticsLogic', () => {
         mockTrunkQuarantine.mockResolvedValue({
             available: true,
             ttl_days: 30,
+            repository: 'PostHog/posthog',
+            trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog',
             teams: [{ owner_team: 'team-replay', test_count: 1, overdue_count: 1, oldest_age_days: 44 }],
             tests: [
                 {
@@ -869,6 +878,10 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadTrunkQuarantineSuccess'])
 
         expect(logic.values.trunkQuarantine?.ttlDays).toBe(30)
+        expect(logic.values.trunkQuarantine?.repository).toBe('PostHog/posthog')
+        expect(logic.values.trunkQuarantine?.trunkUrl).toBe(
+            'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog'
+        )
         expect(logic.values.trunkQuarantine?.tests[0]).toEqual({
             runner: 'pytest',
             nodeid: 'a.py::TestA::test_a',

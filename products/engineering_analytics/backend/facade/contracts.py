@@ -670,6 +670,10 @@ class TrunkQuarantineDebt:
 
     available: bool
     ttl_days: int
+    # The 'owner/name' repository the debt was read for; test file paths are relative to it.
+    repository: str
+    # The Trunk app's flaky-tests page for this repository; None when the source has no org slug.
+    trunk_url: str | None
     teams: list[TrunkQuarantineTeamDebt]
     tests: list[TrunkQuarantinedTest]
 
