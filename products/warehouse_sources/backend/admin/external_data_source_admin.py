@@ -140,7 +140,7 @@ class ExternalDataSourceAdmin(admin.ModelAdmin):
                 ExternalDataSchema.objects.filter(source_id=source.pk)
                 .select_related("table")
                 .defer("sync_type_config", "enabled_columns", "row_filters")
-                .order_by("name")
+                .order_by("name", "id")
             )
             extra_context["schema_page"] = Paginator(schemas, self.SCHEMAS_PER_PAGE).get_page(request.GET.get("page"))
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
