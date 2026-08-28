@@ -120,10 +120,12 @@ from .activities.send_permission_response_to_sandbox import (
 )
 from .activities.slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .activities.start_agent_server import (
+    CollectAgentShadowResultInput,
     MarkRepoReadyInput,
     StartAgentServerInput,
     StartAgentServerOutput,
     await_agent_server_ready,
+    collect_agent_shadow_result,
     launch_agent_server,
     mark_repo_ready,
     start_agent_server,
@@ -148,6 +150,7 @@ DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
 MAX_ACCEPTED_MESSAGE_IDS = 500
 _PATCH_ID_CANCEL_SANDBOX_CREATION_ON_COMPLETION = "tasks-cancel-sandbox-creation-on-completion"
 _PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE = "tasks-continue-after-repository-clone-failure"
+_PATCH_ID_ASYNC_AGENT_SHADOW_RESULT = "tasks-async-agent-shadow-result"
 
 
 class _TaskCompletedDuringSandboxCreation(Exception):
@@ -507,6 +510,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._self_driving_quota_next_check_at: Optional[datetime] = None
         self._self_driving_quota_checks_active: bool = True
         self._current_slack_relay_workflow_id: Optional[str] = None
+        self._agent_shadow_launched = False
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -1121,6 +1125,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         credential_refresh_task: asyncio.Task[None] | None = None
         permission_response_task: asyncio.Task[None] | None = None
         preview_task: asyncio.Task[None] | None = None
+        agent_shadow_task: asyncio.Task[None] | None = None
         try:
             self._context = await self._get_task_processing_context(input)
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
@@ -1142,6 +1147,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if input.resumed_sandbox is None:
                 self._dev_stack_preview_enabled = self.context.dev_stack_preview_enabled
                 sandbox_id, sandbox_url, sandbox_connect_token = await self._provision_and_start_agent(input, run_id)
+                if self._agent_shadow_launched and workflow.patched(_PATCH_ID_ASYNC_AGENT_SHADOW_RESULT):
+                    agent_shadow_task = asyncio.create_task(self._collect_agent_shadow_result(sandbox_id))
             else:
                 # continue_as_new continuation — re-attach to the running sandbox, skip setup.
                 self._restore_resumed_state(input.resumed_sandbox)
@@ -1203,6 +1210,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         credential_refresh_task,
                         permission_response_task,
                         preview_task,
+                        agent_shadow_task,
                     ):
                         if task is not None:
                             await self._cancel_relay(task)
@@ -1597,6 +1605,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     await self._cancel_relay(permission_response_task)
                 if preview_task is not None:
                     await self._cancel_relay(preview_task)
+                if agent_shadow_task is not None:
+                    await self._cancel_relay(agent_shadow_task)
                 await self._close_dev_stack_preview_progress()
 
                 cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
@@ -1688,6 +1698,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         else:
             await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
             agent_server_output = await self._start_agent_server(sandbox_output, boot_excluded_ms=wizard_ms)
+        self._agent_shadow_launched = bool(sandbox_output.agent_shadow_launched or agent_server_output.shadow_launched)
         await self._emit_progress("agent", "completed", "Started agent", "setup")
 
         await self._track_workflow_event(
@@ -1713,17 +1724,40 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "agent_repository_ready_ms": agent_server_output.boot_phases_ms.get("repository_ready"),
                 "agent_session_dependencies_ms": agent_server_output.boot_phases_ms.get("session_dependencies"),
                 "agent_session_create_ms": agent_server_output.boot_phases_ms.get("session_create"),
-                "agent_shadow_launched": agent_server_output.shadow_observation.get("launched"),
-                "agent_shadow_outcome": agent_server_output.shadow_observation.get("outcome"),
-                "agent_shadow_observed_ready_ms": agent_server_output.shadow_observation.get("observed_ready_ms"),
-                "agent_shadow_production_ready_ms": agent_server_output.shadow_observation.get("production_ready_ms"),
-                "agent_shadow_failure_class": agent_server_output.shadow_observation.get("failure_class"),
-                "agent_shadow_read_timed_out": agent_server_output.shadow_observation.get("timed_out"),
+                "agent_shadow_launched": self._agent_shadow_launched,
                 "loop_id": self.context.loop_id,
                 "loop_trigger_id": self.context.loop_trigger_id,
             },
         )
         return sandbox_id, agent_server_output.sandbox_url, agent_server_output.connect_token
+
+    async def _collect_agent_shadow_result(self, sandbox_id: str) -> None:
+        try:
+            observation = await workflow.execute_activity(
+                collect_agent_shadow_result,
+                CollectAgentShadowResultInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            await self._track_workflow_event(
+                "agent_shadow_observed",
+                {
+                    "run_id": self.context.run_id,
+                    "task_id": self.context.task_id,
+                    "sandbox_id": sandbox_id,
+                    "launched": observation.get("launched"),
+                    "outcome": observation.get("outcome"),
+                    "observed_ready_ms": observation.get("observed_ready_ms"),
+                    "production_ready_ms": observation.get("production_ready_ms"),
+                    "failure_class": observation.get("failure_class"),
+                    "read_timed_out": observation.get("timed_out"),
+                },
+            )
+        except Exception as error:
+            workflow.logger.warning(
+                "agent_shadow_collection_failed",
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id, "error": str(error)},
+            )
 
     def _should_continue_as_new(self, sandbox_id: str | None) -> bool:
         # Only from a clean idle point — no queued work and no live Slack relay child (which
@@ -1956,6 +1990,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
             launch_output = await self._launch_agent_server(created, defer_for_clone=True, used_snapshot=used_snapshot)
             launch_ms = launch_output.launch_ms if launch_output else None
+            self._agent_shadow_launched = bool(launch_output and launch_output.shadow_launched)
 
         clone_ms: int | None = None
         failed_repositories: set[str] = set()
@@ -2111,6 +2146,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             checkout_ms=checkout_ms,
             launch_ms=launch_ms,
             dev_stack_preview_sized=created.dev_stack_preview_sized,
+            agent_shadow_launched=self._agent_shadow_launched,
         )
 
     async def _run_sandbox_creation_activity(
