@@ -1507,6 +1507,12 @@ def is_plugin_server_alive() -> bool:
         # report the server as down, so exception autocapture does not open a noisy issue.
         logger.warning("plugin_server_health_check_failed", error=str(e))
         return False
+    except Exception as e:
+        # An unexpected error is a genuine bug, so report it to error tracking. Still return
+        # False so a probe failure cannot 500 the page shell, because preflight_check() runs
+        # is_plugin_server_alive() during non-cloud page rendering.
+        capture_exception(e)
+        return False
 
 
 def get_plugin_server_job_queues() -> Optional[list[str]]:

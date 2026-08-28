@@ -1559,9 +1559,12 @@ class TestIsPluginServerAlive(SimpleTestCase):
 
         assert is_plugin_server_alive() is False
 
+    @patch("posthog.utils.capture_exception")
     @patch("posthog.plugins.plugin_server_api.get_plugin_server_status")
-    def test_unexpected_error_propagates(self, mock_status: Any) -> None:
+    def test_unexpected_error_is_captured_and_reported_down(self, mock_status: Any, mock_capture: Any) -> None:
+        # An unexpected error is a genuine bug, but it must not 500 the page shell that runs
+        # this probe. It is reported to error tracking and the server is reported as down.
         mock_status.side_effect = RuntimeError("boom")
 
-        with pytest.raises(RuntimeError):
-            is_plugin_server_alive()
+        assert is_plugin_server_alive() is False
+        mock_capture.assert_called_once()
