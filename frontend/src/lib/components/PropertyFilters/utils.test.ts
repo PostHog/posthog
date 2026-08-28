@@ -6,7 +6,6 @@ import {
     formatPropertyLabel,
     isAnyPropertyfilter,
     isGroupCardFilterKey,
-    isPropertyFilterWithOperator,
     isValidPropertyFilter,
     normalizePropertyFilterValue,
     propertyFilterTypeToTaxonomicFilterType,
@@ -18,7 +17,6 @@ import type { propertyDefinitionsModelType } from '~/models/propertyDefinitionsM
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 
 import {
-    AccountPropertyFilter,
     ActionType,
     AnyPropertyFilter,
     BehavioralEventType,
@@ -51,19 +49,6 @@ describe('isGroupCardFilterKey()', () => {
         { key: undefined, type: PropertyFilterType.Group, expected: false },
     ])('returns $expected for key=$key type=$type', ({ key, type, expected }) => {
         expect(isGroupCardFilterKey(key, type)).toBe(expected)
-    })
-})
-
-describe('isPropertyFilterWithOperator()', () => {
-    it('keeps account field operators', () => {
-        const filter: AccountPropertyFilter = {
-            key: 'created_at',
-            value: '-30d',
-            type: PropertyFilterType.Account,
-            operator: PropertyOperator.IsDateAfter,
-        }
-
-        expect(isPropertyFilterWithOperator(filter)).toBe(true)
     })
 })
 

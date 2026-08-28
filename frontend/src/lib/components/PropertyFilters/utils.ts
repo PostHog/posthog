@@ -15,7 +15,6 @@ import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     AccountCustomPropertyFilter,
-    AccountPropertyFilter,
     ActionType,
     AnyFilterLike,
     AnyPropertyFilter,
@@ -325,9 +324,6 @@ export function isRevenueAnalyticsPropertyFilter(
 ): filter is RevenueAnalyticsPropertyFilter {
     return filter?.type === PropertyFilterType.RevenueAnalytics
 }
-export function isAccountPropertyFilter(filter?: AnyFilterLike | null): filter is AccountPropertyFilter {
-    return filter?.type === PropertyFilterType.Account
-}
 export function isAccountCustomPropertyFilter(filter?: AnyFilterLike | null): filter is AccountCustomPropertyFilter {
     return filter?.type === PropertyFilterType.AccountCustomProperty
 }
@@ -421,7 +417,6 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isPersonMetadataPropertyFilter(filter) ||
         isEventMetadataPropertyFilter(filter) ||
         isRevenueAnalyticsPropertyFilter(filter) ||
-        isAccountPropertyFilter(filter) ||
         isAccountCustomPropertyFilter(filter) ||
         isElementPropertyFilter(filter) ||
         isSessionPropertyFilter(filter) ||
@@ -446,7 +441,6 @@ export function isPropertyFilterWithOperator(
     | PersonMetadataPropertyFilter
     | EventMetadataPropertyFilter
     | RevenueAnalyticsPropertyFilter
-    | AccountPropertyFilter
     | AccountCustomPropertyFilter
     | ElementPropertyFilter
     | SessionPropertyFilter
@@ -468,7 +462,6 @@ export function isPropertyFilterWithOperator(
             isPersonMetadataPropertyFilter(filter) ||
             isEventMetadataPropertyFilter(filter) ||
             isRevenueAnalyticsPropertyFilter(filter) ||
-            isAccountPropertyFilter(filter) ||
             isAccountCustomPropertyFilter(filter) ||
             isElementPropertyFilter(filter) ||
             isSessionPropertyFilter(filter) ||
