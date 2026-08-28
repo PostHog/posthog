@@ -9,6 +9,16 @@ import pyarrow as pa
 
 ManagementMode = Literal["posthog", "self_managed"]
 
+# How a source's change events reach the loader. `legacy`: capture transforms and dispatches them
+# itself. `buffered`: capture only writes the S3 buffer, and the normal scheduled sync consumes it.
+IngestMode = Literal["legacy", "buffered"]
+
+
+def parse_ingest_mode(job_inputs: Mapping[str, Any] | None) -> IngestMode:
+    """Anything unrecognized reads as legacy: an unknown value must not route a source onto a
+    path it was never flipped to."""
+    return "buffered" if (job_inputs or {}).get("cdc_ingest_mode") == "buffered" else "legacy"
+
 
 @dataclass(frozen=True)
 class CDCConfig:
@@ -26,6 +36,7 @@ class CDCConfig:
     lag_warning_threshold_mb: int
     lag_critical_threshold_mb: int
     auto_drop_slot: bool
+    ingest_mode: IngestMode
 
 
 class CDCPosition(Protocol):

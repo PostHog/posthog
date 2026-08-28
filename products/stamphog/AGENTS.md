@@ -52,6 +52,14 @@ The one thing the text does not carry is binary content, which git renders as `B
 There is deliberately no "this file is harmless" rule, and adding one back needs a very good argument.
 Successive review passes found every candidate wrong in this repository: lockfiles select the dependency code that gets installed, tests run in CI with CI's credentials, a file under a `generated/` directory can be hand-edited and still compiles into a service, `docs/onboarding` is aliased into the production frontend, MDX compiles to JavaScript, snapshot files are JavaScript modules the test runner executes, and even plain Markdown ships, because `services/mcp` imports `.md` templates and product `tools.yaml` files compile `.md` prompts into shipped tool definitions.
 
+The digest carries the one narrow exception, and it is not a gate.
+`detect_ownership` counts each team's files under `products/<name>/frontend/generated/`, and a team whose changed files are all in there is not a digest audience (`backend/logic/audiences.py`).
+`hogli build:openapi` rewrites those types whenever any shared serializer changes anywhere in the repo, so a team owning nothing else in a PR was not touched by it: that is how an error-tracking change reached the product analytics channel.
+Three things keep it from being the harmless-file rule above.
+It decides who hears about a merge, never whether code is safe to approve.
+The root `CLAUDE.md` forbids hand-editing those files, so the hand-edited-and-still-ships case does not apply to this path.
+And it names one exact directory shape rather than any `generated/` directory, which is the match that would catch hand-editable code elsewhere.
+
 Both sides are read with `compare_diff`, from the base and head shas the run and the payload already fixed.
 That is load-bearing rather than incidental: `get_pr_files` answers for whichever head is live when the request runs, so a contributor could push the approved content, let the comparison run, and push the unreviewed head back.
 Retention must never consult that endpoint.

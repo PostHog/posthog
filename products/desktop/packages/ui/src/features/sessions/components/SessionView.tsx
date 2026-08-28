@@ -1,5 +1,6 @@
 import { Pause, Spinner, Warning } from "@phosphor-icons/react";
 import type { FileAttachment } from "@posthog/core/message-editor/content";
+import { hasSessionPromptEvent } from "@posthog/core/sessions/sessionEvents";
 import {
   createLatestPlanTracker,
   SESSION_SERVICE,
@@ -12,6 +13,10 @@ import {
 import { useService } from "@posthog/di/react";
 import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
+import {
+  spendStopMessage,
+  useSpendStop,
+} from "@posthog/ui/features/billing/useSpendStop";
 import { showOfflineToast } from "@posthog/ui/features/connectivity/connectivityToast";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import type { AttachmentUploadStatus } from "@posthog/ui/features/message-editor/components/AttachmentsBar";
@@ -35,6 +40,7 @@ import {
   getGithubRefUrlFromEventTarget,
 } from "@posthog/ui/features/sessions/components/copyContextTarget";
 import { DropZoneOverlay } from "@posthog/ui/features/sessions/components/DropZoneOverlay";
+import { ModelSwitchCacheDialog } from "@posthog/ui/features/sessions/components/ModelSwitchCacheDialog";
 import { PendingChatView } from "@posthog/ui/features/sessions/components/PendingChatView";
 import { PermissionDock } from "@posthog/ui/features/sessions/components/PermissionDock";
 import { PlanStatusBar } from "@posthog/ui/features/sessions/components/PlanStatusBar";
@@ -50,7 +56,9 @@ import {
   submitComposerPrompt,
 } from "@posthog/ui/features/sessions/components/submitComposerPrompt";
 import { ThreadView } from "@posthog/ui/features/sessions/components/ThreadView";
+import { usePendingModelSwitch } from "@posthog/ui/features/sessions/components/usePendingModelSwitch";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
+import { useAutoCompact } from "@posthog/ui/features/sessions/hooks/useAutoCompact";
 import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/useEditQueuedMessage";
 import { useSessionEventsResidency } from "@posthog/ui/features/sessions/hooks/useSessionEventsResidency";
@@ -69,7 +77,6 @@ import {
   useShowRawLogs,
 } from "@posthog/ui/features/sessions/sessionViewStore";
 import type { Plan } from "@posthog/ui/features/sessions/types";
-import { useSessionHandoffInProgress } from "@posthog/ui/features/sessions/useSession";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useIsWorkspaceCloudRun } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
@@ -185,9 +192,9 @@ export function SessionView({
   const fastModeOption = fastModeFlagEnabled ? liveFastModeOption : undefined;
   const toggleMessagingMode = useToggleMessagingMode(taskId);
   const { allowBypassPermissions } = useSettingsStore();
+  const spendStop = useSpendStop();
   const { isOnline } = useConnectivity();
   const currentModeId = modeOption?.currentValue;
-  const handoffInProgress = useSessionHandoffInProgress(taskId);
   const showInlineBanner = hasError && errorRetryable && events.length > 0;
   const olderHistoryCursor = useSessionSelector(taskId, (session) =>
     isCloud ? (session?.transcriptWindowStart ?? 0) : 0,
@@ -239,12 +246,33 @@ export function SessionView({
     [taskId, thoughtOption, sessionService],
   );
 
-  const handleConfigOptionChange = useCallback(
+  const applyConfigOption = useCallback(
     (configId: string, value: string) => {
       if (!taskId) return;
       sessionService.setSessionConfigOption(taskId, configId, value);
     },
     [taskId, sessionService],
+  );
+
+  const {
+    pendingModelSwitch,
+    interceptModelSwitch,
+    confirmModelSwitch,
+    cancelModelSwitch,
+  } = usePendingModelSwitch({
+    taskId,
+    sessionModelOption,
+    hasConversationStarted: hasSessionPromptEvent(events),
+    onApply: applyConfigOption,
+  });
+
+  const handleConfigOptionChange = useCallback(
+    (configId: string, value: string) => {
+      if (!taskId) return;
+      if (interceptModelSwitch(configId, value)) return;
+      applyConfigOption(configId, value);
+    },
+    [taskId, interceptModelSwitch, applyConfigOption],
   );
 
   const sessionId = taskId ?? "default";
@@ -272,6 +300,17 @@ export function SessionView({
   const isCloudRun = useIsWorkspaceCloudRun(taskId);
   const editorRef = useRef<PromptInputHandle>(null);
   const contextUsage = useContextUsage(events);
+  const isCompacting = useSessionSelector(
+    taskId,
+    (session) => session?.isCompacting ?? false,
+  );
+  useAutoCompact({
+    sessionKey: sessionId,
+    usage: contextUsage,
+    isCompacting,
+    isRunning,
+    sendPrompt: onSendPrompt,
+  });
   const sendInFlightRef = useRef(false);
   const composerSubmissionRef = useRef(0);
   const attachmentIdsRef = useRef<Set<string>>(new Set());
@@ -765,12 +804,12 @@ export function SessionView({
                           ref={editorRef}
                           sessionId={sessionId}
                           placeholder="Type a message... ! for bash mode, / for skills"
-                          disabled={!isRunning && !handoffInProgress}
+                          disabled={!isRunning}
                           submitDisabledExternal={
-                            handoffInProgress ||
                             !isOnline ||
                             attachmentsUploading ||
-                            attachmentUploadFailed
+                            attachmentUploadFailed ||
+                            spendStop !== null
                           }
                           clearOnSubmit={false}
                           submitTooltipOverride={
@@ -780,7 +819,9 @@ export function SessionView({
                                 ? "Uploading attachments…"
                                 : attachmentUploadFailed
                                   ? "Attachment upload failed"
-                                  : undefined
+                                  : spendStop
+                                    ? spendStopMessage(spendStop)
+                                    : undefined
                           }
                           isLoading={!!isPromptPending}
                           isActiveSession={isActiveSession}
@@ -839,6 +880,15 @@ export function SessionView({
           </Flex>
         )}
       </ContextMenu.Trigger>
+      <ModelSwitchCacheDialog
+        open={pendingModelSwitch !== null}
+        fromModelId={pendingModelSwitch?.fromValue ?? ""}
+        fromModelLabel={pendingModelSwitch?.fromLabel ?? ""}
+        toModelId={pendingModelSwitch?.value ?? ""}
+        toModelLabel={pendingModelSwitch?.label ?? ""}
+        onConfirm={confirmModelSwitch}
+        onCancel={cancelModelSwitch}
+      />
       <ContextMenu.Content size="1">
         <ContextMenu.Item
           onSelect={() => {

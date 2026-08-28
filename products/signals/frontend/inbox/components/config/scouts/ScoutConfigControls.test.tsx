@@ -1,4 +1,6 @@
-import { fireEvent, render } from '@testing-library/react'
+import '@testing-library/jest-dom'
+
+import { cleanup, fireEvent, render } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -15,6 +17,7 @@ const config: SignalScoutConfigApi = {
     skill_name: 'signals-scout-general',
     description: 'General scout',
     scout_origin: 'canonical',
+    owners: [],
     enabled: true,
     status: 'active',
     pause_reason: null,
@@ -44,6 +47,35 @@ describe('ScoutConfigForm', () => {
     })
 
     beforeEach(() => initKeaTests())
+    afterEach(cleanup)
+
+    const emitSwitchLabel = 'signals-scout-general write signals to the inbox'
+
+    it.each([
+        ['live', true, false],
+        ['dry run', false, true],
+    ])('moves a %s scout to the other posture', (_posture, emit, expectedPatch) => {
+        const onUpdate = jest.fn()
+        const { getByLabelText } = render(<ScoutConfigForm config={{ ...config, emit }} onUpdate={onUpdate} />)
+
+        const emitSwitch = getByLabelText(emitSwitchLabel)
+        expect(emitSwitch).toHaveAttribute('aria-checked', String(emit))
+
+        fireEvent.click(emitSwitch)
+
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { emit: expectedPatch })
+    })
+
+    // Settable while the scout is off, so a dry-run posture can be chosen before the enable
+    // sends the first run out.
+    it('leaves the dry-run switch editable while the scout is disabled', () => {
+        const onUpdate = jest.fn()
+        const { getByLabelText } = render(
+            <ScoutConfigForm config={{ ...config, enabled: false }} onUpdate={onUpdate} />
+        )
+
+        expect(getByLabelText(emitSwitchLabel)).not.toBeDisabled()
+    })
 
     // The picker is gated on the scout model preview; without the flag the row does not render.
     const enableModelConfig = (): void => {

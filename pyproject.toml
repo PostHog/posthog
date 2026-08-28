@@ -100,7 +100,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.2.0",
     "protobuf~=5.29.6",
-    "posthoganalytics==7.43.0",
+    "posthoganalytics==7.44.2",
     "polars==1.37.1",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
@@ -142,6 +142,7 @@ dependencies = [
     "tiktoken==0.9.*",
     "tldextract~=5.1",
     "trafilatura==2.0.0",
+    "trino==0.338.0",
     "types-cachetools==5.5.0.20240820",
     "css-inline==0.18.0",
     "click~=8.0",
@@ -205,6 +206,7 @@ dependencies = [
     "wrapt==1.17.3",
     "limits==5.8.0",
     "deltalite==0.1.7",
+    "posthog-hogland==0.3.1",
 ]
 
 [dependency-groups]
@@ -611,7 +613,6 @@ ignore_imports = [
     # still make directly. These resolve once cdp/exports expose the needed facades, so
     # they outlive the in-product cleanup above.
     "products.logs.backend.presentation.views.api -> products.exports.backend.models.exported_asset",
-    "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.models.hog_functions.hog_function",
     # TODO: notebooks presentation wave — the moved NotebookViewSet still reaches in-product
     # internals (collab, kernel runtime, query validation, models) and the tasks sandbox
     # directly. Thin it to parse -> facade -> serialize and delete each entry.
@@ -632,6 +633,7 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_runs",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_serializers",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_state",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_variables",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",
     # TODO: experiments presentation wave — these were invisible to import-linter until
@@ -670,6 +672,11 @@ ignore_imports = [
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)
     # directly. Thin each viewset to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
+    # TODO: access-control presentation wave — the consolidated RBAC viewsets carry their ORM
+    # access with them. Thin them to parse -> facade -> serialize and delete each entry.
+    "products.access_control.backend.presentation.access_control -> products.access_control.backend.models.access_control",
+    "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.access_control",
+    "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.role",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the

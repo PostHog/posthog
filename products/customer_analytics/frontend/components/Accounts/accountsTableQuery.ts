@@ -194,6 +194,7 @@ function customPropertyFilter(
         (operator === AccountsTableCustomPropertyOperator.Contains ||
             operator === AccountsTableCustomPropertyOperator.DoesNotContain) &&
         definition.display_type !== 'text' &&
+        definition.display_type !== 'link' &&
         definition.display_type !== 'select'
     ) {
         return null

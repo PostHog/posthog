@@ -33,6 +33,8 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useSidebarPeekStore } from "@posthog/ui/features/sidebar/sidebarPeekStore";
+import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
 import type { SidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { useTaskAnalysis } from "@posthog/ui/features/task-detail/components/TaskAnalysisButton";
 import {
@@ -44,6 +46,7 @@ import {
   type ComponentType,
   type ReactElement,
   type ReactNode,
+  useCallback,
   useMemo,
   useState,
 } from "react";
@@ -412,8 +415,19 @@ export function TaskRowContextMenu({
   onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
+  const holdSidebarPeek = useHoldSidebarPeek();
+  const handleOpenChange = useCallback(
+    (open: boolean): void => {
+      if (!open || useSidebarPeekStore.getState().peek) {
+        holdSidebarPeek(open);
+      }
+      onOpenChange?.(open);
+    },
+    [holdSidebarPeek, onOpenChange],
+  );
+
   return (
-    <ContextMenu onOpenChange={onOpenChange}>
+    <ContextMenu onOpenChange={handleOpenChange}>
       <ContextMenuTrigger render={<div className="min-w-0" />}>
         {children}
       </ContextMenuTrigger>

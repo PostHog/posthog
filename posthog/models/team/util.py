@@ -12,6 +12,7 @@ from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 logger = structlog.get_logger(__name__)
 
@@ -93,6 +94,9 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     # DataWarehouseSavedQuery, which has PROTECT on delete.
     _raw_delete_batch(Edge.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(Node.objects.filter(team_id__in=team_ids))
+    # DashboardTile has PROTECT on its widget, which the Team cascade deletes, so tiles go first.
+    # _base_manager because the default manager hides soft-deleted tiles, which protect it too.
+    _raw_delete_batch(DashboardTile._base_manager.filter(team_id__in=team_ids, widget__isnull=False))
     _raw_delete_batch(FileSystemViewLog.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(error_tracking_fingerprint.objects.filter(team_id__in=team_ids))

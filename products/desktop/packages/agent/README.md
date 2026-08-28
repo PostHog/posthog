@@ -59,8 +59,6 @@ The same ACP agent runs in both contexts. The difference is how it's connected:
 
 **Local (desktop):** The agent runs in-process. The desktop app calls `createAcpConnection()` directly — no HTTP server, no JWT. The bidirectional ACP streams connect client ↔ agent within the same process.
 
-**HandoffCheckpointTracker** handles the bridge between these contexts: it captures git checkpoint state plus the object pack/index needed to restore the worktree across cloud and local. This enables the "hand off" flow — start locally, continue in cloud, or vice versa.
-
 ### Permission modes
 
 Four modes defined in `src/execution-mode.ts`:
@@ -110,7 +108,7 @@ start()
        ├─ Creates synthetic JwtPayload from CLI config
        ├─ configureEnvironment() — sets ANTHROPIC_BASE_URL, OPENAI_BASE_URL, etc.
        │    pointing at the PostHog LLM gateway
-       ├─ Creates HandoffCheckpointTracker, SessionLogWriter, PostHogAPIClient
+       ├─ Creates SessionLogWriter and PostHogAPIClient
        ├─ createAcpConnection() — sets up ACP streams with log tapping
        │
        ├─ Wraps client streams with a SECOND tap layer (NdJsonTap)
@@ -147,10 +145,6 @@ When `POST /command` receives a `user_message`, it doesn't handle it directly �
 ### Permission routing in cloud mode
 
 The `AgentServer` provides the `requestPermission` callback to the `ClientSideConnection`. Background mode selects an allow option automatically. Interactive mode relays approvals that need a person over SSE and parks them until a client responds; other requests follow the selected permission mode.
-
-### Checkpoint capture
-
-After file-mutating tool calls, the server captures a git checkpoint via `HandoffCheckpointTracker` and broadcasts it as a `_posthog/git_checkpoint` SSE event. A final checkpoint is captured during session cleanup. This is how the client restores repo state for cloud↔local handoff.
 
 ### CLI
 
@@ -215,7 +209,7 @@ For Codex adapters, `agent.run()` also fetches available models from the PostHog
 
 ## Log pipeline and session resume
 
-Logs serve two purposes: real-time observability and session resume. Every ACP message that flows through the tapped streams is persisted, creating a complete record of the conversation — user messages, agent responses, tool calls, tool results, git checkpoints, and metadata events. This record is the single source of truth for resuming a session from any point.
+Logs serve two purposes: real-time observability and session resume. Every ACP message that flows through the tapped streams is persisted, creating a complete record of the conversation, including user messages, agent responses, tool calls, tool results, and metadata events. This record is the source of truth for resuming a conversation.
 
 ### Writing logs
 
@@ -225,14 +219,12 @@ Independently of that flush cycle, the writer tees every parsed non-chunk entry 
 
 ### Resuming from logs
 
-When a session needs to continue (e.g. cloud↔local handoff, or recovering from a crash), `resumeFromLog()` in `src/resume.ts` reconstructs the agent's state from the persisted log. This is implemented as a `ResumeSaga` (`src/sagas/resume-saga.ts`) with the following steps:
+When a session needs to recover from a crash, `resumeFromLog()` in `src/resume.ts` reconstructs the agent's state from the persisted log. This is implemented as a `ResumeSaga` (`src/sagas/resume-saga.ts`) with the following steps:
 
 ```text
-1. fetch_task_run   → GET /api/.../runs/{runId}/ to find the log_url
-2. fetch_logs       → Download all StoredNotification entries
-3. find_git_checkpoint → Scan backwards for latest _posthog/git_checkpoint
-4. rebuild_conversation → Walk log entries to reconstruct conversation turns
-5. find_device      → Scan backwards for last device info (local vs cloud)
+1. fetch_task_run      → GET /api/.../runs/{runId}/ to find the log_url
+2. fetch_logs          → Download all StoredNotification entries
+3. rebuild_conversation → Walk log entries to reconstruct conversation turns
 ```
 
 The conversation rebuild (`rebuildConversation`) walks the log entries and reassembles turns from ACP `session/update` notifications:
@@ -242,7 +234,7 @@ The conversation rebuild (`rebuildConversation`) walks the log entries and reass
 - `tool_call` / `tool_call_update` → track tool calls with their inputs
 - `tool_result` → match results back to tool calls by `toolCallId`
 
-The result is a `ResumeState` containing the conversation history as `ConversationTurn[]`, the latest git checkpoint, and metadata. This feeds into the ACP `session/load` or `_posthog/session/resume` methods on the Claude adapter, which initializes a new Claude SDK query with the rebuilt context.
+The result is a `ResumeState` containing the conversation history as `ConversationTurn[]` and session metadata. This feeds into the ACP `session/load` or `_posthog/session/resume` methods on the Claude adapter, which initializes a new Claude SDK query with the rebuilt context.
 
 ## ACP extensions
 
@@ -256,10 +248,9 @@ ACP defines standard methods like `session/prompt`, `session/update`, and `sessi
 - `_posthog/status` — `{ sessionId, status, message? }` — progress updates
 - `_posthog/sdk_session` — `{ taskRunId, sessionId, adapter }` — maps the ACP session to a task run and adapter type (emitted once per session, used by clients to know which adapter is active)
 
-**State synchronization** — events that keep the client's view of the agent's state in sync. These are essential for the cloud↔local handoff flow and for the client to render accurate UI.
+**State synchronization** — events that keep the client's view of the agent's state in sync.
 
 - `_posthog/branch_created` — `{ branch }` — agent created a git branch (client can update branch display)
-- `_posthog/git_checkpoint` — `{ checkpointId, checkpointRef, branch, head, indexTree, worktreeTree, ... }` — git checkpoint captured for resume and handoff. This is the key event for session resume — the resume saga scans backwards for the latest checkpoint to restore files
 - `_posthog/mode_change` — `{ mode, previous_mode }` — permission mode changed (client updates mode selector)
 - `_posthog/compact_boundary` — `{ sessionId, timestamp }` — marks where context compaction occurred, so the client knows the conversation was summarized at this point
 - `_posthog/task_notification` — `{ sessionId, type, message?, data? }` — generic extensible notification for adapter-specific events

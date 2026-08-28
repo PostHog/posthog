@@ -381,6 +381,12 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                             </div>
                                         </div>
 
+                                        {/* Explains a non-match the coarse reason code can't convey, such as a
+                                            behavioral or realtime cohort whose membership isn't fully resolved here. */}
+                                        {result.reason_description && (
+                                            <LemonBanner type="info">{result.reason_description}</LemonBanner>
+                                        )}
+
                                         {/* Distinct ID used for rollout/variant bucketing. Only shown when the
                                             backend echoes an explicit value — it returns null when a different ID
                                             was actually bucketed against, and falling back to the requested ID
