@@ -10,16 +10,6 @@
 import * as zod from 'zod'
 
 /**
- * Redeem a PostHog Desktop invite code to enable legacy access.
- * @summary Redeem invite code
- */
-export const codeInvitesRedeemCreateBodyCodeMax = 50
-
-export const CodeInvitesRedeemCreateBody = /* @__PURE__ */ zod.object({
-    code: zod.string().max(codeInvitesRedeemCreateBodyCodeMax),
-})
-
-/**
  * API for managing loops — named, cloud-executed agent automations triggered by
  * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
  * @summary Create a loop
@@ -1054,6 +1044,74 @@ export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod
         starred: zod.boolean(),
     })
     .describe('Request body for starring\/unstarring a channel for the requesting user.')
+
+/**
+ * Feature-flagged test path that creates a repeatable session from explicit prompt-building inputs, in the requester's personal space.
+ * @summary Start a test first-run onboarding session
+ */
+export const taskChannelsOnboardingSessionTestCreateBodyCompanyDomainDefault = ``
+export const taskChannelsOnboardingSessionTestCreateBodyCompanyDomainMax = 253
+
+export const taskChannelsOnboardingSessionTestCreateBodyJoiningExistingOrganizationDefault = false
+export const taskChannelsOnboardingSessionTestCreateBodyHasEventsDefault = false
+export const taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingDefault = 0
+export const taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingMin = 0
+export const taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingMax = 10000
+
+export const taskChannelsOnboardingSessionTestCreateBodyOtherMembersItemMax = 100
+
+export const taskChannelsOnboardingSessionTestCreateBodyOtherMembersMax = 25
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesEnabledItemMax = 100
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesEnabledMax = 25
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesWatchingItemMax = 100
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesWatchingMax = 25
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesNewlyEnabledDefault = false
+
+export const TaskChannelsOnboardingSessionTestCreateBody = /* @__PURE__ */ zod.object({
+    company_domain: zod
+        .string()
+        .max(taskChannelsOnboardingSessionTestCreateBodyCompanyDomainMax)
+        .default(taskChannelsOnboardingSessionTestCreateBodyCompanyDomainDefault)
+        .describe('Company domain to research. Blank simulates a personal email address.'),
+    joining_existing_organization: zod
+        .boolean()
+        .default(taskChannelsOnboardingSessionTestCreateBodyJoiningExistingOrganizationDefault)
+        .describe('Whether the user is joining an organization that already has shared context.'),
+    has_events: zod
+        .boolean()
+        .default(taskChannelsOnboardingSessionTestCreateBodyHasEventsDefault)
+        .describe('Whether the project has ingested events.'),
+    signal_reports_waiting: zod
+        .number()
+        .min(taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingMin)
+        .max(taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingMax)
+        .default(taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingDefault)
+        .describe('Number of findings waiting in #general.'),
+    other_members: zod
+        .array(zod.string().max(taskChannelsOnboardingSessionTestCreateBodyOtherMembersItemMax))
+        .max(taskChannelsOnboardingSessionTestCreateBodyOtherMembersMax)
+        .optional()
+        .describe('Display names of other Desktop users in the organization.'),
+    sources_enabled: zod
+        .array(zod.string().max(taskChannelsOnboardingSessionTestCreateBodySourcesEnabledItemMax))
+        .max(taskChannelsOnboardingSessionTestCreateBodySourcesEnabledMax)
+        .optional()
+        .describe('Signal sources that were already enabled.'),
+    sources_watching: zod
+        .array(zod.string().max(taskChannelsOnboardingSessionTestCreateBodySourcesWatchingItemMax))
+        .max(taskChannelsOnboardingSessionTestCreateBodySourcesWatchingMax)
+        .optional()
+        .describe('Signal sources the onboarding flow is watching.'),
+    sources_newly_enabled: zod
+        .boolean()
+        .default(taskChannelsOnboardingSessionTestCreateBodySourcesNewlyEnabledDefault)
+        .describe('Whether onboarding enabled any signal sources.'),
+})
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -2396,13 +2454,6 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.'
         ),
     error_message: zod.string().nullish().describe('Error message if execution failed'),
-    environment: zod
-        .enum(['local'])
-        .describe('\* `local` - local')
-        .optional()
-        .describe(
-            'Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.\n\n\* `local` - local'
-        ),
 })
 
 /**

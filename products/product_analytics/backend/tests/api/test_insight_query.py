@@ -2,6 +2,8 @@ from typing import get_args
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -12,9 +14,25 @@ from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import (
     AUTO_WRAPPED_INSIGHT_QUERY_KINDS,
     BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS,
+    MCPInsightSerializer,
 )
 
 from ee.api.test.base import LicensedTestMixin
+
+
+class TestMCPInsightSerializer(SimpleTestCase):
+    def test_preserves_explicit_box_plot_grouping_nulls(self) -> None:
+        normalized_query = MCPInsightSerializer().validate_query(
+            {
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "select 1"},
+                "chartSettings": {"boxPlot": {"xAxisColumn": None, "seriesColumn": None}},
+            }
+        )
+
+        box_plot = normalized_query["chartSettings"]["boxPlot"]
+        assert box_plot["xAxisColumn"] is None
+        assert box_plot["seriesColumn"] is None
 
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):

@@ -155,4 +155,32 @@ describe('startupProgramLogic', () => {
             ],
         ])
     })
+
+    describe('YC verification link', () => {
+        // The billing service verifies the link once, on submit. Client-side we only check the URL shape.
+        it('requires a link on the YC form and validates its shape', async () => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com', referrer: 'yc' })
+
+            expect(logic.values.startupProgramValidationErrors.yc_verification_url).toEqual(
+                'Please enter your YC verification link'
+            )
+
+            logic.actions.setStartupProgramValue('yc_verification_url', 'https://example.com/verify/abc')
+            expect(logic.values.startupProgramValidationErrors.yc_verification_url).toEqual(
+                'This should look like https://www.ycombinator.com/verify/your-unique-code'
+            )
+
+            logic.actions.setStartupProgramValue(
+                'yc_verification_url',
+                'https://www.ycombinator.com/verify/db9imrf5u1kaxib5'
+            )
+            expect(logic.values.startupProgramValidationErrors.yc_verification_url).toBeUndefined()
+        })
+
+        it('does not require a link on the non-YC form', async () => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com' })
+
+            expect(logic.values.startupProgramValidationErrors.yc_verification_url).toBeUndefined()
+        })
+    })
 })

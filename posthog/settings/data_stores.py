@@ -367,6 +367,10 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
 )
 
 CLICKHOUSE_LOGS_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER", "posthog_single_shard")
+# The name the logs cluster answers to from the ingestion-events nodes, which host the logs Kafka
+# table and the Distributed front that writes into it. Cloud names it the same from both sides, so it
+# defaults to CLICKHOUSE_LOGS_CLUSTER; the local multinode stack does not, and sets this explicitly.
+CLICKHOUSE_LOGS_WRITE_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_WRITE_CLUSTER", CLICKHOUSE_LOGS_CLUSTER)
 CLICKHOUSE_LOGS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_HOST", "localhost")
 CLICKHOUSE_LOGS_CLUSTER_PORT: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PORT", "9000")
 CLICKHOUSE_LOGS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_USER", "default")
@@ -572,6 +576,14 @@ WORKFLOWS_CANCEL_JWT_SECRETS = get_list(
 # must match the plugin server's minting default so local workflows work with no setup.
 TASKS_CREATE_JWT_SECRETS = get_list(
     get_from_env("TASKS_CREATE_JWT_SECRET", "local-dev-tasks-create-jwt" if DEBUG or TEST else "")
+)
+
+# Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
+# ticket route (the worker mints, Django verifies; products/conversations/backend/api/internal.py).
+# Comma-separated, newest first. Empty outside dev/test, so the internal route rejects every
+# request until the secret is provisioned and the worker stays on its legacy auth path (#82564).
+CONVERSATIONS_TICKETS_JWT_SECRETS = get_list(
+    get_from_env("CONVERSATIONS_TICKETS_JWT_SECRET", "local-dev-conversations-tickets-jwt" if DEBUG or TEST else "")
 )
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")

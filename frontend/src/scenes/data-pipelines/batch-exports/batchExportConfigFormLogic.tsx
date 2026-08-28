@@ -118,6 +118,10 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
     return config
 }
 
+// $feature_flag_called is high volume and is being deprecated from the events table, so new exports
+// leave it out by default. It shows up prefilled under "Exclude events" and can be removed there.
+export const DEFAULT_EXCLUDE_EVENTS = ['$feature_flag_called']
+
 export function getDefaultConfiguration(service: string): Record<string, any> {
     const definition = DESTINATIONS[service as BatchExportService['type']]
     return {
@@ -125,6 +129,7 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
         destination: service,
         model: 'events',
         paused: true,
+        exclude_events: [...DEFAULT_EXCLUDE_EVENTS],
         ...(definition ? definition.defaults() : {}),
     }
 }

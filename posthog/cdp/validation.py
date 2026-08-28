@@ -201,6 +201,29 @@ register_supported_function("postHogUpdateAccount")
 register_supported_function("postHogSetAccountProperties")
 
 
+# Async functions that put the invocation on a queue the running consumer cannot serve.
+#
+# The worker's async function registry is global and is not scoped by function type, so any hog
+# program that names one of these reaches the real handler. These two handlers set
+# `queueParameters` to a bespoke type ('email', 'sendPushNotification') instead of the ordinary
+# 'fetch'. Only the messaging consumers process those queues. When a plain destination stages one,
+# the cyclotron worker produces to a Kafka topic its cluster does not have. The produce error
+# terminates the worker process, and the partition it owned stops draining.
+#
+# Membership is decided by that failure mode, NOT by "the worker registers it". Most registered
+# async functions stage an ordinary 'fetch' (postHogCreateAccount, postHogCreateTask and the
+# postHogGet*/postHogUpdate* family), which is the same mechanism CORE_SUPPORTED_FUNCTIONS already
+# gives user code, so they are safe here and are deliberately absent. produceToWarehouseWebhooks is
+# also absent: it only appends to an in-memory list, and its callers are all
+# `warehouse_source_webhook` functions, which HogFunctionSerializer.validate_type refuses anyway.
+#
+# Before adding a name, check what its handler in nodejs/src/cdp/async-functions/ stages.
+RESERVED_ASYNC_FUNCTIONS = {
+    "sendEmail",
+    "sendPushNotification",
+}
+
+
 # Globals that the realtime transformer actually populates at runtime.
 # Keep in sync with HogTransformerService.createInvocationGlobals
 # (nodejs/src/cdp/hog-transformations/hog-transformer.service.ts).
@@ -341,6 +364,42 @@ class HyphenatedPropertyDetector(TraversingVisitor):
         if left.end is not None and right.start is not None:
             return right.start - left.end == 1
         return True
+
+
+class ReservedFunctionDetector(TraversingVisitor):
+    names: set[str]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.names = set()
+
+    def visit_call(self, node: ast.Call) -> None:
+        super().visit_call(node)
+        if node.name in RESERVED_ASYNC_FUNCTIONS:
+            self.names.add(node.name)
+
+    def visit_field(self, node: ast.Field) -> None:
+        # A bare reference is caught as well as a direct call. `let f := sendEmail` followed by
+        # `f()` compiles to the same global dispatch, so the name alone is refused.
+        super().visit_field(node)
+        if len(node.chain) == 1 and str(node.chain[0]) in RESERVED_ASYNC_FUNCTIONS:
+            self.names.add(str(node.chain[0]))
+
+
+def reserved_functions_used(hog: str) -> set[str]:
+    """The reserved async functions that the given hog source names.
+
+    Source that does not parse gives an empty set. compile_hog reports the parse error with a
+    better message, so this must not raise before it runs.
+    """
+    try:
+        program = parse_program(hog)
+    except Exception:
+        return set()
+
+    detector = ReservedFunctionDetector()
+    detector.visit(program)
+    return detector.names
 
 
 class RecordAliasRewriter(TraversingVisitor):

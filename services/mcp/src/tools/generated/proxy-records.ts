@@ -79,13 +79,13 @@ const proxyGet = (): ToolBase<typeof ProxyGetSchema, Schemas.ProxyRecord> => ({
 
 const ProxyListSchema = z.object({})
 
-const proxyList = (): ToolBase<typeof ProxyListSchema, WithPostHogUrl<Schemas.ProxyRecordListResponse[]>> => ({
+const proxyList = (): ToolBase<typeof ProxyListSchema, WithPostHogUrl<Schemas.ProxyRecordListResponse>> => ({
     name: 'proxy-list',
     schema: ProxyListSchema,
     // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ProxyListSchema>) => {
         const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.ProxyRecordListResponse[]>({
+        const result = await context.api.request<Schemas.ProxyRecordListResponse>({
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/proxy_records/`,
         })

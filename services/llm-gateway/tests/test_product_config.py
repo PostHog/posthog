@@ -91,6 +91,8 @@ class TestCheckProductAccess:
             ),
             ("llm_gateway", "personal_api_key", None, "zai-org/glm-5.3", False, "not allowed"),
             ("review_hog", "personal_api_key", None, "zai-org/glm-5.3", True, None),
+            ("llm_gateway", "personal_api_key", None, "zai-org/glm-5.3-flash", False, "not allowed"),
+            ("review_hog", "personal_api_key", None, "zai-org/glm-5.3-flash", True, None),
             (
                 "posthog_code",
                 "oauth_access_token",
@@ -227,14 +229,18 @@ class TestCheckProductAccess:
         assert allowed is True
         assert error is None
 
-    @pytest.mark.parametrize("model", ["deepseek-ai/deepseek-v4-flash-0731", "zai-org/glm-5.3"])
+    @pytest.mark.parametrize(
+        "model", ["deepseek-ai/deepseek-v4-flash-0731", "zai-org/glm-5.3", "zai-org/glm-5.3-flash"]
+    )
     def test_slack_app_rejects_restricted_models_despite_shared_allowlist(self, model: str):
         allowed, error = check_product_access("slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
         assert allowed is False
         assert error is not None
         assert "not allowed" in error
 
-    @pytest.mark.parametrize("model", [" deepseek-ai/deepseek-v4-flash-0731 ", " zai-org/glm-5.3 "])
+    @pytest.mark.parametrize(
+        "model", [" deepseek-ai/deepseek-v4-flash-0731 ", " zai-org/glm-5.3 ", " zai-org/glm-5.3-flash "]
+    )
     def test_whitespace_cannot_bypass_restricted_model_products(self, model: str):
         allowed, error = check_product_access("llm_gateway", "personal_api_key", None, model)
         assert allowed is False
@@ -714,6 +720,8 @@ class TestModelAccessFlag:
             ("DeepSeek-AI/DeepSeek-V4-Flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
             ("zai-org/glm-5.3", "zai-org/glm-5.3"),
             ("ZAI-Org/GLM-5.3", "zai-org/glm-5.3"),
+            ("zai-org/glm-5.3-flash", "zai-org/glm-5.3-flash"),
+            ("ZAI-Org/GLM-5.3-Flash", "zai-org/glm-5.3-flash"),
         ],
     )
     def test_gated_model_requires_its_own_flag(self, model: str, gated: str):
@@ -739,6 +747,7 @@ class TestModelAccessFlag:
             "moonshotai/kimi-k3",
             "deepseek-ai/deepseek-v4-flash-0731",
             "zai-org/glm-5.3",
+            "zai-org/glm-5.3-flash",
         }
         for gated_model in MODEL_ACCESS_FLAGS:
             suffixed = f"{gated_model}x"

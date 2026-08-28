@@ -34,16 +34,7 @@ import {
     confirmArchiveExperiment,
     confirmDeleteExperiment,
 } from 'scenes/experiments/experimentActions'
-import {
-    EXPERIMENTS_PER_PAGE,
-    ExperimentsFilters,
-    experimentsLogic,
-    getExperimentStatus,
-    getShippedVariantKey,
-    isSingleVariantShipped,
-} from 'scenes/experiments/experimentsLogic'
-import { ExperimentVelocityStats } from 'scenes/experiments/ExperimentVelocityStats'
-import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
+import { getExperimentStatus } from 'scenes/experiments/experimentStatus'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -65,12 +56,21 @@ import {
     ExperimentsTabs,
 } from '~/types'
 
+import { ExperimentVelocityStats } from 'products/experiments/frontend/components/ExperimentVelocityStats'
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 /**
  * these scenes are handled as child components. This works fine, but breaks the expectation of scenes
  * having their own routes.
  */
 import { ExperimentsHoldoutsScene } from 'products/experiments/frontend/scenes/ExperimentsHoldoutsScene'
+import {
+    EXPERIMENTS_PER_PAGE,
+    ExperimentsFilters,
+    experimentsLogic,
+    getShippedVariantKey,
+    isSingleVariantShipped,
+} from 'products/experiments/frontend/scenes/experimentsLogic'
 import { ExperimentsSettingsScene } from 'products/experiments/frontend/scenes/ExperimentsSettingsScene'
 import { ExperimentsSharedMetricsScene } from 'products/experiments/frontend/scenes/ExperimentsSharedMetricsScene'
 

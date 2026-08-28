@@ -1278,14 +1278,15 @@ class DraftScannerRequestSerializer(serializers.Serializer):
         max_length=2000,
         help_text="What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.",
     )
-    monthly_scan_budget = serializers.IntegerField(
+    monthly_credit_budget = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=1_000_000,
+        max_value=100_000_000,
         help_text=(
-            "Goal-based flow only: how many replays a month the scanner may watch. The draft solves "
-            "`sampling_mode` and `sampling_rate` so the projection lands on this number. Omitted on the "
-            "legacy flow, and ignored while the goal-based flow's flag is off for the caller."
+            "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the "
+            "`model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on "
+            "this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and "
+            "ignored while the goal-based flow's flag is off for the caller."
         ),
     )
 
@@ -1324,18 +1325,33 @@ class DraftScannerResponseSerializer(serializers.Serializer):
     sampling_rate = serializers.FloatField(
         allow_null=True,
         help_text=(
-            "Goal-based flow only: the random sampling rate solved from `monthly_scan_budget`, 0..1. "
+            "Goal-based flow only: the random sampling rate solved from `monthly_credit_budget`, 0..1. "
             "1.0 when the budget covers every matching recording. Floored at the minimum rate, so a "
             "budget below that floor keeps the minimum. Null whenever `sampling_mode` is."
+        ),
+    )
+    model = serializers.ChoiceField(
+        choices=ScannerModel.choices,
+        allow_null=True,
+        help_text=(
+            "Goal-based flow only: the observation model the draft chose for the goal, by how much "
+            "judgment it needs. Null on the legacy flow, where the wizard keeps its default model."
+        ),
+    )
+    credit_limit = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a "
+            "mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow."
         ),
     )
     estimated_monthly_observations = serializers.IntegerField(
         allow_null=True,
         help_text=(
             "Goal-based flow only: recordings a month the drafted scanner is projected to watch under "
-            "the solved dials. At or under `monthly_scan_budget`, except when the budget is below what "
-            "the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null "
-            "whenever `sampling_mode` is."
+            "the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when "
+            "the budget is below what the minimum sampling rate can reach, where this is the floor and "
+            "exceeds the budget. Null whenever `sampling_mode` is."
         ),
     )
 
@@ -2103,16 +2119,16 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         body.is_valid(raise_exception=True)
 
         goal = body.validated_data["goal"]
-        monthly_scan_budget = body.validated_data.get("monthly_scan_budget")
+        monthly_credit_budget = body.validated_data.get("monthly_credit_budget")
         # A budget only means the goal-based flow when the flag says so: on a client/rollout skew
         # the request degrades to a legacy draft instead of half-applying the new flow.
-        goal_flow = monthly_scan_budget is not None and _goal_flow_enabled(cast(User, request.user), self.team)
+        goal_flow = monthly_credit_budget is not None and _goal_flow_enabled(cast(User, request.user), self.team)
         # The goal is customer text, so only its length goes into telemetry.
         draft_properties: dict[str, Any] = {
             "goal_length": len(goal),
             "team_id": self.team_id,
             "goal_flow": goal_flow,
-            "monthly_scan_budget": monthly_scan_budget,
+            "monthly_credit_budget": monthly_credit_budget,
         }
         # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
         # receive its content through the draft either.
@@ -2124,7 +2140,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     team=self.team,
                     user=cast(User, request.user),
                     goal=goal,
-                    monthly_scan_budget=cast(int, monthly_scan_budget),
+                    monthly_credit_budget=cast(int, monthly_credit_budget),
                     user_access_control=self.user_access_control,
                     include_business_context=include_business_context,
                 )
@@ -2161,6 +2177,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "has_query": bool(drafted.query),
                 "sampling_mode": drafted.sampling_mode,
                 "sampling_rate": drafted.sampling_rate,
+                "model": drafted.model,
+                "credit_limit": drafted.credit_limit,
                 "estimated_monthly_observations": drafted.estimated_monthly_observations,
             },
             team=self.team,
@@ -2178,6 +2196,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "query": drafted.query,
                     "sampling_mode": drafted.sampling_mode,
                     "sampling_rate": drafted.sampling_rate,
+                    "model": drafted.model,
+                    "credit_limit": drafted.credit_limit,
                     "estimated_monthly_observations": drafted.estimated_monthly_observations,
                 }
             ).data

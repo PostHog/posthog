@@ -378,8 +378,9 @@ def _parent_directories(path: str) -> list[str]:
 PUBLISHER_TOKEN_PERMISSIONS = {"contents": "write", "pull_requests": "write", "metadata": "read"}
 # Statuses that mean the App isn't installed here or its credentials are rejected: unauthenticated,
 # not permitted, or no such installation. Rate limits never reach this set — the transport raises
-# them, including the 403 spellings.
-PUBLISHER_NOT_CONFIGURED_STATUSES = frozenset({401, 403, 404})
+# them, including the 403 spellings. 422 joins them because GitHub answers a mint asking for
+# permissions the installation does not grant that way, and only an admin can change that.
+PUBLISHER_NOT_CONFIGURED_STATUSES = frozenset({401, 403, 404, 422})
 
 
 def _publisher_token_request_body() -> dict[str, Any]:

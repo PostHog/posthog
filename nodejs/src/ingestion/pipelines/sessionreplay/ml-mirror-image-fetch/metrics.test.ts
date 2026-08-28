@@ -4,6 +4,7 @@ import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
 
 describe('image fetch metrics', () => {
     beforeEach(() => register.resetMetrics())
+    afterEach(() => jest.restoreAllMocks())
 
     test.each([
         [undefined, 'network_error'],
@@ -75,5 +76,23 @@ describe('image fetch metrics', () => {
         expect(ratio?.values).toContainEqual(
             expect.objectContaining({ metricName: expect.stringMatching(/_sum$/), value: 0.7 })
         )
+    })
+
+    it('keeps the oldest active batch age when another batch finishes', async () => {
+        jest.spyOn(performance, 'now').mockReturnValue(3_000)
+        const firstBatchId = ImageFetchConsumerMetrics.startBatch(1_000)
+        const secondBatchId = ImageFetchConsumerMetrics.startBatch(2_000)
+
+        ImageFetchConsumerMetrics.finishBatch(secondBatchId)
+        const activeMetric = (await register.getMetricsAsJSON()).find(
+            (metric) => metric.name === 'ml_image_fetch_consumer_active_batch_elapsed_seconds'
+        )
+        expect(activeMetric?.values[0].value).toBe(2)
+
+        ImageFetchConsumerMetrics.finishBatch(firstBatchId)
+        const idleMetric = (await register.getMetricsAsJSON()).find(
+            (metric) => metric.name === 'ml_image_fetch_consumer_active_batch_elapsed_seconds'
+        )
+        expect(idleMetric?.values[0].value).toBe(0)
     })
 })

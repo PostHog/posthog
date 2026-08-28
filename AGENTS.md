@@ -29,6 +29,7 @@
   - Frontend: `pnpm --filter=@posthog/frontend build`
   - Start dev: `./bin/start` or `hogli start` (interactive TUI). Detached mode: `hogli up -d` paired with `hogli wait` / `hogli down`
     - Cloud task VMs (prebaked dev-stack image): run `bootstrap-dev-stack` first (restores compose host aliases, starts dockerd), then `uv sync`, `source .venv/bin/activate`, `hogli start -y -d`, and `hogli wait` (the detached start returns while the stack is still booting; `hogli wait` blocks until every process is ready) — always detached: the sandbox has no TTY, and phrocs under a pseudo-TTY balloons in memory until OOM-killed
+    - Cloud task VMs: on user-created runs the backend may already be starting the stack; check `curl -sf localhost:8010/_health` and `/tmp/posthog-preview/status.json` before running `hogli start`
     - Cloud task VMs, frontend work: `pnpm install --frozen-lockfile --prefer-offline` links from the prebaked pnpm store, and Playwright Chromium is preinstalled; product/Storybook builds still run from source
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
@@ -69,11 +70,6 @@ Always fill the `## 🤖 Agent context` section when creating PRs.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
 
 **Screenshots:** Upload frontend/visual changes with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
-
-### Local review before opening
-
-When instructed to open a PR or a draft PR, run `hogli review` once on the committed branch before `gh pr create` — it runs the same Greptile reviewer that comments on every PR, so findings become pre-push edits instead of bot comments and CI re-runs.
-Invoke `/reviewing-before-pr` for the full flow: auth and the no-access fallback, the run-once contract, the `no-greptile` label gate (`hogli review --check`), and recording findings in the PR description.
 
 ### Rules
 
@@ -269,7 +265,6 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 - `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
-- `/reviewing-before-pr` — when instructed to open a PR or a draft PR: one local Greptile review (`hogli review`) of the committed branch, before `gh pr create`
 
 **Invoke when in the area:**
 

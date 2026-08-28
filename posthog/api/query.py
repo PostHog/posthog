@@ -174,6 +174,7 @@ def _process_query_request(
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "AccountsTableQuery": ["query:read", "account:read"],
     "ErrorTrackingFingerprintProjectionQuery": ["query:read", "error_tracking:read"],
+    "ErrorTrackingReleasesQuery": ["query:read", "error_tracking:read"],
     "MetricsQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.

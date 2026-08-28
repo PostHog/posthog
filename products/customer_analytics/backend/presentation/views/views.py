@@ -29,6 +29,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -2186,6 +2187,13 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         return Response(CustomPropertyValueSerializer(value).data, status=status.HTTP_201_CREATED)
 
 
+class AccountRelationshipDeletePermission(BasePermission):
+    message = TeamMemberStrictManagementPermission.message
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        return request.method != "DELETE" or TeamMemberStrictManagementPermission().has_permission(request, view)
+
+
 @extend_schema(
     tags=["customer_analytics"],
     parameters=[
@@ -2200,6 +2208,7 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
 class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
     serializer_class = AccountRelationshipSerializer
+    permission_classes = [AccountRelationshipDeletePermission]
     pagination_class = None
 
     def _accessible_account_id(self) -> str | None:
@@ -2268,6 +2277,23 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         if relationship is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipSerializer(relationship).data)
+
+    @extend_schema(request=None, responses={204: None})
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        account_id = api.get_editable_account_id(
+            self.team_id, self.parents_query_dict["account_id"], user_access_control=self.user_access_control
+        )
+        if account_id is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        deleted = api.delete_account_relationship(
+            team_id=self.team_id,
+            account_id=account_id,
+            relationship_id=self.kwargs["pk"],
+            actor=cast(User, request.user),
+        )
+        if not deleted:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 _EVENT_STREAM_ID_PARAM = OpenApiParameter(

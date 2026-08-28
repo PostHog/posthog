@@ -3,12 +3,9 @@ import { useEffect } from 'react'
 
 import { IconFlag } from '@posthog/icons'
 
+import { getExperimentStatus } from 'scenes/experiments/experimentStatus'
+
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
-import {
-    getExperimentStatus,
-    getExperimentStatusColor,
-    getExperimentStatusLabel,
-} from '~/scenes/experiments/experimentsLogic'
 import { NotebookExperimentComponent } from '~/scenes/experiments/notebook'
 import {
     EXPERIMENT_NOTEBOOK_WIDGET_VIEWS,
@@ -18,6 +15,11 @@ import { createPostHogWidgetNode } from '~/scenes/notebooks/Nodes/NodeWrapper'
 import { getNotebookWidgetDefaultView } from '~/scenes/notebooks/notebookWidgetCatalog'
 import { type NotebookNodeProps, NotebookNodeType } from '~/scenes/notebooks/types'
 import { urls } from '~/scenes/urls'
+
+import {
+    getExperimentStatusColor,
+    getExperimentStatusLabel,
+} from 'products/experiments/frontend/scenes/experimentsLogic'
 
 import { buildFlagContent } from './NotebookNodeFlag'
 import { notebookNodeLogic } from './notebookNodeLogic'

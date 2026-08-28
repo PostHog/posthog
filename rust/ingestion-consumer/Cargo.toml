@@ -19,6 +19,7 @@ kube = { version = "0.98", features = ["client", "runtime"] }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
+prost = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

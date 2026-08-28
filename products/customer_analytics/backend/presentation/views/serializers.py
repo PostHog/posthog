@@ -250,6 +250,16 @@ _FEATURE_REQUEST_ORDERING_CHOICES = [
     ("priority", "Priority: low to high"),
     ("title", "Title: A to Z"),
     ("-title", "Title: Z to A"),
+    ("account", "Accounts: A to Z"),
+    ("-account", "Accounts: Z to A"),
+    ("product_area", "Product areas: A to Z"),
+    ("-product_area", "Product areas: Z to A"),
+    ("status", "Status: A to Z"),
+    ("-status", "Status: Z to A"),
+    ("created_by", "Created by: A to Z"),
+    ("-created_by", "Created by: Z to A"),
+    ("evidence_count", "Evidence: low to high"),
+    ("-evidence_count", "Evidence: high to low"),
 ]
 
 
@@ -411,6 +421,11 @@ class FeatureRequestSerializer(DataclassSerializer):
         read_only=True,
         help_text="Active account links visible to the caller, with account-specific evidence.",
     )
+    evidence_count = serializers.IntegerField(
+        read_only=True,
+        min_value=0,
+        help_text="Total evidence items recorded across visible account links.",
+    )
     product_areas = FeatureRequestProductAreaSerializer(
         many=True,
         read_only=True,
@@ -441,6 +456,7 @@ class FeatureRequestSerializer(DataclassSerializer):
             "can_update",
             "account",
             "account_links",
+            "evidence_count",
             "product_areas",
             "created_by",
             "updated_by",
