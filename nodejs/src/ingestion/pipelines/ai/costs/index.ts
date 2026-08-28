@@ -81,6 +81,11 @@ const trackCostOutcome = (totalCost: number): void => {
 // to add it here too. Leave it out and an event carrying only that property
 // prices as unknown. Properties that modality extraction writes but no
 // calculator reads, such as `$ai_text_input_tokens`, do not belong here.
+//
+// The validation step (steps/validate-ai-event-tokens.ts) sanitizes only the
+// core subset of these, not the full list. That is safe: every calculator read
+// goes through finiteNumberOrUndefined, which treats an unusable value as
+// absent.
 const TOKEN_COUNT_PROPERTIES = [
     '$ai_input_tokens',
     '$ai_output_tokens',

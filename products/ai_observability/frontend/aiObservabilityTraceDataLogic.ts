@@ -876,15 +876,17 @@ function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
     const event = node.event
     let hasGenerationChildren = false
 
-    // Cost starts null rather than 0, so a span whose children all went unpriced
-    // stays unknown instead of summing to zero. The first known cost promotes it.
-    let totalCost: number | null = event.properties.$ai_total_cost_usd ?? null
+    // Cost starts from the event's own known cost, or null when it has none, so
+    // a span whose children all went unpriced stays unknown instead of summing
+    // to zero. The first known cost promotes it. extractTotalCost is the single
+    // arbiter of "known" here, as it is for the tree rows.
+    let totalCost: number | null = extractTotalCost(event)
     let totalLatency = event.properties.$ai_latency ?? 0
     let inputTokens = event.properties.$ai_input_tokens ?? 0
     let outputTokens = event.properties.$ai_output_tokens ?? 0
 
     // Only aggregate from children if parent doesn't have direct values
-    const shouldAggregateCost = event.properties.$ai_total_cost_usd === undefined
+    const shouldAggregateCost = totalCost === null
     const shouldAggregateLatency = event.properties.$ai_latency === undefined
     const shouldAggregateInputTokens = event.properties.$ai_input_tokens === undefined
     const shouldAggregateOutputTokens = event.properties.$ai_output_tokens === undefined
