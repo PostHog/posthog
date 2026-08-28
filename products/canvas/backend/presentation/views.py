@@ -570,7 +570,12 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         canvas = self.get_object()
         payload = CanvasValidateRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        diagnostics = validate_source_project(payload.validated_data["project"], kind=canvas.kind)
+        project = payload.validated_data["project"]
+        diagnostics = validate_source_project(project, kind=canvas.kind)
+        if not has_errors(diagnostics):
+            # Match publish and draft: a structurally valid objectRef still needs its stored bytes,
+            # so validate predicts the publish its contract advertises.
+            diagnostics = [*diagnostics, *asset_store.verify_referenced_assets(self.team_id, canvas.id, project)]
         return Response({"valid": not has_errors(diagnostics), "diagnostics": diagnostics})
 
     @extend_schema(

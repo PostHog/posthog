@@ -1332,6 +1332,33 @@ class TestCanvasAssets(CanvasAPIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["diagnostics"][0]["code"] == "asset_missing"
 
+    def _validate(self, canvas_id: str, project: dict):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/validate/",
+            {"project": project},
+            format="json",
+        )
+
+    def test_validate_rejects_unknown_object_ref(self):
+        # validate must predict publish: a structurally valid objectRef whose object is absent is
+        # invalid, matching test_publish_with_unknown_object_ref_is_rejected.
+        canvas_id = self._create_canvas()
+        response = self._validate(canvas_id, self._object_ref_project("ab" * 32, 12))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["valid"] is False
+        assert any(diagnostic["code"] == "asset_missing" for diagnostic in body["diagnostics"])
+
+    def test_validate_accepts_a_present_object_ref(self):
+        canvas_id = self._create_canvas()
+        uploaded = self._upload(canvas_id, PIXEL_PNG).json()
+
+        response = self._validate(canvas_id, self._object_ref_project(uploaded["sha256"], uploaded["size_bytes"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["valid"] is True, response.json()
+
     def test_asset_read_missing_returns_404(self):
         canvas_id = self._create_canvas()
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/{'ab' * 32}")
