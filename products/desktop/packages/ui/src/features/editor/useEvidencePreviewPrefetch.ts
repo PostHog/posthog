@@ -6,7 +6,6 @@ import { useConnectivity } from "../../hooks/useConnectivity";
 import type { EvidenceLinkTarget } from "../../utils/evidenceLinks";
 import { useOptionalAuthenticatedClient } from "../auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "../auth/useCurrentUser";
-import { useEvidencePreviewEagerLoading } from "../feature-flags/useEvidencePreviewEagerLoading";
 import {
   EVIDENCE_PREVIEW_STALE_TIME,
   evidencePreviewQueryKey,
@@ -56,7 +55,6 @@ export function useEvidencePreviewPrefetch(
   target: EvidenceLinkTarget,
   element: HTMLElement | null,
 ): void {
-  const enabled = useEvidencePreviewEagerLoading();
   const { isOnline } = useConnectivity();
   const client = useOptionalAuthenticatedClient();
   const queryClient = useQueryClient();
@@ -64,7 +62,7 @@ export function useEvidencePreviewPrefetch(
   const id = target.id;
 
   useEffect(() => {
-    if (!enabled || !isOnline || !client || !element) return;
+    if (!isOnline || !client || !element) return;
 
     let cancelSettle: (() => void) | undefined;
     const observer = new IntersectionObserver((entries) => {
@@ -80,5 +78,5 @@ export function useEvidencePreviewPrefetch(
       observer.disconnect();
       cancelSettle?.();
     };
-  }, [enabled, isOnline, client, queryClient, element, kind, id]);
+  }, [isOnline, client, queryClient, element, kind, id]);
 }

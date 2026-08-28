@@ -107,6 +107,3 @@ export const BEDROCK_GATEWAY_VARIANTS = ["test", "control"] as const;
 export type BedrockGatewayVariant = (typeof BEDROCK_GATEWAY_VARIANTS)[number];
 /** Gates the organization context wiki: the Context explorer in the nav rails. */
 export const CONTEXT_LAYER_FLAG = "context-layer";
-
-export const EVIDENCE_PREVIEW_EAGER_LOADING_FLAG =
-  "posthog-desktop-evidence-preview-eager";

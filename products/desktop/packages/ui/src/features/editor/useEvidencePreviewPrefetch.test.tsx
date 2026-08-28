@@ -10,7 +10,6 @@ import {
   whenViewSettles,
 } from "./useEvidencePreviewPrefetch";
 
-const eagerEnabled = vi.hoisted(() => ({ value: false }));
 const prefetchSpy = vi.hoisted(() =>
   vi.fn(async (_client: unknown, _target: unknown, _source: string) => null),
 );
@@ -18,9 +17,6 @@ const fakeClient = vi.hoisted(() => ({
   id: "fake-client",
 })) as unknown as PostHogAPIClient;
 
-vi.mock("../feature-flags/useEvidencePreviewEagerLoading", () => ({
-  useEvidencePreviewEagerLoading: () => eagerEnabled.value,
-}));
 vi.mock("../auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => fakeClient,
 }));
@@ -66,7 +62,6 @@ afterEach(() => {
   vi.clearAllMocks();
   idle.callbacks.clear();
   io.callback = null;
-  eagerEnabled.value = false;
 });
 
 afterAll(() => {
@@ -99,7 +94,6 @@ function makeWrapper() {
 
 describe("useEvidencePreviewPrefetch", () => {
   it("loads the preview in the background once the link becomes visible", async () => {
-    eagerEnabled.value = true;
     const { queryClient, wrapper } = makeWrapper();
     const target = { kind: "insight", id: "9pQx3" };
     const element = document.createElement("a");
@@ -126,23 +120,7 @@ describe("useEvidencePreviewPrefetch", () => {
     unmount();
   });
 
-  it("never attaches the observer while the eager-loading flag is off", () => {
-    const { wrapper } = makeWrapper();
-    const element = document.createElement("a");
-    eagerEnabled.value = false;
-
-    renderHook(
-      () => useEvidencePreviewPrefetch({ kind: "insight", id: "x" }, element),
-      { wrapper },
-    );
-    runIdleCallbacks();
-
-    expect(io.observed).not.toHaveBeenCalled();
-    expect(prefetchSpy).not.toHaveBeenCalled();
-  });
-
-  it("waits for visibility before prefetching, even with the flag on", () => {
-    eagerEnabled.value = true;
+  it("waits for visibility before prefetching", () => {
     const { wrapper } = makeWrapper();
     const element = document.createElement("a");
 
@@ -158,7 +136,6 @@ describe("useEvidencePreviewPrefetch", () => {
   });
 
   it("cancels a scheduled prefetch when the link unmounts before idle", () => {
-    eagerEnabled.value = true;
     const { wrapper } = makeWrapper();
     const element = document.createElement("a");
 
@@ -175,7 +152,6 @@ describe("useEvidencePreviewPrefetch", () => {
   });
 
   it("skips the fetch when the cache already holds a fresh preview", async () => {
-    eagerEnabled.value = true;
     const { queryClient, wrapper } = makeWrapper();
     const target = { kind: "insight", id: "9pQx3" };
     queryClient.setQueryData(evidencePreviewQueryKey(target), {
