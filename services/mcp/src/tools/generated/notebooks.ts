@@ -57,6 +57,25 @@ const notebooksConfigureCompute = (): ToolBase<
     },
 })
 
+const NotebooksComputeOptionsSchema = z.object({})
+
+const notebooksComputeOptions = (): ToolBase<
+    typeof NotebooksComputeOptionsSchema,
+    Schemas.NotebookComputeOptionsResponse
+> => ({
+    name: 'notebooks-compute-options',
+    schema: NotebooksComputeOptionsSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof NotebooksComputeOptionsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.NotebookComputeOptionsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/kernel/compute_options/`,
+        })
+        return result
+    },
+})
+
 const NotebooksCreateSchema = NotebooksCreateBody
 
 const notebooksCreate = (): ToolBase<typeof NotebooksCreateSchema, WithPostHogUrl<Schemas.Notebook>> => ({
@@ -177,6 +196,8 @@ const notebooksListFrames = (): ToolBase<
             'cpu_cores',
             'memory_gb',
             'idle_timeout_seconds',
+            'hourly_price',
+            'preset_key',
         ]) as typeof result
         return withInformationalResponse(
             filtered,
@@ -281,6 +302,7 @@ const notebooksRunCellResult = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-configure-compute': notebooksConfigureCompute,
+    'notebooks-compute-options': notebooksComputeOptions,
     'notebooks-create': notebooksCreate,
     'notebooks-destroy': notebooksDestroy,
     'notebooks-get': notebooksGet,
