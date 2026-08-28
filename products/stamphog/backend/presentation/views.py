@@ -5,8 +5,7 @@ Validate JSON via serializers, call facade methods,
 return serialized responses. No business logic here.
 """
 
-from __future__ import annotations
-
+from collections.abc import Sequence
 from functools import cached_property
 from typing import Any
 from urllib.parse import quote
@@ -303,7 +302,9 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             raise PermissionDenied("This installation link was started by a different user.")
         return connected_by_user_id
 
-    def _resolve_installation_ids(self, installation_id: str, user_token: str) -> tuple[list[str], Response | None]:
+    # Sequence, not list: this class defines a `list` action, which shadows the builtin in every
+    # signature below it.
+    def _resolve_installation_ids(self, installation_id: str, user_token: str) -> tuple[Sequence[str], Response | None]:
         """Resolve which installation ids to sync, or an early Response when the flow can't bind one.
 
         The early Response covers the discovery-path outcomes that bind nothing: the App is not
@@ -358,8 +359,8 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         return [discovered[0]["id"]], None
 
     def _sync_installations(
-        self, installation_ids: list[str], user_token: str, connected_by_user_id: int
-    ) -> tuple[list[contracts.RepoConfigDTO], list[str]]:
+        self, installation_ids: Sequence[str], user_token: str, connected_by_user_id: int
+    ) -> tuple[Sequence[contracts.RepoConfigDTO], Sequence[str]]:
         """Sync each installation's repositories, collecting the bound and skipped results."""
         synced: list[contracts.RepoConfigDTO] = []
         skipped: list[str] = []
