@@ -19,8 +19,7 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.mcp_analytics.backend import logic
-from products.mcp_analytics.backend.constants import MCP_MISSING_CAPABILITY_EVENT
-from products.mcp_analytics.backend.facade import api, contracts, enums
+from products.mcp_analytics.backend.facade import api, constants, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 from .serializers import (
@@ -360,7 +359,7 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):
-    user_action_name = MCP_MISSING_CAPABILITY_EVENT
+    user_action_name = constants.MCP_MISSING_CAPABILITY_EVENT
 
     def _submission_event_properties(self, submission: contracts.Submission) -> dict[str, Any]:
         return {
