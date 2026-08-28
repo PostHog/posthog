@@ -307,7 +307,7 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
     [MarketingAnalyticsTab.ATTRIBUTION]:
         'Compare how each attribution model credits your conversions, to see which marketing you might be over or under valuing.',
     [MarketingAnalyticsTab.RETENTION]:
-        'See how well the users each channel brings you stick around, grouped by the channel that first brought them in.',
+        "See how well the users each channel brings you stick around, grouped by the channel that first brought them in. Each percentage is the share of a cohort seen again, always measured against the cohort's original size. The comparison table at the top blends every cohort of a channel into one number. It weights them by cohort size, so a big week counts for more than a small one.",
     [MarketingAnalyticsTab.INTEGRATION_HEALTH]:
         'Check that your ad platform campaigns are properly linked to UTM tracking in PostHog.',
     [MarketingAnalyticsTab.SETUP]:
