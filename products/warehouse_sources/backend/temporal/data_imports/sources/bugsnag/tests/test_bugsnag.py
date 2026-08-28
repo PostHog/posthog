@@ -251,6 +251,18 @@ class TestPerProjectFanOut:
             {"id": "e2", "organization_id": "o1", "project_id": "p2"},
         ]
 
+    def test_releases_caps_page_size_at_ten(self, monkeypatch: Any) -> None:
+        # The releases endpoint rejects per_page above 10 with a 400, so it must request per_page=10
+        # while the parent enumeration keeps the default 100. A per_page=100 releases URL is absent
+        # from `pages`, so a regression would raise on the unexpected URL.
+        pages = {
+            "https://api.bugsnag.com/user/organizations?per_page=100": ([{"id": "o1"}], None),
+            "https://api.bugsnag.com/organizations/o1/projects?per_page=100": ([{"id": "p1"}], None),
+            "https://api.bugsnag.com/projects/p1/releases?per_page=10": ([{"id": "r1"}], None),
+        }
+        rows = _collect("releases", pages, _FakeResumableManager(), monkeypatch)
+        assert rows == [{"id": "r1", "organization_id": "o1", "project_id": "p1"}]
+
 
 class TestValidateCredentials:
     @parameterized.expand(

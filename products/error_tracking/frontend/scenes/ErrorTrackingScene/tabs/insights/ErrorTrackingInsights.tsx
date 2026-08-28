@@ -1,39 +1,50 @@
 import { useValues } from 'kea'
 
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
+
 import { ChartCard } from './ChartCard'
 import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 import { InsightsFilters } from './InsightsFilters'
 import { SummaryStats } from './SummaryStats'
 
 export function ErrorTrackingInsights(): JSX.Element {
-    const { exceptionVolumeQuery, affectedUsersQuery, crashFreeSessionsQuery } = useValues(errorTrackingInsightsLogic)
+    const { exceptionVolumeQuery, issuesCreatedQuery, affectedUsersQuery, crashFreeSessionsQuery } =
+        useValues(errorTrackingInsightsLogic)
 
     return (
-        <div className="space-y-4">
-            <div className="border rounded bg-surface-primary p-2 space-y-2">
+        <div>
+            <SceneStickyBar className="-mt-4" showBorderBottom={false}>
                 <InsightsFilters />
-            </div>
-            <SummaryStats />
+            </SceneStickyBar>
+            <div className="space-y-4">
+                <SummaryStats />
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                <ChartCard
-                    title="Exception volume"
-                    description="Exceptions per day"
-                    query={exceptionVolumeQuery}
-                    chartKey="exception_volume"
-                />
-                <ChartCard
-                    title="Affected users"
-                    description="Unique users experiencing exceptions"
-                    query={affectedUsersQuery}
-                    chartKey="affected_users"
-                />
-                <ChartCard
-                    title="Crash-free sessions"
-                    description="Percentage of sessions without any exceptions"
-                    query={crashFreeSessionsQuery}
-                    chartKey="crash_free_sessions"
-                />
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    <ChartCard
+                        title="Exception volume"
+                        description="Exceptions per day"
+                        query={exceptionVolumeQuery}
+                        chartKey="exception_volume"
+                    />
+                    <ChartCard
+                        title="Issues created"
+                        description="New issues per day"
+                        query={issuesCreatedQuery}
+                        chartKey="issues_created"
+                    />
+                    <ChartCard
+                        title="Affected users"
+                        description="Unique users experiencing exceptions"
+                        query={affectedUsersQuery}
+                        chartKey="affected_users"
+                    />
+                    <ChartCard
+                        title="Crash-free sessions"
+                        description="Percentage of sessions without any exceptions"
+                        query={crashFreeSessionsQuery}
+                        chartKey="crash_free_sessions"
+                    />
+                </div>
             </div>
         </div>
     )

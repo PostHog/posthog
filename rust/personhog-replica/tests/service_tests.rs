@@ -4,16 +4,16 @@ use common::TestContext;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
-    DeleteHashKeyOverridesByTeamsRequest, DeletePersonlessDistinctIdsBatchForTeamRequest,
-    DeletePersonsBatchForTeamRequest, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
-    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
-    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
-    GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
-    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
-    SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest, SplitPersonRequest,
-    TeamDistinctId, UpsertHashKeyOverridesRequest,
+    DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest, GetGroupRequest,
+    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
+    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
+    GetGroupsBatchRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
+    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
+    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
+    GetPersonsRequest, GroupIdentifier, GroupKey, SetPersonDistinctIdVersionFloorRequest,
+    SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
+    UpsertHashKeyOverridesRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -669,6 +669,67 @@ async fn test_get_distinct_ids_for_persons_with_limit(
     ctx.cleanup().await.ok();
 }
 
+// The anonymous-shaped id is inserted first, so insertion order alone would return it;
+// the limited queries must order identified ids first so they survive the LIMIT.
+#[tokio::test]
+async fn test_get_distinct_ids_for_person_limit_keeps_identified() {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx
+        .insert_person("0190f8e1-1234-7abc-89de-f0123456789a", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "user@example.com")
+        .await
+        .unwrap();
+
+    let response = ctx
+        .service
+        .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
+            team_id: ctx.team_id,
+            person_id: person.id,
+            read_options: None,
+            limit: Some(1),
+        }))
+        .await
+        .expect("RPC failed");
+
+    let distinct_ids = response.into_inner().distinct_ids;
+    assert_eq!(distinct_ids.len(), 1);
+    assert_eq!(distinct_ids[0].distinct_id, "user@example.com");
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_distinct_ids_for_persons_limit_keeps_identified() {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx
+        .insert_person("0190f8e1-1234-7abc-89de-f0123456789a", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "user@example.com")
+        .await
+        .unwrap();
+
+    let response = ctx
+        .service
+        .get_distinct_ids_for_persons(Request::new(GetDistinctIdsForPersonsRequest {
+            team_id: ctx.team_id,
+            person_ids: vec![person.id],
+            read_options: None,
+            limit_per_person: Some(1),
+        }))
+        .await
+        .expect("RPC failed");
+
+    let results = response.into_inner().person_distinct_ids;
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].distinct_ids.len(), 1);
+    assert_eq!(results[0].distinct_ids[0].distinct_id, "user@example.com");
+
+    ctx.cleanup().await.ok();
+}
+
 // ============================================================
 // Additional group tests
 // ============================================================
@@ -1253,82 +1314,6 @@ async fn test_delete_persons_batch_for_team_invalid_batch_size(#[case] batch_siz
             team_id: ctx.team_id,
             batch_size,
         }))
-        .await;
-
-    let status = result.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-    assert!(status.message().contains("batch_size"));
-
-    ctx.cleanup().await.ok();
-}
-
-#[tokio::test]
-async fn test_delete_personless_distinct_ids_batch_for_team() {
-    let ctx = ServiceTestContext::new().await;
-    ctx.insert_personless_distinct_id("svc_personless_1")
-        .await
-        .unwrap();
-    ctx.insert_personless_distinct_id("svc_personless_2")
-        .await
-        .unwrap();
-
-    let response = ctx
-        .service
-        .delete_personless_distinct_ids_batch_for_team(Request::new(
-            DeletePersonlessDistinctIdsBatchForTeamRequest {
-                team_id: ctx.team_id,
-                batch_size: 1,
-            },
-        ))
-        .await
-        .expect("RPC failed");
-    assert_eq!(response.into_inner().deleted_count, 1);
-
-    let response = ctx
-        .service
-        .delete_personless_distinct_ids_batch_for_team(Request::new(
-            DeletePersonlessDistinctIdsBatchForTeamRequest {
-                team_id: ctx.team_id,
-                batch_size: 100,
-            },
-        ))
-        .await
-        .expect("RPC failed");
-    assert_eq!(response.into_inner().deleted_count, 1);
-
-    let response = ctx
-        .service
-        .delete_personless_distinct_ids_batch_for_team(Request::new(
-            DeletePersonlessDistinctIdsBatchForTeamRequest {
-                team_id: ctx.team_id,
-                batch_size: 100,
-            },
-        ))
-        .await
-        .expect("RPC failed");
-    assert_eq!(response.into_inner().deleted_count, 0);
-
-    ctx.cleanup().await.ok();
-}
-
-#[rstest]
-#[case::zero(0)]
-#[case::negative(-1)]
-#[case::exceeds_max(50001)]
-#[tokio::test]
-async fn test_delete_personless_distinct_ids_batch_for_team_invalid_batch_size(
-    #[case] batch_size: i64,
-) {
-    let ctx = ServiceTestContext::new().await;
-
-    let result = ctx
-        .service
-        .delete_personless_distinct_ids_batch_for_team(Request::new(
-            DeletePersonlessDistinctIdsBatchForTeamRequest {
-                team_id: ctx.team_id,
-                batch_size,
-            },
-        ))
         .await;
 
     let status = result.unwrap_err();

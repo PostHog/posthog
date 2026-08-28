@@ -56,27 +56,27 @@ export const RemindersCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
-                .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'),
+                .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'),
             zod.enum(['']),
             zod.null(),
         ])
         .optional()
         .describe(
-            'For a recurring reminder: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
+            'For a recurring reminder: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
         ),
     cron_expression: zod
         .string()
         .max(remindersCreateBodyCronExpressionMax)
         .nullish()
         .describe(
-            "For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval."
+            "For a recurring reminder: a 5-field cron expression (e.g. '0 9 \* \* 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval."
         ),
     timezone: zod
         .string()
         .max(remindersCreateBodyTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC."
+            "IANA timezone the schedule resolves in (e.g. 'America\/New_York'). Defaults to the project timezone when a team is set, otherwise UTC."
         ),
     end_date: zod.iso
         .datetime({ offset: true })
@@ -139,27 +139,27 @@ export const RemindersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
-                .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'),
+                .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'),
             zod.enum(['']),
             zod.null(),
         ])
         .optional()
         .describe(
-            'For a recurring reminder: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
+            'For a recurring reminder: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
         ),
     cron_expression: zod
         .string()
         .max(remindersPartialUpdateBodyCronExpressionMax)
         .nullish()
         .describe(
-            "For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval."
+            "For a recurring reminder: a 5-field cron expression (e.g. '0 9 \* \* 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval."
         ),
     timezone: zod
         .string()
         .max(remindersPartialUpdateBodyTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC."
+            "IANA timezone the schedule resolves in (e.g. 'America\/New_York'). Defaults to the project timezone when a team is set, otherwise UTC."
         ),
     end_date: zod.iso
         .datetime({ offset: true })

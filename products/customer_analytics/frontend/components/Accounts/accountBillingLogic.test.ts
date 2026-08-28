@@ -1,12 +1,20 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { insightsApi } from 'scenes/insights/utils/api'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { QueryBasedInsightModel } from '~/types'
 
-import { AccountBillingKind, accountBillingLogic, BILLING_INSIGHT_SHORT_IDS } from './accountBillingLogic'
+import {
+    AccountBillingKind,
+    accountBillingLogic,
+    BILLING_INSIGHT_SHORT_IDS,
+    getBillingDataVisualizationKey,
+} from './accountBillingLogic'
 
 const ORG_VARIABLE_ID = 'var-org'
 const START_VARIABLE_ID = 'var-start'
@@ -42,6 +50,7 @@ describe('accountBillingLogic', () => {
         jest.spyOn(insightsApi, 'getByShortId').mockImplementation((shortId) =>
             Promise.resolve(buildBillingInsight(shortId))
         )
+        jest.spyOn(api, 'query').mockResolvedValue({ columns: [], results: [] })
     })
 
     afterEach(() => {
@@ -54,13 +63,27 @@ describe('accountBillingLogic', () => {
             logic.mount()
         }
 
-        it('loads every saved insight configured for the kind', async () => {
+        it('loads every saved insight configured for the kind, with product-attribution query tags', async () => {
             mountForKind()
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.savedInsights?.map((insight) => insight.short_id)).toEqual(
                 BILLING_INSIGHT_SHORT_IDS[kind]
             )
+            // Without these tags the ad-hoc SQL is untagged and local dev rejects it (UntaggedQueryError).
+            for (const insight of logic.values.savedInsights ?? []) {
+                expect((insight.query as Record<string, any>).source.tags).toEqual({
+                    productKey: 'customer_analytics',
+                    scene: 'CustomerAnalytics',
+                })
+            }
+        })
+
+        it('preloads every saved insight result before its tab renders', async () => {
+            mountForKind()
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(api.query).toHaveBeenCalledTimes(BILLING_INSIGHT_SHORT_IDS[kind].length)
         })
 
         it('injects the external id into each saved insight variables', async () => {
@@ -96,6 +119,99 @@ describe('accountBillingLogic', () => {
             expect(nextQueryKey).not.toEqual(initialQueryKey)
             expect(nextQueryKey).toContain('2024-01-01')
             expect(nextQueryKey).toContain('2024-01-31')
+        })
+
+        it('replaces stale preloads when the date range changes', async () => {
+            mountForKind()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const initialPreloads = (logic.values.savedInsights ?? []).map((insight) => {
+                const queryKey = logic.values.queryKeyFor(insight.short_id)
+                return dataVisualizationLogic({
+                    key: getBillingDataVisualizationKey(queryKey),
+                    query: insight.query as DataVisualizationNode,
+                    dataNodeCollectionId: queryKey,
+                    variablesOverride: logic.values.variableOverridesByShortId[insight.short_id] ?? null,
+                })
+            })
+
+            logic.actions.setDateRange('2024-01-01', '2024-01-31')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.query).toHaveBeenCalledTimes(BILLING_INSIGHT_SHORT_IDS[kind].length * 2)
+            expect(initialPreloads.every((preload) => !preload.isMounted())).toBe(true)
+        })
+
+        it('keeps hidden series keyed per insight, so hiding on one of the two spend charts sharing this logic does not hide on the other, and resets them on date change', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            mountForKind()
+
+            logic.actions.toggleHiddenSeriesKey('insight-a', 'Events-0', 3)
+            logic.actions.toggleHiddenSeriesKey('insight-b', 'Recordings-1', 2)
+            expect(logic.values.ephemeralHiddenSeriesKeysByShortId).toEqual({
+                'insight-a': ['Events-0'],
+                'insight-b': ['Recordings-1'],
+            })
+            expect(captureSpy).toHaveBeenLastCalledWith('customer analytics account usage series toggled', {
+                kind,
+                is_hidden: true,
+                series_count: 2,
+            })
+
+            logic.actions.toggleHiddenSeriesKey('insight-a', 'Events-0', 3)
+            expect(logic.values.ephemeralHiddenSeriesKeysByShortId).toEqual({
+                'insight-a': [],
+                'insight-b': ['Recordings-1'],
+            })
+            expect(captureSpy).toHaveBeenLastCalledWith('customer analytics account usage series toggled', {
+                kind,
+                is_hidden: false,
+                series_count: 3,
+            })
+
+            logic.actions.setDateRange('2024-01-01', '2024-01-31')
+            expect(logic.values.ephemeralHiddenSeriesKeysByShortId).toEqual({})
+        })
+
+        it('hides and shows all series at once without touching the other insight, and reports the bulk toggle', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            mountForKind()
+
+            logic.actions.toggleHiddenSeriesKey('insight-b', 'Recordings-1', 2)
+            logic.actions.setAllSeriesHidden('insight-a', ['Events-0', 'Recordings-1', 'Flags-2'], true)
+            expect(logic.values.ephemeralHiddenSeriesKeysByShortId).toEqual({
+                'insight-a': ['Events-0', 'Recordings-1', 'Flags-2'],
+                'insight-b': ['Recordings-1'],
+            })
+            expect(captureSpy).toHaveBeenLastCalledWith('customer analytics account usage series bulk toggled', {
+                kind,
+                is_hidden: true,
+                series_count: 3,
+            })
+
+            logic.actions.setAllSeriesHidden('insight-a', ['Events-0', 'Recordings-1', 'Flags-2'], false)
+            expect(logic.values.ephemeralHiddenSeriesKeysByShortId).toEqual({
+                'insight-a': [],
+                'insight-b': ['Recordings-1'],
+            })
+            expect(captureSpy).toHaveBeenLastCalledWith('customer analytics account usage series bulk toggled', {
+                kind,
+                is_hidden: false,
+                series_count: 3,
+            })
+        })
+
+        // Environments without the saved billing insight (or a failing fetch) must degrade to an
+        // empty list, which is what drives the tab's not-found state instead of a crash or broken chart.
+        it.each([
+            ['is absent', () => jest.spyOn(insightsApi, 'getByShortId').mockResolvedValue(null)],
+            ['fails to load', () => jest.spyOn(insightsApi, 'getByShortId').mockRejectedValue(new Error('boom'))],
+        ])('resolves to no saved insights when the billing insight %s', async (_label, mockGetByShortId) => {
+            mockGetByShortId()
+            mountForKind()
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.savedInsights).toEqual([])
         })
     })
 })

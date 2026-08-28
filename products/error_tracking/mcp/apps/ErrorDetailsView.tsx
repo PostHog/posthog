@@ -66,6 +66,8 @@ export function ErrorDetailsView({ data }: { data: ErrorDetailsData }): ReactEle
 
     const exceptionType = firstString(properties.$exception_types) ?? exceptions[0]?.type ?? 'Error'
     const exceptionMessage = firstString(properties.$exception_values) ?? exceptions[0]?.value ?? ''
+    const isSynthetic =
+        properties.$exception_synthetic === true || exceptions.some((exception) => exception.mechanism?.synthetic)
 
     return (
         <div className="p-4">
@@ -73,7 +75,7 @@ export function ErrorDetailsView({ data }: { data: ErrorDetailsData }): ReactEle
                 <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2 flex-wrap">
                         <Badge variant="destructive">{exceptionType}</Badge>
-                        {properties.$exception_synthetic && <Badge>Synthetic</Badge>}
+                        {isSynthetic && <Badge>Synthetic</Badge>}
                     </div>
                     <span className="text-sm">{exceptionMessage}</span>
                 </div>

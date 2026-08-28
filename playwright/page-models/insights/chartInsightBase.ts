@@ -12,7 +12,7 @@ export class ChartInsightBase {
         chartLocator: Locator
     ) {
         this.chart = chartLocator
-        this.tooltip = page.getByTestId('insight-tooltip')
+        this.tooltip = page.locator('[data-hog-charts-tooltip]')
         this.dateRangeButton = page.getByTestId('date-filter')
         this.chartTypeButton = page.getByTestId('chart-filter')
         this.comparisonButton = page.getByTestId('compare-filter')

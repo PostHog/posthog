@@ -1,0 +1,78 @@
+# serializer version: 1
+# name: TestWebBotsTableQueryRunner.test_date_range_excludes_outside_events
+  '''
+  SELECT if(ifNull(equals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */]), 0), 0), if(equals(multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0), 0), '', ['Googlebot', 'Google special crawler', 'Google fetcher', 'ChatGPT', 'OpenAI Search', 'GPTBot', 'Perplexity User', 'Perplexity', 'Bingbot', 'Applebot', 'Ahrefs'][multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0)]), [/* 333 bot literals */][multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */])]) AS Crawler,
+         if(ifNull(equals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */]), 0), 0), if(equals(multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0), 0), 'regular', ['search_crawler', 'search_crawler', 'search_crawler', 'ai_assistant', 'ai_search', 'ai_crawler', 'ai_assistant', 'ai_search', 'search_crawler', 'ai_search', 'seo_crawler'][multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0)]), [/* 333 bot literals */][multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */])]) AS Category,
+         count() AS Requests,
+         max(toTimeZone(events.timestamp, 'UTC')) AS `Last seen`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(ifNull(equals(accurateCastOrNull(or(ifNull(notEquals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */]), 0), 1), or(/* bot ip ranges */)), 'Bool'), 1), 0), notEquals(if(ifNull(equals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */]), 0), 0), if(equals(multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0), 0), '', ['Googlebot', 'Google special crawler', 'Google fetcher', 'ChatGPT', 'OpenAI Search', 'GPTBot', 'Perplexity User', 'Perplexity', 'Bingbot', 'Applebot', 'Ahrefs'][multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0)]), [/* 333 bot literals */][multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */])]), ''), in(events.event, tuple('$pageview', '$screen', '$http_log')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2026-03-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2026-03-31 23:59:59', 'UTC')))), 0), 1))
+  GROUP BY Crawler,
+           Category
+  ORDER BY Requests DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestWebBotsTableQueryRunner.test_only_bot_traffic_grouped_by_breakdown_0_Crawler
+  '''
+  SELECT if(ifNull(equals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */]), 0), 0), if(equals(multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0), 0), '', ['Googlebot', 'Google special crawler', 'Google fetcher', 'ChatGPT', 'OpenAI Search', 'GPTBot', 'Perplexity User', 'Perplexity', 'Bingbot', 'Applebot', 'Ahrefs'][multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0)]), [/* 333 bot literals */][multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */])]) AS Crawler,
+         if(ifNull(equals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */]), 0), 0), if(equals(multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0), 0), 'regular', ['search_crawler', 'search_crawler', 'search_crawler', 'ai_assistant', 'ai_search', 'ai_crawler', 'ai_assistant', 'ai_search', 'search_crawler', 'ai_search', 'seo_crawler'][multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0)]), [/* 333 bot literals */][multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */])]) AS Category,
+         count() AS Requests,
+         max(toTimeZone(events.timestamp, 'UTC')) AS `Last seen`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(ifNull(equals(accurateCastOrNull(or(ifNull(notEquals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */]), 0), 1), or(/* bot ip ranges */)), 'Bool'), 1), 0), notEquals(if(ifNull(equals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */]), 0), 0), if(equals(multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0), 0), '', ['Googlebot', 'Google special crawler', 'Google fetcher', 'ChatGPT', 'OpenAI Search', 'GPTBot', 'Perplexity User', 'Perplexity', 'Bingbot', 'Applebot', 'Ahrefs'][multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0)]), [/* 333 bot literals */][multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */])]), ''), in(events.event, tuple('$pageview', '$screen', '$http_log')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2026-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2026-01-31 23:59:59', 'UTC')))), 0), 1))
+  GROUP BY Crawler,
+           Category
+  ORDER BY Requests DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestWebBotsTableQueryRunner.test_only_bot_traffic_grouped_by_breakdown_1_Path
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS Path,
+         count(DISTINCT if(ifNull(equals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */]), 0), 0), if(equals(multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0), 0), '', ['Googlebot', 'Google special crawler', 'Google fetcher', 'ChatGPT', 'OpenAI Search', 'GPTBot', 'Perplexity User', 'Perplexity', 'Bingbot', 'Applebot', 'Ahrefs'][multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0)]), [/* 333 bot literals */][multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */])])) AS Crawlers,
+         count() AS Requests,
+         max(toTimeZone(events.timestamp, 'UTC')) AS `Last seen`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(ifNull(equals(accurateCastOrNull(or(ifNull(notEquals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */]), 0), 1), or(/* bot ip ranges */)), 'Bool'), 1), 0), notEquals(if(ifNull(equals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */]), 0), 0), if(equals(multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0), 0), '', ['Googlebot', 'Google special crawler', 'Google fetcher', 'ChatGPT', 'OpenAI Search', 'GPTBot', 'Perplexity User', 'Perplexity', 'Bingbot', 'Applebot', 'Ahrefs'][multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0)]), [/* 333 bot literals */][multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 333 bot literals */])]), ''), in(events.event, tuple('$pageview', '$screen', '$http_log')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2026-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2026-01-31 23:59:59', 'UTC')))), 0), 1))
+  GROUP BY Path
+  ORDER BY Requests DESC
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---

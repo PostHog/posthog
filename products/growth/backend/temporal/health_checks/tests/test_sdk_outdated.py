@@ -17,7 +17,7 @@ OLD_RELEASE = "2020-01-01T00:00:00Z"
 def _make_ch_row(
     team_id: int,
     lib: str,
-    lib_version: str,
+    lib_version: str | None,
     max_timestamp: str = "2026-03-20 12:00:00",
     event_count: int = 5000,
 ) -> tuple:
@@ -82,6 +82,54 @@ class TestSdkOutdatedCheck(SimpleTestCase):
         assert issue.payload["usage"][0]["is_latest"] is False
         assert "status_reason" in issue.payload["usage"][0]
         assert issue.hash_keys == ["sdk_name"]
+
+    def test_detects_legacy_java_without_version_and_recommends_migration(self):
+        github = {
+            "posthog-java": {
+                "latestVersion": "1.2.0",
+                "releaseDates": {},
+            },
+            "posthog-server": {
+                "latestVersion": "2.7.5",
+                "releaseDates": {},
+            },
+        }
+        rows = [
+            _make_ch_row(1, "posthog-java", None),
+            _make_ch_row(1, "posthog-server", "2.7.5"),
+        ]
+
+        results = self._run(github, rows, [1])
+
+        assert len(results[1]) == 1
+        issue = results[1][0]
+        assert issue.payload["sdk_name"] == "posthog-java"
+        assert issue.payload["latest_version"] == "1.2.0"
+        assert issue.payload["migration_source"] == "com.posthog.java:posthog"
+        assert issue.payload["migration_target"] == "com.posthog:posthog-server"
+        assert "Migrate to com.posthog:posthog-server" in issue.payload["reason"]
+        assert issue.payload["usage"][0]["lib_version"] == "Not reported"
+        assert issue.payload["usage"][0]["count"] == 5000
+
+        alert = SdkOutdatedCheck.render_alert(issue)
+        assert alert.title == "SDK migration recommended"
+        assert alert.summary == issue.payload["reason"]
+
+    def test_sorts_partial_and_full_semver_versions_before_assessment(self):
+        github = {
+            "posthog-server": {
+                "latestVersion": "2.0.0",
+                "releaseDates": {"1.2.0": OLD_RELEASE, "1.10": OLD_RELEASE},
+            }
+        }
+        rows = [
+            _make_ch_row(1, "posthog-server", "1.2.0", event_count=100),
+            _make_ch_row(1, "posthog-server", "1.10", event_count=50),
+        ]
+
+        results = self._run(github, rows, [1])
+
+        assert results[1][0].payload["current_version"] == "1.10"
 
     def test_alert_reason_explains_significant_outdated_traffic(self):
         # The most-used version already matches latest, but an older version still serves a
@@ -191,7 +239,8 @@ class TestSdkOutdatedCheck(SimpleTestCase):
         _cache_team_sdk_data({1: {"web": [{"lib_version": "1.0.0", "max_timestamp": "x", "count": 1}]}})
 
         mock_pipe.setex.assert_called_once()
-        _key, ttl, _payload = mock_pipe.setex.call_args[0]
+        key, ttl, _payload = mock_pipe.setex.call_args[0]
+        assert key == "sdk_versions:team:v2:1"
         assert ttl == TEAM_SDK_CACHE_EXPIRY
 
 

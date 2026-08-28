@@ -14,7 +14,12 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AnyPropertyFilter, GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
-import { formatPropertyLabel, isGroupCardFilterKey, propertyFilterTypeToPropertyDefinitionType } from '../utils'
+import {
+    formatPropertyLabel,
+    isBehavioralPropertyFilter,
+    isGroupCardFilterKey,
+    propertyFilterTypeToPropertyDefinitionType,
+} from '../utils'
 import { GroupKeyFilterTooltip } from './GroupKeyFilterTooltip'
 
 export interface PropertyFilterButtonProps {
@@ -35,6 +40,9 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
         const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(item.type)
+
+        // A behavioral label is a whole sentence, which mid-ellipsis would turn into nonsense
+        const wraps = isBehavioralPropertyFilter(item)
 
         const label =
             children ||
@@ -76,7 +84,22 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         const closable = onClose !== undefined
         const clickable = onClick !== undefined
 
-        const ButtonComponent = clickable ? 'button' : 'div'
+        // A native <button> can't contain the nested close <button> (invalid DOM nesting),
+        // so a closeable chip renders as a div with button semantics instead
+        const ButtonComponent = clickable && !closable ? 'button' : 'div'
+        const buttonRoleProps =
+            clickable && ButtonComponent === 'div'
+                ? {
+                      role: 'button',
+                      tabIndex: 0,
+                      onKeyDown: (e: React.KeyboardEvent) => {
+                          if (!disabledReason && (e.key === 'Enter' || e.key === ' ')) {
+                              e.preventDefault()
+                              onClick?.()
+                          }
+                      },
+                  }
+                : {}
 
         const button = (
             <ButtonComponent
@@ -86,28 +109,31 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                     'PropertyFilterButton--closeable': closable,
                     'PropertyFilterButton--clickable': clickable,
                     'PropertyFilterButton--compact': compact,
+                    'PropertyFilterButton--wraps': wraps,
                 })}
                 aria-disabled={!!disabledReason}
                 type={ButtonComponent === 'button' ? 'button' : undefined}
+                {...buttonRoleProps}
             >
                 <PropertyFilterIcon type={item.type} />
                 <span className="PropertyFilterButton-content" title={showGroupCard ? undefined : label}>
-                    {midEllipsis(label, 32)}
+                    {wraps ? label : midEllipsis(label, 32)}
                 </span>
-                {closable && !disabledReason && (
-                    // The context below prevents close button from going into active status when filter popover is open
-                    <PopoverReferenceContext.Provider value={null}>
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconX />}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                onClose()
-                            }}
-                            className="p-0.5"
-                        />
-                    </PopoverReferenceContext.Provider>
-                )}
+                {closable &&
+                    !disabledReason && (
+                        // The context below prevents close button from going into active status when filter popover is open
+                        <PopoverReferenceContext.Provider value={null}>
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconX />}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    onClose()
+                                }}
+                                className="p-0.5"
+                            />
+                        </PopoverReferenceContext.Provider>
+                    )}
             </ButtonComponent>
         )
 

@@ -18,9 +18,16 @@ import {
     PropertyFilterType,
 } from '~/types'
 
+import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
+
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
-import { featureFlagReleaseConditionsLogic, isDistinctIdFilter } from './featureFlagReleaseConditionsLogic'
+import { FeatureFlagNoConditionsWarning } from './FeatureFlagNoConditionsWarning'
+import {
+    featureFlagReleaseConditionsLogic,
+    isDistinctIdFilter,
+    withResolvedFlagLabels,
+} from './featureFlagReleaseConditionsLogic'
 
 interface FeatureFlagReleaseConditionsReadonlyProps {
     id: string
@@ -124,7 +131,8 @@ export function FeatureFlagReleaseConditionsReadonly({
         filters,
     })
 
-    const { filterGroups, aggregationTargetName, properties, getDistinctIdName } = useValues(releaseConditionsLogic)
+    const { filterGroups, aggregationTargetName, properties, getDistinctIdName, getFlagKey } =
+        useValues(releaseConditionsLogic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -145,6 +153,8 @@ export function FeatureFlagReleaseConditionsReadonly({
 
             <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
 
+            <FractionalRolloutWarning filterGroups={filterGroups} />
+
             <div className={isDisabled ? 'opacity-60' : ''}>
                 {filterGroups.map((group, index) => (
                     <div key={group.sort_key ?? index}>
@@ -158,13 +168,12 @@ export function FeatureFlagReleaseConditionsReadonly({
                             index={index}
                             aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
                             getDistinctIdName={getDistinctIdName}
+                            getFlagKey={getFlagKey}
                         />
                     </div>
                 ))}
 
-                {filterGroups.length === 0 && (
-                    <div className="text-sm text-muted">No release conditions configured</div>
-                )}
+                <FeatureFlagNoConditionsWarning conditionSetCount={filterGroups.length} />
             </div>
         </div>
     )
@@ -175,6 +184,7 @@ interface ConditionSetCardProps {
     index: number
     aggregationTargetName: string
     getDistinctIdName: (distinctId: string) => string
+    getFlagKey: (flagId: string) => string
 }
 
 function ConditionSetCard({
@@ -182,8 +192,9 @@ function ConditionSetCard({
     index,
     aggregationTargetName,
     getDistinctIdName,
+    getFlagKey,
 }: ConditionSetCardProps): JSX.Element {
-    const properties = group.properties || []
+    const properties = withResolvedFlagLabels(group.properties, getFlagKey)
     const rollout = group.rollout_percentage ?? 100
 
     const getSummary = (): JSX.Element => {

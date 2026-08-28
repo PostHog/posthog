@@ -1,14 +1,16 @@
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { NodeHttpHandler } from '@smithy/node-http-handler'
 
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
-import { getDefaultKafkaDownstreamProducerEnvConfig } from '~/ingestion/common/producers'
+import { logger } from '~/common/utils/logger'
+import { getDefaultKafkaDownstreamProducerEnvConfig } from '~/ingestion/common/outputs/producers'
 import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import { AllowListFetcher, loadAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/allow-list-loader'
-import { ScrubContext } from '~/ingestion/pipelines/sessionreplay/anonymize/config'
 import {
     type SessionReplayProducerName,
     getDefaultSessionRecordingApiConfig,
@@ -19,7 +21,14 @@ import {
     SessionRecordingIngester,
     SessionRecordingIngesterCollaborators,
 } from '~/ingestion/pipelines/sessionreplay/consumer'
-import { MlMirrorConfig, getDefaultMlMirrorConfig } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
+import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
+import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
+import {
+    MlMirrorConfig,
+    getDefaultMlMirrorConfig,
+    resolveMlAnonymizeMaxConcurrency,
+    resolveMlMirrorRedisConnection,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
 import { createMlMirrorReplayPipeline } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline'
 import { resolvePseudonymKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/pseudonym-key'
@@ -63,12 +72,30 @@ export function buildMlMirrorServerConfig(
     }
 }
 
+/** Boot-time smoke test so a broken addon crashes startup instead of dropping all traffic later. */
+async function assertAnonymizerHealthy(anonymizer: typeof import('@posthog/replay-anonymizer')): Promise<void> {
+    const inner = JSON.stringify({
+        event: '$snapshot_items',
+        properties: {
+            $session_id: 's',
+            $window_id: 'w',
+            $snapshot_items: [{ type: 3, timestamp: Date.now(), data: { source: 5, id: 1, text: 'health check' } }],
+        },
+    })
+    const payload = Buffer.from(JSON.stringify({ distinct_id: 'd', data: inner }))
+    const result = await anonymizer.anonymizeKafkaPayload(payload)
+    if (result.failed) {
+        throw new Error(`replay-anonymizer startup self-test failed: ${result.reason ?? 'unknown'}`)
+    }
+}
+
 export class IngestionSessionReplayMlMirrorServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig
 
     private postgres?: PostgresRouter
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
+    private crawlHistoryClient?: DynamoDBClient
     private redisPool?: RedisPool
     private restrictionRedisPool?: RedisPool
 
@@ -95,7 +122,8 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
 
-        const pools = buildSessionReplayRedisPools(this.config)
+        // Another system writes the event restriction list, so every lane reads one copy of it.
+        const pools = buildSessionReplayRedisPools(this.config, resolveMlMirrorRedisConnection(this.config))
         this.redisPool = pools.redisPool
         this.restrictionRedisPool = pools.restrictionRedisPool
 
@@ -110,12 +138,22 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
             ? new S3SessionBatchFileStorage(s3Client, bucket, prefix, this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS)
             : new BlackholeSessionBatchFileStorage()
 
-        const scrubContext: ScrubContext = {
-            allow: await loadAllowLists(this.buildAllowListFetcher(s3Client, bucket)),
-        }
+        const allow = await loadAllowLists(this.buildAllowListFetcher(s3Client, bucket))
+        // Lazy require so only ml-mirror deployments load (and need to ship) the native addon; the
+        // addon holds its own copy of the immutable allow lists, set once at startup.
+        const anonymizer = require('@posthog/replay-anonymizer') as typeof import('@posthog/replay-anonymizer')
+        anonymizer.initAnonymizer(allow.entries())
+        // The addon's scrub runs on the libuv threadpool (UV_THREADPOOL_SIZE, default 4) shared
+        // with the recorder's snappy compression — size it for the deployment if scrub backs up.
+        await assertAnonymizerHealthy(anonymizer)
+        logger.info('🦀', 'ml_mirror_rust_anonymizer_initialized')
 
         // Block metadata is produced to Kafka; the dedicated Parquet-sink deployment writes it to the ML bucket.
         const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret)
+        const urlProducerEnabled =
+            this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED &&
+            this.config.SESSION_RECORDING_ML_URL_PRODUCER_ENABLED
+        const urlCrawlHistory = urlProducerEnabled ? this.buildUrlCrawlHistory() : undefined
 
         // Cleartext crypto: no encryption, deletions not honored (every session stays cleartext).
         const keyStore = new CleartextKeyStore()
@@ -130,7 +168,44 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
             featureStore: new SessionFeatureStore(outputs, false),
             keyStore,
             encryptor: new CleartextRecordingEncryptor(keyStore),
-            createPipeline: (pipelineConfig) => createMlMirrorReplayPipeline({ ...pipelineConfig, scrubContext }),
+            createPipeline: (pipelineConfig) =>
+                createMlMirrorReplayPipeline(
+                    pipelineConfig,
+                    {
+                        anonymizeMaxConcurrency: resolveMlAnonymizeMaxConcurrency(
+                            this.config.SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY
+                        ),
+                    },
+                    this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED
+                        ? {
+                              outputs,
+                              producedRefCacheMax: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX,
+                          }
+                        : undefined,
+                    {
+                        pseudonymSecret,
+                        // Producing the images is what makes collecting them useful, so the image
+                        // lane follows its producer flag. The URL lane collects on its own flag,
+                        // because collecting alone measures without sending anything anywhere.
+                        collectImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED,
+                        collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
+                    },
+                    // Producing needs collection: without it the anonymizer returns no URLs, and
+                    // the step would have nothing to send.
+                    urlProducerEnabled
+                        ? {
+                              outputs,
+                              producedRefCacheMax: this.config.SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX,
+                              producedRefCacheWindowMs:
+                                  (this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS * 1000) / 2,
+                              crawlHistory: urlCrawlHistory,
+                          }
+                        : undefined
+                ),
+            // Isolate the mirror's session tracker/filter keys from the main lane. Sharing them would let
+            // the cleartext mirror mark a session seen without the main lane's KMS key, so the main lane
+            // would then fetch a missing key and record cleartext.
+            redisKeyNamespace: 'ml-mirror',
         }
 
         const ingester = new SessionRecordingIngester(
@@ -157,12 +232,32 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         }
     }
 
+    private buildUrlCrawlHistory(): Pick<CrawlHistoryStore, 'read'> | undefined {
+        if (!this.config.SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_ENABLED) {
+            return undefined
+        }
+        const tableName = this.config.AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE
+        const timeoutMs = this.config.SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_TIMEOUT_MS
+        if (!tableName || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+            logger.warn('🌐', 'ml_image_fetch_crawl_history_precheck_disabled', { tableConfigured: Boolean(tableName) })
+            return undefined
+        }
+        this.crawlHistoryClient = new DynamoDBClient({
+            region: this.config.SESSION_RECORDING_V2_S3_REGION || 'us-east-1',
+            endpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+            maxAttempts: 5,
+            requestHandler: new NodeHttpHandler(),
+        })
+        return new DynamoDBCrawlHistory(this.crawlHistoryClient, tableName, timeoutMs, timeoutMs)
+    }
+
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
             redisPools: [this.redisPool, this.restrictionRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             additionalCleanup: async () => {
+                this.crawlHistoryClient?.destroy()
                 await this.producerRegistry?.disconnectAll()
             },
         }

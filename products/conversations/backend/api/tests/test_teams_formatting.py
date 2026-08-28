@@ -3,6 +3,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.conversations.backend.teams_formatting import (
+    append_teams_attribution,
+    build_teams_reply_html,
     rich_content_to_teams_html,
     teams_html_to_content_and_rich_content,
 )
@@ -264,3 +266,34 @@ class TestRichContentToTeamsHtml(SimpleTestCase):
         }
         result = rich_content_to_teams_html(rich)
         assert result == "<p><i><b>wow</b></i></p>"
+
+
+class TestAppendTeamsAttribution(SimpleTestCase):
+    def test_appends_italic_footer(self):
+        assert append_teams_attribution("<p>Hello</p>", "Max Hedgehog") == (
+            "<p>Hello</p><p><i>Max Hedgehog via SupportHog</i></p>"
+        )
+
+    def test_no_author_leaves_reply_untouched(self):
+        assert append_teams_attribution("<p>Hello</p>", "") == "<p>Hello</p>"
+
+    def test_escapes_author_name(self):
+        result = append_teams_attribution("<p>Hello</p>", "<script>alert(1)</script>")
+        assert "<script>" not in result
+        assert "&lt;script&gt;" in result
+
+
+class TestBuildTeamsReplyHtml(SimpleTestCase):
+    def test_renders_rich_content_then_footer(self):
+        rich = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "All fixed now."}]}],
+        }
+        assert build_teams_reply_html(rich, "All fixed now.", "Max Hedgehog") == (
+            "<p>All fixed now.</p><p><i>Max Hedgehog via SupportHog</i></p>"
+        )
+
+    def test_falls_back_to_plain_content_with_footer(self):
+        assert build_teams_reply_html(None, "All fixed now.", "Max Hedgehog") == (
+            "All fixed now.<p><i>Max Hedgehog via SupportHog</i></p>"
+        )

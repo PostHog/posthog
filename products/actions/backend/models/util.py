@@ -92,7 +92,13 @@ def format_action_filter(
                     params.update(element_params)
 
         # filter event conditions (ie URL)
-        event_conditions, event_params = filter_event(step, f"{action.pk}_{index}{prepend}", index, table_name)
+        event_conditions, event_params = filter_event(
+            step,
+            f"{action.pk}_{index}{prepend}",
+            index,
+            table_name,
+            use_new_events_schema=hogql_context.uses_new_events_schema(),
+        )
         params.update(event_params)
         conditions += event_conditions
 
@@ -118,7 +124,11 @@ def format_action_filter(
 
 
 def filter_event(
-    step: ActionStepJSON, prepend: str = "event", index: int = 0, table_name: str = ""
+    step: ActionStepJSON,
+    prepend: str = "event",
+    index: int = 0,
+    table_name: str = "",
+    use_new_events_schema: bool = False,
 ) -> tuple[list[str], dict]:
     from posthog.models.property.util import get_property_string_expr
 
@@ -129,7 +139,13 @@ def filter_event(
         table_name += "."
 
     if step.url:
-        value_expr, _ = get_property_string_expr("events", "$current_url", "'$current_url'", f"{table_name}properties")
+        value_expr, _ = get_property_string_expr(
+            "events",
+            "$current_url",
+            "'$current_url'",
+            f"{table_name}properties",
+            use_new_events_schema=use_new_events_schema,
+        )
         prop_name = f"{prepend}_prop_val_{index}"
         if step.url_matching == "exact":
             conditions.append(f"{value_expr} = %({prop_name})s")

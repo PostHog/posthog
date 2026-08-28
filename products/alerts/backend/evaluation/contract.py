@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -8,7 +9,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 @dataclass
@@ -53,6 +54,10 @@ class ExtractionResult:
     # alerts set this so a resolved label column surfaces, e.g. "(Burn rate 24h)". Breakdowns already
     # name every row via ``is_breakdown``; this covers the one-series case where the name is meaningful.
     include_series_label: bool = False
+    # Optional per-value display formatter mirroring the insight's axis format (currency, prefix/postfix,
+    # decimals, duration, %). None → the comparator falls back to raw ``f"{value}{unit}"``. Only the
+    # trends extractor sets it today; the PERCENTAGE-threshold path ignores it (relative % ratios).
+    value_formatter: Callable[[float], str] | None = None
 
 
 def zero_sentinel_series() -> ComparableSeries:

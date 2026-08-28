@@ -17,6 +17,7 @@
  * * `experiment` - EXPERIMENT
  * * `error_tracking` - ERROR_TRACKING
  * * `customer_analytics` - CUSTOMER_ANALYTICS
+ * * `ticket` - TICKET
  */
 export type NotificationEventSourceTypeEnumApi =
     (typeof NotificationEventSourceTypeEnumApi)[keyof typeof NotificationEventSourceTypeEnumApi]
@@ -31,6 +32,7 @@ export const NotificationEventSourceTypeEnumApi = {
     Experiment: 'experiment',
     ErrorTracking: 'error_tracking',
     CustomerAnalytics: 'customer_analytics',
+    Ticket: 'ticket',
 } as const
 
 /**
@@ -85,6 +87,10 @@ export interface BulkNotificationIdsRequestApi {
 }
 
 export type NotificationsListParams = {
+    /**
+     * When true, return only notifications the recipient has archived; otherwise return only non-archived notifications (the default)
+     */
+    archived?: boolean
     /**
      * ISO 8601 timestamp; only events at or after this time
      */

@@ -17,7 +17,7 @@ use cymbal::{
         sourcemap::{OwnedSourceMapCache, SourcemapProvider},
         Catalog, Fetcher, Parser,
     },
-    types::{RawErrProps, Stacktrace},
+    types::{RawExceptionProperties, Stacktrace},
 };
 use httpmock::MockServer;
 use posthog_symbol_data::{read_symbol_data_with_byte_count, SourceAndMap};
@@ -85,7 +85,8 @@ async fn end_to_end_resolver_test() {
     });
 
     let exception: ClickHouseEvent = serde_json::from_str(EXAMPLE_EXCEPTION).unwrap();
-    let mut props: RawErrProps = serde_json::from_str(&exception.properties.unwrap()).unwrap();
+    let mut props: RawExceptionProperties =
+        serde_json::from_str(&exception.properties.unwrap()).unwrap();
     let Stacktrace::Raw {
         frames: mut test_stack,
     } = props.exception_list.swap_remove(0).stack.unwrap()

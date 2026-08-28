@@ -5,6 +5,10 @@ import type { Schemas } from '@/api/generated'
 import {
     ErrorTrackingAssignmentRulesCreateBody,
     ErrorTrackingAssignmentRulesListQueryParams,
+    ErrorTrackingBypassRulesCreateBody,
+    ErrorTrackingBypassRulesListQueryParams,
+    ErrorTrackingBypassRulesUpdateBody,
+    ErrorTrackingBypassRulesUpdateParams,
     ErrorTrackingExternalReferencesCreateBody,
     ErrorTrackingGroupingRulesCreateBody,
     ErrorTrackingGroupingRulesUpdateBody,
@@ -20,6 +24,9 @@ import {
     ErrorTrackingQueryIssuesListCreateBody,
     ErrorTrackingRecommendationsListQueryParams,
     ErrorTrackingSettingsUpdateSettingsPartialUpdateBody,
+    ErrorTrackingSeverityRulesCreateBody,
+    ErrorTrackingSeverityRulesUpdateBody,
+    ErrorTrackingSeverityRulesUpdateParams,
     ErrorTrackingSuppressionRulesCreateBody,
     ErrorTrackingSuppressionRulesListQueryParams,
     ErrorTrackingSuppressionRulesUpdateBody,
@@ -78,6 +85,73 @@ const errorTrackingAssignmentRulesList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
             },
+        })
+        return result
+    },
+})
+
+const ErrorTrackingBypassRulesCreateSchema = ErrorTrackingBypassRulesCreateBody
+
+const errorTrackingBypassRulesCreate = (): ToolBase<
+    typeof ErrorTrackingBypassRulesCreateSchema,
+    Schemas.ErrorTrackingBypassRule
+> => ({
+    name: 'error-tracking-bypass-rules-create',
+    schema: ErrorTrackingBypassRulesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingBypassRulesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingBypassRule>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/bypass_rules/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingBypassRulesListSchema = ErrorTrackingBypassRulesListQueryParams
+
+const errorTrackingBypassRulesList = (): ToolBase<
+    typeof ErrorTrackingBypassRulesListSchema,
+    Schemas.PaginatedErrorTrackingBypassRuleList
+> => ({
+    name: 'error-tracking-bypass-rules-list',
+    schema: ErrorTrackingBypassRulesListSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingBypassRulesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedErrorTrackingBypassRuleList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/bypass_rules/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
+const ErrorTrackingBypassRulesUpdateSchema = ErrorTrackingBypassRulesUpdateParams.omit({ project_id: true }).extend(
+    ErrorTrackingBypassRulesUpdateBody.shape
+)
+
+const errorTrackingBypassRulesUpdate = (): ToolBase<typeof ErrorTrackingBypassRulesUpdateSchema, unknown> => ({
+    name: 'error-tracking-bypass-rules-update',
+    schema: ErrorTrackingBypassRulesUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingBypassRulesUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        const result = await context.api.request<unknown>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/bypass_rules/${encodeURIComponent(String(params.id))}/`,
+            body,
         })
         return result
     },
@@ -224,6 +298,9 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
             if (params.status !== undefined) {
                 body['status'] = params.status
             }
+            if (params.severity !== undefined) {
+                body['severity'] = params.severity
+            }
             if (params.name !== undefined) {
                 body['name'] = params.name
             }
@@ -331,6 +408,79 @@ const errorTrackingSettingsUpdate = (): ToolBase<
         const result = await context.api.request<Schemas.ErrorTrackingSettings>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/settings/update_settings/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingSeverityRulesCreateSchema = ErrorTrackingSeverityRulesCreateBody
+
+const errorTrackingSeverityRulesCreate = (): ToolBase<
+    typeof ErrorTrackingSeverityRulesCreateSchema,
+    Schemas.ErrorTrackingSeverityRule
+> => ({
+    name: 'error-tracking-severity-rules-create',
+    schema: ErrorTrackingSeverityRulesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSeverityRulesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.severity !== undefined) {
+            body['severity'] = params.severity
+        }
+        if (params.order_key !== undefined) {
+            body['order_key'] = params.order_key
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingSeverityRule>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/severity_rules/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingSeverityRulesListSchema = z.object({})
+
+const errorTrackingSeverityRulesList = (): ToolBase<
+    typeof ErrorTrackingSeverityRulesListSchema,
+    Schemas.ErrorTrackingSeverityRuleListResponse
+> => ({
+    name: 'error-tracking-severity-rules-list',
+    schema: ErrorTrackingSeverityRulesListSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSeverityRulesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ErrorTrackingSeverityRuleListResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/severity_rules/`,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingSeverityRulesUpdateSchema = ErrorTrackingSeverityRulesUpdateParams.omit({ project_id: true }).extend(
+    ErrorTrackingSeverityRulesUpdateBody.shape
+)
+
+const errorTrackingSeverityRulesUpdate = (): ToolBase<typeof ErrorTrackingSeverityRulesUpdateSchema, unknown> => ({
+    name: 'error-tracking-severity-rules-update',
+    schema: ErrorTrackingSeverityRulesUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSeverityRulesUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.severity !== undefined) {
+            body['severity'] = params.severity
+        }
+        const result = await context.api.request<unknown>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/severity_rules/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result
@@ -572,8 +722,8 @@ const queryErrorTrackingIssueEvents = (): ToolBase<
             if (params.offset !== undefined) {
                 body['offset'] = params.offset
             }
-            if (params.verbosity !== undefined) {
-                body['verbosity'] = params.verbosity
+            if (params.include !== undefined) {
+                body['include'] = params.include
             }
             if (params.onlyAppFrames !== undefined) {
                 body['onlyAppFrames'] = params.onlyAppFrames
@@ -666,6 +816,7 @@ const queryErrorTrackingIssuesList = (): ToolBase<
                         'name',
                         'description',
                         'status',
+                        'severity',
                         'first_seen',
                         'last_seen',
                         'library',
@@ -693,6 +844,9 @@ const queryErrorTrackingIssuesList = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-assignment-rules-create': errorTrackingAssignmentRulesCreate,
     'error-tracking-assignment-rules-list': errorTrackingAssignmentRulesList,
+    'error-tracking-bypass-rules-create': errorTrackingBypassRulesCreate,
+    'error-tracking-bypass-rules-list': errorTrackingBypassRulesList,
+    'error-tracking-bypass-rules-update': errorTrackingBypassRulesUpdate,
     'error-tracking-external-references-create': errorTrackingExternalReferencesCreate,
     'error-tracking-grouping-rules-create': errorTrackingGroupingRulesCreate,
     'error-tracking-grouping-rules-list': errorTrackingGroupingRulesList,
@@ -703,6 +857,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-recommendations-list': errorTrackingRecommendationsList,
     'error-tracking-settings-get': errorTrackingSettingsGet,
     'error-tracking-settings-update': errorTrackingSettingsUpdate,
+    'error-tracking-severity-rules-create': errorTrackingSeverityRulesCreate,
+    'error-tracking-severity-rules-list': errorTrackingSeverityRulesList,
+    'error-tracking-severity-rules-update': errorTrackingSeverityRulesUpdate,
     'error-tracking-suppression-rules-create': errorTrackingSuppressionRulesCreate,
     'error-tracking-suppression-rules-list': errorTrackingSuppressionRulesList,
     'error-tracking-suppression-rules-update': errorTrackingSuppressionRulesUpdate,

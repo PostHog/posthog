@@ -1,0 +1,243 @@
+syntax = "proto3";
+package personhog.identity.v1;
+
+import "personhog/types/v1/person.proto";
+
+// GetOrCreatePersonEntry is a single get-or-create key: resolve distinct_id
+// within team_id, creating a person stub when absent. The properties and
+// scalars are used on the creation branch only — when the person already
+// exists the caller applies $set/$set_once through UpdatePersonProperties.
+message GetOrCreatePersonEntry {
+  int64 team_id = 1;
+  // The primary distinct id. The person UUID derives deterministically from
+  // team_id:distinct_id, so its distinct id row is always version 0.
+  string distinct_id = 2;
+  // Additional distinct ids mapped to the person on the creation branch.
+  // Their rows always get version 1: there is no proof the distinct id
+  // never sent events, and version 1 is safe either way.
+  // An extra already mapped to a different person keeps its existing
+  // mapping: get-or-create never re-points or merges, so the conflict is
+  // not an error and is not reported — re-pointing distinct ids is the
+  // merge path's job.
+  repeated string extra_distinct_ids = 3;
+  // The event name that triggered this call (e.g. "$identify", "$pageview").
+  // Forwarded to the leader's property update on the creation branch.
+  string event_name = 4;
+  // JSON-encoded $set map, applied via the leader on the creation branch.
+  bytes set_properties = 5;
+  // JSON-encoded $set_once map, applied via the leader on the creation branch.
+  bytes set_once_properties = 6;
+  // Person created_at, epoch millis. Used on the creation branch.
+  int64 created_at = 7;
+  bool is_identified = 8;
+}
+
+message GetOrCreatePersonByDistinctIdRequest {
+  GetOrCreatePersonEntry entry = 1;
+}
+
+// created = true means the stub row is committed in Postgres AND the initial
+// properties (when provided) are durable in the leader's changelog.
+message GetOrCreatePersonByDistinctIdResponse {
+  personhog.types.v1.Person person = 1;
+  bool created = 2;
+}
+
+message GetOrCreatePersonsByDistinctIdsRequest {
+  // Max 250 per request. Keys may span teams; each entry is independent and
+  // individually retryable.
+  repeated GetOrCreatePersonEntry entries = 1;
+}
+
+// GetOrCreatePersonResult is the per-key outcome of a batch get-or-create.
+message GetOrCreatePersonResult {
+  int64 team_id = 1;
+  string distinct_id = 2;
+  // Absent when this key failed (see error).
+  optional personhog.types.v1.Person person = 3;
+  bool created = 4;
+  // Set when this key failed; the caller should retry the key. A committed
+  // stub whose initial-properties write failed surfaces here — the retried
+  // key resolves to the stub (created = false) and applies properties through
+  // the normal update path.
+  optional string error = 5;
+}
+
+message GetOrCreatePersonsByDistinctIdsResponse {
+  // Same order as the request entries.
+  repeated GetOrCreatePersonResult results = 1;
+}
+
+// A single resolution key: distinct_id within team_id.
+message PersonKey {
+  int64 team_id = 1;
+  string distinct_id = 2;
+}
+
+message GetPersonsByDistinctIdsRequest {
+  // Max 250 per request. Keys may span teams.
+  repeated PersonKey keys = 1;
+}
+
+// The per-key outcome of a batch resolve. Mirrors GetOrCreatePersonResult
+// minus the creation fields: resolution never creates, so an absent key
+// is a result, not an error.
+message GetPersonByDistinctIdResult {
+  int64 team_id = 1;
+  string distinct_id = 2;
+  // Absent when the distinct id resolves to no live person — unknown,
+  // tombstoned, or its person deleted.
+  optional personhog.types.v1.Person person = 3;
+}
+
+message GetPersonsByDistinctIdsResponse {
+  // Same order as the request keys.
+  repeated GetPersonByDistinctIdResult results = 1;
+}
+
+// The identity-side twin of the service RPC of the same name, minus
+// ReadOptions: identity always reads the primary, so there is no
+// consistency to choose.
+message GetDistinctIdsForPersonsRequest {
+  int64 team_id = 1;
+  // Max 250 per request.
+  repeated int64 person_ids = 2;
+  // Max distinct ids returned per person; identified ids survive the
+  // cut. 0 or absent = no limit.
+  optional int64 limit_per_person = 3;
+}
+
+message GetDistinctIdsForPersonsResponse {
+  repeated personhog.types.v1.PersonDistinctIds person_distinct_ids = 1;
+}
+
+// One source pair of a MergePersons call.
+message MergeSource {
+  string source_distinct_id = 1;
+  // The $identify event that contributed this pair. Carried for warning
+  // correlation on the caller's side; the merge itself never reads it.
+  string event_uuid = 2;
+}
+
+// MergePersonsRequest merges every source distinct id's person into the
+// target distinct id's person. Sources are ordered and deduped by the
+// caller; order defines property precedence (earlier pairs beat later
+// pairs, the target beats all).
+message MergePersonsRequest {
+  int64 team_id = 1;
+  string target_distinct_id = 2;
+  // Max 250 sources per request. Duplicate source distinct ids are
+  // rejected; a source equal to the target classifies as a no-op, not an
+  // error.
+  repeated MergeSource sources = 3;
+  // JSON-encoded maps from the merge event: $set overrides on conflict,
+  // $set_once fills only still-absent keys. Applied to the survivor.
+  bytes event_set = 4;
+  bytes event_set_once = 5;
+  // Caller-generated operation id (UUID string), typically the executing
+  // event's uuid. Callers must reuse the op_id across retries: when the
+  // original run merged distinct persons (ran the durable saga), a retry
+  // returns the recorded outcome instead of merging again. Calls that
+  // settle entirely inline (no-ops, attaches, skips) write no durable
+  // record; their retries re-execute against the current state and
+  // return an equivalent settlement — an attached source, for example,
+  // re-answers NOOP_SAME_PERSON.
+  string op_id = 6;
+  // $merge_dangerously legally merges already-identified sources;
+  // $identify does not. Off by default.
+  bool allow_identified_sources = 7;
+  // Per-source distinct-id count guard: a source person with more distinct
+  // ids than this is skipped (SKIPPED_MOVE_LIMIT) for the caller's
+  // merge-mode policy to handle. Required, at least 1; unlimited is not a
+  // supported mode.
+  optional int64 move_limit = 8;
+  // Merge event created_at, epoch millis. Used as the survivor's
+  // created_at when it predates the current value.
+  int64 created_at = 9;
+}
+
+enum MergeSourceOutcome {
+  MERGE_SOURCE_OUTCOME_UNSPECIFIED = 0;
+  // The source person was merged into the survivor and destroyed.
+  MERGE_SOURCE_OUTCOME_MERGED = 1;
+  // The source distinct id already resolves to the survivor. Nothing to do.
+  MERGE_SOURCE_OUTCOME_NOOP_SAME_PERSON = 2;
+  // The source distinct id had no person, so it was attached to the
+  // survivor with a plain mapping insert.
+  MERGE_SOURCE_OUTCOME_ATTACHED = 3;
+  // The source distinct id is on the illegal-id list ('anonymous',
+  // 'undefined', ...) or exceeds the 400-character storage limit, so it
+  // can never resolve to a person. Never merged.
+  MERGE_SOURCE_OUTCOME_SKIPPED_ILLEGAL = 4;
+  // The source person is already identified and the request did not set
+  // allow_identified_sources.
+  MERGE_SOURCE_OUTCOME_SKIPPED_ALREADY_IDENTIFIED = 5;
+  // Another live lifecycle operation holds this person (or the source
+  // resolved differently between classification and claim). Retryable.
+  MERGE_SOURCE_OUTCOME_SKIPPED_CONFLICT = 6;
+  // The source person has more distinct ids than the request's move_limit.
+  MERGE_SOURCE_OUTCOME_SKIPPED_MOVE_LIMIT = 7;
+  // The pair could not be handled; details in server logs.
+  MERGE_SOURCE_OUTCOME_ERROR = 8;
+}
+
+message MergeSourceResult {
+  string source_distinct_id = 1;
+  MergeSourceOutcome outcome = 2;
+}
+
+message MergePersonsResponse {
+  // Echo of the request op_id.
+  string op_id = 1;
+  // The surviving person's document. Authoritative (the folded document
+  // the leader produced) when a merge ran; the resolved person otherwise.
+  // An aborted operation still answers the person the event's writes were
+  // delivered to; absent only when the target no longer resolves.
+  optional personhog.types.v1.Person survivor = 2;
+  // One result per requested source, same order as the request.
+  repeated MergeSourceResult results = 3;
+}
+
+// PersonHogIdentity owns the identity graph: distinct id resolution,
+// get-or-create orchestration, and merge across the sync plane (Postgres
+// primary) and the async plane (leader-owned properties). Ingestion calls
+// this service directly; it is not fronted by the router.
+//
+// Get-or-create semantics: created = true means the person stub row is
+// committed in Postgres AND the initial properties (when provided) are
+// durable in the leader's changelog. A crash between the stub commit and the
+// leader ack surfaces as an error; the retried key resolves to the stub
+// (created = false) and the caller applies properties through the normal
+// UpdatePersonProperties path — the event remains the durable source of the
+// initial properties.
+//
+// MergePersons semantics: the RPC drives the merge to completion before
+// responding. Most merges settle inline (same-person, illegal source); only
+// distinct-person pairs run the durable lifecycle saga. Retries with the
+// same op_id return the recorded outcome when a saga ran, and an
+// equivalent re-execution when the call settled inline (see the op_id
+// field). A definitive refusal is FAILED_PRECONDITION carrying an
+// x-semantic-refusal reason slug to branch on — "op_id_reused" means the
+// op_id belongs to a different request. A bare UNAVAILABLE is transient;
+// retry with the same op_id.
+service PersonHogIdentity {
+  rpc GetOrCreatePersonByDistinctId(GetOrCreatePersonByDistinctIdRequest) returns (GetOrCreatePersonByDistinctIdResponse);
+  rpc GetOrCreatePersonsByDistinctIds(GetOrCreatePersonsByDistinctIdsRequest) returns (GetOrCreatePersonsByDistinctIdsResponse);
+  // Resolve-only counterpart of get-or-create: same primary-backed
+  // resolution, same Person payload, never creates. This is the strong
+  // resolve — the router's GetPersonsByDistinctIds reads the replica and
+  // its consistency option does not change that.
+  rpc GetPersonsByDistinctIds(GetPersonsByDistinctIdsRequest) returns (GetPersonsByDistinctIdsResponse);
+  // Person-id to distinct-ids expansion on the primary; the strong twin
+  // of the router RPC of the same name (which reads the replica).
+  rpc GetDistinctIdsForPersons(GetDistinctIdsForPersonsRequest) returns (GetDistinctIdsForPersonsResponse);
+  // Merge source persons into the target distinct id's person. The
+  // service resolves and classifies every pair: same-person pairs settle
+  // inline, distinct-person pairs run the durable merge saga (fence the
+  // sources, fold their sealed documents into the target, repoint distinct
+  // ids, tombstone the sources, produce death documents). An unresolved
+  // TARGET is established first: attached to the first eligible source's
+  // person, or born fresh. An illegal target distinct id refuses the call
+  // INVALID_ARGUMENT before any durable work.
+  rpc MergePersons(MergePersonsRequest) returns (MergePersonsResponse);
+}

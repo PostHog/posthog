@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { memo } from 'react'
 
 import { IconChevronDown, IconCopy, IconInfo, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
@@ -10,6 +11,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -17,9 +19,12 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { isMobile } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -37,7 +42,14 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    PersonType,
+    PersonsTabType,
+    PropertyDefinitionType,
+} from '~/types'
 
 import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
@@ -45,8 +57,10 @@ import { FeedbackButton } from 'products/customer_analytics/frontend/components/
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { asDisplay, pickBestPersonDistinctId } from './person-utils'
 import { PersonCohorts } from './PersonCohorts'
+import { PersonEmailsTab } from './PersonEmailsTab'
 import { PersonLogsTab } from './PersonLogsTab'
 import PersonProfileCanvas from './PersonProfileCanvas'
+import { PersonPushNotificationsTab } from './PersonPushNotificationsTab'
 import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 
@@ -55,7 +69,9 @@ export const scene: SceneExport<PersonsLogicProps> = {
     logic: personsLogic,
     paramsToProps: ({ params: { _: rawUrlId } }) => ({
         syncWithUrl: true,
-        urlId: decodeURIComponent(rawUrlId),
+        // A distinct ID with a stray `%` (e.g. `50%off`) makes decodeURIComponent throw
+        // `URIError: URI malformed`. Fall back to the raw id so the scene still renders.
+        urlId: tryDecodeURIComponent(rawUrlId),
     }),
 }
 
@@ -132,6 +148,11 @@ interface LaunchToolbarButtonProps {
 function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
+    const toolbarAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Toolbar,
+        AccessControlLevel.Viewer
+    )
+
     const handleLaunchToolbar = async (targetUrl: string): Promise<void> => {
         if (!currentTeam?.app_urls?.length) {
             lemonToast.error('No authorized URLs configured. Please add a URL in Toolbar settings.')
@@ -168,6 +189,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
             }))}
             placeholder="Launch toolbar with this user's feature flags"
             onChange={(value) => value && handleLaunchToolbar(value)}
+            disabledReason={toolbarAccessDisabledReason}
         />
     )
 }
@@ -205,6 +227,7 @@ export function PersonScene(): JSX.Element | null {
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
     const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${mountedPersonsLogic.key}`
@@ -319,6 +342,7 @@ export function PersonScene(): JSX.Element | null {
                                 embedded={false}
                                 onDelete={(key) => deleteProperty(key)}
                                 filterable
+                                collapsible
                             />
                         ),
                     },
@@ -333,9 +357,12 @@ export function PersonScene(): JSX.Element | null {
                                 setQuery={(q) => setEventsQuery(q)}
                                 context={{
                                     insightProps: {
-                                        dashboardItemId: `new-${PERSON_EVENTS_CONTEXT_KEY}`,
+                                        dashboardItemId: `new-${eventsQueryLogicKey}`,
                                         dataNodeCollectionId: eventsQueryLogicKey,
                                     },
+                                    emptyStateDetail: eventsQueryIsDirty
+                                        ? 'Try changing the date range, or pick another action, event or breakdown.'
+                                        : 'This only shows events from the last 24 hours by default. Try widening the date range, or pick another action, event or breakdown.',
                                     customActions: (
                                         <LemonButton
                                             key="reset-events-filters"
@@ -395,6 +422,25 @@ export function PersonScene(): JSX.Element | null {
                         label: <span data-attr="persons-logs-tab">Logs</span>,
                         content: <PersonLogsTab person={person} />,
                     },
+                    person.uuid
+                        ? {
+                              key: PersonsTabType.EMAILS,
+                              label: <span data-attr="persons-emails-tab">Emails</span>,
+                              content: <PersonEmailsTab teamId={currentTeam?.id ?? 0} personId={String(person.uuid)} />,
+                          }
+                        : false,
+                    person.uuid && featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS]
+                        ? {
+                              key: PersonsTabType.PUSH_NOTIFICATIONS,
+                              label: <span data-attr="persons-push-notifications-tab">Push notifications</span>,
+                              content: (
+                                  <PersonPushNotificationsTab
+                                      teamId={currentTeam?.id ?? 0}
+                                      personId={String(person.uuid)}
+                                  />
+                              ),
+                          }
+                        : false,
                     {
                         key: PersonsTabType.EXCEPTIONS,
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
@@ -443,54 +489,14 @@ export function PersonScene(): JSX.Element | null {
                               key: PersonsTabType.FEATURE_FLAGS,
                               tooltip: `Only shows feature flags with targeting conditions based on person properties.`,
                               label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
-                              content: (() => {
-                                  const selectedDistinctId = distinctId || primaryDistinctId
-                                  return (
-                                      <>
-                                          <div className="flex deprecated-space-x-2 items-center mb-2">
-                                              <div className="flex items-center">
-                                                  Choose ID:
-                                                  <Tooltip
-                                                      docLink="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                                      title={
-                                                          <div className="deprecated-space-y-2">
-                                                              <div>
-                                                                  Feature flags values can depend on a person's distinct
-                                                                  ID.
-                                                              </div>
-                                                              <div>
-                                                                  If you want your flag values to stay consistent for
-                                                                  each user, you can enable flag persistence in the
-                                                                  feature flag settings.
-                                                              </div>
-                                                              <div>
-                                                                  This option may depend on your specific setup and
-                                                                  isn't always suitable.
-                                                              </div>
-                                                          </div>
-                                                      }
-                                                  >
-                                                      <IconInfo className="ml-1 text-base" />
-                                                  </Tooltip>
-                                              </div>
-                                              <LemonSelect
-                                                  value={selectedDistinctId}
-                                                  onChange={(value) => value && setDistinctId(value)}
-                                                  options={person.distinct_ids.map((distinct_id) => ({
-                                                      label: distinct_id,
-                                                      value: distinct_id,
-                                                  }))}
-                                                  data-attr="person-feature-flags-select"
-                                              />
-                                              {selectedDistinctId && (
-                                                  <LaunchToolbarButton distinctId={selectedDistinctId} />
-                                              )}
-                                          </div>
-                                          <LemonDivider className="mb-4" />
-                                          <RelatedFeatureFlags distinctId={selectedDistinctId} />
-                                      </>
-                                  )
-                              })(),
+                              content: (
+                                  <PersonFeatureFlagsTab
+                                      person={person}
+                                      distinctId={distinctId}
+                                      primaryDistinctId={primaryDistinctId}
+                                      setDistinctId={setDistinctId}
+                                  />
+                              ),
                           }
                         : false,
                     {
@@ -516,6 +522,57 @@ export function PersonScene(): JSX.Element | null {
         </SceneContent>
     )
 }
+
+// memoized with stable props so edits elsewhere in the scene don't re-render the mounted tab
+const PersonFeatureFlagsTab = memo(function PersonFeatureFlagsTab({
+    person,
+    distinctId,
+    primaryDistinctId,
+    setDistinctId,
+}: {
+    person: PersonType
+    distinctId: string | null
+    primaryDistinctId: string | null
+    setDistinctId: (distinctId: string) => void
+}): JSX.Element {
+    const selectedDistinctId = distinctId || primaryDistinctId
+    return (
+        <>
+            <div className="flex deprecated-space-x-2 items-center mb-2">
+                <div className="flex items-center">
+                    Choose ID:
+                    <Tooltip
+                        docLink="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                        title={
+                            <div className="deprecated-space-y-2">
+                                <div>Feature flags values can depend on a person's distinct ID.</div>
+                                <div>
+                                    If you want your flag values to stay consistent for each user, you can enable flag
+                                    persistence in the feature flag settings.
+                                </div>
+                                <div>This option may depend on your specific setup and isn't always suitable.</div>
+                            </div>
+                        }
+                    >
+                        <IconInfo className="ml-1 text-base" />
+                    </Tooltip>
+                </div>
+                <LemonSelect
+                    value={selectedDistinctId}
+                    onChange={(value) => value && setDistinctId(value)}
+                    options={person.distinct_ids.map((distinct_id) => ({
+                        label: distinct_id,
+                        value: distinct_id,
+                    }))}
+                    data-attr="person-feature-flags-select"
+                />
+                {selectedDistinctId && <LaunchToolbarButton distinctId={selectedDistinctId} />}
+            </div>
+            <LemonDivider className="mb-4" />
+            <RelatedFeatureFlags distinctId={selectedDistinctId} />
+        </>
+    )
+})
 
 function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['size'] }): JSX.Element {
     const { person } = useValues(personsLogic)

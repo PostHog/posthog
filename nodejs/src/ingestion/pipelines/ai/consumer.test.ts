@@ -4,7 +4,7 @@ import { PersonHogConfig } from '~/common/personhog'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { TeamManagerComponent } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-import { ProducerName } from '~/ingestion/common/producers'
+import { ProducerName } from '~/ingestion/common/outputs/producers'
 import { newScope } from '~/ingestion/common/scopes'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'
@@ -21,6 +21,7 @@ describe('createAiConsumer', () => {
             INGESTION_CONSUMER_CONSUME_TOPIC: 't',
             INGESTION_PIPELINE: 'ai',
             INGESTION_LANE: 'main',
+            INGESTION_OVERFLOW_MODE: 'disabled',
             KAFKA_BATCH_START_LOGGING_ENABLED: false,
             INGESTION_CONSUMER_OVERFLOW_TOPIC: '',
             INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
@@ -29,10 +30,27 @@ describe('createAiConsumer', () => {
             SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
             INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
             EVENT_SCHEMA_ENFORCEMENT_ENABLED: false,
-            CDP_HOG_WATCHER_SAMPLE_RATE: 1,
+            USAGE_INGESTION_ADDR: '',
+            USAGE_INGESTION_TLS: false,
+            USAGE_INGESTION_TIMEOUT_MS: 5000,
+            USAGE_INGESTION_MAX_BATCH_SIZE: 500,
+            USAGE_INGESTION_REPORT_TEAMS: '',
+            // Read eagerly by createAiConsumer (not deferred like the scope-builder services
+            // below), so these need real fail-closed values rather than the cast-away pattern.
+            AI_BLOB_S3_BUCKET: '',
+            AI_BLOB_S3_PREFIX: '',
+            AI_BLOB_S3_ENDPOINT: '',
+            AI_BLOB_S3_REGION: 'us-east-1',
+            AI_BLOB_S3_ACCESS_KEY_ID: '',
+            AI_BLOB_S3_SECRET_ACCESS_KEY: '',
+            AI_BLOB_S3_TIMEOUT_MS: 30000,
+            AI_BLOB_OFFLOAD_TEAMS: '',
+            AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 8192,
+            AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: 50,
+            AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY: 8,
+            AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 20,
             ...({} as Pick<
                 IngestionConsumerConfig,
-                | 'INGESTION_STATEFUL_OVERFLOW_ENABLED'
                 | 'INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS'
                 | 'INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS'
                 | 'EVENT_OVERFLOW_BUCKET_CAPACITY'

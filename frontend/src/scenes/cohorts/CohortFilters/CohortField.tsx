@@ -1,7 +1,7 @@
 import './CohortField.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useId, useRef } from 'react'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -17,6 +17,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { formatDate } from 'lib/utils/datetime'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import {
+    BehavioralFilterKey,
+    BehavioralFilterType,
     CohortEventFiltersFieldProps,
     CohortFieldBaseProps,
     CohortNumberFieldProps,
@@ -27,9 +29,12 @@ import {
     CohortTextFieldProps,
     FieldOptionsType,
 } from 'scenes/cohorts/CohortFilters/types'
+import { determineFilterType } from 'scenes/cohorts/cohortUtils'
 
+import { actionsModel } from '~/models/actionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
+    AnyCohortCriteriaType,
     AnyPropertyFilter,
     PropertyDefinitionType,
     PropertyFilterType,
@@ -84,7 +89,21 @@ export function CohortSelectorField({
                                         <LemonButton
                                             key={_value}
                                             onClick={() => {
-                                                onChange({ [fieldKey]: _value })
+                                                if (fieldKey === 'value') {
+                                                    // Criterion-type picks must set `negation` explicitly: negated
+                                                    // criteria are stored as their positive counterpart plus
+                                                    // `negation: true` (see determineFilterType), so merging
+                                                    // `{ value }` alone can leave a stale flag — switching a
+                                                    // "Do not have the property" row to "Have the property"
+                                                    // would otherwise be a no-op.
+                                                    const { negation } = determineFilterType(
+                                                        criteria.type as BehavioralFilterKey,
+                                                        _value as BehavioralFilterType
+                                                    )
+                                                    onChange({ value: _value, negation } as AnyCohortCriteriaType)
+                                                } else {
+                                                    onChange({ [fieldKey]: _value })
+                                                }
                                             }}
                                             active={_value == value}
                                             fullWidth
@@ -118,7 +137,12 @@ export function CohortSelectorField({
 export function CohortMathOperatorField(props: CohortSelectorFieldProps): JSX.Element {
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
     const propertyKey = props.criteria?.key
-    const propDef = propertyKey ? getPropertyDefinition(propertyKey, PropertyDefinitionType.Person) : null
+    const propertyType = props.criteria?.type
+    const definitionType =
+        propertyType === BehavioralFilterKey.PersonMetadata
+            ? PropertyDefinitionType.PersonMetadata
+            : PropertyDefinitionType.Person
+    const propDef = propertyKey ? getPropertyDefinition(propertyKey, definitionType) : null
     const isDateTime = propDef?.property_type === PropertyType.DateTime
 
     const fieldOptionGroupTypes = isDateTime
@@ -137,6 +161,8 @@ export function CohortTaxonomicField({
     placeholder = 'Choose event',
     onChange: _onChange,
 }: CohortTaxonomicFieldProps): JSX.Element {
+    const supportsActions = taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Actions)
+    useMountedLogic(actionsModel({ shouldLoad: supportsActions }))
     const { logic } = useCohortFieldLogic({
         fieldKey,
         criteria,

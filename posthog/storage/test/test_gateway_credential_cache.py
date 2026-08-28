@@ -76,7 +76,7 @@ class GatewayCredentialTestMixin(BaseTest):
     ) -> OAuthAccessToken:
         token = token or f"pha_{generate_random_token()}"
         app = OAuthApplication.objects.create(
-            name="PostHog Code",
+            name="PostHog Desktop",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
@@ -375,7 +375,7 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
         # fails closed, even though org membership is intact. Uses a real
         # AccessControl (not a mock) so it also covers that a Team resolves to the
         # "project" resource and the access-control keying matches.
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -695,7 +695,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
     @patch("posthog.tasks.gateway_credential.reproject_team_gateway_credentials_task.delay")
     def test_project_access_control_change_reprojects_team(self, mock_delay, mock_settings, mock_transaction):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
@@ -713,7 +713,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
     def test_role_membership_change_reprojects_synchronously(self, mock_task, mock_settings, mock_transaction):
         # Role membership is per-user, so it reprojects synchronously, unlike the
         # team-wide access-control handler. The async retry fires only on sync failure.
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()

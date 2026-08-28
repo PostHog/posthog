@@ -81,6 +81,7 @@ use rand::Rng;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
+use crate::billing::usage_reporter::UsageReporter;
 use crate::flags::flag_analytics::{
     current_bucket, get_team_request_key, get_team_request_library_key,
 };
@@ -247,6 +248,10 @@ pub struct BillingAggregatorConfig {
     pub per_flush_batch_size: usize,
     /// Must be non-zero — see `validate`.
     pub shutdown_flush_timeout: Duration,
+    /// Override the random jitter with a fixed duration. Used by tests to make
+    /// timing deterministic under paused tokio time. Not intended for production.
+    #[doc(hidden)]
+    pub jitter_override: Option<Duration>,
 }
 
 impl Default for BillingAggregatorConfig {
@@ -256,6 +261,7 @@ impl Default for BillingAggregatorConfig {
             max_pending_entries: 500_000,
             per_flush_batch_size: 200,
             shutdown_flush_timeout: Duration::from_secs(15),
+            jitter_override: None,
         }
     }
 }
@@ -323,14 +329,17 @@ struct Inner {
     record_count_decide: AtomicU64,
     record_count_flag_definitions: AtomicU64,
     shutdown_signal: Notify,
+    usage_reporter: Option<Arc<UsageReporter>>,
 }
 
 impl Inner {
     fn new(
         redis: Arc<dyn RedisClient + Send + Sync>,
         config: BillingAggregatorConfig,
+        usage_reporter: Option<Arc<UsageReporter>>,
     ) -> Arc<Self> {
         Arc::new(Self {
+            usage_reporter,
             config,
             redis,
             pending: Mutex::new(HashMap::new()),
@@ -367,6 +376,15 @@ impl BillingAggregator {
         redis: Arc<dyn RedisClient + Send + Sync>,
         config: BillingAggregatorConfig,
     ) -> Arc<Self> {
+        Self::start_with_usage_reporter(redis, config, None)
+    }
+
+    /// As `start`, but also mirrors every credited flush into usage-ingestion.
+    pub fn start_with_usage_reporter(
+        redis: Arc<dyn RedisClient + Send + Sync>,
+        config: BillingAggregatorConfig,
+        usage_reporter: Option<Arc<UsageReporter>>,
+    ) -> Arc<Self> {
         // Fail fast on misconfiguration. A misconfigured FLAGS_BILLING_*
         // env var would otherwise panic the flusher task silently, or silently
         // disable billing — both worse than refusing to boot.
@@ -378,7 +396,7 @@ impl BillingAggregator {
         let max_pending_entries = config.max_pending_entries;
         let per_flush_batch_size = config.per_flush_batch_size;
 
-        let inner = Inner::new(redis, config);
+        let inner = Inner::new(redis, config, usage_reporter);
         let flusher = tokio::spawn(run_flusher(inner.clone()));
         let metrics_sampler = tokio::spawn(run_metrics_sampler(inner.clone()));
 
@@ -513,6 +531,14 @@ impl BillingAggregator {
                 }
             }
         }
+
+        // After the final flush, so the records it just queued are drained rather than
+        // dropped with the runtime.
+        if let Some(reporter) = &self.inner.usage_reporter {
+            reporter
+                .shutdown(self.inner.config.shutdown_flush_timeout)
+                .await;
+        }
     }
 
     #[cfg(test)]
@@ -558,7 +584,7 @@ impl BillingAggregator {
         config: BillingAggregatorConfig,
     ) -> Arc<Self> {
         Arc::new(Self {
-            inner: Inner::new(redis, config),
+            inner: Inner::new(redis, config, None),
             flusher: Mutex::new(None),
             metrics_sampler: Mutex::new(None),
         })
@@ -570,7 +596,10 @@ async fn run_flusher(inner: Arc<Inner>) {
     // Initial jitter desynchronizes fleet-wide flushes after a coordinated
     // deploy. Race it against shutdown so a quick SIGTERM doesn't wait for the
     // jitter to elapse before flushing.
-    let jitter = pick_jitter(inner.config.flush_interval);
+    let jitter = inner
+        .config
+        .jitter_override
+        .unwrap_or_else(|| pick_jitter(inner.config.flush_interval));
     tokio::select! {
         _ = tokio::time::sleep(jitter) => {}
         _ = inner.shutdown_signal.notified() => {
@@ -652,6 +681,7 @@ async fn flush_chunk(
             // strand counts already written to Redis under an unincremented
             // `entries_flushed_total`.
             inc(FLAGS_BILLING_ENTRIES_FLUSHED, &[], chunk_counts);
+            report_usage(inner, chunk_entries);
             chunk_entries.clear();
             ChunkOutcome::Ok
         }
@@ -668,6 +698,7 @@ async fn flush_chunk(
             if outcome == FlushOutcome::Applied {
                 *flushed_counts += chunk_counts;
                 inc(FLAGS_BILLING_ENTRIES_FLUSHED, &[], chunk_counts);
+                report_usage(inner, chunk_entries);
                 chunk_entries.clear();
                 // Under `BailOnError` we still need to signal an error so
                 // the caller stops attempting subsequent chunks on a
@@ -702,6 +733,12 @@ async fn flush_chunk(
                 }
             }
         }
+    }
+}
+
+fn report_usage(inner: &Arc<Inner>, chunk_entries: &[(AggregationKey, u64)]) {
+    if let Some(reporter) = &inner.usage_reporter {
+        reporter.report(chunk_entries, now_epoch_ms() as i64);
     }
 }
 
@@ -1151,6 +1188,8 @@ fn pick_jitter(flush_interval: Duration) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::billing::usage_test_support::{serve, RecordingIngestion};
+    use crate::config::TeamIdCollection;
     use common_redis::{MockRedisClient, MockRedisValue};
     use rstest::rstest;
 
@@ -1160,6 +1199,7 @@ mod tests {
             max_pending_entries: 10_000,
             per_flush_batch_size: 200,
             shutdown_flush_timeout: Duration::from_secs(1),
+            jitter_override: None,
         }
     }
 
@@ -1175,9 +1215,17 @@ mod tests {
         redis: MockRedisClient,
         config: BillingAggregatorConfig,
     ) -> (Arc<MockRedisClient>, Arc<BillingAggregator>) {
+        new_test_aggregator_with_reporter(redis, config, None)
+    }
+
+    fn new_test_aggregator_with_reporter(
+        redis: MockRedisClient,
+        config: BillingAggregatorConfig,
+        usage_reporter: Option<Arc<UsageReporter>>,
+    ) -> (Arc<MockRedisClient>, Arc<BillingAggregator>) {
         let redis = Arc::new(redis);
         let agg = Arc::new(BillingAggregator {
-            inner: Inner::new(redis.clone(), config),
+            inner: Inner::new(redis.clone(), config, usage_reporter),
             flusher: Mutex::new(None),
             metrics_sampler: Mutex::new(None),
         });
@@ -1357,6 +1405,40 @@ mod tests {
         assert_eq!(agg.pending_total(), 3, "all three records must requeue");
     }
 
+    /// The reporter only ever sees a chunk Redis already credited, so this asserts the
+    /// mirror of a successful flush rather than the reporter's own behavior.
+    #[tokio::test]
+    async fn test_flush_once_mirrors_credited_counts_to_usage_ingestion() {
+        let service = RecordingIngestion::default();
+        let addr = serve(service.clone()).await;
+        let reporter = UsageReporter::new(&addr.to_string(), false, TeamIdCollection::All, 1_000)
+            .unwrap()
+            .unwrap();
+        let (_redis, agg) = new_test_aggregator_with_reporter(
+            MockRedisClient::new(),
+            test_config(),
+            Some(reporter.clone()),
+        );
+
+        agg.record(42, FlagRequestType::Decide, Some(Library::PosthogJs));
+        agg.record(42, FlagRequestType::Decide, Some(Library::PosthogJs));
+        agg.record(7, FlagRequestType::Decide, None);
+
+        flush_once(&agg.inner, FlushPolicy::BailOnError).await;
+        reporter.shutdown(Duration::from_secs(5)).await;
+
+        let records: Vec<_> = service.requests().into_iter().flatten().collect();
+        // One record per aggregation entry, not per Redis write: an entry that carries a
+        // library writes both a team key and an SDK key, and billing counts the request once.
+        assert_eq!(records.len(), 2);
+        assert!(records
+            .iter()
+            .any(|record| record.team_id == 42 && record.quantity == 2));
+        assert!(records
+            .iter()
+            .any(|record| record.team_id == 7 && record.quantity == 1));
+    }
+
     #[tokio::test]
     async fn test_flush_once_writes_pipelined_hincrby() {
         let (redis, agg) = new_test_aggregator(test_config());
@@ -1523,8 +1605,9 @@ mod tests {
         //      window or at interval creation.
         //   2. Subsequent ticks drive flushes on the configured cadence.
         //
-        // Paused-time timing model. Jitter is in [0, 100ms] for
-        // flush_interval = 1s. We yield *before* advancing so the flusher
+        // Paused-time timing model. Jitter is pinned to exactly 100ms via
+        // `jitter_override` (production picks a random value in [0, 100ms]
+        // for flush_interval = 1s). We yield *before* advancing so the flusher
         // parks on its `sleep(jitter)` at virtual t=0 — otherwise the
         // sleep deadline would be set relative to whatever virtual time
         // we'd already advanced to. Advancing past max_jitter wakes the
@@ -1537,6 +1620,9 @@ mod tests {
             redis.clone(),
             BillingAggregatorConfig {
                 flush_interval,
+                // Pin jitter to 100ms so the interval is created at t=101ms
+                // and the first real tick fires at t=1101ms deterministically.
+                jitter_override: Some(Duration::from_millis(100)),
                 ..test_config()
             },
         );
@@ -1546,8 +1632,9 @@ mod tests {
         // Park the flusher on its jitter sleep before any advance.
         tokio::task::yield_now().await;
 
-        // Advance past max jitter so the sleep wakes; the flusher then
-        // installs its interval and swallows the immediate first tick.
+        // Advance past the pinned jitter (100ms) so the sleep wakes; the
+        // flusher then installs its interval and swallows the immediate
+        // first tick.
         tokio::time::advance(Duration::from_millis(101)).await;
         for _ in 0..16 {
             tokio::task::yield_now().await;
@@ -1560,7 +1647,8 @@ mod tests {
              real tick had a chance to elapse"
         );
 
-        // Just before the first real tick (at ≈ 1101ms).
+        // Just before the first real tick (at t=1101ms). We're at t=101ms,
+        // advance 998ms to t=1099ms < 1101ms.
         tokio::time::advance(Duration::from_millis(998)).await;
         for _ in 0..16 {
             tokio::task::yield_now().await;

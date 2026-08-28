@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -9,30 +9,58 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    ExternalWebhookInfo,
+    FieldType,
+    ResumableSource,
+    WebhookCreationResult,
+    WebhookDeletionResult,
+    WebhookSource,
+    WebhookSyncResult,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailjetSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailjet import (
+    MailjetSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet import mailjet as api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.mailjet import (
     MailjetResumeConfig,
     mailjet_source,
     validate_credentials as validate_mailjet_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.settings import MAILJET_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    MAILJET_WEBHOOK_EVENTS,
+    SCHEMA_TO_WEBHOOK_RESOURCE,
+    WEBHOOK_SCHEMA_NAMES,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+if TYPE_CHECKING:
+    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @SourceRegistry.register
-class MailJetSource(ResumableSource[MailjetSourceConfig, MailjetResumeConfig]):
+class MailJetSource(
+    ResumableSource[MailjetSourceConfig, MailjetResumeConfig],
+    WebhookSource[MailjetSourceConfig],
+):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://dev.mailjet.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -72,6 +100,15 @@ You can find your API key and secret key in your [Mailjet API key management pag
                     ),
                 ],
             ),
+            webhookSetupCaption=(
+                "PostHog registers one Mailjet event callback URL per event type using the API key above, "
+                "covering sent, open, click, bounce, blocked, spam and unsub.\n\n"
+                "Mailjet does not sign its deliveries, so PostHog embeds generated basic-auth credentials in "
+                "the callback URL it registers. Mailjet sends those back as an Authorization header on every "
+                "delivery, and PostHog rejects anything that doesn't match.\n\n"
+                "The sent event fires once for every message you send, so this table can grow quickly on high "
+                "volume accounts."
+            ),
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -88,26 +125,24 @@ You can find your API key and secret key in your [Mailjet API key management pag
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # List resources have no reliable server-side time filter (full refresh only).
-        # The statistics endpoints support Mailjet's FromTS window, so they sync incrementally.
-        # Within-sync resumption is handled by ResumableSource for all endpoints.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=bool(endpoint_config.from_ts_field),
-                supports_append=bool(endpoint_config.from_ts_field),
-                incremental_fields=endpoint_config.incremental_fields,
-            )
-            for endpoint, endpoint_config in MAILJET_ENDPOINTS.items()
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
+        # The statistics endpoints support Mailjet's FromTS window, so they sync incrementally
+        # (they're exactly the endpoints carrying incremental fields). Within-sync resumption is
+        # handled by ResumableSource for all endpoints.
+        schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, supports_webhooks=WEBHOOK_SCHEMA_NAMES)
+        for schema in schemas:
+            # `messageevent` has no list endpoint behind it, so the UI must offer webhook sync only.
+            schema.webhook_only = schema.name in WEBHOOK_SCHEMA_NAMES
         return schemas
 
     def validate_credentials(
-        self, config: MailjetSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MailjetSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_mailjet_credentials(config.api_key, config.secret_key):
             return True, None
@@ -125,6 +160,54 @@ You can find your API key and secret key in your [Mailjet API key management pag
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MailjetResumeConfig]:
         return ResumableSourceManager[MailjetResumeConfig](inputs, MailjetResumeConfig)
 
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        return WebhookSourceManager(inputs, inputs.logger)
+
+    @property
+    def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.webhook_template import (  # noqa: PLC0415
+            template,
+        )
+
+        return template
+
+    @property
+    def webhook_resource_map(self) -> dict[str, str]:
+        return SCHEMA_TO_WEBHOOK_RESOURCE
+
+    def get_desired_webhook_events(
+        self, config: MailjetSourceConfig, eligible_schema_names: list[str]
+    ) -> list[str] | None:
+        if not any(name in WEBHOOK_SCHEMA_NAMES for name in eligible_schema_names):
+            return []
+        return list(MAILJET_WEBHOOK_EVENTS)
+
+    def create_webhook(
+        self, config: MailjetSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
+        return api_client.create_webhook(config.api_key, config.secret_key, webhook_url)
+
+    def sync_webhook_events(
+        self,
+        config: MailjetSourceConfig,
+        webhook_url: str,
+        team_id: int,
+        eligible_schema_names: list[str],
+        api_version: str | None = None,
+    ) -> WebhookSyncResult:
+        desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
+        return api_client.sync_webhook_events(config.api_key, config.secret_key, webhook_url, desired_events)
+
+    def get_external_webhook_info(
+        self, config: MailjetSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> ExternalWebhookInfo | None:
+        return api_client.get_external_webhook_info(config.api_key, config.secret_key, webhook_url)
+
+    def delete_webhook(
+        self, config: MailjetSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
+        return api_client.delete_webhook(config.api_key, config.secret_key, webhook_url)
+
     def source_for_pipeline(
         self,
         config: MailjetSourceConfig,
@@ -135,8 +218,10 @@ You can find your API key and secret key in your [Mailjet API key management pag
             api_key=config.api_key,
             secret_key=config.secret_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            webhook_source_manager=self.get_webhook_source_manager(inputs),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

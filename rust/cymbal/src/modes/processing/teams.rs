@@ -8,8 +8,9 @@ use crate::{
     error::UnhandledError, metric_consts::ANCILLARY_CACHE,
     modes::processing::config::ProcessingConfig,
     modes::processing::rules::assignment::AssignmentRule,
-    modes::processing::rules::grouping::GroupingRule,
+    modes::processing::rules::bypass::BypassRule, modes::processing::rules::grouping::GroupingRule,
     modes::processing::rules::rate_limit::RateLimitSettings,
+    modes::processing::rules::severity::SeverityRule,
     modes::processing::rules::spike::SpikeDetectionConfig,
     modes::processing::rules::suppression::SuppressionRule,
 };
@@ -18,8 +19,10 @@ use crate::{
 pub struct TeamManager {
     pub token_cache: Cache<String, Option<Team>>,
     pub assignment_rules: Cache<TeamId, Vec<AssignmentRule>>,
+    pub severity_rules: Cache<TeamId, Vec<SeverityRule>>,
     pub grouping_rules: Cache<TeamId, Vec<GroupingRule>>,
     pub suppression_rules: Cache<TeamId, Vec<SuppressionRule>>,
+    pub bypass_rules: Cache<TeamId, Vec<BypassRule>>,
     pub group_type_indices: Cache<TeamId, Vec<GroupType>>,
     pub spike_detection_configs: Cache<TeamId, Option<SpikeDetectionConfig>>,
     pub rate_limit_settings: Cache<TeamId, Option<RateLimitSettings>>,
@@ -44,6 +47,16 @@ impl TeamManager {
             })
             .build();
 
+        let severity_rules = CacheBuilder::new(config.max_severity_rule_cache_size)
+            .time_to_live(Duration::from_secs(config.severity_rule_cache_ttl_secs))
+            .weigher(|_, rules: &Vec<SeverityRule>| {
+                rules
+                    .iter()
+                    .map(|rule| rule.bytecode.as_array().map_or(0, Vec::len) as u32)
+                    .sum()
+            })
+            .build();
+
         let grouping_rules = CacheBuilder::new(config.max_grouping_rule_cache_size)
             .time_to_live(Duration::from_secs(config.grouping_rule_cache_ttl_secs))
             .weigher(|_, v: &Vec<GroupingRule>| {
@@ -62,6 +75,15 @@ impl TeamManager {
             })
             .build();
 
+        let bypass_rules = CacheBuilder::new(config.max_bypass_rule_cache_size)
+            .time_to_live(Duration::from_secs(config.bypass_rule_cache_ttl_secs))
+            .weigher(|_, v: &Vec<BypassRule>| {
+                v.iter()
+                    .map(|rule| rule.bytecode.as_array().map_or(0, Vec::len) as u32)
+                    .sum()
+            })
+            .build();
+
         let spike_detection_configs = CacheBuilder::new(config.max_team_cache_size)
             .time_to_live(Duration::from_secs(config.team_cache_ttl_secs))
             .build();
@@ -73,8 +95,10 @@ impl TeamManager {
         Self {
             token_cache: cache,
             assignment_rules,
+            severity_rules,
             grouping_rules,
             suppression_rules,
+            bypass_rules,
             group_type_indices,
             spike_detection_configs,
             rate_limit_settings,
@@ -148,6 +172,26 @@ impl TeamManager {
         Ok(rules)
     }
 
+    pub async fn get_severity_rules<'c, E>(
+        &self,
+        executor: E,
+        team_id: TeamId,
+    ) -> Result<Vec<SeverityRule>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        if let Some(rules) = self.severity_rules.get(&team_id) {
+            metrics::counter!(ANCILLARY_CACHE, "type" => "severity_rules", "outcome" => "hit")
+                .increment(1);
+            return Ok(rules.clone());
+        }
+        metrics::counter!(ANCILLARY_CACHE, "type" => "severity_rules", "outcome" => "miss")
+            .increment(1);
+        let rules = SeverityRule::load_for_team(executor, team_id).await?;
+        self.severity_rules.insert(team_id, rules.clone());
+        Ok(rules)
+    }
+
     pub async fn get_suppression_rules<'c, E>(
         &self,
         e: E,
@@ -165,6 +209,26 @@ impl TeamManager {
             .increment(1);
         let rules = SuppressionRule::load_for_team(e, team_id).await?;
         self.suppression_rules.insert(team_id, rules.clone());
+        Ok(rules)
+    }
+
+    pub async fn get_bypass_rules<'c, E>(
+        &self,
+        e: E,
+        team_id: TeamId,
+    ) -> Result<Vec<BypassRule>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        if let Some(rules) = self.bypass_rules.get(&team_id) {
+            metrics::counter!(ANCILLARY_CACHE, "type" => "bypass_rules", "outcome" => "hit")
+                .increment(1);
+            return Ok(rules.clone());
+        }
+        metrics::counter!(ANCILLARY_CACHE, "type" => "bypass_rules", "outcome" => "miss")
+            .increment(1);
+        let rules = BypassRule::load_for_team(e, team_id).await?;
+        self.bypass_rules.insert(team_id, rules.clone());
         Ok(rules)
     }
 

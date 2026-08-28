@@ -45,7 +45,8 @@ test.describe('SQL Editor direct Postgres queries', () => {
 
                 const connectionSelector = page.getByRole('button', { name: /PostHog \(ClickHouse\)/ })
                 await connectionSelector.click()
-                await page.getByRole('menuitem', { name: '+ Add postgres direct connection' }).click()
+                await page.getByRole('menuitem', { name: 'Add direct connection' }).click()
+                await page.getByRole('menuitem', { name: 'Postgres', exact: true }).click()
 
                 await expect(page).toHaveURL(/.*\/data-warehouse\/new-source/)
                 await expect(page).toHaveURL(/kind=Postgres/)

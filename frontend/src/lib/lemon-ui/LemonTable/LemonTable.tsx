@@ -18,7 +18,7 @@ import { useColumnWidths } from '../../hooks/useColumnWidths'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { Tooltip } from '../Tooltip'
 import { BulkSelectionBar } from './BulkSelectionBar'
-import { determineColumnKey, getStickyColumnInfo } from './columnUtils'
+import { determineColumnKey, getStickyColumnInfo } from './columnLayoutUtils'
 import { LemonTableLoader } from './LemonTableLoader'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { TableRow } from './TableRow'
@@ -59,11 +59,21 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     /** Whether the table is still interactable while `loading` is `true`. Defaults to `true`. **/
     disableTableWhileLoading?: boolean
     pagination?: PaginationAuto | PaginationManual
+    /**
+     * Whether changing the page scrolls the table back into view. Defaults to `true`.
+     * Set to `false` for tables high up on a page where paging shouldn't move the viewport.
+     */
+    scrollToTopOnPageChange?: boolean
     expandable?: ExpandableConfig<T>
     /** Whether the header should be shown. The default value is `true`. */
     showHeader?: boolean
     /** Whether header titles should be uppercased. The default value is `true`. */
     uppercaseHeader?: boolean
+    /**
+     * Table layout algorithm. Defaults to `auto` (columns size to their content). Use `fixed` to size
+     * columns from the container so wide content truncates within its cell instead of overflowing the table.
+     */
+    tableLayout?: 'auto' | 'fixed'
     /**
      * By default sorting goes: 0. unsorted > 1. ascending > 2. descending > GOTO 0 (loop).
      * With sorting cancellation disabled, GOTO 0 is replaced by GOTO 1. */
@@ -124,9 +134,11 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     loading,
     disableTableWhileLoading = true,
     pagination,
+    scrollToTopOnPageChange = true,
     expandable,
     showHeader = true,
     uppercaseHeader = true,
+    tableLayout = 'auto',
     noSortingCancellation: disableSortingCancellation = false,
     defaultSorting = null,
     sorting,
@@ -204,11 +216,12 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         columns: baseColumns,
     })
 
-    /** Sorting. */
+    /** Sorting. `useURLForSorting` gates both writing and reading the URL — when off, a stale
+     * `order` param must not resurrect a sort the consumer isn't controlling. */
     const currentSorting =
         sorting ||
         internalSorting ||
-        (searchParams[currentSortingParam]
+        (useURLForSorting && searchParams[currentSortingParam]
             ? searchParams[currentSortingParam].startsWith('-')
                 ? {
                       columnKey: searchParams[currentSortingParam].substr(1),
@@ -329,6 +342,10 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         }
         previousPageRef.current = paginationState.currentPage
 
+        if (!scrollToTopOnPageChange) {
+            return
+        }
+
         // When the current page changes, scroll back to the top of the table
         if (scrollRef.current) {
             const realTableOffsetTop = scrollRef.current.getBoundingClientRect().top - 320 // Extra breathing room
@@ -342,7 +359,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                 }
             }
         }
-    }, [paginationState.currentPage])
+    }, [paginationState.currentPage, scrollToTopOnPageChange])
 
     if (firstColumnSticky && expandable) {
         // Due to CSS, for firstColumnSticky to work the first column needs to be a content column
@@ -385,7 +402,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     scrollRef={scrollRef}
                 >
                     <div className="LemonTable__content">
-                        <table ref={tableRef}>
+                        <table ref={tableRef} className={tableLayout === 'fixed' ? 'table-fixed' : undefined}>
                             <colgroup>
                                 {
                                     isRowExpansionToggleShown && (
@@ -422,7 +439,13 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                         >
                                                             {columnGroup.title}
                                                         </th>
-                                                        <th colSpan={columnGroup.children.length - 1} />
+                                                        {/* The DOM clamps colSpan 0 up to 1, so a single-child
+                                                            group must not render the filler at all: the phantom
+                                                            column shifts every group title after it one column
+                                                            to the right. */}
+                                                        {columnGroup.children.length > 1 && (
+                                                            <th colSpan={columnGroup.children.length - 1} />
+                                                        )}
                                                     </React.Fragment>
                                                 ) : (
                                                     <th
@@ -437,7 +460,11 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                         </tr>
                                     )}
                                     <tr>
-                                        {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}
+                                        {
+                                            isRowExpansionToggleShown && (
+                                                <th className="LemonTable__toggle" />
+                                            ) /* Expand/collapse */
+                                        }
                                         {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                             columnGroup.children
                                                 .filter((column) => !column.isHidden)
@@ -450,6 +477,10 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                         columns
                                                     )
                                                     const { isSticky: isPinned, leftPosition } = stickyInfo
+
+                                                    // Truncate only when a max width is set and the column isn't sized by its author.
+                                                    const truncateHeader =
+                                                        !!maxHeaderWidth && !column.width && !column.fullWidth
 
                                                     return (
                                                         <th
@@ -519,12 +550,15 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                 <div
                                                                     className={clsx(
                                                                         'flex items-center',
+                                                                        // Clip at maxWidth: sticky headers keep `overflow: visible` on the th, so
+                                                                        // without this an over-wide title spills across the neighbouring headers
+                                                                        truncateHeader && 'overflow-hidden',
                                                                         column?.fullWidth && 'w-full',
                                                                         column.sorter && 'cursor-pointer'
                                                                     )}
                                                                     /* eslint-disable-next-line react/forbid-dom-props */
                                                                     style={
-                                                                        maxHeaderWidth
+                                                                        truncateHeader
                                                                             ? { maxWidth: maxHeaderWidth }
                                                                             : undefined
                                                                     }
@@ -536,6 +570,14 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                                 <IconInfo className="ml-1 text-base" />
                                                                             </div>
                                                                         </Tooltip>
+                                                                    ) : truncateHeader &&
+                                                                      typeof column.title === 'string' ? (
+                                                                        <div
+                                                                            className="min-w-0 truncate"
+                                                                            title={column.title}
+                                                                        >
+                                                                            {column.title}
+                                                                        </div>
                                                                     ) : (
                                                                         column.title
                                                                     )}
@@ -698,9 +740,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                         ))
                                 ) : (
                                     <tr className="LemonTable__empty-state">
-                                        <td colSpan={columns.length + Number(!!expandable)}>
-                                            {emptyState || `No ${nouns[1]}`}
-                                        </td>
+                                        <td colSpan={headerLoaderColSpan}>{emptyState || `No ${nouns[1]}`}</td>
                                     </tr>
                                 )}
                             </tbody>

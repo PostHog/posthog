@@ -82,7 +82,7 @@ export function ModelsScene(): JSX.Element {
                                 >
                                     <LemonButton
                                         type="primary"
-                                        to={urls.sqlEditor()}
+                                        to={urls.sqlEditor({ source: 'view' })}
                                         size="small"
                                         tooltip="Create view"
                                         data-attr="new-view-button"

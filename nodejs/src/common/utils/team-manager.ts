@@ -3,6 +3,7 @@ import { OrganizationAvailableFeature, ProjectId, Team } from '~/types'
 
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader, LoaderRetryOptions } from './lazy-loader'
+import { logger } from './logger'
 import { captureTeamEvent } from './posthog'
 
 type RawTeam = Omit<Team, 'available_features'> & {
@@ -60,35 +61,51 @@ export class TeamManager {
 
     public async setTeamIngestedEvent(team: Team, properties: Properties): Promise<void> {
         if (!team.ingested_event) {
-            await this.postgres.query(
+            // The cached team can be stale long after the first write, so this fires repeatedly for
+            // a team that is already flagged. The guard makes those repeats match zero rows, which
+            // writes nothing and leaves no dead tuple behind on a hot row.
+            const updateResult = await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`,
+                `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2 AND NOT ingested_event`,
                 [true, team.id],
                 'setTeamIngestedEvent'
             )
 
-            // Invalidate the cache for this team
-            this.lazyLoader.markForRefresh(String(team.id))
+            // Both keys, because a team is cached under its id and its token but ingestion only ever
+            // looks it up by token - refreshing the id alone leaves the entry this worker reads stale.
+            this.lazyLoader.markForRefresh([String(team.id), team.api_token])
 
-            const organizationMembers = await this.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
-                [team.organization_id],
-                'posthog_organizationmembership'
-            )
+            if ((updateResult.rowCount ?? 0) === 0) {
+                // Another worker (or an earlier event seen through a stale cache) already flipped
+                // the flag - skip the first-event side effects so they fire exactly once per team.
+                return
+            }
 
-            const distinctIds: { distinct_id: string }[] = organizationMembers.rows
-            for (const { distinct_id } of distinctIds) {
-                captureTeamEvent(
-                    team,
-                    'first team event ingested',
-                    {
-                        sdk: properties.$lib,
-                        realm: properties.realm,
-                        host: properties.$host,
-                    },
-                    distinct_id
+            // The flag is already committed and no later event retries these, so a throw here loses
+            // the team's first-event capture for good. Swallow it and leave a trail instead.
+            try {
+                const organizationMembers = await this.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
+                    [team.organization_id],
+                    'posthog_organizationmembership'
                 )
+
+                const distinctIds: { distinct_id: string }[] = organizationMembers.rows
+                for (const { distinct_id } of distinctIds) {
+                    captureTeamEvent(
+                        team,
+                        'first team event ingested',
+                        {
+                            sdk: properties.$lib,
+                            realm: properties.realm,
+                            host: properties.$host,
+                        },
+                        distinct_id
+                    )
+                }
+            } catch (error) {
+                logger.error('⚠️', 'Failed to capture first team event ingested', { teamId: team.id, error })
             }
         }
     }
@@ -134,9 +151,11 @@ export class TeamManager {
                 t.logs_settings,
                 t.extra_settings,
                 extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
+                COALESCE(cfg.minimal_flag_called_events, false) AS minimal_flag_called_events,
                 o.available_product_features
             FROM posthog_team t
             JOIN posthog_organization o ON o.id = t.organization_id
+            LEFT JOIN feature_flags_teamfeatureflagsconfig cfg ON cfg.team_id = t.id
             WHERE t.id = ANY($1) OR t.api_token = ANY($2)
             `,
             [teamIds, tokens],

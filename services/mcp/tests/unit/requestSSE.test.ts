@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
+import { PostHogApiError, PostHogValidationError } from '@/lib/errors'
 
 function createMockStream(chunks: string[]): ReadableStream<Uint8Array> {
     const encoder = new TextEncoder()
@@ -121,20 +122,37 @@ describe('ApiClient.requestSSE', () => {
         expect(onEvent).toHaveBeenNthCalledWith(2, 'done', { completed: ['abc'], failed: [] })
     })
 
-    it('should throw with status code and error text on HTTP error response', async () => {
-        const mockResponse = new Response('Unauthorized', {
-            status: 401,
-            statusText: 'Unauthorized',
+    // A failed streaming call must surface the same typed error the non-streaming
+    // path (fetchJson) does, so the tool-error classifier can bucket it by HTTP
+    // status. Before this, requestSSE threw a plain Error that always collapsed
+    // to `internal` — hiding backend 4xx validation rejections and minting a
+    // spurious error-tracking issue for each.
+    it('should throw a typed PostHogValidationError on a backend validation_error response', async () => {
+        const mockResponse = new Response(
+            JSON.stringify({ type: 'validation_error', code: 'invalid', detail: 'session_ids must not be empty' }),
+            { status: 400, statusText: 'Bad Request' }
+        )
+        vi.stubGlobal('fetch', makeMockFetch(mockResponse))
+
+        const err = await client
+            .requestSSE({ method: 'POST', path: '/api/stream', onEvent: vi.fn() })
+            .catch((e: unknown) => e)
+        expect(err).toBeInstanceOf(PostHogValidationError)
+        expect((err as PostHogValidationError).detail).toBe('session_ids must not be empty')
+    })
+
+    it('should throw a typed PostHogApiError carrying the status on a 5xx response', async () => {
+        const mockResponse = new Response('Internal Server Error', {
+            status: 500,
+            statusText: 'Internal Server Error',
         })
         vi.stubGlobal('fetch', makeMockFetch(mockResponse))
 
-        await expect(
-            client.requestSSE({
-                method: 'GET',
-                path: '/api/stream',
-                onEvent: vi.fn(),
-            })
-        ).rejects.toThrow('401')
+        const err = await client
+            .requestSSE({ method: 'GET', path: '/api/stream', onEvent: vi.fn() })
+            .catch((e: unknown) => e)
+        expect(err).toBeInstanceOf(PostHogApiError)
+        expect((err as PostHogApiError).status).toBe(500)
     })
 
     it('should throw when response body is missing', async () => {

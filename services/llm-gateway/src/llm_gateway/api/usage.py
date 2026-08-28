@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -9,9 +10,11 @@ from pydantic import BaseModel
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.dependencies import get_authenticated_user, resolve_plan_and_quota
+from llm_gateway.rate_limiting.billable_credits_throttle import bucket_block_applies
 from llm_gateway.rate_limiting.cost_throttles import CostStatus, UserCostBurstThrottle, UserCostSustainedThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
+from llm_gateway.services.billing_period_resolver import resolve_billing_period
 from llm_gateway.services.plan_resolver import (
     POSTHOG_CODE_PRODUCT,
     PlanResolver,
@@ -26,7 +29,7 @@ usage_router = APIRouter(prefix="/v1/usage", tags=["Usage"])
 
 class CostLimitStatus(BaseModel):
     used_percent: float
-    # Kept on the wire for older PostHog Code clients whose zod schema still
+    # Kept on the wire for older PostHog Desktop clients whose zod schema still
     # requires it. Newer clients anchor to `reset_at`; drop in a follow-up once
     # the long tail of pinned clients has rolled forward.
     resets_in_seconds: int
@@ -36,6 +39,11 @@ class CostLimitStatus(BaseModel):
 
 class AiCreditsStatus(BaseModel):
     exhausted: bool
+    # Org-level bucket spend this billing period. None means unknown (unsynced
+    # org, resolver fail-open) — clients must not render None as $0.
+    used_usd: float | None = None
+    limit_usd: float | None = None
+    breakdown: dict[str, object] | None = None
 
 
 class UsageResponse(BaseModel):
@@ -46,6 +54,7 @@ class UsageResponse(BaseModel):
     ai_credits: AiCreditsStatus
     is_rate_limited: bool
     is_pro: bool
+    code_usage_subscribed: bool = False
     billing_period_end: datetime | None = None
 
 
@@ -70,14 +79,16 @@ async def get_usage(
 ) -> UsageResponse:
     runner: ThrottleRunner = request.app.state.throttle_runner
 
-    plan_info, quota_status = await resolve_plan_and_quota(
-        request,
-        user_id=user.user_id,
-        team_id=user.team_id,
-        product=product,
+    (plan_info, quota_status), organization_billing_period = await asyncio.gather(
+        resolve_plan_and_quota(
+            request,
+            user_id=user.user_id,
+            team_id=user.team_id,
+            product=product,
+        ),
+        resolve_billing_period(request, user.team_id),
     )
     now = datetime.now(tz=UTC)
-    ai_credits_exhausted = quota_status.limited
 
     context = ThrottleContext(
         user=user,
@@ -85,10 +96,17 @@ async def get_usage(
         end_user_id=str(user.user_id),
         plan_key=plan_info.plan_key,
         seat_created_at=plan_info.seat_created_at,
+        seat_missing=plan_info.seat_missing,
+        code_usage_billed=quota_status.code_usage_billing_active,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
-        ai_credits_exhausted=ai_credits_exhausted,
+        credits_exhausted=quota_status.limited,
     )
-
+    # The product's own credit bucket (resolve_plan_and_quota resolves per bucket;
+    # always unlimited for unbilled products), reported under the legacy `ai_credits`
+    # response field — clients read `ai_credits.exhausted` regardless of bucket. Run
+    # through the same decision as the request-path throttle: clients gate on this
+    # response, so it must never disagree with what enforcement would do.
+    credits_exhausted = bucket_block_applies(context)
     burst_status: CostLimitStatus | None = None
     sustained_status: CostLimitStatus | None = None
 
@@ -111,8 +129,10 @@ async def get_usage(
             sustained_status = _to_cost_limit_status(empty, now=now)
 
     billing_period_end: datetime | None = None
-    if plan_info.billing_period:
+    raw_period_end = organization_billing_period.current_period_end if organization_billing_period else None
+    if raw_period_end is None and plan_info.billing_period:
         raw_period_end = plan_info.billing_period.current_period_end
+    if raw_period_end is not None:
         try:
             billing_period_end = parse_iso_utc(raw_period_end)
         except (ValueError, TypeError) as exc:
@@ -130,9 +150,15 @@ async def get_usage(
         user_id=user.user_id,
         burst=burst_status,
         sustained=sustained_status,
-        ai_credits=AiCreditsStatus(exhausted=ai_credits_exhausted),
-        is_rate_limited=burst_status.exceeded or sustained_status.exceeded or ai_credits_exhausted,
+        ai_credits=AiCreditsStatus(
+            exhausted=credits_exhausted,
+            used_usd=quota_status.used_usd,
+            limit_usd=quota_status.limit_usd,
+            breakdown=quota_status.posthog_desktop_usage if product == POSTHOG_CODE_PRODUCT else None,
+        ),
+        is_rate_limited=burst_status.exceeded or sustained_status.exceeded or credits_exhausted,
         is_pro=is_pro_plan(plan_info.plan_key),
+        code_usage_subscribed=quota_status.code_usage_billing_active,
         billing_period_end=billing_period_end,
     )
 

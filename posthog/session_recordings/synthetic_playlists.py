@@ -12,7 +12,9 @@ from django.core.cache import cache
 
 from posthog.schema import RecordingOrder, RecordingsQuery
 
-from posthog.clickhouse.client import sync_execute
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Comment, Team, User
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -20,13 +22,6 @@ from posthog.session_recordings.models.session_recording_event import SessionRec
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-
-try:
-    from products.replay.backend.models.session_summaries import SingleSessionSummary
-
-    HAS_EE = True
-except ImportError:
-    HAS_EE = False
 
 
 class GetSessionIdsCallable(Protocol):
@@ -201,37 +196,6 @@ class ExportedPlaylistSource(SyntheticPlaylistSource):
 
 
 @dataclass
-class SummarisedPlaylistSource(SyntheticPlaylistSource):
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
-        if not HAS_EE:
-            return []
-        qs = (
-            SingleSessionSummary.objects.filter(team=team)
-            .order_by("-created_at")
-            .values_list("session_id", flat=True)
-            .distinct()
-        )
-        return list(self._paginate_queryset(qs, limit, offset))
-
-    def count_session_ids(self, team: Team, user: User) -> int:
-        if not HAS_EE:
-            return 0
-        return SingleSessionSummary.objects.filter(team=team).values("session_id").distinct().count()
-
-    def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition":
-        return SyntheticPlaylistDefinition(
-            id=-5,
-            short_id="synthetic-summarised",
-            name="Summarised sessions",
-            description="Sessions with AI-generated summaries. Ask PostHog AI to summarize sessions for you.",
-            type="collection",
-            get_session_ids=self.get_session_ids,
-            count_session_ids=self.count_session_ids,
-            metadata={"icon": "IconSparkles", "is_user_specific": False},
-        )
-
-
-@dataclass
 class ExpiringPlaylistSource(SyntheticPlaylistSource):
     """
     Surfaces recordings whose retention window ends within the next 10 days.
@@ -257,12 +221,14 @@ class ExpiringPlaylistSource(SyntheticPlaylistSource):
             return cached_data
 
         query = RecordingsQuery(limit=ExpiringPlaylistSource.SCAN_LIMIT, order=RecordingOrder.RECORDING_TTL)
-        recordings, _, _, _ = list_recordings_from_query(query, user, team)
+        listing_result = list_recordings_from_query(query, user, team)
 
         now = datetime.now(UTC)
         window_end = now + timedelta(days=ExpiringPlaylistSource.EXPIRY_WINDOW_DAYS)
 
-        session_ids = [r.session_id for r in recordings if r.expiry_time and now <= r.expiry_time <= window_end]
+        session_ids = [
+            r.session_id for r in listing_result.recordings if r.expiry_time and now <= r.expiry_time <= window_end
+        ]
         cache.set(cache_key, session_ids, ExpiringPlaylistSource.CACHE_TTL)
         return session_ids
 
@@ -319,35 +285,35 @@ class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
 
         query = """
             SELECT
-                `$session_id` AS session_id,
+                properties.$session_id AS session_id,
                 countIf(event = '$rageclick') * 3
                     + countIf(event = '$exception') * 2
                     AS frustration_score
             FROM events
             WHERE
-                team_id = %(team_id)s
-                AND event IN ('$rageclick', '$exception')
-                AND timestamp >= %(date_from)s
-                AND timestamp <= %(date_to)s
-                AND notEmpty(`$session_id`)
-            GROUP BY `$session_id`
-            HAVING frustration_score > %(min_frustration_score)s
+                event IN ('$rageclick', '$exception')
+                AND timestamp >= {date_from}
+                AND timestamp <= {date_to}
+                AND notEmpty(properties.$session_id)
+            GROUP BY properties.$session_id
+            HAVING frustration_score > {min_frustration_score}
             ORDER BY frustration_score DESC
             LIMIT 1000
         """
 
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
-        result = sync_execute(
-            query,
-            {
-                "team_id": team.pk,
-                "date_from": date_from,
-                "date_to": now_ts,
-                "min_frustration_score": FrustrationSignalsPlaylistSource.MIN_FRUSTRATION_SCORE,
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            query_type="SessionRecordingFrustrationSignalsQuery",
+            placeholders={
+                "date_from": ast.Constant(value=date_from),
+                "date_to": ast.Constant(value=now_ts),
+                "min_frustration_score": ast.Constant(value=FrustrationSignalsPlaylistSource.MIN_FRUSTRATION_SCORE),
             },
         )
 
-        session_ids = [row[0] for row in result]
+        session_ids = [row[0] for row in response.results or []]
         cache.set(cache_key, session_ids, FrustrationSignalsPlaylistSource.CACHE_TTL)
         return session_ids
 
@@ -397,10 +363,6 @@ def _get_static_synthetic_playlists() -> list[SyntheticPlaylistDefinition]:
         ExpiringPlaylistSource().to_synthetic_playlist(),
         FrustrationSignalsPlaylistSource().to_synthetic_playlist(),
     ]
-
-    # Only add summarised playlist if EE is available
-    if HAS_EE:
-        playlists.append(SummarisedPlaylistSource().to_synthetic_playlist())
 
     # Filter out None values (sources that conditionally return a playlist)
     return [p for p in playlists if p is not None]

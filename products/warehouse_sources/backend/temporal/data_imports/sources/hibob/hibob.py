@@ -1,30 +1,28 @@
 from collections.abc import Iterator
 from typing import Any
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.settings import HIBOB_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.settings import (
+    HIBOB_ENDPOINTS,
+    TIME_OFF_CALENDARS,
+)
 
 HIBOB_BASE_URL = "https://api.hibob.com"
-REQUEST_TIMEOUT_SECONDS = 120
-# Rate limits are per endpoint (people/search is 50 req/min); 429s carry
-# X-RateLimit headers but exponential backoff is sufficient. Repeated 401/403s
-# trigger a 5-minute WAF block, so auth errors must never be retried.
-MAX_RETRY_ATTEMPTS = 5
 
-
-class HiBobRetryableError(Exception):
-    pass
-
-
-def _get_session(service_user_id: str, service_user_token: str) -> requests.Session:
-    session = make_tracked_session(redact_values=(service_user_token,))
-    session.auth = (service_user_id, service_user_token)
-    return session
+# HiBob rejects more than 5000 employee ids in one calendar search (400 tooManyEmployeeIds).
+EMPLOYEE_ID_BATCH_SIZE = 5000
+# Max page size the calendars search accepts.
+CALENDAR_PAGE_LIMIT = 1000
+REQUEST_TIMEOUT_SECONDS = 30
 
 
 def validate_credentials(service_user_id: str, service_user_token: str) -> tuple[bool, str | None]:
@@ -33,7 +31,8 @@ def validate_credentials(service_user_id: str, service_user_token: str) -> tuple
     Service users need explicit per-category permission grants (403); only 401
     means the credentials themselves are bad. Transport failures surface their
     real reason rather than masquerading as an auth error."""
-    session = _get_session(service_user_id, service_user_token)
+    session = make_tracked_session(redact_values=(service_user_token,))
+    session.auth = (service_user_id, service_user_token)
     try:
         response = session.get(f"{HIBOB_BASE_URL}/v1/tasks", timeout=10)
         if response.status_code == 401:
@@ -45,43 +44,65 @@ def validate_credentials(service_user_id: str, service_user_token: str) -> tuple
         session.close()
 
 
-def get_rows(
-    service_user_id: str,
-    service_user_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    config = HIBOB_ENDPOINTS[endpoint]
-    session = _get_session(service_user_id, service_user_token)
-    url = f"{HIBOB_BASE_URL}{config.path}"
+def _leaf_key(key: str) -> str:
+    """HiBob returns calendar fields under JSON-pointer keys (e.g. `/employeeCalendar/employeeId`).
+    Keep only the leaf segment so columns are clean; a flat key is returned unchanged."""
+    return key.rsplit("/", 1)[-1] if "/" in key else key
 
-    @retry(
-        retry=retry_if_exception_type((HiBobRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=2, max=90),
-        reraise=True,
+
+def _iter_employee_ids(session: Any) -> Iterator[str]:
+    employees_config = HIBOB_ENDPOINTS["employees"]
+    response = session.post(
+        f"{HIBOB_BASE_URL}{employees_config.path}",
+        json=employees_config.body,
+        timeout=REQUEST_TIMEOUT_SECONDS,
     )
-    def fetch() -> dict[str, Any]:
-        if config.method == "POST":
-            response = session.post(url, json=config.body or {}, timeout=REQUEST_TIMEOUT_SECONDS)
-        else:
-            response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    for employee in response.json().get(employees_config.data_key, []):
+        employee_id = employee.get("id")
+        if employee_id is not None:
+            # HiBob ids exceed JS safe-integer range, so send them back as strings.
+            yield str(employee_id)
 
-        if response.status_code == 429 or response.status_code >= 500:
-            raise HiBobRetryableError(f"HiBob API error (retryable): status={response.status_code}, url={url}")
 
-        if not response.ok:
-            logger.error(f"HiBob API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
+def _search_employee_calendars(session: Any, path: str, employee_ids: list[str]) -> Iterator[list[dict[str, Any]]]:
+    cursor: str | None = None
+    while True:
+        body: dict[str, Any] = {
+            "filters": [
+                {"fieldId": "/employeeCalendar/employeeId", "operator": "equals", "values": employee_ids},
+            ],
+            "limit": CALENDAR_PAGE_LIMIT,
+        }
+        if cursor:
+            body["cursor"] = cursor
 
-        return response.json()
+        response = session.post(f"{HIBOB_BASE_URL}{path}", json=body, timeout=REQUEST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        data = response.json()
 
-    # Both shipped endpoints return their full result set in one response.
-    try:
-        data = fetch()
-        items = data.get(config.data_key, []) or []
+        items = data.get("items", [])
         if items:
-            yield items
+            yield [{_leaf_key(key): value for key, value in item.items()} for item in items]
+
+        cursor = (data.get("response_metadata") or {}).get("next_cursor")
+        if not cursor:
+            break
+
+
+def _time_off_calendars_rows(
+    service_user_id: str, service_user_token: str, path: str
+) -> Iterator[list[dict[str, Any]]]:
+    # The search resolves the holiday calendar for a supplied set of employee ids, so fan out over
+    # every employee. Repeated 401/403s trip HiBob's WAF, so auth errors fail loud (raise_for_status)
+    # rather than retry — the tracked session only retries 429/5xx.
+    session = make_tracked_session(redact_values=(service_user_token,))
+    session.auth = (service_user_id, service_user_token)
+    try:
+        employee_ids = list(_iter_employee_ids(session))
+        for start in range(0, len(employee_ids), EMPLOYEE_ID_BATCH_SIZE):
+            batch = employee_ids[start : start + EMPLOYEE_ID_BATCH_SIZE]
+            yield from _search_employee_calendars(session, path, batch)
     finally:
         session.close()
 
@@ -90,18 +111,54 @@ def hibob_source(
     service_user_id: str,
     service_user_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
 ) -> SourceResponse:
     config = HIBOB_ENDPOINTS[endpoint]
 
+    if endpoint == TIME_OFF_CALENDARS:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _time_off_calendars_rows(service_user_id, service_user_token, config.path),
+            primary_keys=[config.primary_key],
+            partition_count=1,
+            partition_size=1,
+            sort_mode="asc",
+        )
+
+    # Basic auth carries the token; supplying it via the framework auth config redacts the
+    # token from any raised error. Repeated 401/403s trip HiBob's WAF, so auth errors must
+    # fail loud (raise_for_status) rather than retry — the client only retries 429/5xx.
+    api_endpoint: Endpoint = {
+        "path": config.path,
+        "method": config.method,
+        # A missing data key is a legit "no rows" answer (not a shape error), so the selector
+        # stays optional — an absent key yields an empty page, matching the old behaviour.
+        "data_selector": config.data_key,
+    }
+    if config.body is not None:
+        api_endpoint["json"] = config.body
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": HIBOB_BASE_URL,
+            "auth": {"type": "http_basic", "username": service_user_id, "password": service_user_token},
+            # Both shipped endpoints return their full result set in one response.
+            "paginator": SinglePagePaginator(),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": api_endpoint,
+            }
+        ],
+    }
+
+    resource = rest_api_resource(rest_config, team_id, job_id, None)
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            service_user_id=service_user_id,
-            service_user_token=service_user_token,
-            endpoint=endpoint,
-            logger=logger,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,

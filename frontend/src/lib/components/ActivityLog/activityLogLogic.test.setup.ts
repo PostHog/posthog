@@ -7,6 +7,11 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { ActivityScope } from '~/types'
 
+// The first test in each suite pays the one-time dynamic import of the
+// describers registry — every product's describer and its dependency graph —
+// which can exceed jest's 5s default on a loaded CI runner.
+jest.setTimeout(15000)
+
 interface APIMockSetup {
     name: string
     activity: string
@@ -43,6 +48,7 @@ async function testSetup(
     scope: ActivityScope,
     url: string
 ): Promise<ReturnType<typeof activityLogLogic.build>> {
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- useMocks is an MSW test helper, not a React hook
     useMocks({
         get: {
             [url]: {

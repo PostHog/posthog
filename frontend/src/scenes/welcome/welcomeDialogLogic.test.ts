@@ -20,6 +20,14 @@ const ORG_CREATOR_USER: UserType = {
     is_organization_first_user: true,
 }
 
+// A partner-provisioned account: no inviter (so first org user), but onboarding was skipped as
+// 'provisioned'. Should still get the welcome dialog even though it isn't an invitee.
+const PROVISIONED_USER: UserType = {
+    ...MOCK_DEFAULT_USER,
+    is_organization_first_user: true,
+    onboarding_skipped_reason: 'provisioned',
+}
+
 const mockPayload = {
     organization_name: 'Acme Inc',
     inviter: { name: 'Alex', email: 'alex@acme.com' },
@@ -85,6 +93,15 @@ describe('welcomeDialogLogic', () => {
         await expectLogic(logic).toNotHaveDispatchedActions(['loadWelcomeData'])
     })
 
+    it('opens for a partner-provisioned user even though they are the first org user', async () => {
+        userLogic.actions.loadUserSuccess(PROVISIONED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWelcomeData', 'loadWelcomeDataSuccess'])
+        expect(logic.values.shouldShowDialog).toBe(true)
+    })
+
     it('does not reopen for a user who has already dismissed', async () => {
         window.localStorage.setItem(
             `posthog_welcome_dismissed:${INVITED_USER.uuid}:${INVITED_USER.organization?.id}`,
@@ -132,5 +149,23 @@ describe('welcomeDialogLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
         logic.actions.trackCardClick('dashboards', '/project/1/dashboard/42')
         expect(logic.values.interactedCards.dashboards).toBe(true)
+    })
+
+    it('refetches and shows the new org name after an org switch', async () => {
+        // Both orgs keep the dialog eligible, so `shouldShowDialog` never flips and the automatic
+        // refetch does not fire — the org-change refetch has to carry it, otherwise the previous
+        // org name stays on screen.
+        const orgA = { ...INVITED_USER.organization!, id: 'org-a-id', name: 'Acme Inc' }
+        const orgB = { ...INVITED_USER.organization!, id: 'org-b-id', name: 'Beta Corp' }
+        userLogic.actions.loadUserSuccess({ ...INVITED_USER, organization: orgA })
+        logic = welcomeDialogLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
+        expect(logic.values.organizationName).toBe('Acme Inc')
+
+        userLogic.actions.loadUserSuccess({ ...INVITED_USER, organization: orgB })
+        // Title must follow the user's current org even before the refetch lands.
+        expect(logic.values.organizationName).toBe('Beta Corp')
+        await expectLogic(logic).toDispatchActions(['resetForOrgChange', 'loadWelcomeData'])
     })
 })

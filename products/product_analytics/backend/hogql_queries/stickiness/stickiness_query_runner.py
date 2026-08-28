@@ -414,6 +414,10 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             ]
         )
 
+        day_of_week_filter = date_range.day_of_week_filter_expr(ast.Field(chain=["timestamp"]))
+        if day_of_week_filter is not None:
+            filters.append(day_of_week_filter)
+
         # Series
         if isinstance(series, EventsNode) and series.event is not None:
             filters.append(
@@ -481,13 +485,6 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             # TODO: Can we load the Action in more efficiently?
             action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
             return action.name
-
-    def intervals_num(self) -> int:
-        delta = self.query_date_range.date_to() - self.query_date_range.date_from()
-        if self.query_date_range.interval_name == "day":
-            return delta.days + 1
-        else:
-            return delta.days
 
     def setup_series(self) -> list[SeriesWithExtras]:
         series_with_extras = [

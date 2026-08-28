@@ -1,5 +1,7 @@
+import re
 import json
 import uuid
+import random
 import typing as t
 import asyncio
 import datetime as dt
@@ -17,7 +19,20 @@ from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models.scoping import team_scope
-from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseClientTimeoutError, ClickHouseQueryStatus
+from posthog.models.utils import uuid7
+from posthog.sync import database_sync_to_async
+from posthog.temporal.common.clickhouse import (
+    ClickHouseClient,
+    ClickHouseClientTimeoutError,
+    ClickHouseError,
+    ClickHouseQueryStatus,
+    get_client,
+)
+from posthog.temporal.tests.utils.events import (
+    generate_test_events,
+    insert_event_values_in_clickhouse,
+    insert_sessions_in_clickhouse,
+)
 
 from products.batch_exports.backend.models.batch_export import (
     BatchExport,
@@ -29,23 +44,22 @@ from products.batch_exports.backend.service import BackfillDetails, BatchExportM
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     DataIntervalEndInFutureError,
+    HogQLQueryResourceLimitExceededError,
     _execute_query,
+    _raise_on_hogql_resource_limit_error,
     _write_batch_export_record_batches_to_internal_stage,
     compute_num_partitions,
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.tests.temporal.utils.mock_clickhouse import MockClickHouseClient
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
 )
-from products.batch_exports.backend.tests.temporal.utils.s3 import (
-    assert_files_in_s3,
-    create_test_client,
-    delete_all_from_s3,
-)
+from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_in_s3
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -214,19 +228,6 @@ async def test_write_batch_export_record_batches_to_internal_stage_rejects_futur
     mock_get_client.assert_not_called()
 
 
-@pytest_asyncio.fixture
-async def minio_client():
-    """Manage an S3 client to interact with a MinIO bucket."""
-    async with create_test_client(
-        "s3",
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-    ) as minio_client:
-        yield minio_client
-
-        await delete_all_from_s3(minio_client, settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix="")
-
-
 async def _generate_record_batches_from_internal_stage(
     batch_export_id: str, data_interval_start: dt.datetime, data_interval_end: dt.datetime, stage_folder: str
 ) -> AsyncGenerator[pa.RecordBatch]:
@@ -256,16 +257,17 @@ async def _generate_record_batches_from_internal_stage(
 
 async def _run_activity(
     activity_environment: ActivityEnvironment,
-    minio_client,
+    object_storage_client,
     team_id,
     data_interval_start: dt.datetime,
     data_interval_end: dt.datetime,
     exclude_events: list[str] | None = None,
     model: BatchExportModel | None = None,
+    batch_export_id: str | None = None,
 ) -> list[dict]:
     """Get rows from the internal stage."""
 
-    batch_export_id = str(uuid.uuid4())
+    batch_export_id = batch_export_id or str(uuid.uuid4())
     insert_inputs = BatchExportInsertIntoInternalStageInputs(
         team_id=team_id,
         batch_export_id=batch_export_id,
@@ -283,7 +285,7 @@ async def _run_activity(
     stage_result = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
     stage_folder = stage_result.stage_folder
     await assert_files_in_s3(
-        minio_client,
+        object_storage_client,
         bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
         key_prefix=stage_folder,
         file_format="Arrow",
@@ -313,11 +315,12 @@ async def test_insert_into_stage_activity_for_events_model(
     interval,
     activity_environment,
     data_interval_start,
-    minio_client,
+    object_storage_client,
     data_interval_end,
     ateam,
     model: BatchExportModel,
     exclude_events,
+    truncate_clickhouse_tables,
 ):
     """Test that the insert_into_internal_stage_activity produces expected data in the internal stage.
 
@@ -326,7 +329,7 @@ async def test_insert_into_stage_activity_for_events_model(
 
     records_exported = await _run_activity(
         activity_environment=activity_environment,
-        minio_client=minio_client,
+        object_storage_client=object_storage_client,
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -352,17 +355,18 @@ async def test_insert_into_stage_activity_reports_records_total_for_events_model
     interval,
     activity_environment,
     data_interval_start,
-    minio_client,
+    object_storage_client,
     data_interval_end,
     ateam,
     model: BatchExportModel,
+    truncate_clickhouse_tables,
 ):
     """The activity reports the number of rows written to the stage, from ClickHouse's query summary."""
 
     with capture_logs() as cap_logs:
         records_exported = await _run_activity(
             activity_environment=activity_environment,
-            minio_client=minio_client,
+            object_storage_client=object_storage_client,
             team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
@@ -387,6 +391,178 @@ async def test_execute_query_recovers_written_rows_from_query_log_on_timeout(que
 
     assert result == query_log_written_rows
     client.aget_written_rows_from_query_log.assert_awaited_once()
+
+
+@pytest.mark.parametrize("timed_out_first", [False, True], ids=["while_awaiting_query", "while_waiting_for_completion"])
+async def test_execute_query_cancels_the_query_when_cancelled(timed_out_first: bool):
+    """Test that on cancellation, we cancel the insert instead of leaving it running.
+
+    Dropping the connection does not stop an INSERT: `cancel_http_readonly_queries_on_client_close`
+    is enabled on our cluster but covers only reads, and ClickHouse currently offers no INSERT
+    equivalent. Without an explicit kill the query keeps writing to the stage until its own
+    execution time limit, despite us no longer waiting on it.
+
+    Covers cancellation both while awaiting the query's response and while polling for it to
+    finish after the response timed out.
+    """
+    started = asyncio.Event()
+
+    async def block_forever(*args, **kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    client = AsyncMock()
+    if timed_out_first:
+        client.execute_query_with_summary.side_effect = ClickHouseClientTimeoutError("INSERT ...", "test-query-id")
+        client.acheck_query.side_effect = block_forever
+    else:
+        client.execute_query_with_summary.side_effect = block_forever
+
+    task = asyncio.create_task(_execute_query(client, "INSERT INTO FUNCTION s3(...) SELECT ...", {}))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    client.acancel_query.assert_awaited_once()
+    # The kill has to target the query we started, which is the id the insert was sent with.
+    query_id = client.execute_query_with_summary.await_args.kwargs["query_id"]
+    assert client.acancel_query.await_args.args == (query_id,)
+
+
+async def test_execute_query_still_cancels_when_the_kill_fails():
+    """If our attempt to cancel the query fails, we still need to ensure we propagate the
+    CancelledError.
+    """
+    started = asyncio.Event()
+
+    async def block_forever(*args, **kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    client = AsyncMock()
+    client.execute_query_with_summary.side_effect = block_forever
+    client.acancel_query.side_effect = ClickHouseClientTimeoutError("KILL ...", "test-query-id")
+
+    task = asyncio.create_task(_execute_query(client, "INSERT INTO FUNCTION s3(...) SELECT ...", {}))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    client.acancel_query.assert_awaited_once()
+
+
+def _as_clickhouse_error(message: str) -> ClickHouseError:
+    """Build the exception the ClickHouse client would raise for this error message."""
+    try:
+        ClickHouseClient.raise_clickhouse_error(message)
+    except ClickHouseError as e:
+        return e
+
+
+def _limit_message_for(exc: ClickHouseError) -> str | None:
+    """The message a hogql export would fail with for `exc`, or None if it is left retryable."""
+    try:
+        _raise_on_hogql_resource_limit_error(exc, "hogql")
+    except HogQLQueryResourceLimitExceededError as e:
+        return str(e)
+    return None
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        # A query's own memory budget: this query alone was too big, so it cannot succeed on retry.
+        (
+            "Code: 241. DB::Exception: Query memory limit exceeded: would use 30.01 GiB "
+            "(attempt to allocate chunk of 4.00 MiB), maximum: 30.00 GiB. (MEMORY_LIMIT_EXCEEDED)",
+            "needed too much memory",
+        ),
+        # A shared user's budget or the whole server's: not this query's fault, so leave it retryable.
+        (
+            "Code: 241. DB::Exception: User memory limit exceeded: would use 5.02 MiB, "
+            "maximum: 976.56 KiB. (MEMORY_LIMIT_EXCEEDED)",
+            None,
+        ),
+        (
+            "Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB, "
+            "maximum: 111.19 GiB. (MEMORY_LIMIT_EXCEEDED)",
+            None,
+        ),
+        # Query timeout and bytes-read need no scope check: their error class is enough.
+        (
+            "Code: 159. DB::Exception: Timeout exceeded: elapsed 900.372 seconds, maximum: 900. (TIMEOUT_EXCEEDED)",
+            "took too long",
+        ),
+        (
+            "Code: 307. DB::Exception: Limit for rows or bytes to read exceeded, max bytes: 1.00 TiB. (TOO_MANY_BYTES)",
+            "read too much data",
+        ),
+        # A result-size limit (a different code we don't impose) must not be mistaken for bytes-read.
+        (
+            "Code: 396. DB::Exception: Limit for result exceeded, max rows: 10.00, "
+            "current rows: 10.00 thousand. (TOO_MANY_ROWS_OR_BYTES)",
+            None,
+        ),
+        # An unrelated failure is not a resource limit, so it stays retryable.
+        ("Code: 60. DB::Exception: Table default.nope does not exist. (UNKNOWN_TABLE)", None),
+    ],
+    ids=[
+        "query_memory",
+        "user_memory",
+        "total_memory",
+        "timeout",
+        "too_many_bytes",
+        "result_rows_or_bytes",
+        "unrelated",
+    ],
+)
+def test_raise_on_hogql_resource_limit_error(message: str, expected: str | None):
+    """Each per-query resource limit gets its own message; everything else is left retryable."""
+    limit_message = _limit_message_for(_as_clickhouse_error(message))
+
+    if expected is None:
+        assert limit_message is None
+    else:
+        assert limit_message is not None
+        assert expected in limit_message
+
+
+def test_raise_on_hogql_resource_limit_error_ignores_other_models():
+    """A fixed model's query keeps its ClickHouse error, however that error was classified."""
+    exc = _as_clickhouse_error(
+        "Code: 241. DB::Exception: Query memory limit exceeded: would use 30.01 GiB, "
+        "maximum: 30.00 GiB. (MEMORY_LIMIT_EXCEEDED)"
+    )
+
+    _raise_on_hogql_resource_limit_error(exc, "events")
+
+
+async def test_raise_on_hogql_resource_limit_error_matches_real_clickhouse_memory_limit():
+    """The per-query memory wording the detector relies on is real, checked against a live server.
+
+    Memory scope is the one limit matched by strings, and ClickHouse has reworded it before. Asking
+    the server means an upgrade that changes the wording fails here, rather than silently letting a
+    query that can never fit retry until it times out.
+    """
+    async with get_client() as client:
+        with pytest.raises(ClickHouseError) as exc_info:
+            await client.execute_query_with_summary(
+                "SELECT groupArray(toString(number)) FROM numbers(10000000)",
+                query_id=f"test-hogql-memory-limit-{uuid.uuid4()}",
+                settings={"max_memory_usage": "1000000"},
+            )
+
+    limit_message = _limit_message_for(exc_info.value)
+    assert limit_message is not None
+    assert "needed too much memory" in limit_message
+    # And a demonstration of why the raw error is not what we hand back: this real one reports the
+    # cap we configured and the exact server build.
+    assert re.search(r"maximum: [\d.]+ KiB", str(exc_info.value))
+    assert re.search(r"version \d+\.\d+", str(exc_info.value))
 
 
 class PersonToExport(t.TypedDict):
@@ -511,13 +687,14 @@ async def test_insert_into_stage_activity_for_persons_model(
     interval,
     activity_environment,
     data_interval_start,
-    minio_client,
+    object_storage_client,
     data_interval_end,
     ateam,
     test_person_properties,
     clickhouse_client,
     model: BatchExportModel,
     limited_export: bool,
+    truncate_clickhouse_tables,
 ):
     """Test that the insert_into_internal_stage_activity produces expected data in the internal stage for the persons
     model.
@@ -541,7 +718,7 @@ async def test_insert_into_stage_activity_for_persons_model(
 
     records_exported = await _run_activity(
         activity_environment=activity_environment,
-        minio_client=minio_client,
+        object_storage_client=object_storage_client,
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -635,7 +812,7 @@ async def test_insert_into_stage_activity_for_persons_model(
     with override_settings(BATCH_EXPORTS_PERSONS_LIMITED_EXPORT_TEAM_IDS=[str(ateam.pk)] if limited_export else []):
         records_exported = await _run_activity(
             activity_environment=activity_environment,
-            minio_client=minio_client,
+            object_storage_client=object_storage_client,
             team_id=ateam.pk,
             data_interval_start=next_data_interval_start,
             data_interval_end=next_data_interval_end,
@@ -960,10 +1137,11 @@ async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
     interval,
     activity_environment,
     data_interval_start,
-    minio_client,
+    object_storage_client,
     data_interval_end,
     ateam,
     model: BatchExportModel,
+    truncate_clickhouse_tables,
 ):
     """A previous run's row count drives how many staging files the activity writes."""
     batch_export = await _acreate_batch_export_for_test(ateam.pk)
@@ -1000,7 +1178,7 @@ async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
         stage_folder = stage_result.stage_folder
 
     _, keys = await assert_files_in_s3(
-        minio_client,
+        object_storage_client,
         bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
         key_prefix=stage_folder,
         file_format="Arrow",
@@ -1019,10 +1197,11 @@ async def test_insert_into_stage_activity_uses_static_default_without_previous_r
     interval,
     activity_environment,
     data_interval_start,
-    minio_client,
+    object_storage_client,
     data_interval_end,
     ateam,
     model: BatchExportModel,
+    truncate_clickhouse_tables,
 ):
     """With no previous run to estimate from, the activity writes the static-default number of files."""
     insert_inputs = BatchExportInsertIntoInternalStageInputs(
@@ -1049,7 +1228,7 @@ async def test_insert_into_stage_activity_uses_static_default_without_previous_r
         stage_folder = stage_result.stage_folder
 
     _, keys = await assert_files_in_s3(
-        minio_client,
+        object_storage_client,
         bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
         key_prefix=stage_folder,
         file_format="Arrow",
@@ -1057,3 +1236,370 @@ async def test_insert_into_stage_activity_uses_static_default_without_previous_r
         json_columns=None,
     )
     assert len(keys) == 4
+
+
+async def _assert_staging_query_settings(clickhouse_client: ClickHouseClient, batch_export_id: str) -> None:
+    """The fixed models (events/persons/sessions) run their staging query with the shared settings.
+
+    The hogql model diverges — it applies the tighter per-query user-query limits — so it asserts its
+    own settings separately rather than going through this helper.
+    """
+    actual_settings = await _fetch_staging_query_settings(
+        clickhouse_client, batch_export_id, ["max_bytes_before_external_sort", "optimize_aggregation_in_order"]
+    )
+    # one staging query, with max_bytes_before_external_sort and optimize_aggregation_in_order set
+    assert actual_settings == [["50000000000", "1"]]
+
+
+async def _fetch_staging_query_settings(
+    clickhouse_client: ClickHouseClient,
+    batch_export_id: str,
+    setting_names: list[str],
+    max_wait_time: float = 10.0,
+    poll_interval: float = 0.5,
+) -> list[list[str]]:
+    """Return the given settings ClickHouse recorded for this export's staging queries.
+
+    Looking the queries up by their log comment means a result is also proof the log
+    comment was attached.
+
+    ClickHouse pushes a query's `system.query_log` entry after it has responded to the
+    client, so poll rather than read once: a `SYSTEM FLUSH LOGS` right after the export
+    can flush before the entry is even queued, which lags further under CI load.
+
+    Matching on `query_kind` rather than the query text keeps this query from finding
+    itself: it runs with the same log comment as the export it is looking up.
+    """
+    selected = ", ".join(f"Settings['{name}']" for name in setting_names)
+    elapsed_time = 0.0
+    while True:
+        await clickhouse_client.execute_query("SYSTEM FLUSH LOGS")
+        rows = await clickhouse_client.read_query(
+            f"SELECT {selected} "
+            "FROM system.query_log "
+            f"WHERE JSONExtractString(log_comment, 'batch_export_id') = '{batch_export_id}' "
+            "AND JSONExtractString(log_comment, 'product') = 'batch_export' "
+            "AND query_kind = 'Insert' AND type = 'QueryFinish'"
+        )
+        settings_per_query = [line.split("\t") for line in rows.decode().splitlines()]
+        if settings_per_query or elapsed_time >= max_wait_time:
+            return settings_per_query
+        await asyncio.sleep(poll_interval)
+        elapsed_time += poll_interval
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        BatchExportModel(name="events", schema=None),
+        BatchExportModel(name="persons", schema=None),
+        BatchExportModel(name="sessions", schema=None),
+    ],
+    ids=["events", "persons", "sessions"],
+)
+async def test_insert_into_stage_activity_applies_settings_and_log_comment(
+    activity_environment,
+    object_storage_client,
+    ateam,
+    clickhouse_client,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel,
+):
+    """Every model's settings and log comment reach the query ClickHouse runs.
+
+    These models write their settings into the query, unlike the hogql model, but all of
+    them get their log comment from the query tags. No data is inserted: the query runs
+    (and is logged) either way, and what each model exports is covered elsewhere.
+    """
+    batch_export_id = str(uuid.uuid4())
+    insert_inputs = BatchExportInsertIntoInternalStageInputs(
+        team_id=ateam.pk,
+        batch_export_id=batch_export_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+    )
+
+    await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+
+    await _assert_staging_query_settings(clickhouse_client, batch_export_id)
+
+
+class TestHogQLModel:
+    """Tests for the 'hogql' model, which exports the results of a user-defined HogQL query."""
+
+    @pytest_asyncio.fixture
+    async def hogql_model_test_data(
+        self, clickhouse_client, ateam, data_interval_start, data_interval_end, truncate_clickhouse_tables
+    ):
+        """Insert persons and events linked by person and distinct ID for HogQL model tests.
+
+        All of this team's events share one session, which is also backfilled into
+        `raw_sessions` so queries can read the sessions table. Events and persons are also
+        inserted for another team, sharing that session ID, so tests verify the HogQL
+        printer's team scoping.
+        """
+        session_id = str(uuid7())
+        persons, _ = await generate_test_persons_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            count=3,
+            count_other_team=3,
+            properties={"utm_medium": "referral"},
+        )
+
+        events = []
+        for person in persons:
+            distinct_id = f"distinct-id-{person['id']}"
+            await generate_test_person_distinct_id2_in_clickhouse(
+                client=clickhouse_client,
+                team_id=ateam.pk,
+                person_id=uuid.UUID(person["id"]),
+                distinct_id=distinct_id,
+                timestamp=dt.datetime.fromisoformat(person["_timestamp"]),
+            )
+            person_events = generate_test_events(
+                count=2,
+                team_id=ateam.pk,
+                possible_datetimes=[data_interval_start, data_interval_end - dt.timedelta(minutes=1)],
+                event_name="test-{i}",
+                properties={"$browser": "Chrome", "$session_id": session_id, "custom": 'nope-100%-{"a": 1}'},
+                distinct_ids=[distinct_id],
+            )
+            for event in person_events:
+                event["person_id"] = person["id"]
+            events.extend(person_events)
+
+        events_from_other_team = generate_test_events(
+            count=3,
+            team_id=ateam.pk + random.randint(1, 1000),
+            possible_datetimes=[data_interval_start],
+            event_name="test-{i}",
+            properties={"$browser": "Chrome", "$session_id": session_id},
+        )
+        await insert_event_values_in_clickhouse(
+            client=clickhouse_client, events=events + events_from_other_team, table="sharded_events"
+        )
+        await insert_sessions_in_clickhouse(client=clickhouse_client, table="sharded_events")
+
+        return events, persons
+
+    @pytest.mark.parametrize(
+        "hogql_query,expected_columns,build_expected_rows",
+        [
+            pytest.param(
+                """
+                SELECT event AS event, distinct_id AS distinct_id, properties.$browser AS browser
+                FROM events
+                WHERE event != 'filter_out'
+                """,
+                ["event", "distinct_id", "browser"],
+                lambda events, persons: [(e["event"], e["distinct_id"], "Chrome") for e in events],
+                id="events",
+            ),
+            # Add some special characters to the query to ensure it is properly escaped
+            pytest.param(
+                """
+                SELECT event AS event, distinct_id AS distinct_id, properties.$browser AS browser
+                FROM events
+                WHERE event != 'filter-%-{"a": 1}'
+                """,
+                ["event", "distinct_id", "browser"],
+                lambda events, persons: [(e["event"], e["distinct_id"], "Chrome") for e in events],
+                id="events-with-special-chars",
+            ),
+            pytest.param(
+                "SELECT toString(id) AS id, properties.utm_medium AS utm_medium FROM persons",
+                ["id", "utm_medium"],
+                lambda events, persons: [(p["id"], "referral") for p in persons],
+                id="persons",
+            ),
+            # every event shares one session, and the other team's events share its ID
+            pytest.param(
+                "SELECT session_id AS session_id FROM sessions",
+                ["session_id"],
+                lambda events, persons: [(events[0]["properties"]["$session_id"],)],
+                id="sessions",
+            ),
+            pytest.param(
+                """
+                SELECT events.event AS event, persons.properties.utm_medium AS medium
+                FROM events
+                INNER JOIN persons ON events.person_id = persons.id
+                """,
+                ["event", "medium"],
+                lambda events, persons: [(e["event"], "referral") for e in events],
+                id="events-join-persons",
+            ),
+            pytest.param(
+                """
+                WITH ev AS (SELECT event AS event, person_id AS person_id FROM events)
+                SELECT ev.event AS event, persons.properties.utm_medium AS medium
+                FROM ev
+                INNER JOIN persons ON ev.person_id = persons.id
+                """,
+                ["event", "medium"],
+                lambda events, persons: [(e["event"], "referral") for e in events],
+                id="cte-join",
+            ),
+            # A UNION parses to an ast.SelectSetQuery rather than an ast.SelectQuery
+            pytest.param(
+                """
+                SELECT event AS event, 'first' AS part FROM events
+                UNION ALL
+                SELECT event AS event, 'second' AS part FROM events
+                """,
+                ["event", "part"],
+                lambda events, persons: (
+                    [(e["event"], "first") for e in events] + [(e["event"], "second") for e in events]
+                ),
+                id="union",
+            ),
+        ],
+    )
+    async def test_stages_expected_data(
+        self,
+        hogql_model_test_data,
+        activity_environment,
+        object_storage_client,
+        ateam,
+        data_interval_start,
+        data_interval_end,
+        hogql_query,
+        expected_columns,
+        build_expected_rows,
+    ):
+        """insert_into_internal_stage_activity stages correct data for a user-defined HogQL query.
+
+        The data interval has no meaning for the HogQL model currently: the query is executed as-is,
+        scoped to the team by the HogQL printer, and we don't wait for the interval end to pass.
+        Each case asserts exact rows and column names (aliases) read back from the staged Arrow
+        files.
+        """
+        events, persons = hogql_model_test_data
+
+        with patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage.wait_for_delta_past_data_interval_end"
+        ) as mock_wait:
+            exported_rows = await _run_activity(
+                activity_environment=activity_environment,
+                object_storage_client=object_storage_client,
+                team_id=ateam.pk,
+                data_interval_start=data_interval_start,
+                data_interval_end=data_interval_end,
+                model=BatchExportModel(name="hogql", schema=None, hogql_query=hogql_query),
+            )
+
+        assert all(list(row.keys()) == expected_columns for row in exported_rows)
+        assert sorted(tuple(row[column] for column in expected_columns) for row in exported_rows) == sorted(
+            build_expected_rows(events, persons)
+        )
+        mock_wait.assert_not_called()
+
+    async def test_stages_expected_data_for_warehouse_view(
+        self,
+        hogql_model_test_data,
+        activity_environment,
+        object_storage_client,
+        ateam,
+        data_interval_start,
+        data_interval_end,
+    ):
+        """A HogQL query selecting from a data warehouse view (saved query) stages the view's rows.
+
+        Non-materialized saved queries are inlined as subqueries at query resolution time, so
+        no materialization is required. Column metadata is required though: field resolution
+        against a view goes through its declared columns (the API computes these on create).
+        """
+        await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+            team=ateam,
+            name="events_view",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT toString(uuid) AS event_id, event AS event, distinct_id AS distinct_id FROM events",
+            },
+            columns={"event_id": "String", "event": "String", "distinct_id": "String"},
+        )
+
+        exported_rows = await _run_activity(
+            activity_environment=activity_environment,
+            object_storage_client=object_storage_client,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            model=BatchExportModel(
+                name="hogql", schema=None, hogql_query="SELECT event_id, event, distinct_id FROM events_view"
+            ),
+        )
+
+        events, _ = hogql_model_test_data
+        assert sorted((row["event_id"], row["event"], row["distinct_id"]) for row in exported_rows) == sorted(
+            (e["uuid"], e["event"], e["distinct_id"]) for e in events
+        )
+
+        # also assert doing a SELECT * works (should give same result)
+        exported_rows_2 = await _run_activity(
+            activity_environment=activity_environment,
+            object_storage_client=object_storage_client,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            model=BatchExportModel(name="hogql", schema=None, hogql_query="SELECT * FROM events_view"),
+        )
+        assert sorted((row["event_id"], row["event"], row["distinct_id"]) for row in exported_rows_2) == sorted(
+            (e["uuid"], e["event"], e["distinct_id"]) for e in events
+        )
+
+    @override_settings(
+        BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME=900,
+        BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE=30_000_000_000,
+        BATCH_EXPORT_HOGQL_MAX_BYTES_TO_READ=200_000_000_000,
+    )
+    async def test_applies_settings_and_log_comment(
+        self,
+        hogql_model_test_data,
+        activity_environment,
+        object_storage_client,
+        ateam,
+        clickhouse_client,
+        data_interval_start,
+        data_interval_end,
+    ):
+        """The per-query resource limits and log comment reach the query ClickHouse actually runs.
+
+        Neither is written into the query text; they are both sent as query parameters, so this
+        asserts against ClickHouse's own record of the query rather than the SQL we generated. This
+        also proves the settings names are ones ClickHouse accepts — it rejects unknown settings, so
+        a typo would fail the export rather than being silently dropped.
+        """
+        batch_export_id = str(uuid.uuid4())
+
+        await _run_activity(
+            activity_environment=activity_environment,
+            object_storage_client=object_storage_client,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            model=BatchExportModel(name="hogql", schema=None, hogql_query="SELECT event AS event FROM events"),
+            batch_export_id=batch_export_id,
+        )
+
+        # `Settings` in `system.query_log` records only settings changed from their default, so the
+        # overflow modes are absent here (`throw` is already ClickHouse's default, and we pin it only
+        # to avoid inheriting a `break` from a cluster profile). That we send them is covered by
+        # `test_get_clickhouse_request_settings`.
+        actual_settings = await _fetch_staging_query_settings(
+            clickhouse_client,
+            batch_export_id,
+            [
+                "max_execution_time",
+                "max_memory_usage",
+                "max_bytes_before_external_sort",
+                "max_bytes_ratio_before_external_sort",
+                "max_bytes_to_read",
+            ],
+        )
+        assert actual_settings == [["900", "30000000000", "15000000000", "0", "200000000000"]]

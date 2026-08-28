@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 import { DateRange, FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest, UniversalFiltersGroup } from '../../frontend/src/types'
+import { configurationRedirect, resolveSettingSlug } from './frontend/settingsRedirects'
 
 export const manifest: ProductManifest = {
     name: 'Error tracking',
@@ -28,23 +29,33 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Error tracking issue fingerprints',
         },
+        ErrorTrackingFingerprint: {
+            import: () => import('./frontend/scenes/ErrorTrackingFingerprintScene/ErrorTrackingFingerprintScene'),
+            projectBased: true,
+            name: 'Error tracking fingerprint',
+        },
     },
     routes: {
         '/error_tracking': ['ErrorTracking', 'errorTracking'],
+        '/error_tracking/fingerprint/*': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
+        '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
+        '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
         '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
         '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
-        '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
-        '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     },
     redirects: {
-        '/error_tracking/configuration': (_params, searchParams, hashParams) => {
-            const { tab, ...restSearchParams } = searchParams
-            return combineUrl(
-                '/error_tracking',
-                { ...restSearchParams, activeTab: 'configuration' },
-                { ...hashParams, ...(tab ? { selectedSetting: tab } : {}) }
-            ).url
-        },
+        '/error_tracking/configuration': (_params, searchParams, hashParams) =>
+            configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+        '/error_tracking/configuration/:tab': (params, searchParams, hashParams) =>
+            configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+        '/error_tracking/settings': (_params, searchParams, hashParams) =>
+            configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+        '/error_tracking/settings/:tab': (params, searchParams, hashParams) =>
+            configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+        '/error_tracking/symbol_sets': (_params, searchParams, hashParams) =>
+            configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
+        '/error_tracking/symbol-sets': (_params, searchParams, hashParams) =>
+            configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
     },
     urls: {
         errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
@@ -58,9 +69,18 @@ export const manifest: ProductManifest = {
                 searchQuery?: string
                 dateRange?: DateRange
                 filterGroup?: UniversalFiltersGroup
+                utm_source?: string
+                utm_campaign?: string
+                utm_medium?: string
             } = {}
         ): string => combineUrl(`/error_tracking/${id}`, params).url,
         errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
+        errorTrackingFingerprint: (
+            fingerprint: string,
+            params: {
+                timestamp?: string
+            } = {}
+        ): string => combineUrl(`/error_tracking/fingerprint/${encodeURIComponent(fingerprint)}`, params).url,
         errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
         errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
     },

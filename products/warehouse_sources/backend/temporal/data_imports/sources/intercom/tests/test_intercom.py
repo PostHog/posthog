@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterable
 from typing import Any, cast
 
 import pytest
@@ -16,20 +17,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom import intercom as intercom_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.intercom import (
     INTERCOM_API_BASE,
+    IntercomPagesPaginator,
     IntercomSearchPaginator,
     _build_paginator,
     _build_search_body,
     _company_segments_generator,
     _conversation_parts_generator,
+    _drain_company_ids,
+    _intercom_get,
+    _is_rate_limited,
     _is_scroll_exists,
     _is_server_error,
     _iter_companies,
     _make_intercom_session,
+    _rate_limit_backoff_seconds,
+    _substream_items,
     get_resource,
     intercom_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
 
 
 def _make_response(json_body: Any, status_code: int = 200, text: str = "") -> Response:
@@ -165,6 +173,7 @@ class TestBuildPaginator:
             ("search", IntercomSearchPaginator),
             ("cursor", JSONResponseCursorPaginator),
             ("next_url", JSONResponsePaginator),
+            ("pages", IntercomPagesPaginator),
             ("single", SinglePagePaginator),
         ],
     )
@@ -172,6 +181,87 @@ class TestBuildPaginator:
         cfg = mock.MagicMock()
         cfg.paginator_kind = kind
         assert isinstance(_build_paginator(cfg), expected_type)
+
+
+PAGES_ENDPOINTS = [name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.paginator_kind == "pages"]
+
+
+class TestPagesPaginator:
+    # Intercom's OpenAPI description types `pages.next` on the Help Center and News lists
+    # as a `{"starting_after": ...}` object, but the live Help Center endpoints return a
+    # plain next-page URL there. Guessing wrong either way is a real failure: treating a
+    # cursor object as a URL puts a dict on `request.url`, and treating a URL as a cursor
+    # silently truncates the table to its first page.
+    def test_follows_next_url_when_next_is_a_string(self):
+        paginator = IntercomPagesPaginator()
+        paginator.update_state(_make_response({"pages": {"next": "https://api.intercom.io/x?page=2"}}))
+
+        request = Request(method="GET", url=f"{INTERCOM_API_BASE}/x", params={"per_page": 150})
+        paginator.update_request(request)
+
+        assert paginator.has_next_page is True
+        assert request.url == "https://api.intercom.io/x?page=2"
+        assert request.params == {}
+
+    def test_sends_starting_after_when_next_is_a_cursor_object(self):
+        paginator = IntercomPagesPaginator()
+        paginator.update_state(_make_response({"pages": {"next": {"starting_after": "cursor-1"}}}))
+
+        request = Request(method="GET", url=f"{INTERCOM_API_BASE}/x", params={"per_page": 150})
+        paginator.update_request(request)
+
+        assert paginator.has_next_page is True
+        assert request.url == f"{INTERCOM_API_BASE}/x"
+        assert request.params == {"per_page": 150, "starting_after": "cursor-1"}
+
+    def test_cursor_page_does_not_reuse_a_previous_next_url(self):
+        # An endpoint that switches shapes mid-walk must not keep pointing at the URL
+        # from the earlier page, which would refetch it forever.
+        paginator = IntercomPagesPaginator()
+        paginator.update_state(_make_response({"pages": {"next": "https://api.intercom.io/x?page=2"}}))
+        paginator.update_state(_make_response({"pages": {"next": {"starting_after": "cursor-2"}}}))
+
+        request = Request(method="GET", url=f"{INTERCOM_API_BASE}/x", params={})
+        paginator.update_request(request)
+
+        assert request.url == f"{INTERCOM_API_BASE}/x"
+        assert request.params == {"starting_after": "cursor-2"}
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            # Last page of a paginated endpoint.
+            {"pages": {"next": None}},
+            {"pages": {"next": {"starting_after": None}}},
+            {"pages": {"page": 1, "total_pages": 1}},
+            # Endpoints that return no pagination block at all.
+            {"pages": None},
+            {"data": []},
+        ],
+    )
+    def test_terminates_without_a_next_page(self, body: Any):
+        paginator = IntercomPagesPaginator()
+        paginator.update_state(_make_response(body))
+
+        assert paginator.has_next_page is False
+
+    def test_terminates_on_non_json_body(self):
+        paginator = IntercomPagesPaginator()
+        paginator.update_state(_make_response(None, text="<html>bad gateway</html>"))
+
+        assert paginator.has_next_page is False
+
+    def test_stops_when_the_cursor_stops_advancing(self):
+        # A repeated cursor would refetch the same page until the Temporal activity
+        # times out, which for these tables is a very long time to spend on one page.
+        paginator = IntercomPagesPaginator()
+        body = {"pages": {"next": {"starting_after": "cursor-1"}}}
+
+        paginator.update_state(_make_response(body))
+        assert paginator.has_next_page is True
+
+        paginator.update_state(_make_response(body))
+        assert paginator.has_next_page is False
 
 
 NON_SUBSTREAM_ENDPOINTS = [name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.paginator_kind != "substream"]
@@ -222,19 +312,6 @@ class TestGetResource:
         assert _endpoint(resource)["params"]["created_at_after"] == expected_cursor
         assert resource["write_disposition"] == expected_disposition
 
-    def test_post_list_endpoint_sets_per_page_body(self):
-        resource = get_resource(
-            "companies",
-            should_use_incremental_field=False,
-            incremental_field=None,
-            db_incremental_field_last_value=None,
-        )
-
-        endpoint = _endpoint(resource)
-        assert endpoint["method"] == "POST"
-        assert endpoint["json"] == {"per_page": INTERCOM_ENDPOINTS["companies"].page_size}
-        assert resource["write_disposition"] == "replace"
-
     @pytest.mark.parametrize(
         "endpoint_name,expected_model",
         [("company_attributes", "company"), ("contact_attributes", "contact")],
@@ -248,6 +325,25 @@ class TestGetResource:
         )
 
         assert _endpoint(resource)["params"] == {"model": expected_model}
+
+    @pytest.mark.parametrize("name", PAGES_ENDPOINTS)
+    def test_pages_endpoints_stay_full_refresh(self, name: str):
+        # These endpoints expose no server-side timestamp filter, so they declare no
+        # incremental fields. Even if the pipeline were to pass an incremental field
+        # through, they must keep paging with plain `per_page` and stay on `replace` —
+        # merge-upserting a table with no cursor would silently freeze deletions.
+        resource = get_resource(
+            name,
+            should_use_incremental_field=True,
+            incremental_field="updated_at",
+            db_incremental_field_last_value="1700000000",
+        )
+
+        assert resource["write_disposition"] == "replace"
+        endpoint = _endpoint(resource)
+        assert endpoint["params"] == {"per_page": INTERCOM_ENDPOINTS[name].page_size}
+        assert "json" not in endpoint
+        assert isinstance(endpoint["paginator"], IntercomPagesPaginator)
 
     def test_single_endpoint_without_params(self):
         resource = get_resource(
@@ -264,6 +360,48 @@ class TestGetResource:
         assert resource["name"] == name
         assert resource["table_name"] == name
         assert resource["table_format"] == "delta"
+
+
+class TestNoSourceLevelTypeCoercion:
+    # Type flips (Intercom returning a field as an int on some rows and a string on others)
+    # are stabilized generically when batches are built, not by naming fields per endpoint.
+    # These guard against a per-field allowlist creeping back in.
+
+    @pytest.mark.parametrize("name", NON_SUBSTREAM_ENDPOINTS)
+    def test_no_endpoint_declares_a_data_map(self, name: str):
+        resource = get_resource(
+            name, should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
+        )
+        assert "data_map" not in resource
+
+    def test_substream_rows_pass_through_untouched(self):
+        mock_session = mock.MagicMock()
+        mock_session.post.side_effect = [
+            _make_response({"conversations": [{"id": "c1"}], "pages": {}}),
+        ]
+        mock_session.get.side_effect = [
+            _make_response(
+                {
+                    "conversation_parts": {
+                        "conversation_parts": [
+                            {"id": "p1", "waiting_since": 1700000000},
+                            {"id": "p2", "waiting_since": "1700000001"},
+                            {"id": "p3", "waiting_since": None},
+                        ]
+                    }
+                }
+            ),
+        ]
+
+        parts = list(_substream_items(mock_session, "conversation_parts", "updated_at", None))
+
+        assert [p["waiting_since"] for p in parts] == [1700000000, "1700000001", None]
+
+    def test_unknown_substream_endpoint_raises(self):
+        # Adding a substream endpoint config without wiring it into _substream_items
+        # must fail loud, not silently yield nothing.
+        with pytest.raises(ValueError):
+            list(_substream_items(mock.MagicMock(), "not_a_real_endpoint", None, None))
 
 
 class TestSubstreamGenerators:
@@ -379,6 +517,46 @@ class TestSubstreamGenerators:
         last_scroll = max(i for i, u in enumerate(urls) if u.endswith("/companies/scroll"))
         first_segments = min(i for i, u in enumerate(urls) if u.endswith("/segments"))
         assert last_scroll < first_segments
+
+    def test_company_segments_restarts_scroll_on_expired_cursor(self):
+        # The observed failure: the companies scroll cursor expires mid-drain and
+        # the continuation 404s (GET /companies/scroll?scroll_param=...). Because ids
+        # are drained before any segment is yielded, restarting the walk from the
+        # beginning is safe — nothing has been written yet — so the drain re-walks
+        # and the sync continues instead of failing the whole run.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            # First drain: one page, then the continuation 404s (expired scroll).
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response(None, status_code=404, text="Not Found"),
+            # Restarted drain from the beginning: walks to completion.
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s2"}),
+            _make_response({"data": []}),
+            # Segment fetch for the drained company.
+            _make_response({"data": [{"id": "seg1"}]}),
+        ]
+
+        segments = list(_company_segments_generator(mock_session))
+
+        assert [s["id"] for s in segments] == ["seg1"]
+        assert segments[0]["company_id"] == "co1"
+        # The retried open carries no scroll_param — a scroll only restarts from
+        # the beginning, never resumes from the dead cursor.
+        assert mock_session.get.call_args_list[2].kwargs["params"] is None
+
+    def test_drain_company_ids_reraises_expired_cursor_after_max_retries(self):
+        # A persistently-invalidated scroll must surface after the bounded retries
+        # rather than re-walking forever.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response(None, status_code=404, text="Not Found")
+            for _ in range(intercom_module._SCROLL_EXPIRED_MAX_RETRIES + 1)
+        ]
+
+        with pytest.raises(HTTPError):
+            _drain_company_ids(mock_session)
+
+        assert mock_session.get.call_count == intercom_module._SCROLL_EXPIRED_MAX_RETRIES + 1
 
     def test_iter_companies_walks_scroll(self):
         # `POST /companies/list` is capped at 10,000 companies (60 * 167 page
@@ -551,6 +729,68 @@ class TestCompaniesScrollServerError:
         assert mock_session.get.call_count == intercom_module._SCROLL_SERVER_ERROR_MAX_RETRIES + 2
 
 
+class TestRateLimitRetry:
+    @pytest.mark.parametrize(
+        "status_code,expected",
+        [
+            (429, True),
+            (400, False),
+            (404, False),
+            (500, False),
+            (200, False),
+        ],
+    )
+    def test_is_rate_limited(self, status_code: int, expected: bool):
+        assert _is_rate_limited(_http_error(None, status_code=status_code, text="boom")) is expected
+
+    def test_backoff_honors_retry_after_header(self):
+        resp = _make_response(None, status_code=429, text="Too Many Requests")
+        resp.headers["Retry-After"] = "7"
+        assert _rate_limit_backoff_seconds(resp, default=10.0) == 7.0
+
+    @pytest.mark.parametrize("raw", [None, "not-a-number"])
+    def test_backoff_falls_back_without_usable_retry_after(self, raw: str | None):
+        resp = _make_response(None, status_code=429, text="Too Many Requests")
+        if raw is not None:
+            resp.headers["Retry-After"] = raw
+        assert _rate_limit_backoff_seconds(resp, default=10.0) == 10.0
+
+    def test_company_segments_retries_rate_limited_segment_fetch(self):
+        # The observed failure: a burst of per-company `/companies/{id}/segments`
+        # fetches trips Intercom's rate limit and 429s. Riding out the window inline
+        # lets the walk continue instead of failing the whole sync. Scroll is drained
+        # first (two GETs), then the segment fetch 429s once and succeeds on retry.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": []}),
+            _make_response(None, status_code=429, text="Too Many Requests"),
+            _make_response({"data": [{"id": "seg1"}]}),
+        ]
+
+        with mock.patch.object(intercom_module.time, "sleep") as sleep:
+            segments = list(_company_segments_generator(mock_session))
+
+        assert [s["id"] for s in segments] == ["seg1"]
+        assert segments[0]["company_id"] == "co1"
+        sleep.assert_called_once_with(intercom_module._RATE_LIMIT_BACKOFF_SECONDS)
+
+    def test_intercom_get_reraises_rate_limit_after_max_retries(self):
+        # A persistent 429 must surface after the bounded retries rather than
+        # looping forever, so Temporal can retry the activity.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response(None, status_code=429, text="Too Many Requests")
+            for _ in range(intercom_module._RATE_LIMIT_MAX_RETRIES + 1)
+        ]
+
+        with mock.patch.object(intercom_module.time, "sleep"):
+            with pytest.raises(HTTPError):
+                _intercom_get(mock_session, "/companies/co1/segments")
+
+        assert mock_session.get.call_count == intercom_module._RATE_LIMIT_MAX_RETRIES + 1
+
+
 class TestSubstreamSessionRetries:
     def test_idempotent_search_posts_are_retryable(self):
         # The substream walk reaches `/conversations/search` and `/companies/list`
@@ -558,7 +798,7 @@ class TestSubstreamSessionRetries:
         # read timeout on those calls would propagate unretried (unlike the GETs in
         # the same walk). These POSTs are read-only/idempotent, so the session must
         # retry them on transient read timeouts and 429/5xx.
-        session = _make_intercom_session("token")
+        session = _make_intercom_session("token", "2.13")
         retry = cast(HTTPAdapter, session.get_adapter(INTERCOM_API_BASE)).max_retries
         allowed_methods = cast("frozenset[str]", retry.allowed_methods)
 
@@ -582,9 +822,67 @@ class TestIntercomSource:
                 endpoint=endpoint,
                 team_id=1,
                 job_id="job-1",
+                api_version="2.15",
             )
 
         assert response.name == endpoint
         assert response.primary_keys == cfg.primary_keys
         assert response.partition_keys == [cfg.partition_key]
         assert response.sort_mode == cfg.sort_mode
+
+    def test_companies_routes_through_scroll_api(self):
+        # `companies` must walk the un-capped Scroll API, never `POST /companies/list`
+        # (capped at 10,000 — paging past it returns `400 page limit reached`). This
+        # guards the dispatch: if the endpoint config reverts to a list/next_url
+        # paginator it would 400 on large workspaces. The walk itself is covered by
+        # `test_iter_companies_walks_scroll`.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": [], "scroll_param": "s2"}),
+        ]
+
+        with mock.patch.object(intercom_module, "make_tracked_session", return_value=mock_session):
+            response = intercom_source(
+                access_token="token", endpoint="companies", team_id=1, job_id="job-1", api_version="2.15"
+            )
+            # `items()` is typed `Iterable | AsyncIterable`; the scroll path yields a sync iterator.
+            companies = list(cast(Iterable[dict[str, Any]], response.items()))
+
+        assert [c["id"] for c in companies] == ["co1"]
+        urls = [call.args[0] for call in mock_session.get.call_args_list]
+        assert urls and all(url.endswith("/companies/scroll") for url in urls)
+
+
+class TestVersionDispatch:
+    # The resolved pin must reach the wire as the `Intercom-Version` header for every
+    # supported version, on both request paths (session-based scroll/substream, and the
+    # framework REST path). Parameterizing over the source's declared versions keeps the
+    # coverage honest when a version is added.
+    @pytest.mark.parametrize("api_version", IntercomSource.supported_versions)
+    def test_session_path_sends_pinned_version_header(self, api_version: str):
+        captured: dict[str, Any] = {}
+
+        def fake_session(headers: dict[str, str], retry: Any) -> mock.MagicMock:
+            captured["headers"] = headers
+            session = mock.MagicMock()
+            session.get.return_value = _make_response({"data": [], "scroll_param": None})
+            return session
+
+        with mock.patch.object(intercom_module, "make_tracked_session", side_effect=fake_session):
+            response = intercom_source(
+                access_token="token", endpoint="companies", team_id=1, job_id="job-1", api_version=api_version
+            )
+            list(cast(Iterable[dict[str, Any]], response.items()))
+
+        assert captured["headers"]["Intercom-Version"] == api_version
+
+    @pytest.mark.parametrize("api_version", IntercomSource.supported_versions)
+    def test_rest_path_sends_pinned_version_header(self, api_version: str):
+        with mock.patch.object(intercom_module, "rest_api_resource", return_value=object()) as mock_rest:
+            intercom_source(
+                access_token="token", endpoint="contacts", team_id=1, job_id="job-1", api_version=api_version
+            )
+
+        config = mock_rest.call_args.args[0]
+        assert config["client"]["headers"]["Intercom-Version"] == api_version

@@ -15,6 +15,8 @@ export interface MonacoDiffEditorProps {
     theme?: string | null
     options?: monaco.editor.IDiffEditorConstructionOptions
     onChange?: (value: string, event: monaco.editor.IModelContentChangedEvent) => void
+    /** Make the right (modified) pane editable, keeping the left pane read-only. Defaults to read-only. */
+    modifiedEditable?: boolean
     className?: string | null
     originalUri?: (m: typeof monaco) => monaco.Uri
     modifiedUri?: (m: typeof monaco) => monaco.Uri
@@ -42,6 +44,7 @@ function MonacoDiffEditor(
         theme = null,
         options = {},
         onChange = () => {},
+        modifiedEditable = false,
         className = null,
         originalUri,
         modifiedUri,
@@ -90,7 +93,8 @@ function MonacoDiffEditor(
             ...(className ? { extraEditorClassName: className } : {}),
             ...options,
             ...(theme ? { theme } : {}),
-            readOnly: true,
+            // readOnly only governs the modified (right) pane; the original pane is always read-only.
+            readOnly: !modifiedEditable,
         })
 
         // Create models
@@ -141,8 +145,9 @@ function MonacoDiffEditor(
         editorRef.current?.updateOptions({
             ...(className ? { extraEditorClassName: className } : {}),
             ...options,
+            readOnly: !modifiedEditable,
         })
-    }, [className, options])
+    }, [className, options, modifiedEditable])
 
     // Update layout on size changes
     useEffect(() => {
@@ -159,12 +164,12 @@ function MonacoDiffEditor(
         }
     }, [language])
 
-    // Update value
+    // Update value. Skip when the model already matches, so an editable pane echoing its own
+    // onChange back through props does not reset the caret.
     useEffect(() => {
         const model = editorRef.current?.getModel()
-        if (model) {
-            const { modified: modifiedEditor } = model
-            modifiedEditor.setValue(modified ?? '')
+        if (model && model.modified.getValue() !== (modified ?? '')) {
+            model.modified.setValue(modified ?? '')
         }
     }, [modified])
 

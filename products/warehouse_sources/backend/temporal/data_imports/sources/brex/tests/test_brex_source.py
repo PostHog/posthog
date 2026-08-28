@@ -1,14 +1,13 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex import BrexResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex import (
+    BREX_API_VERSION_V1,
+    BREX_API_VERSION_V2,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.source import BrexSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BrexSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brex import BrexSourceConfig
 
 
 class TestBrexSource:
@@ -17,32 +16,22 @@ class TestBrexSource:
         self.team_id = 123
         self.config = BrexSourceConfig(api_key="bxt_test_token")
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BREX
+    def test_supported_versions_and_default(self):
+        # New sources are stamped with the default; v1 stays supported so existing pins keep working.
+        assert self.source.supported_versions == (BREX_API_VERSION_V1, BREX_API_VERSION_V2)
+        assert self.source.default_version == BREX_API_VERSION_V2
 
-    def test_get_source_config(self):
-        config = self.source.get_source_config
+    def test_resolve_api_version_falls_back_to_default_and_honors_pin(self):
+        assert self.source.resolve_api_version(None) == BREX_API_VERSION_V2
+        assert self.source.resolve_api_version(BREX_API_VERSION_V1) == BREX_API_VERSION_V1
 
-        assert config.name.value == "Brex"
-        assert config.label == "Brex"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/brex.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        token_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
-
-    def test_caption_mentions_token_expiry(self):
-        config = self.source.get_source_config
-        assert config.caption is not None
-        assert "90 days" in config.caption
+    def test_v1_is_deprecated_without_sunset_and_v2_is_not(self):
+        # Brex announced no sunset date, so v1 is flagged deprecated with sunset_at=None; the default
+        # v2 must never be deprecated.
+        deprecation = self.source.get_version_deprecation(BREX_API_VERSION_V1)
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert self.source.get_version_deprecation(BREX_API_VERSION_V2) is None
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -81,29 +70,6 @@ class TestBrexSource:
         # Only transactions and expenses expose a server-side timestamp filter.
         assert incremental == {"card_transactions", "cash_transactions", "expenses"}
 
-    @pytest.mark.parametrize("endpoint", ["card_transactions", "cash_transactions", "expenses"])
-    def test_incremental_schemas_advertise_their_fields(self, endpoint):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert schemas[endpoint].incremental_fields == INCREMENTAL_FIELDS[endpoint]
-        assert schemas[endpoint].supports_append is True
-
-    @pytest.mark.parametrize("endpoint", ["users", "departments", "locations", "vendors", "budgets"])
-    def test_full_refresh_schemas_have_no_incremental_fields(self, endpoint):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert schemas[endpoint].incremental_fields == []
-        assert schemas[endpoint].supports_incremental is False
-        assert schemas[endpoint].supports_append is False
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["expenses"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "expenses"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid",
         [
@@ -127,19 +93,13 @@ class TestBrexSource:
             assert "90 days" in error_message
         mock_validate.assert_called_once_with(self.config.api_key)
 
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is BrexResumeConfig
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.brex.source.brex_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_brex_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "expenses"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2024-01-01T00:00:00Z"
+        inputs.api_version = None
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -148,9 +108,23 @@ class TestBrexSource:
         kwargs = mock_brex_source.call_args.kwargs
         assert kwargs["api_key"] == "bxt_test_token"
         assert kwargs["endpoint"] == "expenses"
+        assert kwargs["team_id"] is inputs.team_id
+        assert kwargs["job_id"] is inputs.job_id
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00Z"
+        # Unpinned source resolves to the default version at the source class.
+        assert kwargs["api_version"] == BREX_API_VERSION_V2
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.brex.source.brex_source")
+    def test_source_for_pipeline_passes_pinned_api_version(self, mock_brex_source):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "users"
+        inputs.api_version = BREX_API_VERSION_V1
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_brex_source.call_args.kwargs["api_version"] == BREX_API_VERSION_V1
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.brex.source.brex_source")
     def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_brex_source):

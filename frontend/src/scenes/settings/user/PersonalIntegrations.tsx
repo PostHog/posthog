@@ -4,9 +4,13 @@ import { IconGithub, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { buildGithubDisconnectDescription } from 'lib/integrations/githubDisconnectCopy'
+import { GitHubInstallRequestsBanner } from 'lib/integrations/GitHubInstallRequestsBanner'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
 import { userGithubIntegrationLogic } from 'lib/integrations/userGithubIntegrationLogic'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import {
     LinkableSlackWorkspace,
@@ -22,8 +26,12 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
     const accountType = integration.account?.type
     const accountName = integration.account?.name
 
-    const logic = installationId ? userGithubIntegrationLogic({ installationId }) : null
-    const { repositories, repositoriesLoading } = useValues(logic ?? userGithubIntegrationLogic({ installationId: '' }))
+    const repositorySelection = integration.repository_selection
+    const logic = installationId ? userGithubIntegrationLogic({ installationId, repositorySelection }) : null
+    const { repositories, repositoriesLoading, repositoriesTotal } = useValues(
+        logic ?? userGithubIntegrationLogic({ installationId: '' })
+    )
+    const installationUnavailable = integration.installation_status === 'unavailable'
 
     const handleDisconnect = (): void => {
         LemonDialog.open({
@@ -31,12 +39,15 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
             description: (
                 <>
                     <LemonBanner type="warning" className="my-4 text-balance">
-                        Any PostHog Code agent runs <em>currently in progress</em> will be unable to push commits or
+                        Any PostHog Desktop agent runs <em>currently in progress</em> will be unable to push commits or
                         open pull requests on GitHub.
                     </LemonBanner>
                     <p>
-                        PostHog will no longer be able to access repos from this installation or act on your behalf
-                        there.
+                        {buildGithubDisconnectDescription(
+                            accountName || 'this account',
+                            !!integration.installation_shared,
+                            'account'
+                        )}
                     </p>
                 </>
             ),
@@ -82,8 +93,16 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
                         installationId={installationId}
                         accountType={accountType}
                         accountName={accountName}
+                        repositorySelection={repositorySelection}
+                        total={repositoriesTotal}
                     />
                 </div>
+                {installationUnavailable ? (
+                    <LemonBanner type="error" className="mt-2">
+                        The PostHog app was removed from GitHub. Disconnect this installation, then connect again if you
+                        still need it.
+                    </LemonBanner>
+                ) : null}
             </div>
             <div className="flex shrink-0 items-center">
                 <LemonButton
@@ -161,7 +180,15 @@ function SlackLinkRow({ integration }: { integration: PersonalSlackIntegration }
 
 export function PersonalGitHubIntegrations(): JSX.Element {
     const { integrations, integrationsLoading, githubConnecting } = useValues(personalIntegrationsLogic)
-    const { connectGitHub } = useActions(personalIntegrationsLogic)
+    const { connectGitHub, startPolling, stopPolling } = useActions(personalIntegrationsLogic)
+    const { reportPersonalIntegrationConnectClicked } = useActions(eventUsageLogic)
+
+    // Refresh the personal rows while this section stays mounted, so an App removed on GitHub shows
+    // its unavailable notice without a manual reload.
+    useOnMountEffect(() => {
+        startPolling()
+        return () => stopPolling()
+    })
 
     if (integrationsLoading && integrations.length === 0) {
         return (
@@ -172,36 +199,48 @@ export function PersonalGitHubIntegrations(): JSX.Element {
     }
 
     return (
-        <div className="divide-y rounded border bg-surface-primary">
-            {integrations.length === 0 ? (
-                <div className="px-4 py-6 text-center text-sm text-secondary">
-                    <IconGithub className="text-3xl mb-2 opacity-40" />
-                    <p className="mb-1">No GitHub installations connected yet</p>
-                    <p className="text-xs text-muted text-balance">
-                        Connect to let PostHog access your repos, attribute commits, open pull requests, and assign
-                        issues as you. You can add multiple installations for different accounts or organizations.
-                    </p>
+        <div className="flex flex-col gap-2">
+            <GitHubInstallRequestsBanner
+                onFinishConnecting={() => {
+                    reportPersonalIntegrationConnectClicked('github')
+                    connectGitHub()
+                }}
+            />
+            <div className="divide-y rounded border bg-surface-primary">
+                {integrations.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-sm text-secondary">
+                        <IconGithub className="text-3xl mb-2 opacity-40" />
+                        <p className="mb-1">No GitHub installations connected yet</p>
+                        <p className="text-xs text-muted text-balance">
+                            Connect to let PostHog access your repos, attribute commits, open pull requests, and assign
+                            issues as you. You can add multiple installations for different accounts or organizations.
+                        </p>
+                    </div>
+                ) : (
+                    integrations.map((integration: PersonalGitHubIntegration) => (
+                        <GitHubInstallationRow key={integration.installation_id} integration={integration} />
+                    ))
+                )}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconPlus />}
+                        onClick={() => {
+                            reportPersonalIntegrationConnectClicked('github')
+                            connectGitHub()
+                        }}
+                        loading={githubConnecting}
+                        disabledReason={githubConnecting ? 'Starting GitHub installation…' : undefined}
+                    >
+                        {integrations.length === 0 ? 'Connect GitHub' : 'Add account/organization'}
+                    </LemonButton>
+                    <span className="text-xs text-secondary text-balance">
+                        Heads up: if GitHub's <strong>Save</strong> button is disabled at the end of the flow, flip
+                        between <strong>All repositories</strong> and <strong>Only select repositories</strong> to
+                        proceed.
+                    </span>
                 </div>
-            ) : (
-                integrations.map((integration: PersonalGitHubIntegration) => (
-                    <GitHubInstallationRow key={integration.installation_id} integration={integration} />
-                ))
-            )}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconPlus />}
-                    onClick={connectGitHub}
-                    loading={githubConnecting}
-                    disabledReason={githubConnecting ? 'Starting GitHub installation…' : undefined}
-                >
-                    {integrations.length === 0 ? 'Connect GitHub' : 'Add account/organization'}
-                </LemonButton>
-                <span className="text-xs text-secondary text-balance">
-                    Heads up: if GitHub's <strong>Save</strong> button is disabled at the end of the flow, flip between{' '}
-                    <strong>All repositories</strong> and <strong>Only select repositories</strong> to proceed.
-                </span>
             </div>
         </div>
     )

@@ -60,9 +60,6 @@ pub struct EventQuery {
     // legacy GET requests can include data as query param
     pub data: Option<String>,
 
-    #[serde(alias = "ver")]
-    pub lib_version: Option<String>,
-
     #[serde(alias = "_")]
     pub sent_at: Option<i64>,
 
@@ -103,8 +100,6 @@ impl EventQuery {
 pub struct EventFormData {
     pub data: Option<String>,
     pub compression: Option<Compression>,
-    #[serde(alias = "ver")]
-    pub lib_version: Option<String>,
 }
 
 #[cfg(test)]
@@ -200,15 +195,9 @@ mod tests {
     }
 
     #[test]
-    fn test_event_form_data_alias() {
-        // Test that "ver" is aliased to "lib_version"
+    fn test_event_query_ignores_ver() {
         let json = r#"{"ver":"1.2.3"}"#;
-        let form: EventFormData = serde_json::from_str(json).unwrap();
-        assert_eq!(form.lib_version, Some("1.2.3".to_string()));
-
-        // Test normal field name
-        let json = r#"{"lib_version":"1.2.3"}"#;
-        let form: EventFormData = serde_json::from_str(json).unwrap();
-        assert_eq!(form.lib_version, Some("1.2.3".to_string()));
+        let query: EventQuery = serde_json::from_str(json).unwrap();
+        assert_eq!(query.compression, None);
     }
 }

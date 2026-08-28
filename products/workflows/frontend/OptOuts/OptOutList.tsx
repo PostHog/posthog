@@ -1,17 +1,28 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronLeft, IconChevronRight, IconExternal, IconPlus, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import {
+    IconChevronLeft,
+    IconChevronRight,
+    IconDownload,
+    IconExternal,
+    IconPlus,
+    IconRefresh,
+    IconRevert,
+    IconUpload,
+} from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
+import type { MessagePreferencesApi } from 'products/messaging/frontend/generated/api.schemas'
+
 import type { MessageCategory } from './optOutCategoriesLogic'
 import { optOutListLogic } from './optOutListLogic'
-import type { OptOutEntry } from './types'
 
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })
@@ -24,6 +35,13 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         setShowAddOptOutModal,
         setNewOptOutIdentifier,
         addOptOut,
+        removeOptOut,
+        setShowImportCsvModal,
+        setCsvFile,
+        importCsv,
+        exportCsv,
+        clearCsvImportResult,
+        setSearchTerm,
     } = useActions(logic)
     const {
         selectedIdentifier,
@@ -33,7 +51,16 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         currentPage,
         showAddOptOutModal,
         addOptOutLoading,
+        removeOptOutLoading,
+        pendingRemoveIdentifier,
         newOptOutIdentifier,
+        showImportCsvModal,
+        csvFile,
+        csvImportProgress,
+        csvImportResult,
+        csvImportResultLoading,
+        csvExportLoading,
+        searchTerm,
     } = useValues(logic)
 
     const handleShowPersons = (identifier: string): void => {
@@ -57,7 +84,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
           }
         : null
 
-    const columns: LemonTableColumns<OptOutEntry> = [
+    const columns: LemonTableColumns<MessagePreferencesApi> = [
         {
             title: 'Recipient',
             dataIndex: 'identifier',
@@ -71,7 +98,8 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         },
         {
             width: 0,
-            render: function Render(_, optOutEntry: OptOutEntry): JSX.Element {
+            render: function Render(_, optOutEntry: MessagePreferencesApi): JSX.Element {
+                const removingThisRow = removeOptOutLoading && pendingRemoveIdentifier === optOutEntry.identifier
                 return (
                     <More
                         overlay={
@@ -87,6 +115,15 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                                 >
                                     Manage
                                 </LemonButton>
+                                <LemonButton
+                                    onClick={() => removeOptOut(optOutEntry.identifier)}
+                                    loading={removingThisRow}
+                                    disabledReason={removingThisRow ? 'Removing…' : undefined}
+                                    fullWidth
+                                    icon={<IconRevert />}
+                                >
+                                    Remove opt-out
+                                </LemonButton>
                             </>
                         }
                     />
@@ -101,7 +138,15 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
 
     return (
         <>
-            <div className="flex justify-end gap-2 mb-2 mt-[-3rem]">
+            <div className="flex flex-wrap justify-end gap-2 mb-2">
+                <LemonInput
+                    type="search"
+                    size="small"
+                    placeholder="Search recipients"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    className="w-60"
+                />
                 <LemonButton
                     icon={<IconPlus />}
                     size="small"
@@ -111,10 +156,32 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                     Add opt-out
                 </LemonButton>
                 <LemonButton
+                    icon={<IconUpload />}
+                    size="small"
+                    type="secondary"
+                    onClick={() => {
+                        clearCsvImportResult()
+                        setShowImportCsvModal(true)
+                    }}
+                    tooltip="Upload a CSV of recipients to opt out"
+                >
+                    Import CSV
+                </LemonButton>
+                <LemonButton
+                    icon={<IconDownload />}
+                    size="small"
+                    type="secondary"
+                    onClick={exportCsv}
+                    loading={csvExportLoading}
+                    tooltip="Download this opt-out list as a CSV"
+                >
+                    Export CSV
+                </LemonButton>
+                <LemonButton
                     icon={<IconRefresh />}
                     size="small"
                     type="secondary"
-                    onClick={loadOptOutPersons}
+                    onClick={() => loadOptOutPersons()}
                     loading={optOutPersonsLoading}
                 >
                     Reload
@@ -127,7 +194,11 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                     loading={optOutPersonsLoading}
                     loadingSkeletonRows={3}
                     rowKey="identifier"
-                    emptyState={`No opt-outs found${category?.name ? ` for ${category.name}` : ''}`}
+                    emptyState={
+                        searchTerm.trim()
+                            ? 'No opt-outs match your search'
+                            : `No opt-outs found${category?.name ? ` for ${category.name}` : ''}`
+                    }
                     size="small"
                 />
             </div>
@@ -212,11 +283,95 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                         onChange={setNewOptOutIdentifier}
                         autoFocus
                         onPressEnter={() => {
-                            if (newOptOutIdentifier.trim()) {
+                            // Guard against a second Enter mid-flight firing a duplicate POST — the
+                            // footer button already disables while loading; mirror that here.
+                            if (newOptOutIdentifier.trim() && !addOptOutLoading) {
                                 addOptOut(newOptOutIdentifier.trim())
                             }
                         }}
                     />
+                </div>
+            </LemonModal>
+
+            <LemonModal
+                isOpen={showImportCsvModal}
+                onClose={() => setShowImportCsvModal(false)}
+                title={`Import opt-outs${category?.name ? ` for ${category.name}` : ''}`}
+                description="Bring an opt-out list over from another email tool, or bulk add recipients."
+                footer={
+                    <>
+                        <LemonButton type="secondary" onClick={() => setShowImportCsvModal(false)}>
+                            Close
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={importCsv}
+                            loading={csvImportResultLoading}
+                            disabledReason={!csvFile ? 'Choose a CSV file first' : undefined}
+                        >
+                            Import
+                        </LemonButton>
+                    </>
+                }
+            >
+                <div className="space-y-3 max-w-160">
+                    <p className="mb-0">
+                        Upload a CSV with one recipient per row and a column named <code>identifier</code> or{' '}
+                        <code>email</code>. Everyone in the file is opted out of{' '}
+                        {category?.name ? <b>{category.name}</b> : 'all marketing messages'}, unless the row names a
+                        different category in a <code>category_key</code> column.
+                    </p>
+                    <p className="mb-0 text-muted">
+                        Importing never opts anyone back in, so it's safe to upload the same file twice. A file exported
+                        from here imports back as-is.
+                    </p>
+                    {csvFile ? (
+                        <div className="flex items-center justify-between border rounded p-3">
+                            <div>
+                                <div className="font-medium text-sm">{csvFile.name}</div>
+                                <div className="text-xs text-muted">{(csvFile.size / 1024).toFixed(1)} KB</div>
+                            </div>
+                            <LemonButton size="small" type="secondary" onClick={() => setCsvFile(null)}>
+                                Remove
+                            </LemonButton>
+                        </div>
+                    ) : (
+                        <LemonFileInput
+                            accept=".csv"
+                            multiple={false}
+                            value={[]}
+                            onChange={(files) => setCsvFile(files[0] || null)}
+                            showUploadedFiles={false}
+                            callToAction={
+                                <div className="border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-primary-light transition-colors cursor-pointer w-full">
+                                    <div className="text-sm text-muted">Drop a CSV file here or click to browse</div>
+                                </div>
+                            }
+                        />
+                    )}
+                    {csvImportResultLoading && csvImportProgress && csvImportProgress.total > 1000 && (
+                        <div className="text-sm text-muted">
+                            Processed {csvImportProgress.processed.toLocaleString()} of{' '}
+                            {csvImportProgress.total.toLocaleString()} recipients
+                        </div>
+                    )}
+                    {csvImportResult && (
+                        <LemonBanner type={csvImportResult.errors.length > 0 ? 'warning' : 'success'}>
+                            <div>
+                                Added {csvImportResult.opted_out.toLocaleString()} opt-outs from{' '}
+                                {csvImportResult.total.toLocaleString()} rows.
+                                {csvImportResult.skipped > 0 &&
+                                    ` Skipped ${csvImportResult.skipped.toLocaleString()} rows.`}
+                            </div>
+                            {csvImportResult.errors.length > 0 && (
+                                <ul className="mt-2 mb-0 text-xs">
+                                    {csvImportResult.errors.map((error) => (
+                                        <li key={error}>{error}</li>
+                                    ))}
+                                </ul>
+                            )}
+                        </LemonBanner>
+                    )}
                 </div>
             </LemonModal>
         </>

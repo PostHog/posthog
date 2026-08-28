@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, ValidationError
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.agent_runtime import STEP_CUSTOM_AGENT, resolve_agent_runtime
 from products.signals.backend.artefact_schemas import ArtefactContent, artefact_type_for
 from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 from products.signals.backend.custom_agent.persistence import (
@@ -22,6 +23,7 @@ from products.signals.backend.report_generation.research import (
     ActionabilityChoice,
     PriorityAssessment,
 )
+from products.signals.backend.report_generation.resolve_reviewers import rank_assignee_candidates
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult, select_repository_for_team
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
@@ -88,6 +90,13 @@ class _AssigneesResolution(BaseModel):
     assignees: list[CustomAgentAssignee] = Field(
         default_factory=list,
         description="Suggested GitHub assignees/reviewers. Return [] when no clear owner is supported by evidence.",
+    )
+    relevant_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Repo-relative file paths most relevant to this report (the code the report is about). "
+            "Used to rank assignees by recent activity in those areas."
+        ),
     )
 
 
@@ -335,8 +344,13 @@ Explain the impact/scope, not just the implementation size."""
 
 Rules:
 - Use GitHub logins only.
-- Prefer owners/authors supported by code paths, blame/commit evidence, or obvious domain ownership.
-- Return an empty list when no clear assignee is supported.
+- Suggest people supported by evidence (blame/commit history, obvious domain ownership),
+ordered by strength of evidence. Blame can be stale — your suggestions are re-ranked
+against recent commit activity in the affected areas, so focus on relevance, not recency.
+- Always fill `relevant_paths` with the repo-relative file paths this report is about;
+they drive the recency ranking. Return assignees even if you are unsure of their current
+involvement — the ranking handles that.
+- Return an empty assignees list when no clear candidate is supported by evidence.
 - Do not include placeholder users."""
 
     # ------------------------------------------------------------------
@@ -365,7 +379,48 @@ Rules:
             _AssigneesResolution,
             label="resolve_assignees",
         )
-        self.register_assignees(result.assignees)
+        assignees = await self._rank_assignees_by_area_activity(result)
+        self.register_assignees(assignees)
+
+    async def _rank_assignees_by_area_activity(self, result: _AssigneesResolution) -> list[CustomAgentAssignee]:
+        """Re-rank agent-proposed assignees through the recency-aware activity system.
+
+        Same scoring as the deterministic reviewer path: the agent's order supplies the
+        evidence weights, cached area activity supplies recency, and active-in-area
+        contributors enter as capped fallbacks. The agent's own list is the fallback when
+        there is no repository or the ranking yields nothing (e.g. no activity map yet).
+        """
+        if self.repository is None or not (result.assignees or result.relevant_paths):
+            return result.assignees
+        try:
+            ranked = await database_sync_to_async(rank_assignee_candidates, thread_sensitive=False)(
+                team_id=self.team_id,
+                repository=self.repository,
+                candidate_logins=[assignee.github_login for assignee in result.assignees],
+                touched_paths=result.relevant_paths,
+            )
+        except Exception:
+            logger.warning("custom agent assignee re-ranking failed, keeping agent order", exc_info=True)
+            return result.assignees
+        if not ranked:
+            return result.assignees
+
+        agent_by_login = {assignee.github_login: assignee for assignee in result.assignees}
+        assignees: list[CustomAgentAssignee] = []
+        for candidate in ranked:
+            agent_entry = agent_by_login.get(candidate.login)
+            assignees.append(
+                CustomAgentAssignee(
+                    github_login=candidate.login,
+                    github_name=(agent_entry.github_name if agent_entry else None) or candidate.name,
+                    relevant_commits=(
+                        agent_entry.relevant_commits
+                        if agent_entry and agent_entry.relevant_commits
+                        else candidate.commits
+                    ),
+                )
+            )
+        return assignees
 
     # ------------------------------------------------------------------
     # 6. Internal — framework entry point + private helpers (do not override)
@@ -558,10 +613,15 @@ Rules:
     def _initial_session_preamble(self) -> str:
         if self.repository:
             repository_context = (
-                f"Selected subject repository: `{self.repository}`. Use it as the main codebase for investigation."
+                f"Selected subject repository: `{self.repository}`. Use it as the main codebase for investigation - "
+                "but it's a starting point, not a boundary. If the evidence points at code in a different repository, "
+                "clone it and keep going: `gh repo clone <org>/<repo>`. Cloning a further repo is cheap."
             )
         else:
-            repository_context = "No subject repository for this run; do not assume any codebase context."
+            repository_context = (
+                "No subject repository was pre-selected for this run. But if the task does turn out to involve "
+                "a specific repository, clone it yourself (`gh repo clone <org>/<repo>`). Cloning a repo is cheap."
+            )
         return f"""You are running as a custom PostHog Signals agent.
 
 ## Initial request
@@ -602,19 +662,25 @@ Return only a JSON object matching this schema. Do not include markdown fences o
                 SIGNALS_REPORT_RESEARCH_ENV_NAME,
                 tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
             )
+            agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
+                self.team_id, STEP_CUSTOM_AGENT
+            )
             context = CustomPromptSandboxContext(
                 team_id=self.team_id,
                 user_id=self.user_id,
                 repository=self.repository,
                 sandbox_environment_id=sandbox_environment_id,
                 posthog_mcp_scopes="read_only",
-                model=self.model,
+                model=agent_runtime.model or self.model,
+                runtime_adapter=agent_runtime.runtime_adapter,
+                reasoning_effort=agent_runtime.reasoning_effort,
             )
             session, raw_text = await MultiTurnSession.start_raw(
                 prompt=prompt,
                 context=context,
                 step_name=label,
                 origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+                ai_stage=STEP_CUSTOM_AGENT,
                 internal=True,
             )
             self._session = session

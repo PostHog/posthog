@@ -3,8 +3,11 @@ from typing import Optional
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.conf import settings
 from django.db import DatabaseError
 from django.test import override_settings
+
+from parameterized import parameterized
 
 from posthog.schema import (
     HogLanguage,
@@ -22,13 +25,17 @@ from posthog.hogql.parser import parse_select
 from posthog.models import EventDefinition, PropertyDefinition
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
+    # No test here writes per-team ClickHouse data, so the per-test team isolation
+    # that ClickhouseTestMixin defaults to (CLASS_DATA_LEVEL_SETUP = False) only adds
+    # ~100ms of org/team/user creation to every test.
+    CLASS_DATA_LEVEL_SETUP = True
 
     def _expr(self, query: str, table: str = "events", debug=True) -> HogQLMetadataResponse:
         return get_hogql_metadata(
@@ -176,6 +183,34 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 ],
             },
         )
+
+    @parameterized.expand(
+        [
+            ("SELECT tiemstamp FROM events", "tiemstamp", "timestamp"),
+            ("SELECT distnct_id FROM events", "distnct_id", "distinct_id"),
+        ]
+    )
+    def test_metadata_offers_a_quick_fix_for_a_misspelled_field(self, query: str, misspelling: str, expected_fix: str):
+        metadata = self._select(query)
+
+        self.assertFalse(metadata.isValid)
+        self.assertEqual(len(metadata.errors), 1)
+        error = metadata.errors[0]
+        self.assertIn(f"Did you mean: {expected_fix}", error.message)
+        self.assertEqual(error.fix, expected_fix)
+        # The editor substitutes `fix` for the marked range, so the range has to cover the
+        # misspelling and nothing else. A span of None marks the whole query.
+        self.assertEqual(query[error.start : error.end], misspelling)
+
+    def test_metadata_offers_no_quick_fix_when_the_misspelling_heads_a_chain(self):
+        metadata = self._select("SELECT evnt.foo FROM events")
+
+        self.assertFalse(metadata.isValid)
+        self.assertEqual(len(metadata.errors), 1)
+        # Asserting the suggestion is present keeps this pinned on the chain rule: the marked range
+        # covers `evnt.foo`, so substituting `event` for it would drop the rest of the chain.
+        self.assertIn("Did you mean: event", metadata.errors[0].message)
+        self.assertIsNone(metadata.errors[0].fix)
 
     def test_metadata_warns_for_unknown_event_literal(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
@@ -502,6 +537,50 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(metadata.isValid)
         self.assertEqual(metadata.errors, [])
 
+    def test_metadata_with_clickhouse_direct_connection_does_not_report_direct_only_error(self):
+        # Regression: ClickHouse direct sources print through the native ClickHouse printer, whose
+        # direct-table guard raises "can only be queried through its direct connection" unless the
+        # context is marked direct. The metadata path did not set is_direct_query, so it reported a
+        # false error for a query that actually runs. (Postgres/MySQL direct printers lack the guard,
+        # so this only regressed for ClickHouse.)
+        source = ExternalDataSource.objects.create(
+            source_id="ch-source",
+            connection_id="ch-connection",
+            destination_id="ch-destination",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.CLICKHOUSE,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ch",
+            job_inputs={"host": "localhost", "database": "posthog"},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="events",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://clickhouse",
+            columns={
+                "uuid": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "team_id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
+            },
+        )
+        ExternalDataSchema.objects.create(name="events", team=self.team, source=source, table=table)
+
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="SELECT * FROM events LIMIT 1",
+                response=None,
+                connectionId=str(source.id),
+            ),
+            team=self.team,
+        )
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(metadata.errors, [])
+
     def test_metadata_with_direct_connection_allows_connection_metadata_function_in_expr(self):
         source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",
@@ -625,7 +704,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": query,
                 "notices": [
                     {
-                        "message": "Field 'person_id' is of type 'String'",
+                        "message": "Field 'person_id' is of type 'UUID'",
                         "start": 7,
                         "end": 16,
                         "fix": None,
@@ -637,7 +716,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "fix": f"'{cohort.name}'",
                     },
                     {
-                        "message": "Field 'person_id' is of type 'String'",
+                        "message": "Field 'person_id' is of type 'UUID'",
                         "start": 35,
                         "end": 44,
                         "fix": None,
@@ -649,7 +728,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "fix": str(cohort.pk),
                     },
                     {
-                        "message": "Field 'person_id' is of type 'String'",
+                        "message": "Field 'person_id' is of type 'UUID'",
                         "start": 59 + len(str(cohort.pk)),
                         "end": 68 + len(str(cohort.pk)),
                         "fix": None,
@@ -670,6 +749,9 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         PropertyDefinition.objects.create(team=self.team, name="string", property_type="String")
         PropertyDefinition.objects.create(team=self.team, name="number", property_type="Numeric")
         metadata = self._expr("properties.string || properties.number")
+        materialized_notice = (
+            "not materialized 🐢." if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "materialized (mat_*) ⚡️."
+        )
         self.assertEqual(
             metadata.dict(),
             metadata.dict()
@@ -684,7 +766,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "fix": None,
                     },
                     {
-                        "message": "Event property 'number' is of type 'Float'. This property is materialized (mat_*) ⚡️.",
+                        "message": f"Event property 'number' is of type 'Float'. This property is {materialized_notice}",
                         "start": 32,
                         "end": 38,
                         "fix": None,

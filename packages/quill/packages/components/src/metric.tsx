@@ -2,20 +2,23 @@ import { ChevronDown, ChevronUp } from 'lucide-react'
 import * as React from 'react'
 
 import {
+    type ChangeColor,
     ChartErrorBoundary,
     computeFallbackChangePercent,
     type MetricChange,
     percentage,
     type ResolvedDelta,
     resolveDelta,
+    type Series,
     Sparkline,
+    type TooltipContext,
     useAnimatedNumber,
     useHoverIntent,
 } from '@posthog/quill-charts'
 import type { ChartTheme } from '@posthog/quill-charts'
-import { Badge, cn, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill-primitives'
+import { Badge, cn, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@posthog/quill-primitives'
 
-export type { MetricChange }
+export type { ChangeColor, MetricChange }
 
 // What the root computes once and every part reads. Parts stay dumb: they render a slice of this.
 interface MetricContextValue {
@@ -30,11 +33,14 @@ interface MetricContextValue {
         positive: boolean
         /** Change is in the desired direction — drives the Badge color (success vs destructive). */
         good: boolean
+        colors?: ChangeColor
         tooltip?: string
     } | null
     /** Sparkline wiring, or null when no series was supplied. */
     sparkline: {
+        /** The `data` prop — what hovering scrubs through. The chart draws `series` instead when set. */
         data: number[]
+        series?: Series[]
         labels?: string[]
         theme: ChartTheme
         color?: string
@@ -43,6 +49,7 @@ interface MetricContextValue {
         fillOpacity: number
         dashedFromIndex?: number
         setHoverIndex: (index: number) => void
+        tooltip?: (ctx: TooltipContext) => React.ReactNode
     } | null
 }
 
@@ -63,12 +70,10 @@ const DEFAULT_FORMAT_CHANGE = (p: number): string => {
     return p > 0 ? `+${formatted}` : formatted
 }
 
-export interface MetricProps {
+interface MetricBaseProps {
     /** Resting headline number. Defaults to `data[data.length - 1]` when `data` is present;
      *  required when `data` is empty or omitted. */
     value?: number
-    /** Series values. When present, a `MetricSparkline` renders and hovering a point swaps the headline. */
-    data?: number[]
     /** Labels paired with `data`. Used for the default subtitle on hover. */
     labels?: string[]
     /** Required when `data` is present. */
@@ -81,6 +86,8 @@ export interface MetricProps {
     sparklineFillOpacity?: number
     /** Dash the sparkline from this index onward (e.g. an in-progress trailing period). */
     sparklineDashedFromIndex?: number
+    /** Tooltip renderer for the sparkline. Off by default — hovering already scrubs the headline. */
+    sparklineTooltip?: (ctx: TooltipContext) => React.ReactNode
     formatValue?: (value: number) => string
     formatChange?: (percent: number) => string
     showChange?: boolean
@@ -88,7 +95,11 @@ export interface MetricProps {
     change?: MetricChange | null
     /** Which direction is "good" — drives the pill color. Defaults to `up`. */
     goodDirection?: 'up' | 'down'
-    /** Tooltip shown on hover over the change pill (requires a `TooltipProvider` at the app root). */
+    /** Custom pill colors for a change in the good direction; overrides the Badge `success` variant. */
+    positiveColor?: ChangeColor
+    /** Custom pill colors for a change in the bad direction; overrides the Badge `destructive` variant. */
+    negativeColor?: ChangeColor
+    /** Tooltip shown on hover over the change pill. */
     changeTooltip?: string
     /** Caption shown at rest and on hover. Always wins over `restingSubtitle` and hovered labels. */
     subtitle?: React.ReactNode
@@ -105,6 +116,25 @@ export interface MetricProps {
     onError?: (error: Error, info: React.ErrorInfo) => void
     children: React.ReactNode
 }
+
+export type MetricProps = MetricBaseProps &
+    (
+        | {
+              /** The metric's values. When present, a `MetricSparkline` renders and hovering a point
+               *  swaps the headline. The change pill's fallback also runs on it. */
+              data?: number[]
+              series?: undefined
+          }
+        | {
+              /** The metric's values — headline hover, change-pill fallback, and hover indexes. */
+              data: number[]
+              /** Visual breakdown drawn as one sparkline line per series instead of the single `data`
+               *  line. Purely presentational: the headline and pill still read `data`, so give each
+               *  series the same point count as `data` to keep hover indexes aligned. The single-line
+               *  conveniences (`color`, `sparklineDashedFromIndex`) don't apply — set them per series. */
+              series?: Series[]
+          }
+    )
 
 /**
  * Composable metric tile — a headline number, a `Badge` change pill, and an optional `Sparkline`.
@@ -138,6 +168,7 @@ export function Metric(props: MetricProps): React.ReactElement | null {
 function MetricInner({
     value,
     data,
+    series,
     labels,
     theme,
     color,
@@ -145,21 +176,24 @@ function MetricInner({
     sparklineFill = false,
     sparklineFillOpacity = 0.35,
     sparklineDashedFromIndex,
+    sparklineTooltip,
     formatValue = DEFAULT_FORMAT_VALUE,
     formatChange = DEFAULT_FORMAT_CHANGE,
     showChange = true,
     change,
     goodDirection = 'up',
+    positiveColor,
+    negativeColor,
     changeTooltip,
     subtitle,
     restingSubtitle,
     hoverChangeFromPreviousPoint = false,
-    animationMs = 350,
-    hoverIntentMs = 140,
+    animationMs = 120,
+    hoverIntentMs = 60,
     className,
     dataAttr,
     children,
-}: Omit<MetricProps, 'onError'>): React.ReactElement | null {
+}: Omit<MetricBaseProps, 'onError'> & { data?: number[]; series?: Series[] }): React.ReactElement | null {
     const sparklineData = data != null && data.length > 0 && theme != null ? data : null
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
@@ -212,6 +246,7 @@ function MetricInner({
                           delta,
                           positive,
                           good,
+                          colors: good ? positiveColor : negativeColor,
                           // The tooltip describes the resting comparison, so hide it on the per-point delta.
                           tooltip: usePrevPointHover ? undefined : changeTooltip,
                       }
@@ -219,6 +254,7 @@ function MetricInner({
             sparkline: sparklineData
                 ? {
                       data: sparklineData,
+                      series,
                       labels,
                       theme: theme!,
                       color,
@@ -227,6 +263,7 @@ function MetricInner({
                       fillOpacity: sparklineFillOpacity,
                       dashedFromIndex: sparklineDashedFromIndex,
                       setHoverIndex,
+                      tooltip: sparklineTooltip,
                   }
                 : null,
         }
@@ -242,6 +279,8 @@ function MetricInner({
         formatChange,
         changeTooltip,
         goodDirection,
+        positiveColor,
+        negativeColor,
         formatValue,
         animatedValue,
         subtitle,
@@ -249,10 +288,12 @@ function MetricInner({
         labels,
         theme,
         color,
+        series,
         sparklineHeight,
         sparklineFill,
         sparklineFillOpacity,
         sparklineDashedFromIndex,
+        sparklineTooltip,
     ])
 
     if (ctx == null) {
@@ -291,8 +332,9 @@ export function MetricValue({ className, children, ...props }: React.ComponentPr
     )
 }
 
-/** Change pill — a `Badge` (success/destructive by `goodDirection`) with a directional chevron.
- *  Renders nothing when there is no resolved delta. */
+/** Change pill — a `Badge` (success/destructive by `goodDirection`, or the root's custom
+ *  `positiveColor`/`negativeColor`) with a directional chevron. Renders nothing when there is no
+ *  resolved delta. */
 export function MetricDelta({ className }: { className?: string }): React.ReactElement | null {
     const { change } = useMetric('MetricDelta')
     if (change == null) {
@@ -301,8 +343,14 @@ export function MetricDelta({ className }: { className?: string }): React.ReactE
     const Chevron = change.positive ? ChevronUp : ChevronDown
     const badge = (
         <Badge
-            variant={change.good ? 'success' : 'destructive'}
+            variant={change.colors != null ? 'default' : change.good ? 'success' : 'destructive'}
             className={cn('gap-0.5 rounded-full tabular-nums', className)}
+            // Dynamic user-configured colors can't be Tailwind classes; inline style wins over the variant.
+            style={
+                change.colors != null
+                    ? { background: change.colors.background, color: change.colors.foreground }
+                    : undefined
+            }
             data-attr="metric-change-pill"
         >
             <Chevron className="size-3" />
@@ -312,11 +360,14 @@ export function MetricDelta({ className }: { className?: string }): React.ReactE
     if (change.tooltip == null) {
         return badge
     }
+    // Badge isn't a forwardRef component, so it can't be the `render` target — anchor on a span.
     return (
-        <Tooltip>
-            <TooltipTrigger render={badge} />
-            <TooltipContent>{change.tooltip}</TooltipContent>
-        </Tooltip>
+        <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger render={<span className="inline-flex" />}>{badge}</TooltipTrigger>
+                <TooltipContent>{change.tooltip}</TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
     )
 }
 
@@ -340,7 +391,7 @@ export function MetricSubtitle({
 
 /** Sparkline, bled out to the card edges. Renders nothing when no series was supplied to the root. */
 export function MetricSparkline({
-    className = '-mx-4 -mb-4 mt-4 relative top-[6px] flex-1',
+    className = '-mx-4 -mb-4 mt-4 flex-1',
 }: {
     className?: string
 }): React.ReactElement | null {
@@ -350,11 +401,13 @@ export function MetricSparkline({
     }
     // A fixed-height sparkline drops to the bottom of a taller card via `mt-auto`; a filling sparkline
     // grows into the free space itself, so it must not also claim that space with a margin. `-mx-4`/`-mb-4`
-    // cancel the card's content padding so the chart reaches the left/right/bottom edges.
+    // cancel the card's content padding so the chart reaches the left/right/bottom edges. The 6px shift
+    // eats the canvas's bottom hover-ring margin so the line rests on the card edge.
     const pinBottom = sparkline.fill ? '' : 'mt-auto'
     return (
         <Sparkline
-            data={sparkline.data}
+            data={sparkline.series != null ? undefined : sparkline.data}
+            series={sparkline.series}
             labels={sparkline.labels}
             theme={sparkline.theme}
             color={sparkline.color}
@@ -363,7 +416,8 @@ export function MetricSparkline({
             fillOpacity={sparkline.fillOpacity}
             dashedFromIndex={sparkline.dashedFromIndex}
             onHoverIndexChange={sparkline.setHoverIndex}
-            className={cn(pinBottom, className)}
+            tooltip={sparkline.tooltip}
+            className={cn('relative top-[6px]', pinBottom, className)}
             dataAttr="metric-sparkline"
         />
     )

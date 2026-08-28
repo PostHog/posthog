@@ -19,7 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.api.services.query import ExecutionMode
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.insight_result import InsightResult
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 
 from products.alerts.backend.evaluation.detector import (
@@ -29,7 +29,7 @@ from products.alerts.backend.evaluation.detector import (
 )
 from products.alerts.backend.evaluation.dispatcher import check_detector_alert
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _make_trend_result(label: str, data: list[float], breakdown_value: str = "") -> dict[str, Any]:

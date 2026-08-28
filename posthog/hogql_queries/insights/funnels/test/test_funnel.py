@@ -15,6 +15,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -47,6 +48,7 @@ from posthog.schema import (
     StepOrderValue,
 )
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.api.instance_settings import get_instance_setting
@@ -61,6 +63,7 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
 )
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.models import Element
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.group.util import create_group
 from posthog.models.utils import uuid7
 from posthog.test.test_journeys import journeys_for
@@ -202,26 +205,27 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             )
 
         if properties is not None:
-            query = FunnelsQuery(
-                **query.model_dump(exclude_defaults=True, exclude_none=True, mode="json"),
-                properties={
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": key,
-                                    "operator": "exact",
-                                    "type": "event",
-                                    "value": value,
-                                }
-                                for key, value in properties.items()
-                            ],
-                        }
-                    ],
-                },
-            )
+            # exclude_defaults would strip the default-valued `kind` from series items,
+            # which the discriminated series union requires on re-validation
+            query_data = query.model_dump(exclude_none=True, mode="json")
+            query_data["properties"] = {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": key,
+                                "operator": "exact",
+                                "type": "event",
+                                "value": value,
+                            }
+                            for key, value in properties.items()
+                        ],
+                    }
+                ],
+            }
+            query = FunnelsQuery(**query_data)
 
         return FunnelsQueryRunner(query=query, team=self.team)
 
@@ -267,7 +271,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         # KLUDGE: We need to do this to ensure create_person_id_override_by_distinct_id
         # works correctly. Worth considering other approaches as we generally like to
         # avoid truncating tables in tests for speed.
-        sync_execute("TRUNCATE TABLE sharded_events")
+        sync_execute(f"TRUNCATE TABLE {EVENTS_DATA_TABLE()}")
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            sync_execute(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")
         with freeze_time("2012-01-01T03:21:34.000Z"):
             funnel = self._basic_funnel()
 
@@ -894,6 +900,24 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(results[1]["name"], "paid")
         self.assertEqual(results[1]["count"], 1)
+
+    def test_builds_database_once_per_run(self):
+        query = FunnelsQuery(
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
+            series=[
+                EventsNode(event="user signed up", name="user signed up"),
+                EventsNode(event="paid", name="paid"),
+            ],
+        )
+
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_event(team=self.team, event="user signed up", distinct_id="user_1", timestamp="2020-01-02T14:00:00Z")
+
+        with patch.object(Database, "create_for", wraps=Database.create_for) as mock_create_for:
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        assert len(results) == 2
+        assert mock_create_for.call_count == 1
 
     def test_basic_funnel_with_person_id_override_properties_joined_modifier_and_person_breakdown(self):
         query = FunnelsQuery(
@@ -6094,8 +6118,7 @@ class TestFunnelStepsCompareUDF(ClickhouseTestMixin, APIBaseTest):
             compareFilter=CompareFilter(compare=compare, compare_to=compare_to),
         )
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_default_previous_period_tags_steps(self, _feature_enabled):
+    def test_compare_default_previous_period_tags_steps(self):
         # Current window 2021-06-07 .. 2021-06-13; default previous is the prior 7-day window
         # (2021-05-31 .. 2021-06-06). One full conversion lands in each window.
         journeys_for(
@@ -6126,8 +6149,7 @@ class TestFunnelStepsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([s["count"] for s in current_steps], [1, 1])
         self.assertEqual([s["count"] for s in previous_steps], [1, 1])
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_with_custom_offset_shifts_previous_window(self, _feature_enabled):
+    def test_compare_with_custom_offset_shifts_previous_window(self):
         # Custom offset `-30d` puts the previous window 30 days before the current window's start
         # (2021-05-08 .. 2021-05-14), regardless of window length. Two conversions land there; a
         # third lands in the *default* previous window (2021-05-31 .. 2021-06-06), which `-30d`
@@ -6160,8 +6182,7 @@ class TestFunnelStepsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         previous_steps = [row for row in results if row["compare_label"] == "previous"]
         self.assertEqual([s["count"] for s in previous_steps], [2, 2])
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_with_empty_previous_period(self, _feature_enabled):
+    def test_compare_with_empty_previous_period(self):
         # Only the current period has events. The previous side must still return a tagged step
         # skeleton (zeroed) so the chart can render two bars per step — a missing previous side
         # would leave steps with a single bar and break the grouped-bar layout.
@@ -6268,8 +6289,7 @@ class TestFunnelStepsBreakdownCompareUDF(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_breakdown_compare_aligns_inner_funnels_by_value(self, _name, journeys, expected_counts, _feature_enabled):
+    def test_breakdown_compare_aligns_inner_funnels_by_value(self, _name, journeys, expected_counts):
         journeys_for(
             {key: self._conversion(browser, day) for key, (browser, day) in journeys.items()},
             self.team,

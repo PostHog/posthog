@@ -260,6 +260,32 @@ class TestAnthropicMessagesEndpoint:
         assert response.status_code == 200
         assert mock_anthropic.call_args.kwargs["model"] == "anthropic/claude-opus-4-8"
 
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_orphaned_clear_thinking_edit_not_forwarded_to_anthropic(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_mock_response: dict,
+    ) -> None:
+        # Anthropic 400s `clear_thinking_20251015` when thinking isn't enabled; the drop rules
+        # themselves live in test_anthropic_request.py.
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-opus-4-8",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        assert "context_management" not in mock_anthropic.call_args.kwargs
+
     @pytest.mark.parametrize(
         "error_status,error_message,error_type",
         [
@@ -425,6 +451,32 @@ class TestAnthropicMessagesEndpoint:
         data = response.json()
         assert data["id"] == "msg_123"
 
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_wizard_opus_5_high_effort_enables_thinking(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_request_headers: dict[str, str],
+        provider_mock_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/wizard/v1/messages",
+            json={
+                "model": "claude-opus-5",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "output_config": {"effort": "xhigh"},
+                "thinking": {"type": "disabled"},
+            },
+            headers=provider_request_headers,
+        )
+
+        assert response.status_code == 200
+        assert mock_anthropic.call_args.kwargs["thinking"] == {"type": "adaptive"}
+
     @pytest.mark.parametrize(
         "product",
         [
@@ -516,13 +568,13 @@ class TestAnthropicMessagesEndpoint:
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
 
         with patch(
-            "llm_gateway.api.anthropic.make_cloudflare_anthropic_call",
+            "llm_gateway.inference_routing.make_cloudflare_anthropic_call",
         ) as mock_make_call:
             mock_llm_call = AsyncMock(return_value=mock_response)
             mock_make_call.return_value = mock_llm_call
 
             with patch(
-                "llm_gateway.api.anthropic.ensure_cloudflare_configured",
+                "llm_gateway.inference_routing.ensure_cloudflare_configured",
                 return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
             ):
                 response = authenticated_client.post(
@@ -555,10 +607,10 @@ class TestAnthropicMessagesEndpoint:
         mock_response = MagicMock()
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
 
-        with patch("llm_gateway.api.anthropic.make_cloudflare_anthropic_call") as mock_make_call:
+        with patch("llm_gateway.inference_routing.make_cloudflare_anthropic_call") as mock_make_call:
             mock_make_call.return_value = AsyncMock(return_value=mock_response)
             with patch(
-                "llm_gateway.api.anthropic.ensure_cloudflare_configured",
+                "llm_gateway.inference_routing.ensure_cloudflare_configured",
                 return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
             ):
                 response = authenticated_client.post(
@@ -603,12 +655,12 @@ class TestAnthropicMessagesEndpoint:
             yield b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
 
         with patch(
-            "llm_gateway.api.anthropic.make_cloudflare_anthropic_call",
+            "llm_gateway.inference_routing.make_cloudflare_anthropic_call",
         ) as mock_make_call:
             mock_make_call.return_value = AsyncMock(return_value=fake_stream())
 
             with patch(
-                "llm_gateway.api.anthropic.ensure_cloudflare_configured",
+                "llm_gateway.inference_routing.ensure_cloudflare_configured",
                 return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
             ):
                 with authenticated_client.stream(
@@ -637,8 +689,8 @@ class TestAnthropicMessagesEndpoint:
         self,
         authenticated_client: TestClient,
     ) -> None:
-        with patch("llm_gateway.api.anthropic.ensure_cloudflare_configured") as mock_ensure_configured:
-            with patch("llm_gateway.api.anthropic.make_cloudflare_anthropic_call") as mock_make_call:
+        with patch("llm_gateway.inference_routing.ensure_cloudflare_configured") as mock_ensure_configured:
+            with patch("llm_gateway.inference_routing.make_cloudflare_anthropic_call") as mock_make_call:
                 response = authenticated_client.post(
                     "/v1/messages",
                     json={
@@ -854,6 +906,209 @@ class TestSanitizeForBedrock:
         result = self._call(data)
         assert len(result["tools"]) == 1
         assert result["tools"][0]["name"] == "read_data"
+
+    def test_strips_output_config_format_keeps_effort(self) -> None:
+        data: dict[str, Any] = {"model": "m", "output_config": {"effort": "high", "format": {"type": "json_schema"}}}
+        result = self._call(data)
+        assert result["output_config"] == {"effort": "high"}
+
+    def test_drops_output_config_when_only_unsupported_keys(self) -> None:
+        data: dict[str, Any] = {"model": "m", "output_config": {"format": {"type": "json_schema"}}}
+        result = self._call(data)
+        assert "output_config" not in result
+
+    def test_scrubs_server_side_tool_blocks_from_messages(self) -> None:
+        data: dict[str, Any] = {
+            "model": "m",
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {"query": "x"}},
+                        {"type": "web_search_tool_result", "tool_use_id": "srvtoolu_1", "content": []},
+                        {"type": "text", "text": "Here is the answer."},
+                    ],
+                }
+            ],
+        }
+        result = self._call(data)
+        assert "tools" not in result
+        assert result["messages"][0]["content"] == [{"type": "text", "text": "Here is the answer."}]
+
+    def test_drops_tool_choice_referencing_stripped_tool(self) -> None:
+        data: dict[str, Any] = {
+            "model": "m",
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+            "tool_choice": {"type": "tool", "name": "web_search"},
+        }
+        result = self._call(data)
+        assert "tool_choice" not in result
+
+    def test_drops_auto_tool_choice_when_all_tools_stripped(self) -> None:
+        # Stripping the only (server-side) tool deletes the tools key entirely; tool_choice must go
+        # with it or Bedrock rejects a tool_choice with nothing to choose from.
+        data: dict[str, Any] = {
+            "model": "m",
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+            "tool_choice": {"type": "auto"},
+        }
+        result = self._call(data)
+        assert "tools" not in result
+        assert "tool_choice" not in result
+
+    def test_increments_metric_for_message_and_tool_choice_strips(self) -> None:
+        from llm_gateway.api.anthropic import sanitize_for_bedrock
+        from llm_gateway.metrics.prometheus import BEDROCK_PARAM_STRIPPED
+
+        def counter(param: str) -> float:
+            return BEDROCK_PARAM_STRIPPED.labels(param=param, product="test")._value.get()
+
+        before = {param: counter(param) for param in ("messages.server_tool_blocks", "tool_choice")}
+        sanitize_for_bedrock(
+            {
+                "model": "m",
+                "tool_choice": {"type": "any"},
+                "messages": [
+                    {"role": "assistant", "content": [{"type": "server_tool_use", "name": "web_search", "input": {}}]}
+                ],
+            },
+            model="test-model",
+            product="test",
+        )
+        assert counter("messages.server_tool_blocks") == before["messages.server_tool_blocks"] + 1
+        assert counter("tool_choice") == before["tool_choice"] + 1
+
+
+class TestStripStructuredOutputFormat:
+    """Unit tests for strip_structured_output_format — prunes Bedrock-rejected output_config sub-keys."""
+
+    def _call(self, data: dict[str, Any]) -> None:
+        from llm_gateway.api.anthropic import strip_structured_output_format
+
+        strip_structured_output_format(data, model="test-model", product="test")
+
+    def test_removes_format_keeps_other_keys(self) -> None:
+        data: dict[str, Any] = {"output_config": {"effort": "low", "format": {"type": "json_schema"}}}
+        self._call(data)
+        assert data["output_config"] == {"effort": "low"}
+
+    def test_removes_output_config_when_emptied(self) -> None:
+        data: dict[str, Any] = {"output_config": {"format": {}}}
+        self._call(data)
+        assert "output_config" not in data
+
+    def test_noop_without_unsupported_keys(self) -> None:
+        data: dict[str, Any] = {"output_config": {"effort": "high"}}
+        self._call(data)
+        assert data["output_config"] == {"effort": "high"}
+
+    @pytest.mark.parametrize("output_config", [None, "not-a-dict", 5])
+    def test_noop_when_output_config_absent_or_not_dict(self, output_config: Any) -> None:
+        data: dict[str, Any] = {"model": "m"} if output_config is None else {"output_config": output_config}
+        self._call(data)
+        assert data.get("output_config") == output_config
+
+
+class TestStripServerSideToolUsesFromMessages:
+    """Unit tests for strip_server_side_tool_uses_from_messages — scrubs dangling server-side references."""
+
+    def _call(self, data: dict[str, Any]) -> None:
+        from llm_gateway.api.anthropic import strip_server_side_tool_uses_from_messages
+
+        strip_server_side_tool_uses_from_messages(data, model="test-model", product="test")
+
+    def test_keeps_client_tool_result_blocks(self) -> None:
+        content = [
+            {"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"},
+            {"type": "text", "text": "done"},
+        ]
+        data: dict[str, Any] = {"messages": [{"role": "user", "content": list(content)}]}
+        self._call(data)
+        assert data["messages"][0]["content"] == content
+
+    @pytest.mark.parametrize(
+        "block",
+        [
+            {"type": "server_tool_use", "name": "web_search", "input": {}},
+            {"type": "web_search_tool_result", "tool_use_id": "srvtoolu_1", "content": []},
+            {"type": "code_execution_tool_result", "tool_use_id": "srvtoolu_2", "content": {}},
+            {"type": "mcp_tool_use", "name": "mcp_thing", "input": {}},
+        ],
+    )
+    def test_strips_server_side_blocks(self, block: dict[str, Any]) -> None:
+        data: dict[str, Any] = {
+            "messages": [{"role": "assistant", "content": [block, {"type": "text", "text": "answer"}]}]
+        }
+        self._call(data)
+        assert data["messages"][0]["content"] == [{"type": "text", "text": "answer"}]
+
+    def test_drops_message_when_content_emptied(self) -> None:
+        data: dict[str, Any] = {
+            "messages": [
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": [{"type": "server_tool_use", "name": "web_search", "input": {}}]},
+            ]
+        }
+        self._call(data)
+        assert data["messages"] == [{"role": "user", "content": "hi"}]
+
+    def test_noop_on_string_content(self) -> None:
+        data: dict[str, Any] = {"messages": [{"role": "user", "content": "just text"}]}
+        self._call(data)
+        assert data["messages"] == [{"role": "user", "content": "just text"}]
+
+    def test_dropping_tool_only_turn_keeps_roles_alternating(self) -> None:
+        # A tool-only assistant turn between two user turns: dropping it must not leave two user
+        # messages back to back (Bedrock 400s on non-alternating roles) — they coalesce into one.
+        data: dict[str, Any] = {
+            "messages": [
+                {"role": "user", "content": "search for X"},
+                {"role": "assistant", "content": [{"type": "server_tool_use", "name": "web_search", "input": {}}]},
+                {"role": "user", "content": [{"type": "text", "text": "and also Y"}]},
+            ]
+        }
+        self._call(data)
+        roles = [message["role"] for message in data["messages"]]
+        assert roles == ["user"]
+        assert data["messages"][0]["content"] == [
+            {"type": "text", "text": "search for X"},
+            {"type": "text", "text": "and also Y"},
+        ]
+
+
+class TestReconcileToolChoice:
+    """Unit tests for reconcile_tool_choice — drops a tool_choice Bedrock can't satisfy."""
+
+    def _call(self, data: dict[str, Any]) -> None:
+        from llm_gateway.api.anthropic import reconcile_tool_choice
+
+        reconcile_tool_choice(data, model="test-model", product="test")
+
+    def test_drops_tool_choice_naming_absent_tool(self) -> None:
+        data: dict[str, Any] = {"tool_choice": {"type": "tool", "name": "web_search"}, "tools": []}
+        self._call(data)
+        assert "tool_choice" not in data
+
+    def test_keeps_tool_choice_naming_present_tool(self) -> None:
+        data: dict[str, Any] = {
+            "tool_choice": {"type": "tool", "name": "read_data"},
+            "tools": [{"name": "read_data"}],
+        }
+        self._call(data)
+        assert data["tool_choice"] == {"type": "tool", "name": "read_data"}
+
+    @pytest.mark.parametrize("choice_type", ["any", "auto", "none"])
+    def test_drops_tool_choice_when_no_tools_remain(self, choice_type: str) -> None:
+        data: dict[str, Any] = {"tool_choice": {"type": choice_type}}
+        self._call(data)
+        assert "tool_choice" not in data
+
+    @pytest.mark.parametrize("choice_type", ["any", "auto", "none"])
+    def test_keeps_non_named_tool_choice_when_tools_remain(self, choice_type: str) -> None:
+        data: dict[str, Any] = {"tool_choice": {"type": choice_type}, "tools": [{"name": "read_data"}]}
+        self._call(data)
+        assert data["tool_choice"] == {"type": choice_type}
 
 
 class TestAnthropicCountTokensEndpoint:
@@ -1230,6 +1485,28 @@ class TestAnthropicCountTokensEndpoint:
                     "messages": [{"role": "user", "content": "Hello"}],
                 },
                 # No X-PostHog-Provider header -> defaults to anthropic, as a claude-runtime scout sends.
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+        assert response.status_code == 200
+        assert isinstance(response.json()["input_tokens"], int)
+        assert response.json()["input_tokens"] > 0
+        mock_real_count.assert_not_called()
+
+    def test_modal_model_approximates_count_without_provider_header(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        with (
+            patch("llm_gateway.api.anthropic._anthropic_count_tokens_impl") as mock_real_count,
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)),  # entitle the gated model
+        ):
+            response = authenticated_client.post(
+                "/v1/messages/count_tokens",
+                json={
+                    "model": "moonshotai/kimi-k3",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                },
                 headers={"Authorization": "Bearer phx_test_key"},
             )
 

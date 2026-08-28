@@ -10,10 +10,15 @@
 # ruff: noqa: T201 allow print statements
 
 import os
+import re
 import sys
+import json
 import time
+import uuid
 import shlex
+import base64
 import datetime
+import subprocess
 from dataclasses import dataclass
 
 import urllib3
@@ -170,6 +175,19 @@ runcmd:
         safe_sha = shlex.quote(self.sha) if self.sha else "unknown"
         safe_hostname = shlex.quote(self.hostname)
 
+        # Smoke tests use a fresh hostname per run, so real ACME certs would blow through
+        # Let's Encrypt's 50-certs-per-registered-domain/168h limit for posthog.cc. Point Caddy
+        # at the LE staging directory. Preview instances keep real certs since humans browse them.
+        preview_mode = os.environ.get("PREVIEW_MODE", "false").lower() == "true"
+        tls_commands = (
+            []
+            if preview_mode
+            else [
+                'echo "$LOG_PREFIX Using Let\'s Encrypt staging directory for ACME (CI cert rate-limit avoidance)"',
+                "export TLS_BLOCK='acme_ca https://acme-staging-v02.api.letsencrypt.org/directory'",
+            ]
+        )
+
         # Add runcmd commands with logging
         commands = [
             'LOG_PREFIX="[$(date +%Y-%m-%d_%H:%M:%S)]"',
@@ -193,6 +211,7 @@ runcmd:
             self._get_wait_for_image_script(),
             self._get_node_image_fallback_script(),
             *self._get_installer_commands(),
+            *tls_commands,
             'echo "$LOG_PREFIX Starting hobby installer (CI mode)"',
             f"./hobby-installer --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
             "DEPLOY_EXIT=$?",
@@ -414,6 +433,43 @@ runcmd:
         # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
         base_url = f"http://{self.droplet.ip_address}"
 
+        # The signup wizard gates on these keys from /_preflight, so they must
+        # report true once the stack is healthy (regression test for
+        # https://github.com/PostHog/posthog/issues/57899 and siblings).
+        preflight_required_keys = [
+            "django",
+            "redis",
+            "plugins",
+            "celery",
+            "clickhouse",
+            "kafka",
+            "db",
+            "object_storage",
+        ]
+        print("🩺 Checking /_preflight reports healthy...", flush=True)
+        preflight_deadline = time.time() + timeout_seconds
+        last_preflight_detail = ""
+        while time.time() < preflight_deadline:
+            try:
+                preflight_resp = requests.get(
+                    f"{base_url}/_preflight",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    timeout=10,
+                )
+                if preflight_resp.status_code == 200:
+                    failing_keys = [key for key in preflight_required_keys if not preflight_resp.json().get(key)]
+                    if not failing_keys:
+                        print("✅ Preflight reports all services healthy", flush=True)
+                        break
+                    last_preflight_detail = f"failing keys: {', '.join(failing_keys)}"
+                else:
+                    last_preflight_detail = f"HTTP {preflight_resp.status_code}"
+            except Exception as e:
+                last_preflight_detail = f"{type(e).__name__}: {e}"
+            print(f"   Preflight not healthy yet ({last_preflight_detail})", flush=True)
+            time.sleep(poll_interval)
+        else:
+            return False, f"Preflight never reported healthy within {timeout_seconds}s ({last_preflight_detail})"
+
         print("📝 Creating test user and fetching API keys via Django shell...", flush=True)
         script_path = os.path.join(os.path.dirname(__file__), "hobby-ci-setup-user.py")
         remote_script = "/tmp/hobby-ci-setup-user.py"
@@ -440,50 +496,326 @@ runcmd:
             return False, f"Could not parse API keys from output: {result['stdout'][:200]}"
         project_api_token, personal_api_key = output_line[-1].split("|||")
 
-        event_name = "hobby_ci_smoke_test"
-        print(f"📤 Sending test event '{event_name}'...", flush=True)
+        capture_id = str(uuid.uuid4())
+        exception_value = f"hobby_ci_error_smoke_test_{time.time_ns()}"
+        error_date_from = datetime.datetime.now(datetime.UTC).isoformat()
+        events = [
+            {
+                "event": "hobby_ci_smoke_test",
+                "properties": {"source": "hobby-ci", "capture_id": capture_id},
+            },
+            {
+                "event": "$exception",
+                "properties": {
+                    "source": "hobby-ci",
+                    "capture_id": capture_id,
+                    "$exception_list": [
+                        {
+                            "type": "HobbyCISmokeTestError",
+                            "value": exception_value,
+                            "mechanism": {"handled": True, "synthetic": True},
+                            "stacktrace": {"type": "raw", "frames": []},
+                        }
+                    ],
+                },
+            },
+        ]
+        for event in events:
+            print(f"📤 Sending test event '{event['event']}'...", flush=True)
+            try:
+                capture_resp = requests.post(
+                    f"{base_url}/capture/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    json={"api_key": project_api_token, "distinct_id": "ci-test-user", **event},
+                    timeout=30,
+                )
+            except requests.RequestException as e:
+                return False, f"Capture request failed for {event['event']}: {e}"
+            if capture_resp.status_code != 200:
+                return (
+                    False,
+                    f"Capture failed for {event['event']}: HTTP {capture_resp.status_code} - {capture_resp.text[:200]}",
+                )
+
+        print(f"⏳ Polling for events (timeout {timeout_seconds}s)...", flush=True)
+        headers = {"Authorization": f"Bearer {personal_api_key}"}
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        pending_event_names = {event["event"] for event in events}
+        while time.time() < deadline:
+            attempt += 1
+            for event_name in pending_event_names.copy():
+                try:
+                    events_resp = requests.get(
+                        f"{base_url}/api/projects/@current/events/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                        params={"event": event_name},
+                        headers=headers,
+                        timeout=10,
+                    )
+                    if events_resp.status_code == 200:
+                        results = events_resp.json().get("results", [])
+                        if any(result.get("properties", {}).get("capture_id") == capture_id for result in results):
+                            pending_event_names.remove(event_name)
+                            print(f"✅ Event '{event_name}' found after {attempt} poll(s)", flush=True)
+                        else:
+                            print(f"   Poll {attempt}: '{event_name}' not found yet", flush=True)
+                    else:
+                        print(f"   Poll {attempt}: '{event_name}' returned HTTP {events_resp.status_code}", flush=True)
+                except Exception as e:
+                    print(f"   Poll {attempt}: '{event_name}' returned {type(e).__name__}", flush=True)
+            if not pending_event_names:
+                break
+            time.sleep(poll_interval)
+
+        if pending_event_names:
+            missing_events = ", ".join(sorted(pending_event_names))
+            return False, f"Events did not appear within {timeout_seconds}s ({attempt} polls): {missing_events}"
+
+        log_body = f"hobby_ci_log_smoke_test_{time.time_ns()}"
+        log_date_from = datetime.datetime.now(datetime.UTC).isoformat()
+        print("📤 Sending test log...", flush=True)
         try:
             capture_resp = requests.post(
-                f"{base_url}/capture/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                f"{base_url}/i/v1/logs",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                params={"token": project_api_token},
                 json={
-                    "api_key": project_api_token,
-                    "event": event_name,
-                    "properties": {"source": "hobby-ci"},
-                    "distinct_id": "ci-test-user",
+                    "resourceLogs": [
+                        {
+                            "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "hobby-ci"}}]},
+                            "scopeLogs": [
+                                {
+                                    "scope": {"name": "hobby-ci"},
+                                    "logRecords": [
+                                        {
+                                            "timeUnixNano": str(time.time_ns()),
+                                            "severityText": "INFO",
+                                            "severityNumber": 9,
+                                            "body": {"stringValue": log_body},
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ]
                 },
                 timeout=30,
             )
         except requests.RequestException as e:
-            return False, f"Capture request failed: {e}"
+            return False, f"Log capture request failed: {e}"
         if capture_resp.status_code != 200:
-            return False, f"Capture failed: HTTP {capture_resp.status_code} - {capture_resp.text[:200]}"
+            return False, f"Log capture failed: HTTP {capture_resp.status_code} - {capture_resp.text[:200]}"
 
-        print(f"⏳ Polling for event (timeout {timeout_seconds}s)...", flush=True)
-        headers = {"Authorization": f"Bearer {personal_api_key}"}
+        print(f"⏳ Polling for log (timeout {timeout_seconds}s)...", flush=True)
         deadline = time.time() + timeout_seconds
         attempt = 0
         while time.time() < deadline:
             attempt += 1
             try:
-                events_resp = requests.get(
-                    f"{base_url}/api/projects/@current/events/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
-                    params={"event": event_name},
+                logs_resp = requests.post(
+                    f"{base_url}/api/projects/@current/logs/query",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    json={
+                        "query": {
+                            "dateRange": {"date_from": log_date_from},
+                            "searchTerm": log_body,
+                            "limit": 1,
+                        }
+                    },
                     headers=headers,
                     timeout=10,
                 )
-                if events_resp.status_code == 200:
-                    results = events_resp.json().get("results", [])
-                    if len(results) > 0:
-                        print(f"✅ Event found after {attempt} poll(s)", flush=True)
-                        return True, "Event ingested successfully"
-                    print(f"   Poll {attempt}: no events yet", flush=True)
+                if logs_resp.status_code == 200:
+                    results = logs_resp.json().get("results", [])
+                    if results:
+                        print(f"✅ Log found after {attempt} poll(s)", flush=True)
+                        break
+                    print(f"   Poll {attempt}: no logs yet", flush=True)
                 else:
-                    print(f"   Poll {attempt}: HTTP {events_resp.status_code}", flush=True)
+                    print(f"   Poll {attempt}: HTTP {logs_resp.status_code}", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+        else:
+            return False, f"Log did not appear within {timeout_seconds}s ({attempt} polls)"
+
+        print(f"⏳ Polling for error tracking issue (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                issues_resp = requests.post(
+                    f"{base_url}/api/projects/@current/error_tracking/query/issues",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    json={
+                        "status": "all",
+                        "filterTestAccounts": False,
+                        "dateRange": {"date_from": error_date_from},
+                        "searchQuery": exception_value,
+                        "limit": 1,
+                    },
+                    headers=headers,
+                    timeout=10,
+                )
+                if issues_resp.status_code == 200:
+                    results = issues_resp.json().get("results", [])
+                    if results:
+                        print(f"✅ Error tracking issue found after {attempt} poll(s)", flush=True)
+                        break
+                    print(f"   Poll {attempt}: no error tracking issue yet", flush=True)
+                else:
+                    print(f"   Poll {attempt}: HTTP {issues_resp.status_code}", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+        else:
+            return False, f"Error tracking issue did not appear within {timeout_seconds}s ({attempt} polls)"
+
+        session_id = str(uuid.uuid4())
+        snapshot_timestamp = int(time.time() * 1000)
+        print("📤 Sending test session recording...", flush=True)
+        try:
+            replay_resp = requests.post(
+                f"{base_url}/s/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                json=[
+                    {
+                        "token": project_api_token,
+                        "event": "$snapshot",
+                        "distinct_id": "hobby-ci-replay-user",
+                        "$session_id": session_id,
+                        "properties": {
+                            "$session_id": session_id,
+                            "$window_id": str(uuid.uuid4()),
+                            "$snapshot_source": "web",
+                            "$snapshot_data": [
+                                {
+                                    "type": 4,
+                                    "timestamp": snapshot_timestamp,
+                                    "data": {
+                                        "href": "https://example.com/hobby-ci",
+                                        "width": 1280,
+                                        "height": 720,
+                                    },
+                                },
+                                {
+                                    "type": 2,
+                                    "timestamp": snapshot_timestamp + 1_000,
+                                    "data": {
+                                        "source": 1,
+                                        "snapshot": {"html": "<html><body>Hobby CI</body></html>"},
+                                    },
+                                },
+                                {
+                                    "type": 3,
+                                    "timestamp": snapshot_timestamp + 2_000,
+                                    "data": {
+                                        "source": 2,
+                                        "mutations": [{"type": "characterData", "id": 1}],
+                                    },
+                                },
+                            ],
+                        },
+                    }
+                ],
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            return False, f"Session recording capture request failed: {e}"
+        if replay_resp.status_code != 200:
+            return False, f"Session recording capture failed: HTTP {replay_resp.status_code} - {replay_resp.text[:200]}"
+
+        print(f"⏳ Polling for session recording (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        replay_found = False
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                recordings_resp = requests.get(
+                    f"{base_url}/api/projects/@current/session_recordings",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    params={"session_ids": json.dumps([session_id]), "date_from": "-1d"},
+                    headers=headers,
+                    timeout=10,
+                )
+                if recordings_resp.status_code == 200:
+                    results = recordings_resp.json().get("results", [])
+                    if any(recording.get("id") == session_id for recording in results):
+                        print(f"✅ Session recording found after {attempt} poll(s)", flush=True)
+                        replay_found = True
+                        break
+                    print(f"   Poll {attempt}: no session recording yet", flush=True)
+                else:
+                    print(f"   Poll {attempt}: HTTP {recordings_resp.status_code}", flush=True)
             except Exception as e:
                 print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
             time.sleep(poll_interval)
 
-        return False, f"Event did not appear within {timeout_seconds}s ({attempt} polls)"
+        if not replay_found:
+            return False, f"Session recording did not appear within {timeout_seconds}s ({attempt} polls)"
+
+        trace_id = uuid.uuid4().hex
+        span_id = uuid.uuid4().hex[:16]
+        date_from = datetime.datetime.now(datetime.UTC).isoformat()
+        start_time_ns = time.time_ns()
+        print("📤 Sending test trace...", flush=True)
+        try:
+            trace_resp = requests.post(
+                f"{base_url}/i/v1/traces",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                params={"token": project_api_token},
+                json={
+                    "resourceSpans": [
+                        {
+                            "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "hobby-ci"}}]},
+                            "scopeSpans": [
+                                {
+                                    "scope": {"name": "hobby-ci"},
+                                    "spans": [
+                                        {
+                                            "traceId": trace_id,
+                                            "spanId": span_id,
+                                            "name": "hobby-ci-smoke-test",
+                                            "kind": 1,
+                                            "startTimeUnixNano": str(start_time_ns),
+                                            "endTimeUnixNano": str(start_time_ns + 1_000_000),
+                                            "status": {"code": 1},
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ]
+                },
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            return False, f"Trace capture request failed: {e}"
+        if trace_resp.status_code != 200:
+            return False, f"Trace capture failed: HTTP {trace_resp.status_code} - {trace_resp.text[:200]}"
+
+        print(f"⏳ Polling for trace (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                query_resp = requests.post(
+                    f"{base_url}/api/projects/@current/tracing/spans/query",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    json={"query": {"dateRange": {"date_from": date_from}, "traceId": trace_id, "limit": 1}},
+                    headers=headers,
+                    timeout=10,
+                )
+                if query_resp.status_code == 200 and query_resp.json().get("results", []):
+                    print(f"✅ Trace found after {attempt} poll(s)", flush=True)
+                    return (
+                        True,
+                        "Preflight healthy; events, log, exception issue, session recording, and trace ingested successfully",
+                    )
+                if query_resp.status_code != 200:
+                    print(f"   Poll {attempt}: trace HTTP {query_resp.status_code}", flush=True)
+                else:
+                    print(f"   Poll {attempt}: trace pending", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+
+        return False, f"Trace did not appear within {timeout_seconds}s ({attempt} polls)"
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):
@@ -775,7 +1107,7 @@ runcmd:
     def wait_for_health_check(
         self,
         cloud_init_finished_at: datetime.datetime,
-        timeout_minutes: int = 35,
+        timeout_minutes: int = 60,
         retry_interval: int = 15,
         stability_period: int = 300,
         startup_grace_seconds: int = 300,
@@ -939,7 +1271,7 @@ runcmd:
     def test_deployment_with_details(
         self,
         cloud_init_timeout=35,
-        health_timeout=35,
+        health_timeout=60,
         retry_interval=15,
         stability_period=300,
         startup_grace_seconds=300,
@@ -1170,7 +1502,15 @@ runcmd:
         self.export_droplet()
 
 
+# Legacy standalone comment marker. New runs post into the shared CI report comment
+# instead, and delete-legacy-comments.mjs cleans up any leftover standalone comment.
 COMMENT_MARKER = "<!-- hobby-smoke-test -->"
+CI_REPORT_MARKER = "<!-- posthog-ci-report -->"
+CI_REPORT_SECTION_ID = "hobby-deploy"
+CI_REPORT_SECTION_RE = re.compile(
+    rf"<!-- ci-report:section:{CI_REPORT_SECTION_ID}:([A-Za-z0-9+/=]*) -->\n"
+    rf"([\s\S]*?)\n<!-- ci-report:section-end:{CI_REPORT_SECTION_ID} -->"
+)
 
 
 @dataclass(frozen=True)
@@ -1194,49 +1534,80 @@ class PRCommentContext:
         )
 
 
-def update_smoke_test_comment(
-    ctx: PRCommentContext,
-    success: bool,
-    failure_details: dict,
-) -> None:
-    """Update or create a smoke test comment on the PR.
+def _previous_smoke_test_state(ctx: PRCommentContext) -> tuple[bool, int]:
+    """Read the previous smoke test outcome for flap detection.
 
-    - Only one comment per PR (edit existing if present)
-    - Detect flapping if previous failure and now success
+    Checks the shared CI report comment's section first, falling back to the legacy
+    standalone comment while open PRs still carry one.
     """
     headers = {
         "Authorization": f"token {ctx.gh_token}",
         "Accept": "application/vnd.github.v3+json",
     }
     repo = "PostHog/posthog"
-
-    # Find existing comment and parse failure count
-    existing_comment = None
-    previous_was_failure = False
-    previous_failure_count = 0
     try:
         resp = requests.get(
             f"https://api.github.com/repos/{repo}/issues/{ctx.pr_number}/comments",
             headers=headers,
             timeout=10,
         )
-        if resp.status_code == 200:
-            for comment in resp.json():
-                body = comment.get("body", "")
-                if COMMENT_MARKER in body:
-                    existing_comment = comment
-                    previous_was_failure = "❌" in body
-                    # Parse previous failure count
-                    import re
-
-                    match = re.search(r"Consecutive failures: (\d+)", body)
-                    if match:
-                        previous_failure_count = int(match.group(1))
-                    elif previous_was_failure:
-                        previous_failure_count = 1
-                    break
+        if resp.status_code != 200:
+            return False, 0
+        for comment in resp.json():
+            body = comment.get("body", "")
+            if body.startswith(CI_REPORT_MARKER):
+                section = CI_REPORT_SECTION_RE.search(body)
+                if not section:
+                    continue
+                try:
+                    meta = json.loads(base64.b64decode(section.group(1)))
+                except Exception:
+                    meta = {}
+                was_failure = meta.get("status") == "fail"
+                count_match = re.search(r"Consecutive failures: (\d+)", section.group(2))
+                if count_match:
+                    return was_failure, int(count_match.group(1))
+                return was_failure, 1 if was_failure else 0
+            if COMMENT_MARKER in body:
+                was_failure = "❌" in body
+                count_match = re.search(r"Consecutive failures: (\d+)", body)
+                if count_match:
+                    return was_failure, int(count_match.group(1))
+                return was_failure, 1 if was_failure else 0
     except Exception as e:
         print(f"⚠️  Could not fetch existing comments: {e}", flush=True)
+    return False, 0
+
+
+def _post_ci_report_section(status: str, summary: str, body: str) -> None:
+    """Write our section of the shared CI report comment via the Node tooling that owns it."""
+    try:
+        subprocess.run(
+            ["node", ".github/scripts/post-reminder-section.mjs", CI_REPORT_SECTION_ID, status, summary],
+            env={**os.environ, "BODY": body},
+            timeout=120,
+            check=False,
+        )
+        subprocess.run(
+            ["node", "frontend/bin/ci-report/delete-legacy-comments.mjs"],
+            timeout=120,
+            check=False,
+        )
+    except Exception as e:
+        print(f"⚠️  Could not post CI report section: {e}", flush=True)
+
+
+def update_smoke_test_comment(
+    ctx: PRCommentContext,
+    success: bool,
+    failure_details: dict,
+) -> None:
+    """Post the smoke test outcome as a collapsible section in the shared CI report comment.
+
+    Detects flapping if the previous run failed and this one passed.
+    """
+    previous_was_failure, previous_failure_count = _previous_smoke_test_state(ctx)
+    repo = "PostHog/posthog"
 
     # Build run link
     run_link = ""
@@ -1244,27 +1615,27 @@ def update_smoke_test_comment(
         attempt_suffix = f"/attempts/{ctx.run_attempt}" if ctx.run_attempt and ctx.run_attempt != "1" else ""
         run_link = f"https://github.com/{repo}/actions/runs/{ctx.run_id}{attempt_suffix}"
 
-    # Build comment body
+    # Build section content
     failure_count = 0
     if success:
         if previous_was_failure:
             # Flapping: was failing, now passing
-            status_emoji = "⚠️"
-            status_text = "FLAPPING"
+            status = "warn"
+            summary = f"flapping: passed after {previous_failure_count} failure(s)"
             body_content = (
                 f"Test passed after {previous_failure_count} consecutive failure(s). This may indicate flaky behavior.\n\n"
                 "The hobby deployment smoke test is now passing, but was failing on previous runs."
             )
         else:
-            status_emoji = "✅"
-            status_text = "PASSED"
+            status = "ok"
+            summary = "passed"
             body_content = "Hobby deployment smoke test passed successfully."
     else:
-        status_emoji = "❌"
-        status_text = "FAILED"
+        status = "fail"
         failure_count = previous_failure_count + 1
         reason = failure_details.get("reason", "unknown")
         message = failure_details.get("message", "Unknown failure")
+        summary = message
 
         body_content = f"**Failing fast because:** {message}\n\n"
 
@@ -1290,41 +1661,8 @@ def update_smoke_test_comment(
         footer_parts.append(f"Consecutive failures: {failure_count}")
     footer = " | ".join(p for p in footer_parts if p)
 
-    comment_body = f"""{COMMENT_MARKER}
-## {status_emoji} Hobby deploy smoke test: {status_text}
-
-{body_content}
-
----
-<sub>{footer}</sub>
-"""
-
-    # Create or update comment
-    try:
-        if existing_comment:
-            resp = requests.patch(
-                existing_comment["url"],
-                headers=headers,
-                json={"body": comment_body},
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                print(f"✅ Updated smoke test comment on PR #{ctx.pr_number}", flush=True)
-            else:
-                print(f"⚠️  Failed to update comment: {resp.status_code}", flush=True)
-        else:
-            resp = requests.post(
-                f"https://api.github.com/repos/{repo}/issues/{ctx.pr_number}/comments",
-                headers=headers,
-                json={"body": comment_body},
-                timeout=10,
-            )
-            if resp.status_code == 201:
-                print(f"✅ Created smoke test comment on PR #{ctx.pr_number}", flush=True)
-            else:
-                print(f"⚠️  Failed to create comment: {resp.status_code}", flush=True)
-    except Exception as e:
-        print(f"⚠️  Could not update PR comment: {e}", flush=True)
+    section_body = f"{body_content}\n\n---\n<sub>{footer}</sub>"
+    _post_ci_report_section(status=status, summary=summary, body=section_body)
 
 
 def main():

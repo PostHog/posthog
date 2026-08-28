@@ -8,28 +8,29 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.quota import compute_quota_snapshot
 
 
 # `many=False` stops drf-spectacular wrapping the response as `VisionQuotaApi[]` for the `list` action.
 @extend_schema_serializer(many=False)
 class VisionQuotaSerializer(serializers.Serializer):
-    monthly_quota = serializers.IntegerField(
+    credit_limit = serializers.IntegerField(
         read_only=True,
-        help_text="Total observations the org may complete per calendar month.",
+        allow_null=True,
+        help_text="Credits the org may spend per billing period (1 credit = $0.01). Null when billing has synced the product with no spend limit: uncapped.",
     )
-    usage_this_month = serializers.IntegerField(
+    credits_used = serializers.IntegerField(
         read_only=True,
-        help_text="Observations created this month that are in flight or have succeeded, counted against the quota.",
+        help_text="Credits spent this period: succeeded observations from the receipt ledger plus reserved in-flight observations.",
     )
     remaining = serializers.IntegerField(
         read_only=True,
-        help_text="`monthly_quota - usage_this_month`, floored at 0.",
+        allow_null=True,
+        help_text="`credit_limit - credits_used`, floored at 0. Null when uncapped.",
     )
     exhausted = serializers.BooleanField(
         read_only=True,
-        help_text="True when `usage_this_month >= monthly_quota`; further observations are skipped until next period.",
+        help_text="True when `credits_used >= credit_limit`; further observations are skipped until next period. Always false when uncapped.",
     )
     period_start = serializers.DateTimeField(
         read_only=True,
@@ -39,11 +40,33 @@ class VisionQuotaSerializer(serializers.Serializer):
         read_only=True,
         help_text="First moment of the next quota period (UTC); the current period's exclusive upper bound.",
     )
-    projected_monthly_observations = serializers.IntegerField(
+    projected_monthly_credits = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "Sum of enabled scanners' projected observations/month across the organization. "
+            "`scanners_monthly_credits` plus `backfills_committed_credits`. Kept as the single headline number; "
+            "prefer the two components when pro-rating, since only the scanner half is a monthly rate."
+        ),
+    )
+    scanners_monthly_credits = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Credit-weighted sum of enabled scanners' projected observations/month across the organization. "
+            "A monthly rate: only the part falling in the days left of the period lands this period. "
             "Scanners without a computed estimate contribute 0."
+        ),
+    )
+    backfills_committed_credits = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than "
+            "a rate, so it lands in full regardless of how much of the period is left."
+        ),
+    )
+    free_monthly_credits = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Credits per period included for free. Already counted inside `credit_limit`; "
+            "only credits beyond this number are billed."
         ),
     )
 
@@ -52,7 +75,7 @@ class VisionQuotaViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "replay_scanner"
     # Custom viewsets must declare scopes or personal-API-key callers 403 silently.
     scope_object_read_actions = ["list"]
-    permission_classes = [IsAuthenticated, ReplayVisionEnabledPermission]
+    permission_classes = [IsAuthenticated]
 
     @extend_schema(operation_id="environment_vision_quota_retrieve", responses={200: VisionQuotaSerializer})
     def list(self, request: Request, *args, **kwargs) -> Response:

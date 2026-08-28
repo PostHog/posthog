@@ -109,14 +109,22 @@ class TestImpersonationOAuthTokenIssuance(APIBaseTest):
     `/oauth/authorize` for both read-only and read-write impersonation — so this
     test implicitly covers both modes."""
 
-    def test_code_exchange_caps_expiry_and_suppresses_refresh_for_impersonation_grants(self) -> None:
+    @parameterized.expand(
+        [
+            ("third_party", False),
+            ("first_party", True),
+        ]
+    )
+    def test_code_exchange_caps_expiry_and_suppresses_refresh_for_impersonation_grants(
+        self, _name: str, is_first_party: bool
+    ) -> None:
         admin = User.objects.create_user(email="admin@posthog.com", password="x", first_name="A")
         admin.is_staff = True
         admin.save()
 
         app = OAuthApplication.objects.create(
             name="App",
-            client_id="impersonation-test-client",
+            client_id=f"impersonation-test-client-{_name}",
             client_secret="impersonation-test-secret",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
@@ -124,6 +132,7 @@ class TestImpersonationOAuthTokenIssuance(APIBaseTest):
             user=self.user,
             hash_client_secret=True,
             algorithm="RS256",
+            is_first_party=is_first_party,
         )
 
         # PKCE bits — `S256` over a fixed verifier. The validator only checks the

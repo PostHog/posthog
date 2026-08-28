@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
 
+import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -41,14 +42,22 @@ class _FakeResponse:
 
 
 class _FakeSession:
-    """Records requested URLs and replays a queue of responses."""
+    """Records requested URLs (and POST bodies) and replays a queue of responses."""
 
     def __init__(self, responses: list[_FakeResponse]):
         self._responses = list(responses)
         self.requested_urls: list[str] = []
+        self.posted_bodies: list[dict | None] = []
 
     def get(self, url: str, headers: dict | None = None, timeout: int | None = None) -> _FakeResponse:
         self.requested_urls.append(url)
+        return self._responses.pop(0)
+
+    def post(
+        self, url: str, headers: dict | None = None, json: dict | None = None, timeout: int | None = None
+    ) -> _FakeResponse:
+        self.requested_urls.append(url)
+        self.posted_bodies.append(json)
         return self._responses.pop(0)
 
 
@@ -239,6 +248,51 @@ class TestWindowedCalls:
         assert batches == [[{"id": "c1"}], [{"id": "c2"}]]
         assert "cursor=page2" in session.requested_urls[1]
 
+    @parameterized.expand(
+        [
+            # Gong signals an empty date window with a 404; the sync skips it and continues.
+            (
+                "no_calls_body_skips_window",
+                '{"errors":["No calls found corresponding to the provided filters"]}',
+                False,
+            ),
+            # A 404 for any other reason must still surface rather than be swallowed.
+            ("unrelated_404_raises", '{"errors":["Not Found"]}', True),
+        ]
+    )
+    def test_404_handling(self, _name: str, body: str, should_raise: bool) -> None:
+        last_value = datetime.now(UTC) - timedelta(days=100)
+        responses = [
+            _FakeResponse(status_code=404, text=body),
+            _FakeResponse(json_data={"calls": [{"id": "c1"}]}),
+        ]
+        session = _FakeSession(responses)
+        manager = _FakeResumableManager()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            rows = get_rows(
+                "key",
+                "secret",
+                "calls",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=last_value,
+            )
+            if should_raise:
+                with pytest.raises(Exception):
+                    list(rows)
+                return
+            batches = list(rows)
+
+        # The empty window yields nothing but does not abort the sync; both windows run.
+        assert batches == [[{"id": "c1"}]]
+        assert len(session.requested_urls) == 2
+        assert len(manager.saved_states) == 2
+
     def test_resume_uses_saved_window_start(self) -> None:
         last_value = datetime.now(UTC) - timedelta(days=80)
         resume_start = datetime.now(UTC) - timedelta(days=10)
@@ -269,6 +323,7 @@ class TestGongSource:
     @parameterized.expand(
         [
             ("calls", "id", "started", "asc"),
+            ("transcripts", "callId", "started", "asc"),
             ("users", "id", "created", "asc"),
             ("scorecards", "scorecardId", "created", "asc"),
             ("workspaces", "id", None, "asc"),
@@ -290,4 +345,268 @@ class TestGongSource:
             assert response.partition_mode is None
 
     def test_every_endpoint_has_a_config(self) -> None:
-        assert set(GONG_ENDPOINTS) == {"calls", "users", "scorecards", "workspaces"}
+        assert set(GONG_ENDPOINTS) == {
+            "calls",
+            "calls_extensive",
+            "calls_content",
+            "transcripts",
+            "users",
+            "scorecards",
+            "workspaces",
+        }
+
+
+class TestExtensiveCalls:
+    # Gong returns only the enrichment blocks the selector names, so a table whose selector and
+    # kept row keys disagree syncs null columns and no data at all.
+    @parameterized.expand(
+        [
+            (
+                "calls_extensive_requests_parties_and_crm_context",
+                "calls_extensive",
+                {
+                    "parties": [{"emailAddress": "buyer@acme.com", "affiliation": "External"}],
+                    "context": [{"system": "Salesforce", "objects": [{"objectType": "Account"}]}],
+                    "content": {"brief": "should be dropped — not a column on this table"},
+                },
+                {"context": "Extended", "exposedFields": {"parties": True}},
+                {
+                    "parties": [{"emailAddress": "buyer@acme.com", "affiliation": "External"}],
+                    "context": [{"system": "Salesforce", "objects": [{"objectType": "Account"}]}],
+                },
+            ),
+            (
+                "calls_content_requests_spotlight_summary_only",
+                "calls_content",
+                {
+                    "content": {"brief": "Buyer wants SSO.", "keyPoints": [{"text": "Asked about SSO"}]},
+                    "parties": [{"emailAddress": "buyer@acme.com"}],
+                },
+                {
+                    "context": "None",
+                    "exposedFields": {
+                        "content": {
+                            "brief": True,
+                            "keyPoints": True,
+                            "highlights": True,
+                            "callOutcome": True,
+                            "outline": True,
+                        }
+                    },
+                },
+                {"content": {"brief": "Buyer wants SSO.", "keyPoints": [{"text": "Asked about SSO"}]}},
+            ),
+        ]
+    )
+    def test_posts_selector_and_flattens_metadata(
+        self,
+        _name: str,
+        endpoint: str,
+        siblings: dict[str, Any],
+        expected_selector: dict[str, Any],
+        expected_columns: dict[str, Any],
+    ) -> None:
+        last_value = datetime.now(UTC) - timedelta(days=5)
+        session = _FakeSession(
+            [
+                _FakeResponse(
+                    json_data={
+                        "calls": [
+                            {
+                                "metaData": {"id": "c1", "title": "Discovery", "started": "2026-03-01T00:00:00Z"},
+                                **siblings,
+                            }
+                        ]
+                    }
+                )
+            ]
+        )
+        manager = _FakeResumableManager()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    "key",
+                    "secret",
+                    endpoint,
+                    mock.MagicMock(),
+                    manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=last_value,
+                )
+            )
+
+        # metaData is lifted to the top level; only the blocks this table asked for ride along.
+        assert batches == [[{"id": "c1", "title": "Discovery", "started": "2026-03-01T00:00:00Z", **expected_columns}]]
+        # A single POST to the extensive endpoint with no query string.
+        assert session.requested_urls == [f"{GONG_BASE_URL}/v2/calls/extensive"]
+        body = session.posted_bodies[0]
+        assert body is not None
+        assert body["contentSelector"] == expected_selector
+        assert body["filter"]["fromDateTime"] == _format_datetime(last_value)
+        assert "cursor" not in body
+
+    def test_cursor_travels_in_body(self) -> None:
+        last_value = datetime.now(UTC) - timedelta(days=5)
+        session = _FakeSession(
+            [
+                _FakeResponse(json_data={"calls": [{"metaData": {"id": "c1"}}], "records": {"cursor": "page2"}}),
+                _FakeResponse(json_data={"calls": [{"metaData": {"id": "c2"}}]}),
+            ]
+        )
+        manager = _FakeResumableManager()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    "key",
+                    "secret",
+                    "calls_extensive",
+                    mock.MagicMock(),
+                    manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=last_value,
+                )
+            )
+
+        assert batches == [
+            [{"id": "c1", "parties": None, "context": None}],
+            [{"id": "c2", "parties": None, "context": None}],
+        ]
+        # The cursor is sent in the second request's body, never as a query param.
+        second_body = session.posted_bodies[1]
+        assert second_body is not None
+        assert second_body["cursor"] == "page2"
+        assert all("?" not in url for url in session.requested_urls)
+
+    @parameterized.expand(
+        [
+            # Extensive responses carry participant names and free-form CRM fields, and transcript
+            # responses carry verbatim conversation text, so neither may reach HTTP sample capture.
+            # Basic list endpoints stay captured for troubleshooting.
+            ("calls_extensive", [{"calls": [{"metaData": {"id": "c1"}}]}], False),
+            (
+                "transcripts",
+                [{"calls": [{"id": "c1", "started": "2026-03-01T00:00:00Z"}]}, {"callTranscripts": [{"callId": "c1"}]}],
+                False,
+            ),
+            ("users", [{"users": [{"id": "u1"}]}], True),
+        ]
+    )
+    def test_response_body_capture_per_endpoint(
+        self, endpoint: str, payloads: list[dict], expected_capture: bool
+    ) -> None:
+        session = _FakeSession([_FakeResponse(json_data=payload) for payload in payloads])
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ) as session_factory:
+            list(
+                get_rows(
+                    "key",
+                    "secret",
+                    endpoint,
+                    mock.MagicMock(),
+                    _FakeResumableManager(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=datetime.now(UTC) - timedelta(days=5),
+                )
+            )
+
+        assert session_factory.call_args.kwargs["capture"] is expected_capture
+
+
+class TestTranscripts:
+    def test_drives_from_calls_and_stamps_each_transcript_with_its_call_start(self) -> None:
+        last_value = datetime.now(UTC) - timedelta(days=5)
+        session = _FakeSession(
+            [
+                _FakeResponse(
+                    json_data={
+                        "calls": [{"id": "c1", "started": "2026-03-01T00:00:00Z"}],
+                        "records": {"cursor": "calls-page2"},
+                    }
+                ),
+                _FakeResponse(json_data={"callTranscripts": [{"callId": "c1", "transcript": [{"speakerId": "u1"}]}]}),
+                _FakeResponse(json_data={"calls": [{"id": "c2", "started": "2026-03-02T00:00:00Z"}]}),
+                _FakeResponse(json_data={"callTranscripts": [{"callId": "c2", "transcript": []}]}),
+            ]
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    "key",
+                    "secret",
+                    "transcripts",
+                    mock.MagicMock(),
+                    _FakeResumableManager(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=last_value,
+                )
+            )
+
+        # `started` comes from the call the transcript belongs to — the transcript response has no
+        # date of its own, so without it the table can't sync incrementally or partition.
+        assert batches == [
+            [{"callId": "c1", "transcript": [{"speakerId": "u1"}], "started": "2026-03-01T00:00:00Z"}],
+            [{"callId": "c2", "transcript": [], "started": "2026-03-02T00:00:00Z"}],
+        ]
+        # Every page of the calls walk drives its own transcript request, so a second page of calls
+        # isn't dropped.
+        assert f"fromDateTime={_format_datetime(last_value)}" in unquote(session.requested_urls[0])
+        assert session.requested_urls[1] == f"{GONG_BASE_URL}/v2/calls/transcript"
+        assert "cursor=calls-page2" in session.requested_urls[2]
+        assert session.requested_urls[3] == f"{GONG_BASE_URL}/v2/calls/transcript"
+        # Each request asks only for the ids on the page that drove it.
+        assert [body["filter"]["callIds"] for body in session.posted_bodies if body] == [["c1"], ["c2"]]
+
+    @parameterized.expand(
+        [
+            # A call with no start time leaves its transcript with nothing to partition or sync on.
+            ("call_without_start_time", [{"id": "c1"}], [{"callId": "c1"}]),
+            # A transcript for a call we never asked for has no start time to borrow either.
+            (
+                "transcript_for_unrequested_call",
+                [{"id": "c1", "started": "2026-03-01T00:00:00Z"}],
+                [{"callId": "other"}],
+            ),
+        ]
+    )
+    def test_unstampable_transcript_stops_the_sync(
+        self, _name: str, calls: list[dict], transcripts: list[dict]
+    ) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(json_data={"calls": calls}),
+                _FakeResponse(json_data={"callTranscripts": transcripts}),
+            ]
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            rows = get_rows(
+                "key",
+                "secret",
+                "transcripts",
+                mock.MagicMock(),
+                _FakeResumableManager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime.now(UTC) - timedelta(days=5),
+            )
+            # Writing the row with `started=None` would bury it in the fallback partition and keep
+            # it out of the watermark, so no later run would ever correct it.
+            with pytest.raises(ValueError):
+                list(rows)

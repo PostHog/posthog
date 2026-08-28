@@ -51,7 +51,7 @@ export function AccessControlFilters(props: AccessControlFiltersProps): JSX.Elem
                     />
                 )}
 
-                <FeaturesFilter
+                <ToolsFilter
                     selectedResourceKeys={props.filters.resourceKeys}
                     setSelectedResourceKeys={(values) => props.setFilters({ resourceKeys: values })}
                     resources={props.resources.filter((resource) => resource.key !== 'project')}
@@ -77,6 +77,7 @@ function RolesFilter(props: {
         <LemonDropdown
             closeOnClickInside={false}
             placement="bottom-start"
+            overflowHidden
             overlay={
                 <MultiSelectFilterDropdown
                     title="Role"
@@ -111,6 +112,7 @@ function MembersFilter(props: {
         <LemonDropdown
             closeOnClickInside={false}
             placement="bottom-start"
+            overflowHidden
             overlay={
                 <MultiSelectFilterDropdown
                     title="Member"
@@ -131,7 +133,7 @@ function MembersFilter(props: {
     )
 }
 
-function FeaturesFilter(props: {
+function ToolsFilter(props: {
     selectedResourceKeys: APIScopeObject[]
     setSelectedResourceKeys: (values: APIScopeObject[]) => void
     resources: { key: APIScopeObject; label: string }[]
@@ -140,10 +142,11 @@ function FeaturesFilter(props: {
         <LemonDropdown
             closeOnClickInside={false}
             placement="bottom-start"
+            overflowHidden
             overlay={
                 <MultiSelectFilterDropdown
-                    title="Feature"
-                    placeholder="Filter by features…"
+                    title="Tool"
+                    placeholder="Filter by tools…"
                     values={props.selectedResourceKeys}
                     setValues={(values) => props.setSelectedResourceKeys(values as APIScopeObject[])}
                     options={props.resources.map((r) => ({ key: r.key, label: r.label }))}
@@ -151,7 +154,7 @@ function FeaturesFilter(props: {
             }
         >
             <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                Feature{props.selectedResourceKeys.length ? ` (${props.selectedResourceKeys.length})` : ''}
+                Tool{props.selectedResourceKeys.length ? ` (${props.selectedResourceKeys.length})` : ''}
             </LemonButton>
         </LemonDropdown>
     )
@@ -166,6 +169,7 @@ function AccessLevelFilter(props: {
         <LemonDropdown
             closeOnClickInside={false}
             placement="bottom-start"
+            overflowHidden
             overlay={
                 <MultiSelectFilterDropdown
                     title="Access"

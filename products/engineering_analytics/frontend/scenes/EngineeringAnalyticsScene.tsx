@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonBanner, LemonButton, LemonSelect, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -9,89 +9,115 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { doraLogic } from './doraLogic'
+import { EngineeringAnalyticsHealth } from './EngineeringAnalyticsHealth'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { EngineeringAnalyticsPullRequests } from './EngineeringAnalyticsPullRequests'
 import {
-    EngineeringAnalyticsTab,
-    TAB_DESCRIPTIONS,
+    EngineeringAnalyticsView,
+    VIEW_DESCRIPTIONS,
     engineeringAnalyticsSceneLogic,
 } from './engineeringAnalyticsSceneLogic'
+import { EngineeringAnalyticsTeams } from './EngineeringAnalyticsTeams'
 import { EngineeringAnalyticsTestHealth } from './EngineeringAnalyticsTestHealth'
 import { EngineeringAnalyticsWorkflows } from './EngineeringAnalyticsWorkflows'
+import { RepoOverviewScene } from './RepoOverviewScene'
 
 export const scene: SceneExport = {
     component: EngineeringAnalyticsScene,
     logic: engineeringAnalyticsSceneLogic,
 }
 
-export function EngineeringAnalyticsScene(): JSX.Element {
-    const { searchParams } = useValues(router)
-    const { activeTab } = useValues(engineeringAnalyticsSceneLogic)
+function RefreshButton({ extraLoading = false }: { extraLoading?: boolean }): JSX.Element {
     const logic = engineeringAnalyticsLogic()
-    const { anyLoading, hasMultipleSources, sourceOptions, sourceId } = useValues(logic)
-    const { refresh, setSourceId } = useActions(logic)
+    const { anyLoading } = useValues(logic)
+    const { refresh } = useActions(logic)
+    const loading = anyLoading || extraLoading
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            onClick={refresh}
+            loading={loading}
+            disabledReason={loading ? 'Loading…' : undefined}
+        >
+            Refresh
+        </LemonButton>
+    )
+}
 
-    const tabs: LemonTab<EngineeringAnalyticsTab>[] = [
+// Rendered only while the Health tab is active, where its content keeps doraLogic mounted —
+// subscribing here adds no eager DORA load on the other tabs. The DORA loading state can't
+// join anyLoading directly: doraLogic already connects from engineeringAnalyticsLogic, and a
+// reverse connect would make the two logics circular.
+function HealthRefreshButton(): JSX.Element {
+    const { doraLoading } = useValues(doraLogic)
+    return <RefreshButton extraLoading={doraLoading} />
+}
+
+export function EngineeringAnalyticsScene(): JSX.Element {
+    const { searchParams: linkParams } = useValues(router)
+    const { activeView } = useValues(engineeringAnalyticsSceneLogic)
+
+    // The general areas of the product. Drill-down pages (workflow, run, PR) live below the Overview.
+    const tabs: LemonTab<EngineeringAnalyticsView>[] = [
+        {
+            key: 'hub',
+            label: 'Overview',
+            content: <RepoOverviewScene />,
+            link: combineUrl(urls.engineeringAnalytics(), linkParams).url,
+            'data-attr': 'engineering-analytics-overview-tab',
+        },
         {
             key: 'pull-requests',
             label: 'Pull requests',
             content: <EngineeringAnalyticsPullRequests />,
-            link: combineUrl(urls.engineeringAnalytics(), searchParams).url,
+            link: combineUrl(urls.engineeringAnalyticsPullRequestList(), linkParams).url,
             'data-attr': 'engineering-analytics-pull-requests-tab',
         },
         {
             key: 'workflows',
             label: 'Workflows',
             content: <EngineeringAnalyticsWorkflows />,
-            link: combineUrl(urls.engineeringAnalyticsWorkflows(), searchParams).url,
+            link: combineUrl(urls.engineeringAnalyticsWorkflows(), linkParams).url,
             'data-attr': 'engineering-analytics-workflows-tab',
+        },
+        {
+            key: 'teams',
+            label: 'Teams',
+            content: <EngineeringAnalyticsTeams />,
+            link: combineUrl(urls.engineeringAnalyticsTeams(), linkParams).url,
+            'data-attr': 'engineering-analytics-teams-tab',
         },
         {
             key: 'test-health',
             label: 'Test health',
             content: <EngineeringAnalyticsTestHealth />,
-            link: combineUrl(urls.engineeringAnalyticsTestHealth(), searchParams).url,
+            link: combineUrl(urls.engineeringAnalyticsTestHealth(), linkParams).url,
             'data-attr': 'engineering-analytics-test-health-tab',
+        },
+        {
+            key: 'health',
+            label: 'Health',
+            content: <EngineeringAnalyticsHealth />,
+            link: combineUrl(urls.engineeringAnalyticsHealth(), linkParams).url,
+            'data-attr': 'engineering-analytics-health-tab',
         },
     ]
 
     return (
         <BindLogic logic={engineeringAnalyticsLogic} props={{}}>
-            <SceneContent>
+            <SceneContent className="pb-16">
                 <SceneTitleSection
-                    name="CI analytics"
-                    description={TAB_DESCRIPTIONS[activeTab]}
+                    name="Engineering analytics"
+                    description={VIEW_DESCRIPTIONS[activeView]}
                     resourceType={{ type: 'health' }}
-                    actions={
-                        <div className="flex items-center gap-2">
-                            {hasMultipleSources && (
-                                <LemonSelect
-                                    size="small"
-                                    value={sourceId}
-                                    onChange={setSourceId}
-                                    options={sourceOptions}
-                                    placeholder="Source: default"
-                                    allowClear
-                                    dropdownMatchSelectWidth={false}
-                                    data-attr="engineering-analytics-source-select"
-                                />
-                            )}
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={refresh}
-                                loading={anyLoading}
-                                disabledReason={anyLoading ? 'Loading…' : undefined}
-                            >
-                                Refresh
-                            </LemonButton>
-                        </div>
-                    }
+                    actions={activeView === 'health' ? <HealthRefreshButton /> : <RefreshButton />}
                 />
                 <LemonBanner type="info" dismissKey="engineering-analytics-alpha">
-                    CI analytics is in alpha. Metrics are limited to CI events, and details may change.
+                    Engineering analytics is in alpha. Metrics are limited to CI events, and details may change.
                 </LemonBanner>
-                <LemonTabs activeKey={activeTab} data-attr="engineering-analytics-tabs" tabs={tabs} sceneInset />
+                <LemonTabs activeKey={activeView} data-attr="engineering-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>
         </BindLogic>
     )

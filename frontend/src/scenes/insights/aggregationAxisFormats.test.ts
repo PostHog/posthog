@@ -13,6 +13,11 @@ describe('formatAggregationAxisValue', () => {
         { candidate: 34, filters: { aggregation_axis_format: 'duration' }, expected: '34s' },
         { candidate: 340, filters: { aggregation_axis_format: 'duration' }, expected: '5m 40s' },
         { candidate: 3940, filters: { aggregation_axis_format: 'duration' }, expected: '1h 5m 40s' },
+        { candidate: 500, filters: { aggregation_axis_format: 'duration_ns' }, expected: '500ns' },
+        { candidate: 500_000, filters: { aggregation_axis_format: 'duration_ns' }, expected: '500µs' },
+        { candidate: 1_000_000, filters: { aggregation_axis_format: 'duration_ns' }, expected: '1ms' },
+        { candidate: 1_500_000_000, filters: { aggregation_axis_format: 'duration_ns' }, expected: '1.5s' },
+        { candidate: 3.5, filters: { aggregation_axis_format: 'duration_ms' }, expected: '3.5ms' },
         { candidate: 3.944, filters: { aggregation_axis_format: 'percentage' }, expected: '3.94%' },
         { candidate: 3.956, filters: { aggregation_axis_format: 'percentage' }, expected: '3.96%' },
         { candidate: 3940, filters: { aggregation_axis_format: 'percentage' }, expected: '3,940%' },
@@ -51,12 +56,41 @@ describe('formatAggregationAxisValue', () => {
             currency: 'EUR' as CurrencyCode,
             expected: '€3,940.00',
         },
+        {
+            candidate: 94.02,
+            filters: { aggregationAxisFormat: 'currency', aggregationAxisPrefix: '$' },
+            currency: 'USD' as CurrencyCode,
+            expected: '$94.02',
+        },
+        {
+            candidate: 94.02,
+            filters: { aggregationAxisFormat: 'currency', aggregationAxisPrefix: '€' },
+            currency: 'EUR' as CurrencyCode,
+            expected: '€94.02',
+        },
+        {
+            candidate: 94.02,
+            filters: { aggregationAxisFormat: 'currency', aggregationAxisPrefix: 'USD ' },
+            currency: 'USD' as CurrencyCode,
+            expected: 'USD $94.02',
+        },
+        {
+            candidate: 1000,
+            filters: { aggregationAxisFormat: 'numeric', aggregationAxisPrefix: '1' },
+            expected: '11,000',
+        },
         { candidate: 0.8709423, filters: {}, expected: '0.87' },
         { candidate: 0.8709423, filters: { decimal_places: 2 }, expected: '0.87' },
         { candidate: 0.8709423, filters: { decimal_places: 3 }, expected: '0.871' },
         { candidate: 0.8709423, filters: { decimalPlaces: 3 }, expected: '0.871' },
         { candidate: 0.8709423, filters: { decimal_places: 9 }, expected: '0.8709423' },
         { candidate: 0.8709423, filters: { decimal_places: -1 }, expected: '0.87' }, // Fall back to default for unsupported values
+        { candidate: 0.012, filters: {}, expected: '0.012' },
+        { candidate: 0.002, filters: {}, expected: '0.002' },
+        { candidate: 0.00012345, filters: {}, expected: '0.00012' },
+        { candidate: 0.012, filters: { decimal_places: 2 }, expected: '0.01' },
+        { candidate: 0.005, filters: { aggregation_axis_format: 'percentage' }, expected: '0.005%' },
+        { candidate: 0.0123456, filters: { aggregation_axis_format: 'percentage_scaled' }, expected: '1.23%' },
     ]
 
     formatTestcases.forEach((testcase) => {

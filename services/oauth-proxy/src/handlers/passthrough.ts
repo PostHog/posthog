@@ -1,6 +1,7 @@
 import { POSTHOG_EU_BASE_URL, POSTHOG_US_BASE_URL } from '@/lib/constants'
 import { getClientMapping, getRegionSelection } from '@/lib/kv'
 import { proxyPostWithClientId, proxyToRegion, tryBothRegions } from '@/lib/proxy'
+import { errorResponse } from '@/lib/validation'
 
 /**
  * Passthrough handlers for OAuth endpoints that simply need to reach the correct region.
@@ -79,10 +80,7 @@ async function routeByClientId(request: Request, kv: KVNamespace, path: string):
             const json = JSON.parse(body) as Record<string, unknown>
             clientId = (json.client_id as string) || null
         } catch {
-            return new Response(
-                JSON.stringify({ error: 'invalid_request', error_description: 'Malformed JSON body' }),
-                { status: 400, headers: { 'Content-Type': 'application/json' } }
-            )
+            return errorResponse({ error: 'invalid_request', error_description: 'Malformed JSON body' })
         }
     } else {
         const params = new URLSearchParams(body)

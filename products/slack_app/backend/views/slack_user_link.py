@@ -14,8 +14,9 @@ install routes the SPA owns.
 
 * ``GET /complete/slack-link/``
   Slack redirects here after the user authorizes. We exchange the code for a
-  user token, call ``users.identity`` to learn the Slack user id + team, and
-  upsert a ``UserIntegration(kind="slack")`` row pinning the Slack identity
+  user token, call ``openid.connect.userInfo`` to learn the Slack user id
+  + team, and upsert a ``UserIntegration(kind="slack")`` row pinning the
+  Slack identity
   to the currently-logged-in PostHog user. On success we DM the user back in
   the original Slack thread (if we have channel + thread context) and bounce
   the browser tab back to Personal integrations with a success query param —
@@ -43,7 +44,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import user_slack_integration_from_identity
 from posthog.views import login_required
 
-from products.slack_app.backend.feature_flags import slack_oauth_link_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_oauth import (
     CallbackState,
     InviteToken,
@@ -103,7 +104,7 @@ def slack_user_link_authorize(request: HttpRequest) -> HttpResponse:
     if workspace_integration is None:
         return _settings_redirect(error="workspace_not_found")
 
-    if not slack_oauth_link_enabled(workspace_integration, invite.slack_team_id):
+    if not is_slack_app_oauth_enabled(workspace_integration, invite.slack_team_id):
         return _settings_redirect(error="flag_off")
 
     callback_state = CallbackState(
@@ -152,7 +153,7 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
     workspace_integration = _load_workspace_integration(state.posthog_team_id, state.slack_team_id)
     if workspace_integration is None:
         return _settings_redirect(error="workspace_not_found")
-    if not slack_oauth_link_enabled(workspace_integration, state.slack_team_id):
+    if not is_slack_app_oauth_enabled(workspace_integration, state.slack_team_id):
         return _settings_redirect(error="flag_off")
 
     try:
@@ -228,6 +229,7 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
         slack_email_at_link=identity.slack_email,
         user_access_token=identity.user_access_token,
         user_refresh_token=identity.user_refresh_token,
+        user_scopes=identity.user_scopes,
     )
 
     _post_link_success_followup(

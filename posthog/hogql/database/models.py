@@ -1,6 +1,7 @@
 import datetime
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -202,7 +203,9 @@ class UUIDDatabaseField(DatabaseField):
         return UUIDType(nullable=self.is_nullable())
 
     def default_value(self) -> Any:
-        return "00000000-0000-0000-0000-000000000000"
+        # A `UUID` rather than its string form, so an empty `SelectQuery` prints a UUID-typed
+        # literal that still compares against a real UUID column.
+        return UUID("00000000-0000-0000-0000-000000000000")
 
 
 class ExpressionField(DatabaseField):
@@ -265,6 +268,9 @@ class Table(FieldOrTable):
         return asterisk
 
 
+_CI_INDEX_CACHE_KEY = "_case_insensitive_index_cache"
+
+
 class TableNode(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -274,6 +280,10 @@ class TableNode(BaseModel):
     # When True, the table is reachable by the resolver (so other tables can reference it
     # via subqueries) but is omitted from the SQL editor schema and autocomplete lists.
     hidden: bool = False
+    # When True, this node may be reached by a case-insensitive name match (used for Snowflake,
+    # which stores identifiers uppercase but resolves unquoted names case-insensitively). Only
+    # opt-in nodes participate in the fallback, so ClickHouse/event tables stay exact-match.
+    case_insensitive: bool = False
 
     def __getstate__(self) -> dict[Any, Any]:
         return _slim_pickle_getstate(self)
@@ -291,6 +301,32 @@ class TableNode(BaseModel):
 
         return self.table
 
+    def _case_insensitive_index(self) -> dict[str, "TableNode"]:
+        # Kept in self.__dict__ instead of a pydantic PrivateAttr: a private attr would slow
+        # catalog pickling for every node (see _slim_pickle_getstate). Rebuilt when `children`
+        # is a different dict or length; add_child covers same-name replacement, which those
+        # checks miss. Survives pickling intact. Concurrent builds compute the same index, so
+        # races are harmless.
+        cache: Optional[tuple[dict[str, TableNode], int, dict[str, TableNode]]] = self.__dict__.get(_CI_INDEX_CACHE_KEY)
+        if cache is None or cache[0] is not self.children or cache[1] != len(self.children):
+            index: dict[str, TableNode] = {}
+            for key, node in self.children.items():
+                if node.case_insensitive:
+                    # On duplicate lowercased names the first child in iteration order wins.
+                    index.setdefault(key.lower(), node)
+            cache = (self.children, len(self.children), index)
+            object.__setattr__(self, _CI_INDEX_CACHE_KEY, cache)
+        return cache[2]
+
+    def _match_child(self, name: str) -> Optional["TableNode"]:
+        child = self.children.get(name)
+        if child is not None:
+            return child
+        # Fall back to a case-insensitive match, but only to children that opt in — keeps
+        # ClickHouse/event tables exact-match while letting Snowflake schemas/tables resolve
+        # the way Snowflake itself does (unquoted identifiers fold case).
+        return self._case_insensitive_index().get(name.lower())
+
     # NOTE: This only returns True if the path we pass in
     # is a valid path to a child table - not just any path.
     def has_child(self, path: list[str]) -> bool:
@@ -298,20 +334,22 @@ class TableNode(BaseModel):
             return self.table is not None
 
         first, *rest_of_path = path
-        if first not in self.children:
+        child = self._match_child(first)
+        if child is None:
             return False
 
-        return self.children[first].has_child(rest_of_path)
+        return child.has_child(rest_of_path)
 
     def get_child(self, path: list[str]) -> "TableNode":
         if len(path) == 0:
             return self
 
         first, *rest_of_path = path
-        if first not in self.children:
+        child = self._match_child(first)
+        if child is None:
             raise ResolutionError(f"Unknown table `{first}`.")
 
-        return self.children[first].get_child(rest_of_path)
+        return child.get_child(rest_of_path)
 
     def add_child(
         self,
@@ -320,6 +358,9 @@ class TableNode(BaseModel):
         table_conflict_mode: Literal["override", "ignore"] = "ignore",
         children_conflict_mode: Literal["override", "merge", "ignore"] = "merge",
     ):
+        # A same-name replacement changes neither the `children` dict nor its length, so the
+        # lookup cache cannot detect it. Drop the cache here.
+        self.__dict__.pop(_CI_INDEX_CACHE_KEY, None)
         # If there's a conflict, we act according to the conflict modes
         if child.name in self.children:
             if children_conflict_mode == "override":
@@ -399,14 +440,14 @@ class TableNode(BaseModel):
         return names
 
     @staticmethod
-    def create_nested_for_chain(chain: list[str], table: Table) -> "TableNode":
+    def create_nested_for_chain(chain: list[str], table: Table, *, case_insensitive: bool = False) -> "TableNode":
         assert len(chain) > 0
 
         # Create a deeply nested table node structure
-        start: TableNode = TableNode(name=chain[0])
+        start: TableNode = TableNode(name=chain[0], case_insensitive=case_insensitive)
         current: TableNode = start
         for name in chain[1:]:
-            child = TableNode(name=name)
+            child = TableNode(name=name, case_insensitive=case_insensitive)
             current.add_child(child)
             current = child
 

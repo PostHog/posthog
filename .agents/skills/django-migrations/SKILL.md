@@ -5,6 +5,8 @@ description: Django migration patterns and safety workflow for PostHog. Use when
 
 # Django migrations
 
+Before you propose a change to the migration history or to how migrations run, check [things already tried](../../../docs/internal/ci-things-already-tried.md). It records the closed attempts at squashing the history and at the Person table cutover.
+
 Read these files first, before writing or editing a migration:
 
 - `docs/published/handbook/engineering/developing-locally.md` (`## Django migrations`, `### Non-blocking migrations`, `### Resolving merge conflicts`)
@@ -13,6 +15,52 @@ Read these files first, before writing or editing a migration:
 - `products/README.md` (`## Adding or moving backend models and migrations`) when working in `products/*`
 
 If the task is a ClickHouse migration, use `clickhouse-migrations` instead.
+
+## Never delete a migration file
+
+Adding migrations is fine. **Deleting a historical one — any `*/migrations/NNNN_*.py` already on master, even an app's `0001_initial.py`, even to "undo" a schema change — is not.** Deleting the file undoes nothing: the table and its constraints stay in every database where the migration ran, fresh databases never recreate them, and the "Migration Risk Analysis" CI job re-flags the file as a phantom new migration on every open PR that predates the deletion. The deleted-migration check in the `repo-checks` CI job (the `hogli lint:migration-deletions` command) blocks this. Genuinely intentional, reviewed deletions — a product/app move, a revert, a squash — are acknowledged in `.github/scripts/migration-deletion-allowlist.txt`, never by disabling the guard.
+
+**If a task asks you to delete a migration file, stop and flag it instead.**
+
+To retire a model/table:
+
+1. Remove all usage and the model class. `makemigrations`, then wrap the generated `DeleteModel` in `migrations.SeparateDatabaseAndState(state_operations=[...])` (state only, no DB change). KEEP this file. Keep the app in `INSTALLED_APPS`.
+2. Deploy, wait at least one full deploy cycle.
+3. Optionally `DROP TABLE` later in a NEW `RunSQL` migration — never by deleting old files.
+
+Full guide: `safe-django-migrations.md` (`## Dropping Tables`, `### Removing a whole product or app`). Deleting a migration your branch added but never merged to master is allowed (regenerating).
+
+## Retire dedicated migration tests
+
+A data migration test protects the rollout, not the permanent behavior of the product. Remove the dedicated test after all supported environments have applied the migration, the rollback window has closed, and no supported upgrade still relies on the old data state.
+
+Delete an expired test instead of marking it skipped. Keep the migration file. Fresh-schema CI still checks that the complete migration chain applies.
+
+Do not apply this rule to migration tooling, migration safety checks, reusable backfill systems, or backfills that people can still run.
+
+## Growing enums need callable choices
+
+A `choices=` list that grows over time generates an `AlterField` on every addition, on every model that uses the enum. Those migrations emit **no SQL** — `choices` is in Django's `Field.non_db_attrs`, so the schema editor skips them — but they still land in migration state, in CI's per-shard migration replay, and in `max_migration.txt`, where they collide with every other migration waiting in the merge queue.
+
+Pass a callable instead. Django resolves it lazily, so the migration records the function reference once and never changes again:
+
+```python
+def external_data_source_type_choices() -> list[tuple[str, str]]:
+    return ExternalDataSourceType.choices
+
+
+source_type = models.CharField(max_length=128, choices=external_data_source_type_choices)
+```
+
+Runtime behavior is unchanged: DRF still builds a `ChoiceField`, so the OpenAPI enum and the generated frontend types are intact; `full_clean()` still rejects unknown values; admin still renders a dropdown; `get_FOO_display()` still resolves the label. A real schema change (`max_length`, `null`, a new field) still generates a migration.
+
+Reach for a callable when the enum is a **registry** that grows as the org adds things — sources, integrations, products, providers, model ids. Keep a plain list for a **closed vocabulary** intrinsic to the domain, like a status or a priority, where a new member is a genuine domain change worth recording.
+
+Two things a callable does not do for you:
+
+- Migrations reference it by import path forever, so renaming or moving it needs its own migration. Keep it next to the enum it wraps.
+- It has to be a module-level named function. A lambda or a closure returned by a shared factory has no importable path, so Django cannot serialize it — one small function per enum is the intended shape, not duplication to factor out.
+- It hides choice growth from migration state, not from the column. A new member longer than the field's `max_length` is still a real schema change, so check the headroom when the registry grows.
 
 ## Workflow
 

@@ -3,12 +3,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { mockIntegration } from '~/test/mocks'
-import {
-    AvailableFeature,
-    IntegrationType,
-    SLACK_INTEGRATION_SCOPES,
-    SLACK_INTEGRATION_SCOPES_IN_REVIEW,
-} from '~/types'
+import { AvailableFeature, IntegrationType, SLACK_INTEGRATION_SCOPES } from '~/types'
 
 import { Slack } from '../definitions/slack'
 import { SlackIntegration } from './SlackIntegration'
@@ -22,7 +17,7 @@ const SLACK_INSTANCE_SETTINGS = [
 
 const meta: Meta<StoryArgs> = {
     title: 'Components/Integrations/Slack',
-    parameters: {},
+    parameters: { mockDate: '2023-01-01' },
     render: ({ instanceConfigured = true, integrated = false }) => {
         useAvailableFeatures([AvailableFeature.SUBSCRIPTIONS])
 
@@ -82,14 +77,9 @@ export const SlackFullPageConnect: StoryObj = {
 
 export const SlackFullPageConnectedAllScopes: StoryObj = {
     name: 'Full Page — Connected (all scopes)',
-    // Storybook runs with ``isDev === true``, so ``useSlackRequiredScopes`` returns the union
-    // of the always-on and in-review sets. Mirror that here so the green-success state isn't
-    // immediately undone by missing in-review scopes.
     render: () =>
         renderFullPage({
-            integrations: [
-                mockSlackIntegrationWithScopes([...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW]),
-            ],
+            integrations: [mockSlackIntegrationWithScopes([...SLACK_INTEGRATION_SCOPES])],
         }),
 }
 

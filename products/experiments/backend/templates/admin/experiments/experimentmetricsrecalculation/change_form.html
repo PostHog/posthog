@@ -1,0 +1,21 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block after_field_sets %}
+    {{ block.super }}
+
+    {% if original and can_start_recalculation %}
+    <fieldset style="margin: 20px 0; padding: 16px; border: 1px solid #ccc; border-radius: 4px;">
+        <h2>Recalculation actions</h2>
+        <div style="margin-top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            {% if can_mark_terminal %}
+                <button type="submit" formaction="{{ mark_failed_url }}" formmethod="post" formnovalidate class="button" style="padding: 8px 14px; background: #ba2121;">Mark as failed (and cancel workflow)</button>
+                <button type="submit" formaction="{{ mark_completed_url }}" formmethod="post" formnovalidate class="button" style="padding: 8px 14px;">Mark as completed</button>
+            {% else %}
+                <p style="color: #666; margin: 4px 0;">This recalculation is already terminal.</p>
+            {% endif %}
+            <button type="submit" formaction="{{ start_recalculation_url }}" formmethod="post" formnovalidate class="button" style="padding: 8px 14px; background: #417690;">Start new recalculation</button>
+        </div>
+    </fieldset>
+    {% endif %}
+{% endblock %}

@@ -1,37 +1,25 @@
-import { DateTime } from 'luxon'
-
 import { PipelineResultType } from '~/ingestion/framework/results'
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 
 import { LibVersionMonitorStepInput, createLibVersionMonitorStep } from './lib-version-monitor-step'
 
 describe('createLibVersionMonitorStep', () => {
-    const createParsedMessage = (headers: Record<string, string>[] = []): ParsedMessageData => ({
-        metadata: {
+    const createInput = (headers: Record<string, string>[] = []): LibVersionMonitorStepInput => ({
+        message: {
             partition: 0,
             topic: 'test-topic',
             offset: 1,
             timestamp: 1234567890,
-            rawSize: 100,
+            size: 100,
+            value: Buffer.from(''),
+            key: null,
+            headers: headers.map((h) => {
+                const result: Record<string, Buffer> = {}
+                for (const [key, value] of Object.entries(h)) {
+                    result[key] = Buffer.from(value)
+                }
+                return result
+            }),
         },
-        headers: headers.map((h) => {
-            const result: Record<string, Buffer> = {}
-            for (const [key, value] of Object.entries(h)) {
-                result[key] = Buffer.from(value)
-            }
-            return result
-        }),
-        distinct_id: 'distinct_id',
-        session_id: 'session-1',
-        token: 'test-token',
-        eventsByWindowId: { window1: [] },
-        eventsRange: { start: DateTime.fromMillis(0), end: DateTime.fromMillis(0) },
-        snapshot_source: null,
-        snapshot_library: null,
-    })
-
-    const createInput = (headers: Record<string, string>[] = []): LibVersionMonitorStepInput => ({
-        parsedMessage: createParsedMessage(headers),
     })
 
     it('should emit warning for old lib version (< 1.75.0)', async () => {
@@ -115,7 +103,7 @@ describe('createLibVersionMonitorStep', () => {
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
-            expect(result.value.parsedMessage).toBe(input.parsedMessage)
+            expect(result.value.message).toBe(input.message)
         }
     })
 

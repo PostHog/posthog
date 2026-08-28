@@ -17,6 +17,17 @@ pub(crate) fn insert_event(entries: &mut Vec<(i32, u32)>, day: i32) {
     }
 }
 
+/// Max-merge `day`'s absolute `count` — the seed-tile analog of [`insert_event`]: the tile carries
+/// the whole day's count, so merging takes the max instead of incrementing. Keeps entries sorted
+/// with no zero-count entries (`count ≥ 1` by the tile's `NonZeroU32`). The caller must slide the
+/// window before calling; `day` must be within the current window.
+pub(crate) fn merge_day_count(entries: &mut Vec<(i32, u32)>, day: i32, count: u32) {
+    match entries.binary_search_by_key(&day, |&(entry_day, _)| entry_day) {
+        Ok(idx) => entries[idx].1 = entries[idx].1.max(count),
+        Err(idx) => entries.insert(idx, (day, count)),
+    }
+}
+
 /// Slide the sparse window forward to `target_now_day`, dropping entries below the new lower bound.
 /// No-op when the window already covers `target_now_day`; the window only moves forward, never back.
 pub(crate) fn slide_window_forward(
@@ -107,6 +118,25 @@ mod tests {
         let mut entries = vec![(100, u32::MAX)];
         insert_event(&mut entries, 100);
         assert_eq!(entries, vec![(100, u32::MAX)], "saturating, never wraps");
+    }
+
+    #[test]
+    fn merge_day_count_keeps_the_max_keeps_sorting_and_never_stores_zero() {
+        // Fresh day: inserted at its sorted position with the absolute count.
+        let mut entries = vec![(100, 3), (110, 1)];
+        merge_day_count(&mut entries, 105, 4);
+        assert_eq!(entries, vec![(100, 3), (105, 4), (110, 1)]);
+
+        // Existing day: max, not sum — re-delivery and live overlap must not inflate the count.
+        merge_day_count(&mut entries, 100, 2);
+        assert_eq!(entries[0], (100, 3), "smaller tile count is absorbed");
+        merge_day_count(&mut entries, 100, 9);
+        assert_eq!(entries[0], (100, 9), "larger tile count wins");
+
+        // Idempotent: the same merge twice is a no-op.
+        let before = entries.clone();
+        merge_day_count(&mut entries, 105, 4);
+        assert_eq!(entries, before);
     }
 
     #[test]

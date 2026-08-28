@@ -9,6 +9,7 @@ import requests
 import structlog
 
 from posthog.api.github_callback import state
+from posthog.api.github_callback.install_requests import record_install_request
 from posthog.api.github_callback.types import (
     FinishResult,
     FlowKind,
@@ -18,6 +19,7 @@ from posthog.api.github_callback.types import (
     github_oauth_redirect_uri,
     is_valid_github_installation_id,
 )
+from posthog.egress.github.transport import github_request
 from posthog.models import User
 from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration, Integration
 from posthog.models.user_integration import (
@@ -57,6 +59,15 @@ def finish_personal(request: HttpRequest) -> FinishResult:
     connect_from_value = authorize_state.connect_from
     flow = authorize_state.flow
     installation_ids: list[str] = []
+    redirect_uri = github_oauth_redirect_uri() if flow.is_oauth_redirect else None
+
+    if request.GET.get("setup_action") == "request" and not request.GET.get("installation_id"):
+        # Not an org owner: GitHub only requested approval instead of installing. It still
+        # sends an OAuth `code` when the App asks for user authorization on install, so this
+        # has to be checked before the code branches. Same code the team flow surfaces, so
+        # the desktop treats both paths as one pending state.
+        record_install_request(user, code, redirect_uri=redirect_uri)
+        return _error("github_install_pending")
 
     if not code:
         # GitHub omits the OAuth `code` when the App is already installed on the
@@ -106,7 +117,7 @@ def finish_personal(request: HttpRequest) -> FinishResult:
             installation_ids = [installation_id]
 
     if flow.is_oauth_redirect:
-        authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=github_oauth_redirect_uri())
+        authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=redirect_uri)
     else:
         authorization = GitHubIntegration.github_user_from_code(code)
     if authorization is None:
@@ -114,13 +125,12 @@ def finish_personal(request: HttpRequest) -> FinishResult:
 
     if flow.discovers_installations:
         try:
-            response = requests.get(
+            # Identity-blind: user OAuth token, metered against the user's budget, not an installation's.
+            response = github_request(
+                "GET",
                 "https://api.github.com/user/installations",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {authorization.access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
+                source="integration",
+                headers={"Authorization": f"Bearer {authorization.access_token}"},
                 params={"per_page": 100},
                 timeout=10,
             )

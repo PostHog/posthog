@@ -1,17 +1,19 @@
 import { clsx } from 'clsx'
 import posthog from 'posthog-js'
 
+import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { ExperimentsHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
-import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import { urls } from 'scenes/urls'
 
 import { type ExperimentConclusion, type ExperimentStatus } from '~/types'
+
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
 
 import {
     WIDGET_LIST_COUNT_EXPERIMENTS,
@@ -22,6 +24,8 @@ import {
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseExperimentsListWidgetConfig } from './experimentsWidgetConfigValidation'
+
+const HedgehogExperiment = pngHoggie(experimentPng)
 
 export type ExperimentsListWidgetRow = {
     id: number
@@ -126,7 +130,7 @@ export function ExperimentsListWidget({ tileId, config, result, loading }: Dashb
                         className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
                         data-attr="experiments-list-widget-empty-state"
                     >
-                        <ExperimentsHog className="size-20 shrink-0" />
+                        <HedgehogExperiment className="size-20 shrink-0" />
                         {hasActiveFilters ? (
                             <>
                                 <p className="m-0 text-base font-semibold text-primary">No experiments found</p>

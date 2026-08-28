@@ -9,10 +9,10 @@ import { CdpConsumerBaseDeps } from '../../src/cdp/consumers/cdp-base.consumer'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
-    WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '../../src/cdp/outputs/producers'
+import { createSesRateLimiterValkeyPool } from '../../src/cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { InternalCaptureService } from '../../src/common/services/internal-capture'
 import { Hub } from '../../src/types'
 
@@ -27,7 +27,6 @@ function buildTestCdpProducerRegistry(
 ): KafkaProducerRegistry<CdpProducerName> {
     return new KafkaProducerRegistry<CdpProducerName>({
         [WARPSTREAM_INGESTION_PRODUCER]: kafkaProducer,
-        [WARPSTREAM_CALCULATED_EVENTS_PRODUCER]: kafkaProducer,
         [WARPSTREAM_CYCLOTRON_PRODUCER]: kafkaProducer,
         [WAREHOUSE_PRODUCER]: kafkaProducer,
     })
@@ -63,5 +62,6 @@ export function createCdpConsumerDeps(hub: Hub, kafkaProducer?: KafkaProducerWra
         geoipService: hub.geoipService,
         groupRepository: noopGroupReadRepository,
         quotaLimiting: hub.quotaLimiting,
+        emailValidationValkey: createSesRateLimiterValkeyPool(hub, 'email-mx-validation'),
     }
 }

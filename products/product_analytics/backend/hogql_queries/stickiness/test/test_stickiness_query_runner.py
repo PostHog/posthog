@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional, Union
 
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
+    BaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
@@ -15,10 +17,14 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionsNode,
+    CachedStickinessQueryResponse,
     CohortPropertyFilter,
     CompareFilter,
+    DashboardFilter,
     DataWarehouseNode,
     DataWarehousePropertyFilter,
     DateRange,
@@ -56,7 +62,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.stickinessquery"
 
@@ -68,7 +74,7 @@ class Series:
 
 
 @dataclass
-class SeriesTestData:
+class PersonSeriesFixture:
     distinct_id: str
     events: list[Series]
     properties: dict[str, str | int]
@@ -102,7 +108,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     default_date_from = "2020-01-11"
     default_date_to = "2020-01-20"
 
-    def _create_events(self, data: list[SeriesTestData]):
+    def _create_events(self, data: list[PersonSeriesFixture]):
         person_result = []
         properties_to_create: dict[str, str] = {}
         for person in data:
@@ -179,10 +185,30 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         return table.name
 
+    def _setup_data_warehouse_with_decoy_timestamp(self) -> str:
+        # Table whose real event time lives in `event_time`, but which also has a DateTime column
+        # literally named `timestamp` (e.g. an ingestion timestamp). The DataWarehouseEventsModifier
+        # skips injecting a virtual `timestamp` field in this case, so a runner that hardcodes
+        # `e.timestamp` would silently bucket/filter on the wrong column.
+        table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "stickiness_dw_decoy_timestamp.csv",
+            table_name="test_table_stickiness_decoy",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "event_time": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "timestamp": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "prop_1": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+
+        return table.name
+
     def _create_test_events(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -216,7 +242,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -256,6 +282,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         filters: Optional[StickinessFilter] = None,
         filter_test_accounts: Optional[bool] = False,
         compare_filters: Optional[CompareFilter] = None,
+        days_of_week: Optional[list[int]] = None,
     ):
         query_series: list[EventsNode | ActionsNode | DataWarehouseNode] = (
             [EventsNode(event="$pageview")] if series is None else series
@@ -266,7 +293,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         query = StickinessQuery(
             series=query_series,
-            dateRange=DateRange(date_from=query_date_from, date_to=query_date_to),
+            dateRange=DateRange(date_from=query_date_from, date_to=query_date_to, daysOfWeek=days_of_week),
             interval=query_interval,
             intervalCount=intervalCount,
             properties=properties,
@@ -346,6 +373,34 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, StickinessQueryResponse)
         assert response.results[0]["label"] == table_name
         assert response.results[0]["data"] == [1, 0, 0, 0, 0, 0, 0]
+        assert response.results[0]["days"] == [1, 2, 3, 4, 5, 6, 7]
+
+    def test_stickiness_data_warehouse_uses_configured_timestamp_field(self):
+        # Regression: the configured `timestamp_field` must drive interval bucketing even when the
+        # source table has its own DateTime column named `timestamp`. u1 has activity on 3 distinct
+        # `event_time` days and u2 on 1, so bucketing by `event_time` yields one actor in 1 interval
+        # and one actor in 3. Bucketing by the decoy `timestamp` (all 2023-01-04) would instead put
+        # both actors in a single interval -> [2, 0, 0, 0, 0, 0, 0].
+        table_name = self._setup_data_warehouse_with_decoy_timestamp()
+
+        with freeze_time("2023-01-07"):
+            response = self._run_query(
+                series=[
+                    DataWarehouseNode(
+                        id=table_name,
+                        table_name=table_name,
+                        id_field="id",
+                        distinct_id_field="id",
+                        timestamp_field="event_time",
+                    )
+                ],
+                date_from="2023-01-01",
+                date_to="2023-01-07",
+            )
+
+        assert isinstance(response, StickinessQueryResponse)
+        assert response.results[0]["label"] == table_name
+        assert response.results[0]["data"] == [1, 0, 1, 0, 0, 0, 0]
         assert response.results[0]["days"] == [1, 2, 3, 4, 5, 6, 7]
 
     def test_days(self):
@@ -481,7 +536,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_interval_2_day_filtering(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -506,7 +561,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -742,10 +797,126 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[1]["compare_label"] == "previous"
         assert response.results[1]["data"] == [0, 0, 0, 0, 1, 0, 0, 0, 1]
 
+    @parameterized.expand(
+        [
+            ("mon_tue_only", [1, 2], [0, 1, 0, 0, 0, 0, 0]),
+            ("empty_means_unfiltered", [], [0, 0, 1, 0, 0, 0, 0]),
+            ("all_days_means_unfiltered", [1, 2, 3, 4, 5, 6, 7], [0, 0, 1, 0, 0, 0, 0]),
+        ]
+    )
+    def test_days_of_week_restricts_days_active(self, _name, days_of_week, expected_data):
+        # 2020-01-13 is a Monday; p1 is active Mon, Tue, and Sat
+        self._create_events(
+            [
+                PersonSeriesFixture(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-13T12:00:00Z",  # Monday
+                                "2020-01-14T12:00:00Z",  # Tuesday
+                                "2020-01-18T12:00:00Z",  # Saturday
+                            ],
+                        )
+                    ],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_query(date_from="2020-01-13", date_to="2020-01-19", days_of_week=days_of_week)
+
+        assert response.results[0]["data"] == expected_data
+
+    @parameterized.expand(
+        [
+            ("monday_filter_includes_it", [1], 1),
+            ("sunday_filter_excludes_it", [7], 0),
+        ]
+    )
+    def test_days_of_week_uses_project_timezone(self, _name, days_of_week, expected_count):
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
+        # 20:00 UTC Sunday = 05:00 Monday in Asia/Tokyo
+        self._create_events(
+            [
+                PersonSeriesFixture(
+                    distinct_id="p1",
+                    events=[Series(event="$pageview", timestamps=["2020-01-12T20:00:00Z"])],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_query(date_from="2020-01-13", date_to="2020-01-19", days_of_week=days_of_week)
+
+        assert sum(response.results[0]["data"]) == expected_count
+
+    def test_days_of_week_actors_match_chart(self):
+        # The actors query must honor daysOfWeek like the chart does, or the persons modal
+        # would list people whose only events fall on deselected days
+        self._create_events(
+            [
+                PersonSeriesFixture(
+                    distinct_id="p_weekday",
+                    events=[Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"])],  # Wednesday
+                    properties={},
+                ),
+                PersonSeriesFixture(
+                    distinct_id="p_weekend",
+                    events=[Series(event="$pageview", timestamps=["2020-01-18T12:00:00Z"])],  # Saturday
+                    properties={},
+                ),
+            ]
+        )
+
+        query = self._get_query(date_from="2020-01-13", date_to="2020-01-19", days_of_week=[6, 7])
+        runner = get_query_runner(query=StickinessActorsQuery(source=query, day=1, operator="exact"), team=self.team)
+        actors = runner.calculate()
+
+        assert len(actors.results) == 1
+
+    def test_days_of_week_filters_compare_previous_period(self):
+        # Current period 2020-01-13..19, previous period 2020-01-06..12; 2020-01-06 is a Monday
+        self._create_events(
+            [
+                PersonSeriesFixture(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-06T12:00:00Z",  # Monday, previous period
+                                "2020-01-07T12:00:00Z",  # Tuesday, previous period
+                                "2020-01-14T12:00:00Z",  # Tuesday, current period
+                            ],
+                        )
+                    ],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_query(
+            date_from="2020-01-13",
+            date_to="2020-01-19",
+            compare_filters=CompareFilter(compare=True),
+            days_of_week=[1],
+        )
+
+        current, previous = response.results[0], response.results[1]
+        assert current["compare_label"] == "current"
+        assert current["count"] == 0
+        assert previous["compare_label"] == "previous"
+        # Only the previous period's Monday event counts toward days active
+        assert previous["count"] == 1
+        assert previous["data"][0] == 1
+
     def test_criteria(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -766,7 +937,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -892,7 +1063,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_cumulative_stickiness(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -906,7 +1077,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -919,7 +1090,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(
@@ -950,7 +1121,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_cumulative_stickiness_with_intervals(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -964,7 +1135,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -996,7 +1167,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_cumulative_stickiness_with_property_filter(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -1010,7 +1181,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"browser": "Chrome"},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -1056,7 +1227,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_cumulative_stickiness_with_criteria(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -1072,7 +1243,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -1086,7 +1257,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(
@@ -1123,7 +1294,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_actor_query_cumulative(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -1137,7 +1308,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -1150,7 +1321,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(
@@ -1204,7 +1375,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_actor_query_non_cumulative(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -1218,7 +1389,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -1231,7 +1402,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(
@@ -1283,7 +1454,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_actor_query_with_operator(self):
         self._create_events(
             [
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -1297,7 +1468,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -1310,7 +1481,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={},
                 ),
-                SeriesTestData(
+                PersonSeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(
@@ -1349,3 +1520,88 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
         self.assertEqual(len(response.results), 2)  # p2 and p3 were active for <= 2 days
+
+
+class TestStickinessDashboardFilters(BaseTest):
+    def _runner(self) -> StickinessQueryRunner:
+        return StickinessQueryRunner(
+            query=StickinessQuery(series=[EventsNode(event="$pageview")], interval=IntervalType.DAY),
+            team=self.team,
+        )
+
+    @parameterized.expand(
+        [
+            ("override_written_onto_query", IntervalType.WEEK, IntervalType.WEEK),
+            ("absent_override_leaves_query_untouched", None, IntervalType.DAY),
+        ]
+    )
+    def test_dashboard_interval_override(
+        self, _name: str, dashboard_interval: IntervalType | None, expected: IntervalType
+    ) -> None:
+        runner = self._runner()
+
+        runner.apply_dashboard_filters(DashboardFilter(interval=dashboard_interval))
+
+        assert runner.query.interval == expected
+
+    @parameterized.expand(
+        [
+            ("override_forces_on", None, True, True),
+            ("override_forces_off", True, False, False),
+            ("absent_override_leaves_query_untouched", True, None, True),
+        ]
+    )
+    def test_dashboard_test_accounts_override(
+        self, _name: str, initial: bool | None, dashboard_filter: bool | None, expected: bool
+    ) -> None:
+        runner = self._runner()
+        if initial is not None:
+            runner.query.filterTestAccounts = initial
+
+        runner.apply_dashboard_filters(DashboardFilter(filterTestAccounts=dashboard_filter))
+
+        assert runner.query.filterTestAccounts is expected
+
+
+class TestStickinessSeriesCustomNames(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "applies_custom_name_to_stickiness_series",
+                [{"action": {"order": 0, "custom_name": None}, "data": [1, 2, 3]}],
+                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
+                True,
+            ),
+            (
+                "not_modified_when_stickiness_names_match",
+                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
+                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
+                False,
+            ),
+        ]
+    )
+    def test_apply_stickiness_custom_names(
+        self,
+        _name: str,
+        cached_results: list,
+        expected_results: list,
+        expect_modified: bool,
+    ) -> None:
+        runner = StickinessQueryRunner(
+            query=StickinessQuery(series=[EventsNode(event="$pageview", custom_name="My Stickiness Name")]),
+            team=self.team,
+        )
+
+        cached_response = CachedStickinessQueryResponse(
+            results=cached_results,
+            is_cached=True,
+            last_refresh=datetime.now(UTC),
+            next_allowed_client_refresh=datetime.now(UTC),
+            cache_key="test_key",
+            timezone="UTC",
+        )
+
+        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
+
+        assert patched_response.results == expected_results
+        assert was_modified is expect_modified

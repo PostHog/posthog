@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
+import io
 import os
 import json
 import time
 import signal
+import contextlib
 import subprocess
 import importlib.util
 
@@ -11,14 +13,21 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from toolbox.kubernetes import (
+    check_context_access,
     get_available_contexts,
+    get_context_profile,
     get_current_context,
     kubectl_cmd,
+    reset_sso,
     select_context,
+    select_environment,
+    summarize_diagnostic,
     switch_context,
     validate_context,
+    wait_for_context_access,
 )
 from toolbox.pod import ClaimRaceError, claim_pod, delete_pod, get_toolbox_pod
+from toolbox.tailscale import SKIP_CHECK_ENV_VAR, TAILSCALE_RUNBOOK_URL, ensure_tailscale_connected
 from toolbox.user import get_current_user, parse_arn, sanitize_label
 
 # Load toolbox.py (the script with main() and POOLS) by file path, since the
@@ -30,6 +39,14 @@ _spec.loader.exec_module(toolbox_script)
 
 
 class TestToolbox(unittest.TestCase):
+    def setUp(self):
+        # main() checks Tailscale before anything else; the real check would
+        # exit on hosts without a connected tailnet (CI), so neutralize it here
+        # and exercise the real function via the toolbox.tailscale tests below.
+        ensure_patcher = patch.object(toolbox_script, "ensure_tailscale_connected")
+        self.m_ensure_tailscale = ensure_patcher.start()
+        self.addCleanup(ensure_patcher.stop)
+
     def test_kubectl_cmd_without_context(self):
         """kubectl_cmd with context=None returns the same shape as a bare kubectl call."""
         self.assertEqual(kubectl_cmd("get", "pods"), ["kubectl", "get", "pods"])
@@ -700,7 +717,11 @@ class TestToolbox(unittest.TestCase):
 
         self.assertEqual(contexts, ["context1", "context2", "context3"])
         mock_run.assert_called_once_with(
-            ["kubectl", "config", "get-contexts", "-o", "name"], capture_output=True, text=True, check=True
+            ["kubectl", "config", "get-contexts", "-o", "name"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=15,
         )
 
     @patch("subprocess.run")
@@ -736,7 +757,11 @@ class TestToolbox(unittest.TestCase):
 
         self.assertEqual(context, "current-context")
         mock_run.assert_called_once_with(
-            ["kubectl", "config", "current-context"], capture_output=True, text=True, check=True
+            ["kubectl", "config", "current-context"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=15,
         )
 
     @patch("subprocess.run")
@@ -781,48 +806,181 @@ class TestToolbox(unittest.TestCase):
         mock_get.return_value = ["posthog-dev", "posthog-prod"]
         self.assertFalse(validate_context("posthog-bogus"))
 
-    @patch("toolbox.kubernetes.get_available_contexts")
-    @patch("toolbox.kubernetes.get_current_context")
     @patch("builtins.input")
-    def test_select_context(self, mock_input, mock_get_current, mock_get_available):
-        """Test selecting kubernetes context."""
-        # Setup mocks
-        mock_get_available.return_value = ["context1", "context2", "context3"]
-        mock_get_current.return_value = "context1"
-        mock_input.return_value = ""  # User just presses Enter to use current context
+    def test_select_environment_only_offers_toolbox_environments(self, mock_input):
+        mock_input.side_effect = ["40", "0", "-1", "2"]
+        self.assertEqual(select_environment(), "prod-eu")
+        self.assertEqual(mock_input.call_count, 4)
 
-        # Call function
-        result = select_context()
-
-        # Verify result
-        self.assertEqual(result, "context1")
-        mock_get_available.assert_called_once()
-        mock_get_current.assert_called_once()
-        mock_input.assert_called_once()
-
+    @patch("toolbox.kubernetes.check_context_access")
     @patch("toolbox.kubernetes.get_available_contexts")
-    @patch("toolbox.kubernetes.get_current_context")
-    @patch("builtins.input")
-    def test_select_context_picks_index_without_switching(self, mock_input, mock_get_current, mock_get_available):
-        """Picking a context returns the chosen name without calling kubectl config use-context."""
-        mock_get_available.return_value = ["context1", "context2", "context3"]
-        mock_get_current.return_value = "context1"
-        mock_input.return_value = "2"
+    @patch("toolbox.kubernetes.select_environment", return_value="dev")
+    def test_select_context_uses_least_privileged_working_context(self, mock_environment, mock_get, mock_access):
+        mock_get.return_value = ["unrelated", "dev-eks", "dev-write", "dev-admin"]
+        mock_access.side_effect = [(False, "no"), (True, "")]
 
-        with patch("toolbox.kubernetes.switch_context") as mock_switch:
-            result = select_context()
+        self.assertEqual(select_context("posthog"), "dev-write")
+        self.assertEqual(
+            mock_access.call_args_list,
+            [unittest.mock.call("dev-eks", "posthog"), unittest.mock.call("dev-write", "posthog")],
+        )
 
-        self.assertEqual(result, "context2")
-        mock_switch.assert_not_called()
+    @patch("subprocess.run")
+    def test_check_context_access_uses_kubernetes_identity(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout='{"status": {}}\n', stderr="")
+        self.assertEqual(check_context_access("dev-eks", "posthog"), (True, ""))
+        mock_run.assert_called_once_with(
+            ["kubectl", "--context=dev-eks", "auth", "whoami", "-o", "json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
 
-    @patch("toolbox.kubernetes.get_available_contexts")
-    @patch("toolbox.kubernetes.get_current_context")
-    def test_select_context_current_none(self, mock_get_current, mock_get_available):
-        """Test select_context exits if current context is None."""
-        mock_get_available.return_value = ["context1", "context2"]
-        mock_get_current.return_value = None
-        with self.assertRaises(SystemExit):
-            select_context()
+    @patch("subprocess.run")
+    def test_get_context_profile_reads_local_kubeconfig(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(
+                {
+                    "contexts": [{"name": "dev-eks", "context": {"user": "dev-eks-user"}}],
+                    "users": [
+                        {
+                            "name": "dev-eks-user",
+                            "user": {"exec": {"env": [{"name": "AWS_PROFILE", "value": "dev-eks"}]}},
+                        }
+                    ],
+                }
+            )
+        )
+        self.assertEqual(get_context_profile("dev-eks"), "dev-eks")
+
+    @patch("toolbox.kubernetes.check_context_access", return_value=(True, ""))
+    @patch("toolbox.kubernetes.get_context_profile", return_value="dev-eks")
+    @patch("toolbox.kubernetes.time.monotonic", side_effect=[0, 1])
+    def test_wait_for_context_access_continues_when_grant_appears(self, mock_time, mock_profile, mock_access):
+        self.assertTrue(wait_for_context_access("dev-eks", "posthog"))
+        mock_access.assert_called_once_with("dev-eks", "posthog")
+
+    @patch("toolbox.kubernetes.login_to_sso", return_value=False)
+    @patch("toolbox.kubernetes.get_context_profile", return_value="dev-eks")
+    def test_wait_for_context_access_stops_when_required_sso_login_fails(self, mock_profile, mock_login):
+        self.assertFalse(
+            wait_for_context_access("dev-eks", "posthog", initial_diagnostic="Token has expired and refresh failed")
+        )
+        mock_login.assert_called_once_with("dev-eks", timeout=unittest.mock.ANY)
+
+    def test_summarize_diagnostic_surfaces_aws_no_access(self):
+        diagnostic = "aws: [ERROR]: ForbiddenException when calling GetRoleCredentials: No access\nUnable to connect"
+        self.assertEqual(summarize_diagnostic(diagnostic), "AWS reports that this profile currently has no access")
+
+    def test_summarize_diagnostic_recognizes_whoami_unauthorized(self):
+        diagnostic = "error: You must be logged in to the server (Unauthorized)"
+        self.assertEqual(summarize_diagnostic(diagnostic), "Kubernetes rejected the cached AWS SSO credentials")
+
+    def test_summarize_diagnostic_flags_unreachable_cluster(self):
+        cases = [
+            "E0810 memcache.go:265 Unable to connect to the server: dial tcp: lookup abc.eks.amazonaws.com: no such host",
+            "Unable to connect to the server: dial tcp 10.1.2.3:443: i/o timeout",
+            "Unable to connect to the server: connect: no route to host",
+        ]
+        for diagnostic in cases:
+            with self.subTest(diagnostic=diagnostic):
+                self.assertEqual(
+                    summarize_diagnostic(diagnostic),
+                    "cannot reach the cluster endpoint (check that Tailscale is connected)",
+                )
+
+    def test_summarize_diagnostic_keeps_credential_plugin_transport_errors(self):
+        aws_error = 'Could not connect to the endpoint URL: "https://portal.sso.us-east-1.amazonaws.com/token": connection refused'
+        diagnostic = (
+            "Unable to connect to the server: getting credentials: exec: executable aws failed with exit code 255\n"
+            + aws_error
+        )
+        self.assertEqual(summarize_diagnostic(diagnostic), aws_error)
+
+    def _tailscale_status_result(self, payload):
+        return MagicMock(returncode=0, stdout=json.dumps(payload))
+
+    def _run_tailscale_check(self):
+        """Run the preflight with the skip var unset; return (exit_code or None, stdout)."""
+        exit_code = None
+        output = io.StringIO()
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(SKIP_CHECK_ENV_VAR, None)
+            with contextlib.redirect_stdout(output):
+                try:
+                    ensure_tailscale_connected()
+                except SystemExit as exc:
+                    exit_code = exc.code
+        return exit_code, output.getvalue()
+
+    @patch("toolbox.tailscale.subprocess.run")
+    @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
+    def test_ensure_tailscale_connected_passes_silently_when_running(self, mock_which, mock_run):
+        mock_run.return_value = self._tailscale_status_result({"BackendState": "Running"})
+        exit_code, output = self._run_tailscale_check()
+
+        self.assertIsNone(exit_code)
+        self.assertEqual(output, "")
+
+    @patch("toolbox.tailscale.os.path.isfile", return_value=False)
+    @patch("toolbox.tailscale.shutil.which", return_value=None)
+    def test_ensure_tailscale_connected_exits_when_not_installed(self, mock_which, mock_isfile):
+        exit_code, output = self._run_tailscale_check()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Tailscale is not installed", output)
+        self.assertIn(TAILSCALE_RUNBOOK_URL, output)
+
+    @patch("toolbox.tailscale.os.path.isfile", return_value=False)
+    @patch("toolbox.tailscale.subprocess.run")
+    @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
+    def test_ensure_tailscale_connected_exits_when_not_running(self, mock_which, mock_run, mock_isfile):
+        mock_run.return_value = self._tailscale_status_result({"BackendState": "Stopped"})
+        exit_code, output = self._run_tailscale_check()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Tailscale is not connected", output)
+        self.assertIn(TAILSCALE_RUNBOOK_URL, output)
+
+    @patch("toolbox.tailscale.subprocess.run")
+    @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
+    def test_ensure_tailscale_connected_warns_when_subnet_routes_rejected(self, mock_which, mock_run):
+        mock_run.return_value = self._tailscale_status_result(
+            {
+                "BackendState": "Running",
+                "Health": ["some peers are advertising routes but --accept-routes is false"],
+            }
+        )
+        exit_code, output = self._run_tailscale_check()
+
+        self.assertIsNone(exit_code)
+        self.assertIn("not accepting subnet routes", output)
+        self.assertIn("--accept-routes", output)
+
+    @patch("toolbox.tailscale.shutil.which")
+    def test_ensure_tailscale_connected_skipped_via_env_var(self, mock_which):
+        with patch.dict(os.environ, {SKIP_CHECK_ENV_VAR: "1"}, clear=False):
+            ensure_tailscale_connected()
+        mock_which.assert_not_called()
+
+    @patch("toolbox.kubernetes.login_to_sso", return_value=True)
+    @patch("toolbox.kubernetes.time.monotonic", return_value=10)
+    @patch("subprocess.run")
+    def test_reset_sso_logs_out_before_logging_back_in(self, mock_run, mock_time, mock_login):
+        mock_run.return_value = MagicMock(returncode=0)
+        self.assertTrue(reset_sso("prod-eu-eks", deadline=610))
+        mock_run.assert_called_once_with(["aws", "sso", "logout"], check=False, timeout=600)
+        mock_login.assert_called_once_with("prod-eu-eks", timeout=600)
+
+    @patch("toolbox.kubernetes.login_to_sso", return_value=True)
+    @patch("toolbox.kubernetes.check_context_access", return_value=(True, ""))
+    @patch("toolbox.kubernetes.get_context_profile", return_value="prod-eu-eks")
+    @patch("toolbox.kubernetes.time.monotonic", side_effect=[0, 1, 2])
+    def test_wait_refreshes_rejected_cached_credentials(self, mock_time, mock_profile, mock_access, mock_login):
+        diagnostic = "error: You must be logged in to the server (Unauthorized)"
+        self.assertTrue(wait_for_context_access("prod-eu-eks", "posthog", initial_diagnostic=diagnostic))
+        mock_login.assert_called_once_with("prod-eu-eks", timeout=599)
 
     @patch("subprocess.run")
     def test_claim_pod_wait_timeout(self, mock_run):
@@ -1263,6 +1421,7 @@ class TestToolbox(unittest.TestCase):
             patches["delete_pod"],
             patches["select_context"] as m_select,
             patches["validate_context"] as m_validate,
+            patch.object(toolbox_script, "ensure_context_access", return_value=True) as m_access,
             patch.object(toolbox_script.sys, "argv", ["toolbox.py"]),
             patch.dict(os.environ, {"KUBE_CONTEXT": "posthog-dev"}, clear=False),
         ):
@@ -1272,6 +1431,7 @@ class TestToolbox(unittest.TestCase):
                 toolbox_script.main()
 
         m_validate.assert_called_once_with("posthog-dev")
+        m_access.assert_called_once_with("posthog-dev", "posthog-toolbox-django")
         m_select.assert_not_called()
         # And the resolved context is threaded into get_toolbox_pod.
         self.assertEqual(m_get_pod.call_args.kwargs["context"], "posthog-dev")
@@ -1295,9 +1455,34 @@ class TestToolbox(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 toolbox_script.main()
 
-        m_select.assert_called_once_with()
+        m_select.assert_called_once_with("posthog-toolbox-django")
         m_validate.assert_not_called()
         self.assertEqual(m_get_pod.call_args.kwargs["context"], "posthog-dev")
+
+    def test_main_checks_tailscale_before_selecting_context(self):
+        patches = self._patch_main_collaborators()
+        parent = MagicMock()
+
+        with (
+            patches["get_current_user"],
+            patches["get_toolbox_pod"],
+            patches["claim_pod"],
+            patches["connect_to_pod"],
+            patches["delete_pod"],
+            patches["select_context"] as m_select,
+            patches["validate_context"],
+            patch.object(toolbox_script.sys, "argv", ["toolbox.py"]),
+            patch.dict(os.environ, {}, clear=False),
+        ):
+            self._clean_env()
+            parent.attach_mock(self.m_ensure_tailscale, "ensure_tailscale")
+            parent.attach_mock(m_select, "select_context")
+            with self.assertRaises(SystemExit):
+                toolbox_script.main()
+
+        call_names = [name for name, _, _ in parent.mock_calls]
+        self.assertIn("ensure_tailscale", call_names)
+        self.assertLess(call_names.index("ensure_tailscale"), call_names.index("select_context"))
 
     def test_main_kube_context_validate_failure_exits(self):
         """When validate_context returns False, main() exits with status 1."""

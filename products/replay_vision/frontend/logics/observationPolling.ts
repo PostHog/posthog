@@ -13,14 +13,22 @@ interface ObservationPollDisposables {
 export function scheduleObservationPoll(
     disposables: ObservationPollDisposables,
     shouldPoll: boolean,
-    poll: () => void
+    poll: () => void,
+    intervalMs: number = POLL_INTERVAL_MS
 ): void {
     if (shouldPoll) {
         disposables.add(() => {
-            const id = setTimeout(poll, POLL_INTERVAL_MS)
+            const id = setTimeout(poll, intervalMs)
             return () => clearTimeout(id)
         }, POLL_KEY)
     } else {
         disposables.dispose(POLL_KEY)
     }
+}
+
+// Observe only starts the workflow — poll through this grace window so the new card appears before its row lands.
+export const OBSERVE_POLL_GRACE_MS = 30_000
+
+export function shouldPollObservations(hasInFlight: boolean, pollUntil: number): boolean {
+    return hasInFlight || Date.now() < pollUntil
 }

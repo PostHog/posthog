@@ -4,20 +4,36 @@ import dataclasses
 from typing import Any
 
 from django.db import close_old_connections
+from django.db.models import Max
+from django.utils import timezone
 
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_external_data_schedule
+from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
+from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import emit_signals_enabled_for
+from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    emit_signals_enabled_for,
+    person_property_sync_enabled_for,
+    schema_binding,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
+    retry_on_operational_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    get_v3_pipeline_lock_holder,
+)
 
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
@@ -53,6 +69,64 @@ def is_pipeline_v3_enabled(team_id: int, source_type: str) -> bool:
 LOGGER = get_logger(__name__)
 
 
+def _statistics_stale(team_id: int, table: DataWarehouseTable | None) -> bool:
+    """Whether column statistics need recomputing: no stats yet, or the freshest column row is older
+    than the recompute interval. Mirrors compute_table_statistics' own skip check so we don't spawn a
+    child that would immediately no-op on every sync."""
+    if table is None:
+        # First-ever sync — the table is created during it, so let the (post-sync) profiling run once.
+        return True
+    # Lazy: compute_table_statistics drags deltalake/pyarrow; keep it off this activity's import path.
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
+        MIN_RECOMPUTE_INTERVAL,
+    )
+
+    latest = (
+        WarehouseColumnStatistics.objects.for_team(team_id)
+        .filter(table_id=table.id)
+        .aggregate(latest=Max("computed_at"))["latest"]
+    )
+    return latest is None or (timezone.now() - latest) >= MIN_RECOMPUTE_INTERVAL
+
+
+def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: ExternalDataSchema) -> bool:
+    """Whether semantic enrichment has work to do: any column without an annotation, or a missing
+    table-level description. Mirrors enrich_table_semantics' skip check. Computed from pre-sync state,
+    so columns added by this sync are picked up on the next one (matching the activity's re-sync
+    behaviour) rather than re-running enrichment on every sync."""
+    if table is None:
+        # First-ever sync — nothing is annotated yet, so there is work to do.
+        return True
+    # Hidden plumbing columns (_dlt_id, partition key, …) are never enriched, so they'd otherwise
+    # show up perpetually in `columns - annotated` and keep this returning True on every sync.
+    columns = set((table.columns or {}).keys()) - HIDDEN_COLUMNS
+    annotated = set(
+        WarehouseColumnAnnotation.objects.for_team(team_id)
+        .filter(table_id=table.id)
+        .values_list("column_name", flat=True)
+    )
+    new_columns = columns - annotated
+    # "" is the table-level annotation; absent description on both schema and annotations means work.
+    table_needs_description = not bool(schema.description) and "" not in annotated
+    return bool(new_columns or table_needs_description)
+
+
+def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
+    """Fail fast if another run stole the v3 lock during this run's startup window,
+    instead of double-writing the Delta table. Best-effort: skipped when Redis is down."""
+    run_id = activity.info().workflow_run_id
+    if not run_id:
+        return
+    holder = get_v3_pipeline_lock_holder(team_id, str(schema_id))
+    if holder is None:
+        return
+    if holder != run_id:
+        raise ApplicationError(
+            "v3 pipeline lock lost to another run before job creation",
+            non_retryable=True,
+        )
+
+
 def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
     return {
         "name": schema.name,
@@ -66,6 +140,33 @@ def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
         "last_synced_at": schema.last_synced_at.isoformat() if schema.last_synced_at else None,
         "initial_sync_complete": schema.initial_sync_complete,
     }
+
+
+@retry_on_operational_error
+def _create_job(
+    *,
+    team_id: int,
+    source_id: uuid.UUID,
+    schema_id: uuid.UUID,
+    pipeline_version: str,
+    billable: bool,
+    schema_snapshot: dict[str, Any],
+) -> ExternalDataJob:
+    # A deadlock aborts the INSERT without creating a row, so retrying from scratch is safe. This
+    # activity has no Temporal-level retry (see external_data_job.py), because a retry after job
+    # creation succeeds would create a duplicate job — retrying just the INSERT avoids that.
+    return ExternalDataJob.objects.create(
+        team_id=team_id,
+        pipeline_id=source_id,
+        schema_id=schema_id,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+        workflow_id=activity.info().workflow_id,
+        workflow_run_id=activity.info().workflow_run_id,
+        pipeline_version=pipeline_version,
+        billable=billable,
+        schema_snapshot=schema_snapshot,
+    )
 
 
 # TODO: remove dependency
@@ -98,12 +199,20 @@ class CreateExternalDataJobModelActivityOutputs:
     # ISO timestamp of when the previous sync completed, used to detect new records
     last_synced_at: str | None = None
     emit_signals_enabled: bool = False
-    # True when semantic enrichment should run (feature flag on AND AI data processing approved), so the
-    # workflow can skip starting the enrichment child entirely instead of spawning a no-op.
+    # True when semantic enrichment is permitted (feature flag on AND AI data processing approved).
     enrichment_enabled: bool = False
-    # True when column-statistics profiling should run (feature flag on). No AI-data-processing consent
+    # True when column-statistics profiling is permitted (feature flag on). No AI-data-processing consent
     # term: it reads only the Delta log and writes to our own DB — nothing leaves our infra.
     statistics_enabled: bool = False
+    # True when enrichment is permitted AND there is actually work to do (unannotated columns or a missing
+    # table description). The workflow gates the child on this so a steady-state sync — which re-fires
+    # every few minutes — doesn't spawn a workflow + activity that just no-ops.
+    enrichment_needed: bool = False
+    # True when statistics are permitted AND stale (no row yet, or older than the recompute interval).
+    statistics_needed: bool = False
+    # True when the schema feeds at least one enabled person-target Customer analytics source, so the
+    # workflow should start the person-property sync child. Gated up front to avoid a no-op child per sync.
+    person_property_sync_enabled: bool = False
 
 
 @activity.defn
@@ -124,27 +233,27 @@ def create_external_data_job_model_activity(
             raise Exception("Source or schema no longer exists - deleted temporal schedule")
 
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
-        schema.status = ExternalDataSchema.Status.RUNNING
-        schema.save()
 
         source: ExternalDataSource = schema.source
 
         pipeline_version = ExternalDataJob.PipelineVersion.V2
         if inputs.is_v3:
             pipeline_version = ExternalDataJob.PipelineVersion.V3
+            _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
 
-        job = ExternalDataJob.objects.create(
+        # Persist the Running status only after the job row exists: a Running schema with no job
+        # behind it can never be finalized, so it would stay stuck on Running forever. With the job
+        # committed first, the workflow's finalizer can always resolve it and repaint the schema.
+        schema.status = ExternalDataSchema.Status.RUNNING
+        job = _create_job(
             team_id=inputs.team_id,
-            pipeline_id=inputs.source_id,
+            source_id=inputs.source_id,
             schema_id=inputs.schema_id,
-            status=ExternalDataJob.Status.RUNNING,
-            rows_synced=0,
-            workflow_id=activity.info().workflow_id,
-            workflow_run_id=activity.info().workflow_run_id,
             pipeline_version=pipeline_version,
             billable=inputs.billable,
             schema_snapshot=_build_schema_snapshot(schema),
         )
+        schema.save(update_fields=["status", "updated_at"])
 
         logger.info(
             f"Created external data job for external data source {inputs.source_id}",
@@ -183,6 +292,16 @@ def create_external_data_job_model_activity(
 
         statistics_should_run = bool(team is not None and statistics_enabled(team))
 
+        # Narrow "permitted" down to "permitted AND has work to do" so steady-state syncs don't spawn
+        # no-op metadata workflows. The activities re-check this themselves as a safety net.
+        table = schema.table
+        enrichment_needed = enrichment_should_run and _enrichment_pending(inputs.team_id, table, schema)
+        statistics_needed = statistics_should_run and _statistics_stale(inputs.team_id, table)
+
+        # Whether this schema feeds any enabled person-target Customer analytics source (owned by
+        # customer_analytics via external_product_hooks; not imported here).
+        person_property_sync_enabled = person_property_sync_enabled_for(inputs.team_id, schema_binding(schema.id))
+
         return CreateExternalDataJobModelActivityOutputs(
             job_id=str(job.id),
             incremental_or_append=schema.is_incremental or schema.is_append or schema.is_webhook,
@@ -192,6 +311,9 @@ def create_external_data_job_model_activity(
             emit_signals_enabled=emit_signals_enabled,
             enrichment_enabled=enrichment_should_run,
             statistics_enabled=statistics_should_run,
+            enrichment_needed=enrichment_needed,
+            statistics_needed=statistics_needed,
+            person_property_sync_enabled=person_property_sync_enabled,
         )
     except Exception as e:
         logger.exception(

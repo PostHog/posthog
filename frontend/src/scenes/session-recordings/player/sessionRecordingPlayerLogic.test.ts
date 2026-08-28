@@ -17,6 +17,9 @@ import { urls } from 'scenes/urls'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { ExporterFormat, RecordingSegment, RecordingSnapshot } from '~/types'
 
+import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
+import { isUsableHeatmapUrl } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
+
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import {
@@ -25,7 +28,13 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
+import {
+    findNewEvents,
+    findSegmentForTimestamp,
+    INSTANT_SKIP_INACTIVITY_THRESHOLD_MS,
+    stripRrwebScriptShims,
+} from './sessionRecordingPlayerLogic'
+import { markLoaded } from './snapshot-store/test-utils'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
 
@@ -87,6 +96,19 @@ describe('findNewEvents', () => {
         const currentEvents = current.map((ts) => makeEvent(ts))
         const result = findNewEvents(allSnapshots, currentEvents)
         expect(result.map((e) => e.timestamp)).toEqual(expected)
+    })
+})
+
+describe('isUsableHeatmapUrl', () => {
+    it.each([
+        [undefined, false],
+        ['', false],
+        ['   ', false],
+        // mobile snapshots with no captured href resolve to the literal 'unknown'
+        ['unknown', false],
+        ['https://example.com/pricing', true],
+    ] as const)('isUsableHeatmapUrl(%s) → %s', (input, expected) => {
+        expect(isUsableHeatmapUrl(input)).toBe(expected)
     })
 })
 
@@ -255,6 +277,82 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('inactivity segment traversal', () => {
+        const START = 1682952380877
+        const inactiveSegment = (kind: 'gap' | 'window', durationMs: number): RecordingSegment =>
+            ({
+                kind,
+                isActive: false,
+                startTimestamp: START,
+                endTimestamp: START + durationMs,
+                durationMs,
+                windowId: kind === 'window' ? 1 : undefined,
+            }) as RecordingSegment
+
+        it.each([
+            [
+                'seeks over a gap past the threshold while playing',
+                'gap',
+                INSTANT_SKIP_INACTIVITY_THRESHOLD_MS + 1,
+                true,
+                true,
+            ],
+            ['fast-forwards a gap exactly at the threshold', 'gap', INSTANT_SKIP_INACTIVITY_THRESHOLD_MS, true, false],
+            [
+                'does not seek when paused, even over the threshold',
+                'gap',
+                INSTANT_SKIP_INACTIVITY_THRESHOLD_MS + 1,
+                false,
+                false,
+            ],
+            ['fast-forwards a dense inactive window of any length', 'window', 35 * 3600 * 1000, true, false],
+        ] as const)('%s', async (_name, kind, durationMs, playing, expectSeek) => {
+            if (!playing) {
+                logic.actions.setPause()
+            }
+            logic.actions.setCurrentTimestamp(START)
+            const segment = inactiveSegment(kind, durationMs)
+            const expectation = expectLogic(logic, () => logic.actions.setCurrentSegment(segment))
+            if (expectSeek) {
+                await expectation.toDispatchActions([logic.actionCreators.seekToTimestamp(segment.endTimestamp)])
+            } else {
+                await expectation
+                    .toDispatchActions([logic.actionCreators.setSkippingInactivity(true)])
+                    .toNotHaveDispatchedActions(['seekToTimestamp'])
+            }
+        })
+    })
+
+    describe('end of recording', () => {
+        // Reaching the end pauses the player, and currentPlayerState only reports SKIP while playing,
+        // so the rewind control already replaces the "Skipping inactivity" overlay without touching the
+        // flag. The flag also drives playerSpeed, so it must survive end-of-recording: a rewind back into
+        // a trailing inactive stretch lands in the same segment, which does not recompute it, and clearing
+        // it there would make that dead time play at 1x.
+        it('keeps the inactivity-skip flag so a rewind into a trailing inactive stretch still skips', async () => {
+            logic.actions.setSkippingInactivity(true)
+            expect(logic.values.isSkippingInactivity).toBe(true)
+
+            await expectLogic(logic, () => logic.actions.setEndReached(true)).toMatchValues({
+                isSkippingInactivity: true,
+            })
+        })
+    })
+
+    describe('terminal data failures', () => {
+        // Give-up signals must surface as a player error even when partial data already loaded —
+        // otherwise the affected range buffers forever with no error shown.
+        it.each(['snapshotProcessingFailed', 'snapshotSourceLoadExhausted'] as const)(
+            '%s sets a player error',
+            (action) => {
+                const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+                logic.actions[action]()
+                expect(logic.values.playerError).toBe(action)
+                consoleError.mockRestore()
+            }
+        )
+    })
+
     describe('currentPlayerTime clamping', () => {
         // Mock recording: start=1682952380877, end=1682952392745, durationMs=11868
         const START = 1682952380877
@@ -319,15 +417,26 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.unmount()
             logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test', autoPlay: true })
             logic.mount()
+            const nudgeLogic = analysisNudgeLogic.build()
+            nudgeLogic.mount()
 
             silenceKeaLoadersErrors()
 
             await expectLogic(logic).toDispatchActions([logic.actionTypes.setPlay, logic.actionTypes.markViewed])
 
+            // The analyzed mark also feeds the replay vision analysis nudge counter.
+            await expectLogic(nudgeLogic).toDispatchActions(['recordingAnalyzed'])
+            expect(nudgeLogic.values.analyzedRecordingIds).toContain('2')
+
+            nudgeLogic.unmount()
             resumeKeaLoadersErrors()
         })
 
         it('load snapshot errors and triggers error state', async () => {
+            silenceKeaLoadersErrors()
+            // the player deliberately reports the missing snapshots via console.error
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
             logic.unmount()
             overrideSessionRecordingMocks({
                 getMocks: {
@@ -362,6 +471,10 @@ describe('sessionRecordingPlayerLogic', () => {
                 },
                 playerError: 'loadSnapshotSourcesFailure',
             })
+            expect(consoleErrorSpy).toHaveBeenCalledWith('PostHog Recording Playback Error: No snapshots loaded')
+
+            consoleErrorSpy.mockRestore()
+            resumeKeaLoadersErrors()
         })
 
         it('ensures the cache initialization is reset after the player is unmounted', async () => {
@@ -433,14 +546,33 @@ describe('sessionRecordingPlayerLogic', () => {
             end_timestamp: new Date(LATE_FS_TS + 60000).toISOString(),
         }
 
-        const makeSnapshot = (timestamp: number, type: EventType): RecordingSnapshot =>
-            ({ timestamp, type, windowId: 1, data: {} }) as unknown as RecordingSnapshot
+        const makeSnapshot = (
+            timestamp: number,
+            type: EventType,
+            windowId: number = 1,
+            data: Record<string, any> = {}
+        ): RecordingSnapshot => ({ timestamp, type, windowId, data }) as unknown as RecordingSnapshot
 
         const inc = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.IncrementalSnapshot)
         const fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot)
-        // second-window incremental for the multi-window case
+        // second-window events for the multi-window cases
         const w2inc = (timestamp: number): RecordingSnapshot =>
-            ({ timestamp, type: EventType.IncrementalSnapshot, windowId: 2, data: {} }) as unknown as RecordingSnapshot
+            makeSnapshot(timestamp, EventType.IncrementalSnapshot, 2)
+        const w2fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot, 2)
+        // an ACTIVE first-window event, so the segmenter splits a real window-1 segment before it
+        const w1move = (timestamp: number): RecordingSnapshot =>
+            makeSnapshot(timestamp, EventType.IncrementalSnapshot, 1, { source: IncrementalSource.MouseMove })
+
+        // one-minute-per-source blob fixtures matching the store test helpers
+        const makeBlobSources = (
+            blobKeys: string[]
+        ): { source: string; blob_key: string; start_timestamp: string; end_timestamp: string }[] =>
+            blobKeys.map((blobKey, index) => ({
+                source: 'blob_v2',
+                blob_key: blobKey,
+                start_timestamp: new Date(START + index * 60000).toISOString(),
+                end_timestamp: new Date(START + (index + 1) * 60000).toISOString(),
+            }))
 
         // Seeds the snapshot store and the coordinator's processed snapshots (which
         // segments derive from) directly, bypassing the network loading machinery.
@@ -454,10 +586,10 @@ describe('sessionRecordingPlayerLogic', () => {
             const store = dataLogic.cache.store
             const processed: RecordingSnapshot[] = []
             if (firstSourceSnapshots) {
-                store.markLoaded(0, firstSourceSnapshots)
+                markLoaded(store, 0, firstSourceSnapshots)
                 processed.push(...firstSourceSnapshots)
             }
-            store.markLoaded(1, secondSourceSnapshots)
+            markLoaded(store, 1, secondSourceSnapshots)
             processed.push(...secondSourceSnapshots)
             dataLogic.actions.storeUpdated()
             sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(processed)
@@ -552,6 +684,150 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.currentTimestamp).not.toBe(LATE_FS_TS)
         })
 
+        it("re-targets the loader when a window-blind seek is satisfied by another window's full snapshot", async () => {
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            const coordinator = sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' })
+            const sources = makeBlobSources(['10', '11', '12', '13', '14', '15'])
+            const seekTarget = START + 250000
+
+            dataLogic.actions.loadSnapshotSourcesSuccess(sources as any)
+            const store = dataLogic.cache.store
+            // a loaded tail keeps the recording end past the seek target, which sits in unloaded territory with no known windowId
+            const tail = [inc(START + 295000)]
+            markLoaded(store, 5, tail)
+            dataLogic.actions.storeUpdated()
+            coordinator.actions.setProcessedSnapshots(tail)
+            logic.actions.setPause()
+
+            logic.actions.seekToTimestamp(seekTarget)
+            expect(logic.values.isBuffering).toBe(true)
+
+            // the seek window arrives: window 2's FullSnapshot satisfies the window-blind canPlayAt while window 1's FullSnapshot sits in the still-unloaded first source
+            const arrived = [
+                inc(START + 65000),
+                inc(START + 125000),
+                inc(START + 185000),
+                w2fs(START + 245000),
+                inc(START + 248000),
+                inc(START + 252000),
+            ]
+            await expectLogic(dataLogic, () => {
+                markLoaded(store, 1, [arrived[0]])
+                markLoaded(store, 2, [arrived[1]])
+                markLoaded(store, 3, [arrived[2]])
+                markLoaded(store, 4, arrived.slice(3))
+                dataLogic.actions.storeUpdated()
+                coordinator.actions.setProcessedSnapshots([...arrived, ...tail])
+            }).toDispatchActions([
+                (action) =>
+                    action.type === dataLogic.actionTypes.loadSnapshotsForSource &&
+                    action.payload.sources?.[0]?.blob_key === '10',
+            ])
+
+            expect(logic.values.isBuffering).toBe(true)
+            expect(logic.values.playerError).toBeNull()
+        })
+
+        it('clamps to a recovery full snapshot even when a preceding gap owns its boundary timestamp', () => {
+            // Window 2's recovery FullSnapshot at +70s sits right after window-1 activity, so the micro-gap ending at its timestamp is attributed to window 1 and that inferred windowId must not veto the only usable recovery point.
+            seedRecording(
+                [fs(START), inc(START + 1000)],
+                [
+                    w2inc(START + 61000),
+                    w2inc(START + 62000),
+                    w1move(START + 63000),
+                    w1move(START + 64000),
+                    w2fs(START + 70000),
+                    w2inc(START + 71000),
+                    w1move(START + 75000),
+                ]
+            )
+            logic.actions.setPause()
+
+            logic.actions.seekToTimestamp(START + 61500)
+
+            expect(logic.values.playerError).toBeNull()
+            expect(logic.values.currentTimestamp).toBe(START + 70000)
+        })
+
+        it('keeps buffering instead of over-clamping while sources before the recovery point are unloaded', () => {
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            const sources = makeBlobSources(['20', '21', '22'])
+            dataLogic.actions.loadSnapshotSourcesSuccess(sources as any)
+            const store = dataLogic.cache.store
+            // window 1 has no FullSnapshot in its loaded head; the unloaded middle source could still contain one earlier than the loaded island's
+            const head = [inc(START), inc(START + 1000)]
+            const island = [fs(START + 130000), inc(START + 131000)]
+            markLoaded(store, 0, head)
+            markLoaded(store, 2, island)
+            dataLogic.actions.storeUpdated()
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots([
+                ...head,
+                ...island,
+            ])
+            logic.actions.setPause()
+
+            logic.actions.seekToTimestamp(START + 500)
+
+            expect(logic.values.isBuffering).toBe(true)
+            expect(logic.values.currentTimestamp).toBe(START + 500)
+        })
+
+        it('re-derives a stale current segment when segments reshape under a paused playhead', async () => {
+            const coordinator = sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' })
+            const initial = [fs(START), inc(START + 1000), inc(START + 11000)]
+            seedRecording(initial, [])
+            logic.actions.setPause()
+
+            logic.actions.seekToTimestamp(START + 5000)
+            expect(logic.values.currentSegment?.kind).toBe('gap')
+
+            // processing later synthesizes activity around the playhead, reshaping the gap into a window segment
+            const reshaped = [fs(START), inc(START + 1000), w1move(START + 4900), inc(START + 5100), inc(START + 11000)]
+            await expectLogic(logic, () => {
+                coordinator.actions.setProcessedSnapshots(reshaped)
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentSegment).toMatchObject({ kind: 'window', windowId: 1 })
+        })
+
+        it('does not recommit the current segment when only its boundaries drift', async () => {
+            const coordinator = sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' })
+            seedRecording([fs(START), inc(START + 1000), inc(START + 11000)], [])
+            logic.actions.setPause()
+
+            logic.actions.seekToTimestamp(START + 5000)
+            expect(logic.values.currentSegment).toMatchObject({ kind: 'gap', windowId: 1 })
+
+            // live recordings drift segment boundaries on every poll; recommitting would re-seek rrweb each time
+            coordinator.actions.setProcessedSnapshots([fs(START), inc(START + 1000), inc(START + 13000)])
+            await new Promise((r) => setTimeout(r, 400))
+
+            // the stale boundary is retained, proving no recommit (and no rrweb re-seek) happened
+            expect(logic.values.currentSegment).toMatchObject({ kind: 'gap', endTimestamp: START + 11000 })
+        })
+
+        it('revives a dead loading chain from syncPlayerState while still buffering', async () => {
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+            logic.actions.setPause()
+
+            // an inactive player swallows the seek-time load kick, leaving the chain dead the same way repeated fetch failures do
+            dataLogic.cache.playerActive = false
+            logic.actions.seekToTimestamp(START + 61500)
+            expect(logic.values.isBuffering).toBe(true)
+            dataLogic.cache.playerActive = true
+
+            // the periodic buffering re-check must restart loading, not just re-derive the verdict
+            await expectLogic(dataLogic, () => {
+                logic.actions.syncPlayerState()
+            }).toDispatchActions([
+                (action) =>
+                    action.type === dataLogic.actionTypes.loadSnapshotsForSource &&
+                    action.payload.sources?.[0]?.blob_key === '8',
+            ])
+        })
+
         it('buffers while earlier data that could contain a full snapshot is still loading', () => {
             // The first source is unloaded — it could still contain the window's
             // FullSnapshot, so a seek into the second source's FullSnapshot-less data
@@ -604,9 +880,9 @@ describe('sessionRecordingPlayerLogic', () => {
         })
 
         it('flips a stuck still-ingesting recording to the terminal error once grace lapses', () => {
-            // The afterMount BUFFERING_REEVALUATION_INTERVAL_MS interval re-runs checkBufferingCompleted;
+            // The afterMount BUFFERING_REEVALUATION_INTERVAL_MS interval re-runs syncPlayerState;
             // this asserts that payload directly (no timer): a recording buffering on waitingForIngestion
-            // transitions to the terminal error the next time checkBufferingCompleted runs after the grace
+            // transitions to the terminal error the next time syncPlayerState runs after the grace
             // period has elapsed — without any new snapshot data arriving.
             const graceSpy = jest
                 .spyOn(sessionRecordingDataCoordinatorLogicModule, 'isWithinIngestionGracePeriod')
@@ -621,7 +897,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 // grace lapses, no new data arrives — the periodic nudge re-reads the now-definitive
                 // verdict and surfaces the terminal error
                 graceSpy.mockReturnValue(false)
-                logic.actions.checkBufferingCompleted()
+                logic.actions.syncPlayerState()
 
                 expect(logic.values.playerError).toBe('noPlayableFullSnapshot')
             } finally {
@@ -767,9 +1043,11 @@ describe('sessionRecordingPlayerLogic', () => {
                     matchType: 'uuid',
                     matchedEvents: listOfMatchingEvents,
                 },
+                skipToFirstMatchingEvent: true,
             })
             logic.mount()
             await expectLogic(logic).toMatchValues({
+                skipToFirstMatchingEvent: true,
                 logicProps: expect.objectContaining({
                     matchingEventsMatchType: {
                         matchType: 'uuid',

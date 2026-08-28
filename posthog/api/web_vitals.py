@@ -8,7 +8,8 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import get_request_analytics_properties
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
-from posthog.rbac.user_access_control import UserAccessControlError
+
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
 
 class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -44,6 +45,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ],
                 "series": [
                     {
+                        "kind": "EventsNode",
                         "event": "$web_vitals",
                         "name": "INP",
                         "custom_name": "INP",
@@ -51,6 +53,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "math_property": "$web_vitals_INP_value",
                     },
                     {
+                        "kind": "EventsNode",
                         "event": "$web_vitals",
                         "name": "LCP",
                         "custom_name": "LCP",
@@ -58,6 +61,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "math_property": "$web_vitals_LCP_value",
                     },
                     {
+                        "kind": "EventsNode",
                         "event": "$web_vitals",
                         "name": "CLS",
                         "custom_name": "CLS",
@@ -65,6 +69,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "math_property": "$web_vitals_CLS_value",
                     },
                     {
+                        "kind": "EventsNode",
                         "event": "$web_vitals",
                         "name": "FCP",
                         "custom_name": "FCP",

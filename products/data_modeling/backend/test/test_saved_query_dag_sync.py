@@ -1,8 +1,10 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
 
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
@@ -107,8 +109,11 @@ class TestSyncSavedQueryToDag(BaseTest):
             query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
         )
 
-        node = sync_saved_query_to_dag(saved_query)
+        database = Database.create_for(team=self.team, bypass_warehouse_access_control=True)
+        with mock.patch("posthog.hogql.database.database.Database.create_for") as mock_database_create:
+            node = sync_saved_query_to_dag(saved_query, database=database)
 
+        mock_database_create.assert_not_called()
         events_node = Node.objects.filter(
             team=self.team,
             dag__name=DEFAULT_DAG_NAME,
@@ -208,6 +213,48 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         edge = Edge.objects.filter(source=upstream_node, target=downstream_node).first()
         self.assertIsNotNone(edge)
+
+    def test_sync_references_parent_in_managed_dag(self):
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        upstream_query = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(upstream_query, dag=managed_dag, allow_managed=True)
+
+        downstream_query = DataWarehouseSavedQuery.objects.create(
+            name="downstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        downstream_node = sync_saved_query_to_dag(downstream_query)
+
+        default_dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
+        reference = Node.objects.get(team=self.team, dag=default_dag, name="upstream_view")
+        self.assertEqual(reference.type, NodeType.TABLE)
+        self.assertIsNone(reference.saved_query)
+        self.assertTrue(Edge.objects.filter(source=reference, target=downstream_node).exists())
+
+    def test_sync_does_not_reference_parent_in_non_managed_dag(self):
+        other_dag = DAG.objects.create(team=self.team, name="user_made_dag")
+        upstream_query = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(upstream_query, dag=other_dag)
+
+        downstream_query = DataWarehouseSavedQuery.objects.create(
+            name="downstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        with self.assertRaises(Node.DoesNotExist):
+            sync_saved_query_to_dag(downstream_query)
+
+        default_dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
+        self.assertFalse(Node.objects.filter(team=self.team, dag=default_dag, name="upstream_view").exists())
 
     def test_sync_raises_on_cycle(self):
         query_a = DataWarehouseSavedQuery.objects.create(
@@ -434,3 +481,37 @@ class TestUpdateNodeType(BaseTest):
         # shouldn't raise, exception is captured though
         update_node_type(saved_query, NodeType.MAT_VIEW)
         update_node_type(saved_query, NodeType.VIEW)
+
+
+@pytest.mark.django_db
+class TestGraphMutationTriggers(BaseTest):
+    def _saved_query(self, name: str = "trigger_view") -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            name=name, team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+
+    def test_each_graph_mutation_queues_a_reconcile(self):
+        # the tiered scheduler converges from the graph, so every mutation path must invoke
+        # the trigger hook — dropping one silently freezes that DAG's schedules
+        saved_query = self._saved_query()
+        module = "products.data_modeling.backend.logic.saved_query_dag_sync"
+
+        with mock.patch(f"{module}.maybe_reconcile_dag") as reconcile:
+            sync_saved_query_to_dag(saved_query)
+        reconcile.assert_called_once()
+
+        with mock.patch(f"{module}.maybe_reconcile_dag") as reconcile:
+            update_node_type(saved_query, NodeType.MAT_VIEW)
+        reconcile.assert_called_once()
+
+        with mock.patch(f"{module}.maybe_reconcile_dag") as reconcile:
+            delete_node_from_dag(saved_query)
+        reconcile.assert_called_once()
+
+    def test_sync_can_defer_reconcile_for_batch_callers(self):
+        saved_query = self._saved_query("batched_view")
+        module = "products.data_modeling.backend.logic.saved_query_dag_sync"
+
+        with mock.patch(f"{module}.maybe_reconcile_dag") as reconcile:
+            sync_saved_query_to_dag(saved_query, reconcile=False)
+        reconcile.assert_not_called()

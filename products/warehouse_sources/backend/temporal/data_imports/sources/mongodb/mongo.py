@@ -8,33 +8,65 @@ import collections
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 import certifi
 import structlog
 from bson import Binary, DatetimeMS, ObjectId
 from bson.codec_options import DatetimeConversion
-from pymongo import MongoClient
+from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
-from pymongo.errors import PyMongoError
+from pymongo.cursor import Cursor
+from pymongo.database import Database
+from pymongo.errors import CursorNotFound, OperationFailure, PyMongoError
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    _is_host_safe,
+    log_connection_open,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
+    MongoDBSourceConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 # Schema inference settings
 SCHEMA_INFERENCE_LIMIT = 10_000  # First 10k documents
 SCHEMA_INFERENCE_TIMEOUT_MS = 45_000  # 45 seconds
+
+# Mongo yields whole documents (the full doc rides along under `data`), so a collection of large
+# documents can OOM the worker when a chunk is materialised into a PyArrow table — before any Delta
+# merge. Size the extraction chunk to a fixed byte budget: rows-per-chunk are derived from the average
+# document size and clamped, and a chunk flushes at whichever of the byte/row limit is hit first.
+MONGO_CHUNK_SIZE_BYTES = 100 * 1024 * 1024  # 100 MiB
+MONGO_MIN_CHUNK_ROWS = 100
+# Ceiling reuses the pipeline default so tiny documents keep the large, efficient chunk. The 100 MiB
+# byte budget is the real OOM guard; this only caps row count when documents are small enough that
+# many fit in that budget.
+MONGO_MAX_CHUNK_ROWS = DEFAULT_CHUNK_SIZE
+
+
+def _adaptive_chunk_size(avg_obj_size: int | None) -> int:
+    """Rows per extraction chunk, sized so one chunk holds roughly MONGO_CHUNK_SIZE_BYTES of documents.
+
+    Small documents keep the default (large, efficient) chunk; large documents get a small chunk so the
+    conversion of a chunk into a PyArrow table stays bounded. Falls back to the default when the average
+    document size is unknown.
+    """
+    if not avg_obj_size or avg_obj_size <= 0:
+        return DEFAULT_CHUNK_SIZE
+    rows = MONGO_CHUNK_SIZE_BYTES // avg_obj_size
+    return max(MONGO_MIN_CHUNK_ROWS, min(MONGO_MAX_CHUNK_ROWS, rows))
 
 
 def _convert_binary(value: Binary) -> str:
@@ -235,6 +267,8 @@ def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription
 
 @contextlib.contextmanager
 def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
+    # rpartition strips credentials; multiple hosts stay comma-joined as-is.
+    log_connection_open(db_host=urlparse(connection_string).netloc.rpartition("@")[2], team_id=team_id)
     kwargs: dict[str, Any] = {
         "serverSelectionTimeoutMS": 10000,
         "tls": True,
@@ -393,8 +427,9 @@ def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:
 
 
 def _determine_field_type_from_bson_types(bson_types: list[str]) -> str:
-    """Determine field type from BSON types."""
-    # If multiple types exist, prioritize based on hierarchy
+    # A field sampled across documents can hold several BSON types. This returns one type by walking
+    # the fixed precedence list below and taking the first present, not a type that fits every
+    # observed value: a field mixing int and string resolves to integer, because int outranks string.
     type_priority = {
         "objectId": "string",
         "string": "string",
@@ -430,6 +465,20 @@ def _determine_field_type_from_bson_types(bson_types: list[str]) -> str:
     return "string"
 
 
+# MongoDB reserves the `system.*` namespace for internal collections (system.keys,
+# system.views, system.profile, ...). They're never user data and reads against them fail with
+# an "Unauthorized" OperationFailure, so they must never be offered for import.
+_RESERVED_COLLECTION_PREFIX = "system."
+
+
+def _list_importable_collection_names(db: Database) -> list[str]:
+    return [
+        name
+        for name in db.list_collection_names(authorizedCollections=True)
+        if not name.startswith(_RESERVED_COLLECTION_PREFIX)
+    ]
+
+
 def get_schemas(
     config: MongoDBSourceConfig, team_id: int, names: list[str] | None = None
 ) -> dict[str, list[tuple[str, str]]]:
@@ -445,7 +494,7 @@ def get_schemas(
         schema_list: dict[str, list[tuple[str, str]]] = collections.defaultdict(list)
 
         # Get collection names
-        collection_names = db.list_collection_names(authorizedCollections=True)
+        collection_names = _list_importable_collection_names(db)
 
         if names is not None:
             names_set = set(names)
@@ -470,12 +519,27 @@ def get_collection_names(config: MongoDBSourceConfig, team_id: int) -> list[str]
         if not connection_params["database"]:
             raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
         db = client[connection_params["database"]]
-        return db.list_collection_names(authorizedCollections=True)
+        return _list_importable_collection_names(db)
 
 
 def _get_primary_keys(collection: Collection, collection_name: str) -> list[str] | None:
     # MongoDB always has _id as primary key
     return ["_id"]
+
+
+def _get_avg_document_size(collection: Collection, logger: FilteringBoundLogger) -> int | None:
+    """Average BSON document size in bytes from collStats, used to size the extraction chunk.
+
+    Returns None if unavailable (permissions, sharded stats, etc.) — the caller falls back to the
+    default chunk size. Never raises: chunk sizing is best-effort tuning, not correctness.
+    """
+    try:
+        stats = collection.database.command("collStats", collection.name)
+        avg_obj_size = stats.get("avgObjSize")
+        return int(avg_obj_size) if avg_obj_size else None
+    except Exception as e:
+        logger.debug(f"MongoDB: could not read collStats avgObjSize ({e}); using default chunk size")
+        return None
 
 
 def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: FilteringBoundLogger) -> int:
@@ -496,6 +560,34 @@ def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: Fil
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
         capture_exception(e)
         return 0
+
+
+# Several MongoDB-compatible backends reject no_cursor_timeout instead of honoring it: Atlas
+# free/shared/flex tiers ("noTimeout cursors are disallowed in this atlas tier", code 8000), a
+# collection that is really a view (MongoDB rewrites the find() into an aggregate(), where the
+# option isn't valid, code 9), and AWS DocumentDB / Azure Cosmos DB's Mongo API ("Field
+# 'noCursorTimeout' is currently not supported", code 303). Matching the option name rather than
+# each backend's phrasing covers backends we haven't seen yet while keeping the fallback narrow —
+# only an error about the option we passed can trigger it. Substrings, because the full errors also
+# carry volatile clusterTime/signature payloads.
+_NO_CURSOR_TIMEOUT_UNSUPPORTED_MARKERS = ("notimeout cursors are disallowed", "nocursortimeout")
+
+
+def _is_no_cursor_timeout_unsupported(error: OperationFailure) -> bool:
+    message = str(error).lower()
+    return any(marker in message for marker in _NO_CURSOR_TIMEOUT_UNSUPPORTED_MARKERS)
+
+
+# A find() against a MongoDB view returns the view pipeline's output, which has no `_id` when the
+# pipeline drops it (a $group on another key, a $project that excludes `_id`). The importer keys
+# every collection on `_id`: primary key, incremental cursor, and Delta merge dedup all read it, so
+# an `_id`-less document can't be synced and retrying never recovers. Raise this instead of the bare
+# `doc["_id"]` KeyError, and match it in the source's get_non_retryable_errors.
+MONGO_DOCUMENT_MISSING_ID_ERROR = (
+    "PostHog couldn't import this MongoDB collection because one of its documents has no _id field. "
+    "PostHog uses _id as the primary key for every collection. This usually means the collection is a "
+    "view whose pipeline removes _id. Sync the underlying collection instead, or add _id to the view."
+)
 
 
 def mongo_source(
@@ -532,6 +624,12 @@ def mongo_source(
             _get_partition_settings(collection, collection_name) if should_use_incremental_field else None
         )
         rows_to_sync = _get_rows_to_sync(collection, query, logger)
+        avg_obj_size = _get_avg_document_size(collection, logger)
+
+    # Bound the extraction chunk to the collection's document size so large documents don't OOM the
+    # source->Arrow conversion (the merge is never reached for such collections).
+    chunk_size = _adaptive_chunk_size(avg_obj_size)
+    logger.debug(f"MongoDB: chunk_size={chunk_size} rows (avg_obj_size={avg_obj_size}, rows_to_sync={rows_to_sync})")
 
     def get_rows() -> Iterator[dict[str, Any]]:
         # New connection for data reading
@@ -546,30 +644,91 @@ def mongo_source(
                 db_incremental_field_last_value,
             )
 
-            cursor = read_collection.find(query, batch_size=DEFAULT_CHUNK_SIZE)
+            last_id: Any = None
 
-            for doc in cursor:
-                # Convert BSON types (ObjectId, Binary, UUID, DatetimeMS) to SQL-safe
-                # values. _process_doc_with_field_logging logs the offending field name
-                # before re-raising, so any exception here fails the sync with precise
-                # diagnostic context rather than silently dropping rows.
-                processed_doc = _process_doc_with_field_logging(doc, collection_name, logger)
+            def open_resumable_cursor() -> Cursor[Any]:
+                # Sorting by _id makes the read order deterministic, which is what lets an expired
+                # cursor be reopened after the last document we saw. _id is always uniquely indexed,
+                # so this is an index scan rather than a blocking sort.
+                clauses = [clause for clause in (query, {} if last_id is None else {"_id": {"$gt": last_id}}) if clause]
+                if not clauses:
+                    resume_query: dict[str, Any] = {}
+                elif len(clauses) == 1:
+                    resume_query = clauses[0]
+                else:
+                    resume_query = {"$and": clauses}
+                return read_collection.find(resume_query, batch_size=chunk_size).sort("_id", ASCENDING)
 
-                # Stringify _id so it's always a scalar string downstream,
-                # regardless of BSON type (ObjectId, UUID Binary, numeric, etc.).
-                result: dict[str, Any] = {
-                    "_id": str(processed_doc["_id"]),
-                }
-                # extract incremental field from the document if it exists
-                if incremental_field:
-                    incremental_value = processed_doc.get(incremental_field, None)
-                    if incremental_value is None:
-                        continue
-                    result[incremental_field] = incremental_value
+            # Between chunks, the pipeline writes/merges the accumulated Arrow table before pulling
+            # more rows, which can pause consumption of this cursor well past MongoDB's default
+            # 10-minute idle-cursor timeout — the server then kills it, and the next getMore raises
+            # CursorNotFound. no_cursor_timeout disables that server-side expiry; we close the cursor
+            # explicitly in the finally block below so it doesn't linger on the server instead.
+            cursor = read_collection.find(query, batch_size=chunk_size, no_cursor_timeout=True)
+            no_cursor_timeout_honored = True
+            rows_since_cursor_opened = 0
 
-                result["data"] = processed_doc
+            try:
+                while True:
+                    try:
+                        for doc in cursor:
+                            if "_id" not in doc:
+                                raise ValueError(MONGO_DOCUMENT_MISSING_ID_ERROR)
+                            last_id = doc["_id"]
+                            rows_since_cursor_opened += 1
 
-                yield result
+                            # Convert BSON types (ObjectId, Binary, UUID, DatetimeMS) to SQL-safe
+                            # values. _process_doc_with_field_logging logs the offending field name
+                            # before re-raising, so any exception here fails the sync with precise
+                            # diagnostic context rather than silently dropping rows.
+                            processed_doc = _process_doc_with_field_logging(doc, collection_name, logger)
+
+                            # Stringify _id so it's always a scalar string downstream,
+                            # regardless of BSON type (ObjectId, UUID Binary, numeric, etc.).
+                            result: dict[str, Any] = {
+                                "_id": str(processed_doc["_id"]),
+                            }
+                            # extract incremental field from the document if it exists
+                            if incremental_field:
+                                incremental_value = processed_doc.get(incremental_field, None)
+                                if incremental_value is None:
+                                    continue
+                                result[incremental_field] = incremental_value
+
+                            result["data"] = processed_doc
+
+                            yield result
+                        return
+                    except CursorNotFound:
+                        # Only reachable once the server-side timeout is back in play, i.e. after the
+                        # fallback below dropped no_cursor_timeout. That read is _id-ordered, so pick
+                        # up after the last document instead of failing the whole sync. Requiring
+                        # progress since the cursor opened stops a cursor that dies immediately from
+                        # looping forever on the same query.
+                        if no_cursor_timeout_honored or rows_since_cursor_opened == 0:
+                            raise
+                        logger.debug(
+                            f"MongoDB: cursor expired for collection={collection_name}; resuming after _id={last_id}"
+                        )
+                        cursor.close()
+                        cursor = open_resumable_cursor()
+                        rows_since_cursor_opened = 0
+                    except OperationFailure as e:
+                        # The option is rejected when the cursor is opened, before any document is
+                        # yielded, so retrying without it can't duplicate rows. The tradeoff is that
+                        # the server-side idle timeout applies again — hence the CursorNotFound
+                        # resume above.
+                        if last_id is not None or not _is_no_cursor_timeout_unsupported(e):
+                            raise
+                        logger.debug(
+                            f"MongoDB: no_cursor_timeout disallowed for collection={collection_name}; retrying without it"
+                        )
+                        cursor.close()
+                        no_cursor_timeout_honored = False
+                        cursor = open_resumable_cursor()
+                        rows_since_cursor_opened = 0
+            finally:
+                cursor.close()
 
     name = NamingConvention.normalize_identifier(collection_name)
 
@@ -580,4 +739,6 @@ def mongo_source(
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
+        chunk_size=chunk_size,
+        chunk_size_bytes=MONGO_CHUNK_SIZE_BYTES,
     )

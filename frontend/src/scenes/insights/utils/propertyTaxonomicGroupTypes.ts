@@ -17,6 +17,9 @@ export function getInsightPropertyFilterGroupTypes({
     includeDataWarehouseProperties?: boolean
 }): TaxonomicFilterGroupType[] {
     return [
+        // Only materializes when the picker is scoped to $mcp_* events (e.g. a funnel
+        // step on an MCP tool call), leading with the known MCP schema there.
+        TaxonomicFilterGroupType.MCPProperties,
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.EventFeatureFlags,

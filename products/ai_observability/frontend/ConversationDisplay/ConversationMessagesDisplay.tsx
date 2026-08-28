@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import React from 'react'
 
 import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled, IconWrench } from '@posthog/icons'
@@ -9,10 +10,13 @@ import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils/guards'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { aiBlobRenderHandlers, resolveAiBlobUrl, resolveDataUri } from '../aiBlob'
 import { getJsonContainerForDisplay, JSONValueDisplay } from '../components/JSONValueDisplay'
 import { MessageSentimentBar } from '../components/SentimentTag'
 import { LLMInputOutput } from '../LLMInputOutput'
+import { isRenderableMediaSource, redactedMediaKind } from '../mediaSource'
 import { SearchHighlight } from '../SearchHighlight'
 import { containsSearchQuery } from '../searchUtils'
 import type { GenerationSentiment } from '../sentimentResults'
@@ -34,6 +38,7 @@ import {
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { HighlightedXMLViewer } from './HighlightedXMLViewer'
 import { MessageActionsMenu } from './MessageActionsMenu'
+import { RedactedMediaPlaceholder } from './RedactedMediaPlaceholder'
 import { XMLViewer } from './XMLViewer'
 
 export type ConversationDisplayOption =
@@ -377,24 +382,42 @@ function getImageDisplayMessage(value: Record<string, unknown>): ImageDisplayMes
 }
 
 export const ImageMessageDisplay = ({ message }: { message: ImageDisplayMessage }): JSX.Element => {
+    const { currentTeamId } = useValues(teamLogic)
     const { content } = message
 
     if (typeof content === 'string') {
         return <span>{content}</span>
     } else if (content?.image) {
-        return <img src={content.image} alt="User sent image" />
+        if (!isRenderableMediaSource(content.image)) {
+            return <RedactedMediaPlaceholder kind="image" />
+        }
+        const src = resolveAiBlobUrl(content.image, currentTeamId)
+        return (
+            <img src={src} alt="User sent image" data-attr="ai-message-image" {...aiBlobRenderHandlers(src, 'image')} />
+        )
     }
 
     return <span>{String(content ?? '')}</span>
 }
 
-function renderContentItem(item: MultiModalContentItem, searchQuery?: string): JSX.Element | null {
+function renderContentItem(
+    item: MultiModalContentItem,
+    currentTeamId: number | string | null,
+    searchQuery?: string
+): JSX.Element | null {
     if (typeof item === 'string') {
         return searchQuery?.trim() ? (
             <SearchHighlight string={item} substring={searchQuery} className="whitespace-pre-wrap" />
         ) : (
             <span className="whitespace-pre-wrap">{item}</span>
         )
+    }
+
+    // File and audio parts carry a filename or transcript alongside the payload, so those kinds are
+    // replaced inside their own branch to keep that content. An image part is only the image.
+    const redacted = redactedMediaKind(item)
+    if (redacted === 'image') {
+        return <RedactedMediaPlaceholder kind="image" />
     }
 
     if (!item || typeof item !== 'object' || !('type' in item)) {
@@ -422,15 +445,27 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
     }
 
     if (isOpenAIImageURLMessage(item)) {
-        return <img src={item.image_url.url} alt="Message content" className="max-w-full max-h-[400px] rounded" />
+        const src = resolveAiBlobUrl(item.image_url.url, currentTeamId)
+        return (
+            <img
+                src={src}
+                alt="Message content"
+                className="max-w-full max-h-[400px] rounded"
+                data-attr="ai-message-image"
+                {...aiBlobRenderHandlers(src, 'image')}
+            />
+        )
     }
 
     if (isAnthropicImageMessage(item)) {
+        const src = resolveDataUri(item.source.data, item.source.media_type, currentTeamId)
         return (
             <img
-                src={`data:${item.source.media_type};base64,${item.source.data}`}
+                src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
+                data-attr="ai-message-image"
+                {...aiBlobRenderHandlers(src, 'image')}
             />
         )
     }
@@ -440,54 +475,61 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
         if (!inlineData) {
             return null
         }
+        const src = resolveDataUri(inlineData.data, inlineData.mime_type, currentTeamId)
         return (
             <img
-                src={`data:${inlineData.mime_type};base64,${inlineData.data}`}
+                src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
+                data-attr="ai-message-image"
+                {...aiBlobRenderHandlers(src, 'image')}
             />
         )
     }
 
     if (isOpenAIFileMessage(item)) {
-        if (!item.file.file_data.startsWith('data:')) {
+        if (redacted === 'file') {
+            return <RedactedMediaPlaceholder kind="file" filename={item.file.filename} />
+        }
+        const resolved = resolveAiBlobUrl(item.file.file_data, currentTeamId)
+        if (resolved === item.file.file_data && !item.file.file_data.startsWith('data:')) {
             return <span className="text-muted">{item.file.filename}</span>
         }
         return (
             // eslint-disable-next-line react/forbid-elements
-            <a href={item.file.file_data} download={item.file.filename} className="text-link hover:underline">
+            <a href={resolved} download={item.file.filename} className="text-link hover:underline">
                 {item.file.filename}
             </a>
         )
     }
 
     if (isAnthropicDocumentMessage(item)) {
+        if (redacted === 'file') {
+            return <RedactedMediaPlaceholder kind="file" />
+        }
+        const href = resolveDataUri(item.source.data, item.source.media_type, currentTeamId)
         const fileName = `document.${item.source.media_type.split('/')[1] || 'bin'}`
         return (
             // eslint-disable-next-line react/forbid-elements
-            <a
-                href={`data:${item.source.media_type};base64,${item.source.data}`}
-                download={fileName}
-                className="text-link hover:underline"
-            >
+            <a href={href} download={fileName} className="text-link hover:underline">
                 {fileName}
             </a>
         )
     }
 
     if (isGeminiDocumentMessage(item)) {
+        if (redacted === 'file') {
+            return <RedactedMediaPlaceholder kind="file" />
+        }
         const inlineData = getGeminiInlineData(item)
         if (!inlineData) {
             return null
         }
+        const href = resolveDataUri(inlineData.data, inlineData.mime_type, currentTeamId)
         const fileName = `document.${inlineData.mime_type.split('/')[1] || 'bin'}`
         return (
             // eslint-disable-next-line react/forbid-elements
-            <a
-                href={`data:${inlineData.mime_type};base64,${inlineData.data}`}
-                download={fileName}
-                className="text-link hover:underline"
-            >
+            <a href={href} download={fileName} className="text-link hover:underline">
                 {fileName}
             </a>
         )
@@ -496,14 +538,15 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
     if (isOpenAIAudioMessage(item) || isGeminiAudioMessage(item)) {
         const mimeType = 'mime_type' in item ? item.mime_type : undefined
         const transcript = 'transcript' in item ? item.transcript : undefined
+        const src = resolveDataUri(item.data, mimeType ?? 'audio/wav', currentTeamId)
 
         return (
             <div className="space-y-2">
-                <audio
-                    controls
-                    className="w-[500px]"
-                    src={mimeType ? `data:${mimeType};base64,${item.data}` : `data:audio/wav;base64,${item.data}`}
-                />
+                {redacted === 'audio' ? (
+                    <RedactedMediaPlaceholder kind="audio" />
+                ) : (
+                    <audio controls className="w-[500px]" src={src} {...aiBlobRenderHandlers(src, 'audio')} />
+                )}
                 {transcript && typeof transcript === 'string' && (
                     <div className="text-xs text-muted p-2 bg-bg-light rounded border">
                         <div className="font-semibold mb-1">Transcript:</div>
@@ -627,6 +670,7 @@ export const LLMMessageDisplay = React.memo(
         onToggleXmlRendering?: () => void
         messageSentiment?: { label: string; score: number }
     }): JSX.Element => {
+        const { currentTeamId } = useValues(teamLogic)
         const { role, content, ...additionalKwargs } = message
         let resolvedIsRenderingMarkdown = isRenderingMarkdown
         let resolvedIsRenderingXml = isRenderingXml
@@ -674,7 +718,7 @@ export const LLMMessageDisplay = React.memo(
                     <>
                         {content.map((item, index) => (
                             <React.Fragment key={index}>
-                                {renderContentItem(item, searchQuery)}
+                                {renderContentItem(item, currentTeamId, searchQuery)}
                                 {index < content.length - 1 && <div className="border-t my-2" />}
                             </React.Fragment>
                         ))}

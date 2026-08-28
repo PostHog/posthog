@@ -10,6 +10,14 @@ from posthog.models.file_system.user_product_list import UserProductList
 from products.growth.dags.user_product_list import populate_user_product_list, populate_user_product_list_job
 
 
+@pytest.fixture(autouse=True)
+def _disable_default_product_seeding():
+    # These tests exercise the dagster op in isolation. Joining the org would otherwise
+    # seed the fixed default product set and skew the entry counts under test.
+    with patch("posthog.models.file_system.user_product_list.add_default_products_for_user"):
+        yield
+
+
 def create_mock_s3_resource():
     """Create a mock S3 resource for testing."""
     mock_s3_resource = MagicMock()

@@ -8,12 +8,18 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+    KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
     KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA,
 } from '~/common/config/kafka-topics'
 import { isDevEnv } from '~/common/utils/env-utils'
-import { INGESTION_DOWNSTREAM_PRODUCER, type IngestionDownstreamProducer } from '~/ingestion/common/producers'
+import { INGESTION_DOWNSTREAM_PRODUCER, type IngestionDownstreamProducer } from '~/ingestion/common/outputs/producers'
 import {
+    INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER,
+    INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER,
     INGESTION_SESSIONREPLAY_PRODUCER,
+    type IngestionSessionreplayMlImageFetchProducer,
+    type IngestionSessionreplayMlImageScrubProducer,
     type IngestionSessionreplayProducer,
 } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
@@ -24,7 +30,11 @@ import { KAFKA_CONSUMER_GROUP_ID as SESSION_RECORDING_DEFAULT_GROUP_ID } from '.
  * common) for ClickHouse-bound outputs, and SESSIONREPLAY (warpstream-replay, defined in the
  * session-replay folder) for replay-domain topics.
  */
-export type SessionReplayProducerName = IngestionDownstreamProducer | IngestionSessionreplayProducer
+export type SessionReplayProducerName =
+    | IngestionDownstreamProducer
+    | IngestionSessionreplayProducer
+    | IngestionSessionreplayMlImageScrubProducer
+    | IngestionSessionreplayMlImageFetchProducer
 
 export type SessionRecordingApiConfig = {
     SESSION_RECORDING_API_REDIS_HOST: string
@@ -69,6 +79,9 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
     SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
+    // Per-command timeout on the session-recording Redis client, so a slow/unavailable Redis fails
+    // fast instead of blocking the pipeline; the retention service falls back to the team service.
+    SESSION_RECORDING_REDIS_TIMEOUT_MS: number
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
     SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
     SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: number
@@ -80,6 +93,8 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_FEATURES_ENABLED: boolean
     SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE: number
     SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: number
+    /** Caps how many sessions resolve their encryption key concurrently, bounding KMS/DynamoDB fan-out. */
+    SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY: number
 
     // Kafka consumer config
     INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
@@ -128,6 +143,7 @@ export function getDefaultSessionRecordingConfig(): SessionRecordingConfig {
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any',
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any',
         SESSION_RECORDING_V2_S3_TIMEOUT_MS: isDevEnv() ? 120000 : 30000,
+        SESSION_RECORDING_REDIS_TIMEOUT_MS: 200,
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
         SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: Number.MAX_SAFE_INTEGER,
         SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: 3000,
@@ -139,6 +155,7 @@ export function getDefaultSessionRecordingConfig(): SessionRecordingConfig {
         SESSION_RECORDING_FEATURES_ENABLED: true,
         SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE: 10,
         SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: 0,
+        SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY: 20,
 
         // Kafka consumer config
         INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
@@ -177,6 +194,12 @@ export type SessionReplayOutputsConfig = {
 
     INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_TOPIC: string
     INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_PRODUCER: SessionReplayProducerName
+
+    INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_SCRUB_TOPIC: string
+    INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_SCRUB_PRODUCER: SessionReplayProducerName
+
+    INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_FETCH_TOPIC: string
+    INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_FETCH_PRODUCER: SessionReplayProducerName
 }
 
 export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConfig {
@@ -198,5 +221,11 @@ export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConf
         INGESTION_SESSIONREPLAY_OUTPUT_SESSION_FEATURES_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
         INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_TOPIC: KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA,
         INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
+        INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_SCRUB_TOPIC: KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
+        INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_SCRUB_PRODUCER: INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER,
+        INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_FETCH_TOPIC: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+        // Its own producer instance, not the scrub lane's. See the doc block on
+        // INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER for why the two must not share a queue.
+        INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_FETCH_PRODUCER: INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER,
     }
 }

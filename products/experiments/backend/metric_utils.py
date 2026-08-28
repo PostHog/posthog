@@ -179,6 +179,21 @@ def collect_metric_events_and_action_ids(metrics: list[dict[str, Any]]) -> tuple
     return event_names, action_ids
 
 
+def collect_metric_warehouse_tables(metrics: list[dict[str, Any]]) -> set[str]:
+    """Collect ExperimentDataWarehouseNode table names referenced by metric queries."""
+    table_names: set[str] = set()
+    stack: list[Any] = list(metrics)
+    while stack:
+        obj = stack.pop()
+        if isinstance(obj, dict):
+            if obj.get("kind") == "ExperimentDataWarehouseNode" and obj.get("table_name"):
+                table_names.add(obj["table_name"])
+            stack.extend(obj.values())
+        elif isinstance(obj, list):
+            stack.extend(obj)
+    return table_names
+
+
 def resolve_action_events(action_ids: set[int], team: Team) -> dict[int, set[str]]:
     """Resolve action IDs to their step event names in a single query."""
     if not action_ids:
@@ -187,3 +202,32 @@ def resolve_action_events(action_ids: set[int], team: Team) -> dict[int, set[str
         action.id: {event for event in action.get_step_events() if event}
         for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)
     }
+
+
+def filter_metric_group_ids_by_event(
+    metric_groups: list[tuple[int, list[dict[str, Any]]]], event: str, team: Team
+) -> list[int]:
+    """Return the ids of metric groups whose queries reference ``event``, directly or via an action.
+
+    Each group is ``(id, [metric_query, ...])`` — a single query for one saved metric, or an experiment's
+    inline + secondary + attached saved-metric queries. Every referenced action is resolved to its step
+    events in one batched query across all groups, so an action-based metric is matched by the events its
+    action fires on (not by the action's stored — possibly stale — name).
+    """
+    per_group: list[tuple[int, set[str], set[int]]] = []
+    all_action_ids: set[int] = set()
+    for group_id, metrics in metric_groups:
+        events, action_ids = collect_metric_events_and_action_ids(metrics)
+        per_group.append((group_id, events, action_ids))
+        all_action_ids |= action_ids
+
+    action_events = resolve_action_events(all_action_ids, team)
+
+    matching_ids: list[int] = []
+    for group_id, events, action_ids in per_group:
+        resolved = set(events)
+        for action_id in action_ids:
+            resolved |= action_events.get(action_id, set())
+        if event in resolved:
+            matching_ids.append(group_id)
+    return matching_ids

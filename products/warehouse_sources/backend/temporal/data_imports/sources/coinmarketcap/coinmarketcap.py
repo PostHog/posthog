@@ -1,7 +1,6 @@
 import dataclasses
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.settings import (
     COINMARKETCAP_ENDPOINTS,
     PAGE_SIZE,
@@ -16,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # All requests go to CoinMarketCap's Pro API host.
 COINMARKETCAP_BASE_URL = "https://pro-api.coinmarketcap.com"

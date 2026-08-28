@@ -1,0 +1,54 @@
+---
+title: MCP analytics notifications
+sidebar: Docs
+showTitle: true
+---
+
+MCP analytics can reach you in Slack, Microsoft Teams, Discord, email, or any webhook, in two ways: a recurring written summary, or an instant alert on a single event.
+
+Which one you want depends on the question.
+Use a recurring report for anything you'd think about periodically, like what agents keep trying to do.
+Use an instant alert for something you'd want to know about immediately, like one of your tools breaking.
+
+## Recurring reports
+
+A recurring report is an AI-written summary of your MCP traffic, delivered on a schedule.
+Two are ready to set up from the **Notifications** tab:
+
+- **What agents are trying to do** (weekly) groups and ranks agent goals in their own words, and shows which of them keep ending in failure.
+- **How your tools held up** (weekly) covers calls per tool, error rate, the most common error types, and p95 latency.
+
+To set one up:
+
+1. Open **MCP analytics** and select the **Notifications** tab.
+2. Under **Recurring reports**, select **Set up** on the report you want.
+3. Choose where it should go and how often, then create it.
+
+The report's question is already written for you, and you can edit it before saving.
+
+Recurring reports are built on PostHog's AI subscriptions, which are in early access.
+If you don't see a **Set up** button, turn on **AI subscriptions** in your [feature previews](https://app.posthog.com/settings/user-feature-previews) first.
+Your organization also needs to approve AI data processing in its settings.
+
+Because a report summarizes a window of time, it stays useful on a low-volume server and can't flood a channel.
+
+## Instant alerts
+
+An instant alert reaches you as soon as something happens that you'd want to know about right away: **a failed tool call**, captured as `$mcp_tool_call` with `$mcp_is_error`.
+
+To create one, select **Notify me** under **Instant alerts**, then choose a channel.
+PostHog prefills the message with the tool, your server, the agent's client, and its intent.
+You can customize it later from the alert's own page.
+
+The alert is deduplicated per failing tool: if one tool fails a hundred times in a row you get one message, not a hundred, and each additional tool that starts failing still gets its own.
+A tool that is still broken reappears after 30 minutes.
+You can change this under **Trigger options** on the alert's page, including turning deduplication off.
+
+## Manage alerts and reports
+
+Instant alerts are standard CDP destinations, so you can also manage them from the data pipelines page.
+To use another destination type, create it manually with the same MCP events and filters.
+Recurring reports appear alongside your other subscriptions, where you can edit, pause, or delete them.
+
+Slack requires the PostHog Slack integration.
+Microsoft Teams, Discord, and webhook destinations only need a webhook URL.

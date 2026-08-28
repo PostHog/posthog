@@ -9,7 +9,16 @@ import { ResolvedModelCost } from './providers/types'
 const REASONING_COST_MODELS = [/^gemini-2\.5-/, /^gemini-3(\.\d+)?-/]
 
 export const mustAddReasoningCost = (model: string): boolean => {
-    return REASONING_COST_MODELS.some((candidate) => candidate.test(model.toLowerCase()))
+    const lowerCaseModel = model.toLowerCase()
+    // Strip any provider/path prefix (e.g. the Gemini API's `models/` resource
+    // prefix, or a `google/` provider prefix) before matching. The patterns are
+    // start-anchored, so `models/gemini-3-flash-preview` would otherwise never
+    // match and its (billed) reasoning tokens would be priced at zero. This
+    // mirrors how findCostFromModel resolves the price for the same string.
+    const bareModel = lowerCaseModel.includes('/')
+        ? (lowerCaseModel.split('/').pop() ?? lowerCaseModel)
+        : lowerCaseModel
+    return REASONING_COST_MODELS.some((candidate) => candidate.test(bareModel))
 }
 
 const warnMissingModalityRate = (event: PluginEvent, cost: ResolvedModelCost, modality: 'audio' | 'image'): void => {
@@ -82,7 +91,7 @@ export const calculateOutputCost = (event: PluginEvent, cost: ResolvedModelCost)
         textOutputTokens = audioOutputTokens > 0 || imageOutputTokens > 0 ? Math.max(0, derived) : derived
     }
 
-    const reasoningTokens = event.properties['$ai_reasoning_tokens']
+    const reasoningTokens = numericProperty(event, '$ai_reasoning_tokens')
     if (reasoningTokens && event.properties['$ai_model'] && mustAddReasoningCost(event.properties['$ai_model'])) {
         textOutputTokens = bigDecimal.add(textOutputTokens, reasoningTokens)
     }

@@ -5,7 +5,6 @@ on:
         branches:
             - master
     pull_request:
-    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -19,19 +18,25 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         name: Determine need to run agent-proxy checks
         outputs:
             agent_proxy: ${{ steps.filter.outputs.agent_proxy || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push'
               with:
@@ -101,17 +106,21 @@ jobs:
         name: Agent Proxy CI Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: ${{ !cancelled() }}
+        # always(), not !cancelled(): a skipped required check is treated as a pass by
+        # branch protection, so on cancellation the gate must run and emit an explicit
+        # result rather than skip into a green. A cancelled or timed-out job is caught
+        # by the != success && != skipped checks below; a legitimate no-change skip passes.
+        if: always()
         steps:
             - name: Check outcomes
               run: |
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.agent-proxy.result }}" == "failure" ]]; then
-                    echo "Agent Proxy checks failed."
+                  if [[ "${{ needs.agent-proxy.result }}" != "success" && "${{ needs.agent-proxy.result }}" != "skipped" ]]; then
+                    echo "Agent Proxy checks did not succeed (result: ${{ needs.agent-proxy.result }})."
                     exit 1
                   fi
 

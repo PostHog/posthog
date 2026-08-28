@@ -1,0 +1,12 @@
+.mention-chip {
+  border-radius: var(--radius-1);
+  background: color-mix(in oklab, var(--primary) 10%, transparent);
+  color: color-mix(in oklab, var(--primary) 80%, transparent);
+  font-weight: 500;
+  padding-inline: 0.125rem;
+}
+
+.mention-chip--self {
+  background: color-mix(in oklab, var(--primary) 50%, transparent);
+  color: var(--primary);
+}

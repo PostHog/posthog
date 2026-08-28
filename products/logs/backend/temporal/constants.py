@@ -40,6 +40,13 @@ MAX_COHORTS_PER_BATCH = int(os.environ.get("LOGS_ALERTING_MAX_COHORTS_PER_BATCH"
 # Per-pod CH parallelism = max_concurrent_activities × MAX_CONCURRENT_COHORTS_PER_BATCH.
 MAX_CONCURRENT_COHORTS_PER_BATCH = int(os.environ.get("LOGS_ALERTING_MAX_CONCURRENT_COHORTS_PER_BATCH", "5"))
 
+# How long the per-cohort flush barrier waits for the Kafka broker to ack
+# dispatched notifications before treating them as undelivered (state rolls
+# back and the next cycle retries). The flush drains the process-wide internal
+# events producer, so concurrent cohorts' flushes piggyback on each other
+# rather than stacking up.
+NOTIFICATION_FLUSH_TIMEOUT_SECONDS = float(os.environ.get("LOGS_ALERTING_NOTIFICATION_FLUSH_TIMEOUT_SECONDS", "10"))
+
 # Bounded concurrency for fanning out emit_signal in emit_alert_signals_activity.
 # emit_signal is expensive (Postgres reads + Temporal workflow start), so this runs
 # off the eval hot path in its own activity with bounded parallelism.

@@ -6,7 +6,7 @@ import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
@@ -190,6 +190,31 @@ export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JS
         : { distinct_id: distinctId }
 
     return <PersonColumnCell person={personData} />
+}
+
+// Avatar only (no name) for inline use beside a title; a click still opens the
+// full person popover. Shares the lazy person loader with LazyPersonColumnCell.
+export function LazyPersonAvatar({ distinctId }: { distinctId: string }): JSX.Element {
+    const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
+    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
+
+    const cached = personsCache[distinctId]
+
+    useEffect(() => {
+        if (currentTeamId && cached === undefined) {
+            ensurePersonLoaded(distinctId)
+        }
+    }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
+
+    const personData: PersonData = cached
+        ? { distinct_id: cached.distinct_id, properties: cached.properties }
+        : { distinct_id: distinctId }
+
+    return (
+        <PersonDisplay person={personData}>
+            <PersonIcon person={personData} size="md" />
+        </PersonDisplay>
+    )
 }
 
 function getStringColumnValue(record: unknown[], columns: string[], column: string): string | null {

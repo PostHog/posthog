@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconClock, IconDatabase, IconInfo, IconList, IconRefresh } from '@posthog/icons'
+import { IconBrackets, IconClock, IconDatabase, IconInfo, IconList, IconRefresh, IconSparkles } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonCheckbox,
     LemonCollapse,
     LemonSelect,
     LemonSkeleton,
@@ -15,13 +16,27 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { MaterializationStatusModal } from 'scenes/data-warehouse/saved_queries/MaterializationStatusModal'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'
-import { endpointSceneLogic, MaterializationPreview } from '../endpointSceneLogic'
+import { endpointSceneLogic, extractBreakdownPropertyNames, MaterializationPreview } from '../endpointSceneLogic'
+import { MaterializationSuggestionModal } from '../MaterializationSuggestionModal'
+
+// Names where flipping a breakdown to optional is most likely a customer-data leak — show
+// a soft warning when the user does so. Not a hard block; the author may have legitimate
+// reasons (e.g. an internal-only endpoint). Keep this list short and conservative; false
+// positives are cheap, false negatives cost data.
+const SENSITIVE_BREAKDOWN_NAME_PATTERNS = ['team', 'account', 'customer', 'tenant', 'user_id', 'org']
+
+function isSensitiveBreakdownName(name: string): boolean {
+    const lower = name.toLowerCase()
+    return SENSITIVE_BREAKDOWN_NAME_PATTERNS.some((p) => lower.includes(p))
+}
 
 const DATA_FRESHNESS_OPTIONS: { value: number; label: string }[] = [
     { value: 900, label: '15 minutes' },
@@ -65,13 +80,15 @@ function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'w
 
 export function EndpointConfiguration(): JSX.Element {
     const { endpoint } = useValues(endpointLogic)
-    const { setDataFreshness } = useActions(endpointSceneLogic)
+    const { setDataFreshness, toggleBreakdownOptional } = useActions(endpointSceneLogic)
     const {
         dataFreshness,
         viewingVersion,
         materializationPreview,
         materializationPreviewLoading,
         isMaterialized: localIsMaterialized,
+        currentQuery,
+        optionalBreakdownProperties,
     } = useValues(endpointSceneLogic)
     const { loadMaterializationPreview } = useActions(endpointSceneLogic)
     const [leftActiveKeys, setLeftActiveKeys] = useState<string[]>(['materialization'])
@@ -85,6 +102,8 @@ export function EndpointConfiguration(): JSX.Element {
     const baseIsMaterialized = viewingVersion?.is_materialized ?? endpoint.is_materialized
     const isMaterialized = localIsMaterialized ?? baseIsMaterialized
     const materializationExpanded = leftActiveKeys.includes('materialization')
+
+    const breakdownProperties = extractBreakdownPropertyNames(currentQuery)
 
     return (
         <div className="flex gap-6">
@@ -138,6 +157,29 @@ export function EndpointConfiguration(): JSX.Element {
                                 </div>
                             ),
                         },
+                        ...(breakdownProperties.length > 0
+                            ? [
+                                  {
+                                      key: 'variables',
+                                      header: (
+                                          <div className="flex items-center gap-2">
+                                              <IconBrackets className="text-lg" />
+                                              <span>Variables</span>
+                                              <Tooltip title="Required variables must be passed on every execution. Optional ones may be omitted; the response aggregates across every value.">
+                                                  <IconInfo className="text-lg text-secondary" />
+                                              </Tooltip>
+                                          </div>
+                                      ),
+                                      content: (
+                                          <BreakdownRequirementContent
+                                              breakdownProperties={breakdownProperties}
+                                              optionalBreakdownProperties={optionalBreakdownProperties}
+                                              onToggle={toggleBreakdownOptional}
+                                          />
+                                      ),
+                                  },
+                              ]
+                            : []),
                     ]}
                 />
             </div>
@@ -197,6 +239,61 @@ export function EndpointConfiguration(): JSX.Element {
     )
 }
 
+function BreakdownRequirementContent({
+    breakdownProperties,
+    optionalBreakdownProperties,
+    onToggle,
+}: {
+    breakdownProperties: string[]
+    optionalBreakdownProperties: string[]
+    onToggle: (property: string) => void
+}): JSX.Element {
+    const sensitiveMarkedOptional = optionalBreakdownProperties.filter(
+        (p) => breakdownProperties.includes(p) && isSensitiveBreakdownName(p)
+    )
+    return (
+        <div className="flex flex-col gap-3 p-1">
+            <p className="text-sm text-secondary m-0">
+                Uncheck <strong>Required</strong> to let callers omit a breakdown — the response then aggregates across
+                every value.
+            </p>
+            <div className="flex flex-col gap-2">
+                {breakdownProperties.map((property) => {
+                    const isOptional = optionalBreakdownProperties.includes(property)
+                    return (
+                        <div
+                            key={property}
+                            className="flex items-center justify-between gap-3 p-3 bg-accent-3000 border border-border rounded"
+                        >
+                            <div className="flex flex-col">
+                                <code className="text-sm">{property}</code>
+                                <span className="text-xs text-secondary">
+                                    {isOptional
+                                        ? 'May be omitted — aggregates across every value.'
+                                        : 'Must be passed on every execution.'}
+                                </span>
+                            </div>
+                            <LemonCheckbox
+                                checked={!isOptional}
+                                onChange={() => onToggle(property)}
+                                label="Required"
+                                bordered
+                            />
+                        </div>
+                    )
+                })}
+            </div>
+            {sensitiveMarkedOptional.length > 0 && (
+                <LemonBanner type="warning">
+                    <strong>{sensitiveMarkedOptional.map((p) => `"${p}"`).join(', ')}</strong> looks like it identifies
+                    a tenant. Marking it optional lets callers execute this endpoint without that filter — double-check
+                    it isn't customer-facing.
+                </LemonBanner>
+            )}
+        </div>
+    )
+}
+
 function ExecutionQueryPanel({
     materializationPreview,
 }: {
@@ -232,14 +329,16 @@ function MaterializationContent(): JSX.Element {
         materializationStatus: loadedMaterializationStatus,
         materializationStatusLoading,
     } = useValues(endpointLogic)
-    const { setIsMaterialized, setBucketOverride } = useActions(endpointSceneLogic)
+    const { setIsMaterialized, setBucketOverride, openMaterializationSuggestionModal } = useActions(endpointSceneLogic)
     const {
         isMaterialized: localIsMaterialized,
         viewingVersion,
         materializationPreview,
         bucketOverrides,
+        localQuery,
     } = useValues(endpointSceneLogic)
     const [runsModalOpen, setRunsModalOpen] = useState(false)
+    const materializationFixFlagEnabled = useFeatureFlag('ENDPOINTS_AI_MATERIALIZATION_FIX')
 
     if (!endpoint) {
         return <></>
@@ -275,6 +374,15 @@ function MaterializationContent(): JSX.Element {
         setIsMaterialized(!isMaterialized)
     }
 
+    // Offer an AI rewrite only where it can help: a SQL endpoint, on its latest version,
+    // whose live checks reject the query.
+    const isLatestVersion = !viewingVersion || viewingVersion.version === endpoint.current_version
+    const showOptimizeWithAI =
+        materializationFixFlagEnabled &&
+        isLatestVersion &&
+        endpoint.query?.kind === NodeKind.HogQLQuery &&
+        !isMaterialized
+
     const rangePairs = materializationPreview?.range_pairs ?? []
 
     return (
@@ -284,7 +392,32 @@ function MaterializationContent(): JSX.Element {
             </p>
 
             {!canMaterialize && cannotMaterializeReason && (
-                <LemonBanner type="info">{cannotMaterializeReason}</LemonBanner>
+                <div className="flex flex-col gap-4 items-start">
+                    <LemonBanner type="warning" hideIcon={false} className="w-full">
+                        <div className="flex flex-col gap-1">
+                            <span className="font-semibold">
+                                This endpoint can't be materialized yet, so every execution runs the full query.
+                            </span>
+                            <span className="font-normal">Reason: {cannotMaterializeReason}</span>
+                        </div>
+                    </LemonBanner>
+                    {showOptimizeWithAI && (
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconSparkles />}
+                            onClick={openMaterializationSuggestionModal}
+                            disabledReason={
+                                localQuery
+                                    ? 'Save or discard your query changes first — the AI rewrites the saved query'
+                                    : undefined
+                            }
+                            tooltip="AI rewrites the query into an equivalent form that passes our materialization checks. You review the suggested change in the SQL editor before anything is saved."
+                            data-attr="endpoint-optimize-with-ai"
+                        >
+                            Optimize with AI
+                        </LemonButton>
+                    )}
+                </div>
             )}
 
             {canMaterialize && (
@@ -403,6 +536,7 @@ function MaterializationContent(): JSX.Element {
                 viewName={endpoint.name}
                 kind="endpoint"
             />
+            <MaterializationSuggestionModal />
         </div>
     )
 }

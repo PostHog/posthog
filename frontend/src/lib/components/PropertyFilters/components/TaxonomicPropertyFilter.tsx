@@ -36,20 +36,18 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import {
-    AnyPropertyFilter,
-    FilterLogicalOperator,
-    GroupTypeIndex,
-    PropertyDefinitionType,
-    PropertyFilterType,
-} from '~/types'
+import { AnyPropertyFilter, GroupTypeIndex, PropertyDefinitionType, PropertyFilterType } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
-import { OperandTag } from './OperandTag'
+import { FILTER_ROW_FRAME_CLASSES } from './filterRowFrame'
+import { PropertyFilterRowOperator } from './PropertyFilterRowOperator'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
 export const DEFAULT_TAXONOMIC_GROUP_TYPES = [
+    // Only materializes when the picker is scoped to $mcp_* events (see taxonomicGroups),
+    // leading with the known MCP schema there; a no-op everywhere else.
+    TaxonomicFilterGroupType.MCPProperties,
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.EventFeatureFlags,
@@ -88,6 +86,11 @@ export function TaxonomicPropertyFilter({
     endpointFilters,
     hogQLGlobals,
     triggerVariant = 'button',
+    staticValueOptions,
+    propertyDefinitionsOverride,
+    propertyKeyEditable = true,
+    singleLine,
+    framedRows,
 }: PropertyFilterInternalProps): JSX.Element {
     const generatedKey = useId()
     const pageKey = pageKeyInput || `filter-${generatedKey}`
@@ -154,9 +157,10 @@ export function TaxonomicPropertyFilter({
 
     // For data warehouse person properties, use columnsJoinedToPersons, otherwise use property definitions
     const propertyDefinitions =
-        filter?.type === PropertyFilterType.DataWarehousePersonProperty
+        propertyDefinitionsOverride ??
+        (filter?.type === PropertyFilterType.DataWarehousePersonProperty
             ? columnsJoinedToPersons
-            : propertyDefinitionsByType(basePropertyType, groupTypeIndex)
+            : propertyDefinitionsByType(basePropertyType, groupTypeIndex))
 
     // Look up cohort name, if not already provided in filter
     const cohortValue =
@@ -213,6 +217,7 @@ export function TaxonomicPropertyFilter({
                       })}`
                     : filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)
             }
+            staticValues={typeof filter?.key === 'string' ? (staticValueOptions?.(filter.key) ?? null) : null}
             eventNames={eventNames}
             addRelativeDateTimeOptions={allowRelativeDateOptions}
             onChange={(newOperator, newValue) => {
@@ -250,7 +255,9 @@ export function TaxonomicPropertyFilter({
             ? cohortName || `Cohort #${filter?.value}`
             : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
               ? filter.label || `Group ${filter?.value}`
-              : filter?.type === PropertyFilterType.Flag && filter?.label
+              : (filter?.type === PropertyFilterType.Flag ||
+                      filter?.type === PropertyFilterType.AccountCustomProperty) &&
+                  filter?.label
                 ? filter.label
                 : filter?.key && (
                       <PropertyKeyInfo
@@ -361,36 +368,22 @@ export function TaxonomicPropertyFilter({
                     })}
                 >
                     {hasRowOperator && (
-                        <div className="TaxonomicPropertyFilter__row-operator">
-                            {orFiltering ? (
-                                <>
-                                    {propertyGroupType && index !== 0 && filter?.key && (
-                                        <div className="flex items-center">
-                                            {propertyGroupType === FilterLogicalOperator.And ? (
-                                                <OperandTag operand="and" />
-                                            ) : (
-                                                <OperandTag operand="or" />
-                                            )}
-                                        </div>
-                                    )}
-                                </>
-                            ) : (
-                                <div className="flex items-center gap-1">
-                                    {index === 0 ? (
-                                        <>
-                                            <span className="TaxonomicPropertyFilter__row-arrow">&#8627;</span>
-                                            <span>where</span>
-                                        </>
-                                    ) : (
-                                        <OperandTag operand="and" />
-                                    )}
-                                </div>
-                            )}
-                        </div>
+                        <PropertyFilterRowOperator
+                            index={index}
+                            orFiltering={orFiltering}
+                            propertyGroupType={propertyGroupType}
+                            hasKey={!!filter?.key}
+                        />
                     )}
-                    <div className="TaxonomicPropertyFilter__row-items">
+                    <div
+                        className={clsx(
+                            'TaxonomicPropertyFilter__row-items',
+                            { 'TaxonomicPropertyFilter__row-items--single-line': singleLine },
+                            framedRows && filter?.key && FILTER_ROW_FRAME_CLASSES
+                        )}
+                    >
                         {showOperatorValueSelect && placeOperatorValueSelectOnLeft && operatorValueSelect}
-                        {editable ? editablePicker : filterContent}
+                        {editable && propertyKeyEditable ? editablePicker : filterContent}
                         {showOperatorValueSelect && !placeOperatorValueSelectOnLeft && operatorValueSelect}
                     </div>
                 </div>

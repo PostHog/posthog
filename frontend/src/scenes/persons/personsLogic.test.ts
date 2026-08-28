@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -14,6 +15,7 @@ import { PersonsTabType, PersonType, PropertyFilterType, PropertyOperator } from
 import { personsLogic } from './personsLogic'
 
 describe('personsLogic', () => {
+    afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof personsLogic.build>
 
     const mockPersonsApiHandler: MockSignature = ({ request }) => {
@@ -145,6 +147,7 @@ describe('personsLogic', () => {
 
     describe('loadPersonUUID error handling', () => {
         it('surfaces a genuine load failure as personError', async () => {
+            silenceKeaLoadersErrors()
             jest.spyOn(api, 'query').mockRejectedValueOnce(new Error('boom'))
 
             await expectLogic(logic, () => {

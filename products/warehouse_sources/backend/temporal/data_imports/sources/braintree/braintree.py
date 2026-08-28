@@ -7,21 +7,27 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.settings import (
     BRAINTREE_ENDPOINTS,
     BraintreeEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 BRAINTREE_HOSTS = {
     "production": "https://payments.braintree-api.com/graphql",
     "sandbox": "https://payments.sandbox.braintree-api.com/graphql",
 }
-# Pinned GraphQL API version (date-versioned header, required).
-BRAINTREE_VERSION = "2019-01-01"
-PAGE_SIZE = 100
+# GraphQL API version (date-versioned header, required). Opaque vendor labels — never parsed.
+BRAINTREE_VERSION_2019_01_01 = "2019-01-01"
+BRAINTREE_VERSION_2026_07_14 = "2026-07-14"
+BRAINTREE_VERSION_2026_08_04 = "2026-08-04"
+BRAINTREE_VERSION_2026_08_13 = "2026-08-13"
+# Braintree's GraphQL search fields reject `first` above 50, so this is a vendor
+# ceiling rather than a tuning knob.
+MAX_PAGE_SIZE = 50
+PAGE_SIZE = MAX_PAGE_SIZE
 # Braintree recommends generous timeouts due to async transaction processing.
 REQUEST_TIMEOUT_SECONDS = 120
 MAX_RETRY_ATTEMPTS = 5
@@ -42,9 +48,9 @@ class BraintreeResumeConfig:
     after: str
 
 
-def _get_session(public_key: str, private_key: str) -> requests.Session:
+def _get_session(public_key: str, private_key: str, api_version: str) -> requests.Session:
     session = make_tracked_session(
-        headers={"Braintree-Version": BRAINTREE_VERSION},
+        headers={"Braintree-Version": api_version},
         redact_values=(private_key,),
     )
     session.auth = (public_key, private_key)
@@ -69,8 +75,10 @@ def _format_created_at(value: Any) -> str:
 
 
 def _build_query(config: BraintreeEndpointConfig) -> str:
+    # Braintree's search fields declare `input` as non-null, even though every
+    # field within the input type is optional (an empty object matches everything).
     return f"""
-query ($input: {config.input_type}, $first: Int!, $after: String) {{
+query ($input: {config.input_type}!, $first: Int!, $after: String) {{
   search {{
     {config.search_field} (input: $input, first: $first, after: $after) {{
       pageInfo {{ hasNextPage }}
@@ -116,10 +124,10 @@ class _NoopLogger:
         return None
 
 
-def validate_credentials(environment: str, public_key: str, private_key: str) -> bool:
+def validate_credentials(environment: str, public_key: str, private_key: str, api_version: str) -> bool:
     """Confirm the key pair is valid with the GraphQL ping query."""
     try:
-        session = _get_session(public_key, private_key)
+        session = _get_session(public_key, private_key, api_version)
         data = _execute(session, _base_url(environment), "query { ping }", {}, _NoopLogger())  # type: ignore[arg-type]
         return data.get("ping") == "pong"
     except Exception:
@@ -131,13 +139,14 @@ def get_rows(
     public_key: str,
     private_key: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[BraintreeResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = BRAINTREE_ENDPOINTS[endpoint]
-    session = _get_session(public_key, private_key)
+    session = _get_session(public_key, private_key, api_version)
     url = _base_url(environment)
     query = _build_query(config)
 
@@ -162,7 +171,7 @@ def get_rows(
         return _execute(session, url, query, variables, logger)
 
     while True:
-        data = execute({"input": search_input or None, "first": PAGE_SIZE, "after": after})
+        data = execute({"input": search_input, "first": PAGE_SIZE, "after": after})
         connection = ((data.get("search") or {}).get(config.search_field)) or {}
         edges = connection.get("edges") or []
         items = [edge.get("node") for edge in edges if edge.get("node")]
@@ -186,6 +195,7 @@ def braintree_source(
     public_key: str,
     private_key: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[BraintreeResumeConfig],
     should_use_incremental_field: bool = False,
@@ -200,6 +210,7 @@ def braintree_source(
             public_key=public_key,
             private_key=private_key,
             endpoint=endpoint,
+            api_version=api_version,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,

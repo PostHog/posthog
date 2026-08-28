@@ -48,12 +48,26 @@ tools:
         enabled: false
     elements-stats-retrieve:
         operation: elements_stats_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - element:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get element click stats
+        description: >
+            Counts of autocapture clicks, rage clicks, and dead clicks grouped by page element, ordered by count. Each
+            result carries the parsed element chain (tag, text, href, attributes) of the clicked element. Filter by date
+            range, event types, URL or other event/person properties, and the project's internal-test-account filters.
+            This powers heatmap/clickmap views; use it to answer "what do users click most" and "which elements get rage
+            or dead clicks". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and
+            paginate with `offset` if you need more results.
     elements-update:
         operation: elements_update
         enabled: false
-    elements-values-retrieve:
-        operation: elements_values_retrieve
+    elements-values-list:
+        operation: elements_values_list
         enabled: false
     insight-create:
         operation: insights_create
@@ -86,6 +100,9 @@ tools:
                 description: >
                     Dashboard IDs this insight should belong to. This is a full replacement — always include all
                     existing dashboard IDs when adding a new one.
+            description:
+                description: |
+                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
         response:
             exclude:
                 - result
@@ -107,6 +124,13 @@ tools:
         title: Delete insight
         description: |
             Soft-delete an insight by ID. The insight will be marked as deleted and no longer appear in lists.
+        param_overrides:
+            id:
+                aliases:
+                    - insightId
+                    - insight_id
+                    - short_id
+                    - shortId
         soft_delete: true
     insight-get:
         operation: insights_retrieve
@@ -128,6 +152,13 @@ tools:
             - format
             - refresh
             - from_dashboard
+        param_overrides:
+            id:
+                aliases:
+                    - insightId
+                    - insight_id
+                    - short_id
+                    - shortId
         response:
             exclude:
                 - result
@@ -152,6 +183,22 @@ tools:
             Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited
             status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query
             tool with the same identifier if you want to see the recomputed results.
+        agent_note:
+            If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a
+            recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when
+            the dashboard id you just added was not already on the insight before this call. Offer at most once per
+            dashboard in a conversation, however many insights you attach to it. First call subscriptions-list with
+            `dashboard` set to that dashboard's id, and do not offer a second subscription when it returns one. Say
+            nothing when this update left `dashboards` alone or only removed the insight from a dashboard. Describe it
+            the way a person would recognize it, for example a weekly email every Monday morning with these charts
+            attached, or the same thing posted to a Slack channel. To create it, use subscriptions-create. It needs
+            `dashboard` set to the dashboard's id, `dashboard_export_insights` listing up to 10 charts, `target_type` of
+            `email` or `slack`, and `target_value`, `frequency`, `interval` and `start_date`. For a Slack delivery, also
+            set `integration_id`. Find the connected Slack workspace with integrations-list (filter kind=slack) and the
+            channel for `target_value` with integrations-channels-retrieve. Ask the user for the recipients and the
+            cadence rather than choosing them, since this creates a recurring outbound delivery. If either
+            subscriptions-create or subscriptions-list is not available to you in this session, say nothing about
+            subscriptions. If the user already declined a subscription earlier in this conversation, do not offer again.
         exclude_params:
             - query
         include_params:
@@ -161,12 +208,21 @@ tools:
             - favorited
             - dashboards
         param_overrides:
+            id:
+                aliases:
+                    - insightId
+                    - insight_id
+                    - short_id
+                    - shortId
             query:
                 schema_ref: InsightQuery
             dashboards:
                 description: >
                     Dashboard IDs this insight should belong to. This is a full replacement — always include all
                     existing dashboard IDs when adding a new one.
+            description:
+                description: |
+                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
         response:
             exclude:
                 - result
@@ -227,6 +283,15 @@ tools:
                 - detail.type
     insights-analyze-retrieve:
         operation: insights_analyze_retrieve
+        enabled: false
+    insights-bulk-delete-create:
+        operation: insights_bulk_delete_create
+        enabled: false
+    insights-bulk-restore-create:
+        operation: insights_bulk_restore_create
+        enabled: false
+    insights-bulk-set-test-account-filter-create:
+        operation: insights_bulk_set_test_account_filter_create
         enabled: false
     insights-bulk-update-tags-create:
         operation: insights_bulk_update_tags_create
@@ -326,4 +391,7 @@ tools:
         enabled: false
     insights-viewed-create:
         operation: insights_viewed_create
+        enabled: false
+    paths-v2-segment-to-funnel-create:
+        operation: paths_v2_segment_to_funnel_create
         enabled: false

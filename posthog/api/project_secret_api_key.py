@@ -23,6 +23,7 @@ from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
 )
+from posthog.tasks.email import send_project_secret_api_key_exposed
 
 MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 50
 
@@ -162,6 +163,20 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         project_secret_api_key._value = key_value  # type: ignore
 
         return project_secret_api_key
+
+
+def roll_project_secret_api_key_and_notify(project_secret_api_key: ProjectSecretAPIKey, more_info: str) -> None:
+    """Single entry point for exposure-driven rolls (GitHub secret scanning, Django admin).
+
+    The key is rolled even when no admin can be emailed: invalidating the leaked value
+    takes priority over notification delivery.
+    """
+    old_mask_value = project_secret_api_key.mask_value
+    serializer = ProjectSecretAPIKeySerializer(instance=project_secret_api_key)
+    serializer.roll(project_secret_api_key)
+    send_project_secret_api_key_exposed(
+        project_secret_api_key.team_id, project_secret_api_key.id, old_mask_value, more_info
+    )
 
 
 @extend_schema(extensions={"x-product": "core"})

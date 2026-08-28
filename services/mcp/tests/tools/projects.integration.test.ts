@@ -15,10 +15,12 @@ import {
 import getProjectsTool from '@/tools/projects/getProjects'
 import setActiveProjectTool from '@/tools/projects/setActive'
 import updateEventDefinitionTool from '@/tools/projects/updateEventDefinition'
+import updatePropertyDefinitionTool from '@/tools/projects/updatePropertyDefinition'
 import type { Context } from '@/tools/types'
 
 describe('Projects', { concurrent: false }, () => {
     let context: Context
+    let testPropertyName: string
     const createdResources: CreatedResources = {
         featureFlags: [],
         insights: [],
@@ -137,6 +139,94 @@ describe('Projects', { concurrent: false }, () => {
             await expect(
                 updateTool.handler(context, {
                     eventName: nonExistentEvent,
+                    data: { description: 'test' },
+                })
+            ).rejects.toThrow()
+        })
+    })
+
+    describe('property-definition-update tool', () => {
+        const updateTool = updatePropertyDefinitionTool()
+
+        beforeAll(async () => {
+            const searchResult = await context.api.request<{ results: { name: string }[] }>({
+                method: 'GET',
+                path: `/api/projects/${TEST_PROJECT_ID}/property_definitions/`,
+                query: { type: 'event', limit: 100 },
+            })
+
+            const propertyDefinition =
+                searchResult.results.find((def) => def.name === '$browser') ?? searchResult.results[0]
+            if (!propertyDefinition) {
+                throw new Error('Expected the test project to have at least one event property definition')
+            }
+
+            testPropertyName = propertyDefinition.name
+        })
+
+        it('should update property definition description', async () => {
+            const testDescription = `Test description ${uuidv4()}`
+            const result = await updateTool.handler(context, {
+                propertyName: testPropertyName,
+                type: 'event',
+                data: { description: testDescription },
+            })
+            const propertyDef = parseToolResponse(result)
+
+            expect(propertyDef.description).toBe(testDescription)
+            expect(propertyDef.name).toBe(testPropertyName)
+            // The definition-detail route is keyed by id, not name, so the link must carry the id
+            expect(propertyDef.url).toContain(`/data-management/properties/${propertyDef.id}`)
+        })
+
+        it('should update property definition tags', async () => {
+            const testTag = `test-tag-${uuidv4().slice(0, 8)}`
+            const result = await updateTool.handler(context, {
+                propertyName: testPropertyName,
+                type: 'event',
+                data: { tags: [testTag] },
+            })
+            const propertyDef = parseToolResponse(result)
+
+            expect(propertyDef.tags).toContain(testTag)
+        })
+
+        it('should update verified status', async () => {
+            const result = await updateTool.handler(context, {
+                propertyName: testPropertyName,
+                type: 'event',
+                data: { verified: true },
+            })
+            const propertyDef = parseToolResponse(result)
+
+            expect(propertyDef.verified).toBe(true)
+        })
+
+        it('should update multiple fields at once', async () => {
+            const testDescription = `Multi-field test ${uuidv4()}`
+            const testTag = `multi-tag-${uuidv4().slice(0, 8)}`
+            const result = await updateTool.handler(context, {
+                propertyName: testPropertyName,
+                type: 'event',
+                data: {
+                    description: testDescription,
+                    tags: [testTag],
+                    verified: true,
+                },
+            })
+            const propertyDef = parseToolResponse(result)
+
+            expect(propertyDef.description).toBe(testDescription)
+            expect(propertyDef.tags).toContain(testTag)
+            expect(propertyDef.verified).toBe(true)
+        })
+
+        it('should throw error for non-existent property', async () => {
+            const nonExistentProperty = `non-existent-property-${uuidv4()}`
+            await expect(
+                updateTool.handler(context, {
+                    propertyName: nonExistentProperty,
+                    type: 'event',
                     data: { description: 'test' },
                 })
             ).rejects.toThrow()

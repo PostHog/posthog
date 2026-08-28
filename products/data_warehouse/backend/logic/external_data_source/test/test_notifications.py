@@ -56,6 +56,17 @@ class TestNotifyExternalDataSyncFailures:
             should_sync=False,
             latest_error="Invalid API key",
         )
+        # CDC breakage halts syncing without flipping should_sync — it must still read as
+        # "action required", not "will retry".
+        ExternalDataSchema.objects.create(
+            name="Accounts",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            should_sync=True,
+            latest_error="Replication slot dropped",
+            sync_type_config={"cdc_broken": {"reason": "auto_dropped_critical_lag"}},
+        )
 
         with patch(SENDER_PATH) as mock_sender:
             notify_external_data_sync_failures(team.pk)
@@ -64,12 +75,13 @@ class TestNotifyExternalDataSyncFailures:
         team_id, items = mock_sender.call_args.args
         assert team_id == team.pk
         assert [(item["schema_name"], item["paused"]) for item in items] == [
+            ("Accounts", True),
             ("Invoice", True),
             ("Charge", False),
         ]
-        assert items[0]["error"] == "Invalid API key"
+        assert items[0]["error"] == "Replication slot dropped"
         assert items[0]["source_type"] == "Stripe"
-        assert f"managed-{source.id}/syncs?schema=Invoice" in items[0]["url"]
+        assert f"managed-{source.id}/syncs?schema=Accounts" in items[0]["url"]
 
     @pytest.mark.parametrize(
         "name,label,expected_display",
@@ -257,6 +269,32 @@ class TestNotifyExternalDataSyncFailures:
 
         assert mock_sender.called == expected_sent
 
+    @pytest.mark.parametrize(
+        "notified_age,expected_sent",
+        [
+            (dt.timedelta(days=8), True),  # still failing past the window -> remind again
+            (dt.timedelta(days=6), False),  # notified recently, no new run -> stay silent
+        ],
+    )
+    def test_renotifies_still_failing_schema_without_a_newer_run(self, notified_age, expected_sent):
+        # A paused schema never runs again, so it produces no newer failed job. It must
+        # still get a reminder once its last email ages past the re-notify window.
+        team, source = _create_team_and_source()
+        ExternalDataSchema.objects.create(
+            name="Charge",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            should_sync=False,
+            latest_error="Invalid API key",
+            last_error_notified_at=dt.datetime.now(dt.UTC) - notified_age,
+        )
+
+        with patch(SENDER_PATH) as mock_sender:
+            notify_external_data_sync_failures(team.pk)
+
+        assert mock_sender.called == expected_sent
+
 
 class TestGetTeamIdsWithRecentSyncFailures:
     def _create_schema_with_job(
@@ -339,6 +377,17 @@ class TestGetTeamIdsWithRecentSyncFailures:
             schema_status=ExternalDataSchema.Status.FAILED,
             job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=24, minutes=10),
             last_error_notified_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=24, minutes=14),
+        )
+
+        assert get_team_ids_with_recent_sync_failures() == [team.pk]
+
+    def test_includes_still_failing_schema_past_the_renotify_window(self):
+        # No recent failed run (30h stale) and the last email is 8 days old: the team
+        # would drop out forever without the re-notify path.
+        team = self._create_schema_with_job(
+            schema_status=ExternalDataSchema.Status.FAILED,
+            job_finished_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=30),
+            last_error_notified_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=8),
         )
 
         assert get_team_ids_with_recent_sync_failures() == [team.pk]

@@ -1,4 +1,4 @@
-import { createXAxisTickCallback } from './dates'
+import { createTooltipDateFormatter, createXAxisTickCallback } from './dates'
 
 function weeklyDates(start: string, count: number): string[] {
     const dates: string[] = []
@@ -30,6 +30,12 @@ describe('createXAxisTickCallback', () => {
             expected: ['2025', 'February', 'March'],
         },
         {
+            scenario: 'inferred quarter interval from ~90 day gaps',
+            interval: undefined,
+            allDays: ['2025-04-01', '2025-07-01', '2025-10-01'],
+            expected: ['Q2', 'Q3', 'Q4'],
+        },
+        {
             scenario: 'inferred day interval from 1 day gaps',
             interval: undefined,
             allDays: ['2025-04-01', '2025-04-02', '2025-04-03'],
@@ -54,6 +60,51 @@ describe('createXAxisTickCallback', () => {
             expected: ['10:00', '10:01', '10:02'],
         },
         {
+            scenario: 'hourly, single day, newest-first → still HH:mm, no date markers',
+            interval: undefined,
+            allDays: hourlyDates('2025-04-01', 6).reverse(),
+            expected: ['05:00', '04:00', '03:00', '02:00', '01:00', '00:00'],
+        },
+        {
+            scenario: 'inferred day interval from newest-first daily results',
+            interval: undefined,
+            allDays: ['2025-04-03 00:00:00', '2025-04-02 00:00:00', '2025-04-01 00:00:00'],
+            expected: ['Apr 3', 'Apr 2', 'April'],
+        },
+        {
+            scenario: 'weekly, long span, newest-first → same month labels as oldest-first',
+            interval: 'week' as const,
+            allDays: weeklyDates('2025-09-01', 18).reverse(),
+            expected: sparseLabels(18, {
+                0: 'December',
+                5: 'November',
+                9: 'October',
+                13: 'September',
+            }),
+        },
+        {
+            scenario: 'hourly, multi-day, newest-first → date at each day start, HH:mm every 6h',
+            interval: 'hour' as const,
+            allDays: hourlyDates('2025-02-15', 72).reverse(),
+            expected: sparseLabels(72, {
+                0: 'Feb 17',
+                5: '18:00',
+                11: '12:00',
+                17: '06:00',
+                23: '00:00',
+                24: 'Feb 16',
+                29: '18:00',
+                35: '12:00',
+                41: '06:00',
+                47: '00:00',
+                48: 'Feb 15',
+                53: '18:00',
+                59: '12:00',
+                65: '06:00',
+                71: '00:00',
+            }),
+        },
+        {
             scenario: 'second interval formats as HH:mm',
             interval: 'second' as const,
             allDays: ['2025-04-01 14:30:00', '2025-04-01 14:30:01', '2025-04-01 14:30:02'],
@@ -76,6 +127,18 @@ describe('createXAxisTickCallback', () => {
             interval: 'month' as const,
             allDays: ['2025-11-01', '2025-12-01', '2026-01-01', '2026-02-01'],
             expected: ['November', 'December', '2026', 'February'],
+        },
+        {
+            scenario: 'quarterly, cross year → year at Q1 boundary, [Q]Q otherwise',
+            interval: 'quarter' as const,
+            allDays: ['2025-07-01', '2025-10-01', '2026-01-01', '2026-04-01'],
+            expected: ['Q3', 'Q4', '2026', 'Q2'],
+        },
+        {
+            scenario: 'yearly → plain years',
+            interval: 'year' as const,
+            allDays: ['2024-01-01', '2025-01-01', '2026-01-01'],
+            expected: ['2024', '2025', '2026'],
         },
         {
             scenario: 'daily, short span → full month name on 1st, MMM D otherwise',
@@ -280,5 +343,31 @@ describe('createXAxisTickCallback', () => {
             })
             expect(callback?.('some-label', 5)).toBe('some-label')
         })
+    })
+})
+
+describe('createTooltipDateFormatter', () => {
+    it.each([
+        { interval: 'second' as const, label: '2026-06-06 14:30:05', expected: 'Sat, Jun 6, 14:30:05' },
+        { interval: 'minute' as const, label: '2026-06-06 14:30:00', expected: 'Sat, Jun 6, 14:30' },
+        { interval: 'hour' as const, label: '2026-06-06 14:00:00', expected: 'Sat, Jun 6, 14:00' },
+        { interval: 'day' as const, label: '2026-06-06', expected: 'Sat, Jun 6, 2026' },
+        // Week/month buckets span multiple days, so a weekday would mislead
+        { interval: 'week' as const, label: '2026-06-01', expected: 'Jun 1, 2026' },
+        { interval: 'month' as const, label: '2026-06-01', expected: 'Jun 2026' },
+    ])('formats a $interval bucket header', ({ interval, label, expected }) => {
+        const format = createTooltipDateFormatter({ interval, timezone: 'UTC' })
+        expect(format(label)).toBe(expected)
+    })
+
+    it('resolves the weekday in the given timezone, not the browser one', () => {
+        // 2026-06-07T02:00 UTC is still Saturday June 6 in US/Pacific
+        const format = createTooltipDateFormatter({ interval: 'hour', timezone: 'US/Pacific' })
+        expect(format('2026-06-07T02:00:00Z')).toBe('Sat, Jun 6, 19:00')
+    })
+
+    it('passes non-date labels through unchanged', () => {
+        const format = createTooltipDateFormatter({ interval: 'day', timezone: 'UTC' })
+        expect(format('not-a-date')).toBe('not-a-date')
     })
 })

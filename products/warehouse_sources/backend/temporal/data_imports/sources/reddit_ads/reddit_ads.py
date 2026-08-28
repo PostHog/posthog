@@ -1,28 +1,126 @@
 import dataclasses
+from collections.abc import Generator
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import urljoin, urlsplit
 
 import structlog
 from dateutil import parser
 from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import initial_datetime
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.settings import (
+    REDDIT_ADS_CONFIG,
+    REDDIT_ADS_FANOUT,
+)
 
 logger = structlog.get_logger(__name__)
+
+REDDIT_ADS_BASE_URL = "https://ads-api.reddit.com/api/v3"
+# The single host our bearer token is authorized for. Every paginated `next_url` must resolve
+# back to this origin before we resend the token to it.
+REDDIT_ADS_BASE_HOST = urlsplit(REDDIT_ADS_BASE_URL).netloc
+# Guard against a runaway `next_url` chain; raise instead of returning a truncated list.
+MAX_LISTING_PAGES = 50
+# These listings run in the web request path, so never let a stalled connection pin a worker.
+LISTING_TIMEOUT_SECONDS = 10
+# Reddit caps `page.size` at 100 on the endpoints we read.
+DEFAULT_PAGE_SIZE = 100
 
 
 @dataclasses.dataclass
 class RedditAdsResumeConfig:
     next_url: str
+
+
+class RedditAdsApiError(Exception):
+    """A failed Reddit Ads API response, carrying the status so callers can branch on it.
+
+    Deliberately not named `status_code`: drf-exceptions-hog reads that attribute off any escaping
+    exception and would render Reddit's status as PostHog's HTTP response status.
+    """
+
+    def __init__(self, message: str, api_status_code: int) -> None:
+        super().__init__(message)
+        self.api_status_code = api_status_code
+
+
+class RedditAdsTooManyPagesError(Exception):
+    """A Reddit Ads list endpoint kept handing us a `next_url` past `MAX_LISTING_PAGES`."""
+
+
+def _resolve_next_url(current_url: str, next_url: str) -> str:
+    """Resolve a pagination `next_url` against the URL it came from and confirm it stays on the
+    Reddit Ads HTTPS origin before we resend the bearer token to it.
+
+    Reddit returns absolute URLs, but a relative one is resolved here (rather than crashing the
+    next request), and a cross-origin or non-HTTPS one is rejected so the token is never sent to a
+    foreign host. Smokescreen already blocks internal hosts on egress; this is cheap extra
+    hardening against external credential exfiltration."""
+    resolved = urljoin(current_url, next_url)
+    parts = urlsplit(resolved)
+    if parts.scheme != "https" or parts.netloc != REDDIT_ADS_BASE_HOST:
+        raise IntegrationAccountListingError(
+            "Reddit Ads returned an unexpected pagination link. Please try again, and reconnect your "
+            "Reddit Ads integration if this keeps happening."
+        )
+    return resolved
+
+
+def _iter_pages(path: str, access_token: str) -> Generator[list[dict]]:
+    """Yield each page of a Reddit Ads list endpoint, following `pagination.next_url` until it runs
+    out. Redirects are disabled and every `next_url` is validated against the Reddit Ads origin so
+    the bearer token only ever reaches the host it was issued for."""
+    session = make_tracked_session(allow_redirects=False, redact_values=(access_token,))
+    url = f"{REDDIT_ADS_BASE_URL}{path}"
+
+    for _ in range(MAX_LISTING_PAGES):
+        response = session.get(
+            url, headers={"Authorization": f"Bearer {access_token}"}, timeout=LISTING_TIMEOUT_SECONDS
+        )
+        if response.status_code != 200:
+            raise RedditAdsApiError(
+                f"Reddit Ads API error ({response.status_code}): {response.text}", response.status_code
+            )
+
+        body = response.json()
+        yield body.get("data") or []
+
+        next_url = (body.get("pagination") or {}).get("next_url")
+        if not next_url:
+            return
+        url = _resolve_next_url(url, next_url)
+
+    raise RedditAdsTooManyPagesError(f"Reddit returned more than {MAX_LISTING_PAGES} pages for {path}")
+
+
+def list_businesses(access_token: str) -> list[dict]:
+    """Every business the authorized Reddit member belongs to."""
+    return [business for page in _iter_pages("/me/businesses", access_token) for business in page]
+
+
+def list_business_ad_accounts(access_token: str, business_id: str) -> list[dict]:
+    """Every ad account under one business. Reddit has no endpoint for "all ad accounts I can reach",
+    so callers walk the businesses from `list_businesses` themselves."""
+    return [account for page in _iter_pages(f"/businesses/{business_id}/ad_accounts", access_token) for account in page]
 
 
 def _get_incremental_date_range(
@@ -131,7 +229,7 @@ class RedditAdsPaginator(BasePaginator):
         # When seeded via set_resume_state, the paginator already holds the
         # URL of the next page to fetch — redirect the initial request to it.
         if self._next_url:
-            request.url = self._next_url
+            self._redirect_to_next_url(request)
 
     def update_state(self, response: Response, data: Optional[Any] = None) -> None:
         """Update pagination state from response"""
@@ -150,7 +248,16 @@ class RedditAdsPaginator(BasePaginator):
     def update_request(self, request: Request) -> None:
         """Update request with next page URL"""
         if self._next_url:
-            request.url = self._next_url
+            self._redirect_to_next_url(request)
+
+    def _redirect_to_next_url(self, request: Request) -> None:
+        # Reddit's `next_url` already carries the full query string, including `page.size`. The REST
+        # client reuses one `Request` across pages, so leaving the seeded `params` in place makes
+        # `requests` append `page.size` to the URL again on every page. The URL then grows without
+        # bound until Reddit rejects it with `414 URI Too Long`. Clear the params so the
+        # self-contained `next_url` is the only source of the query string.
+        request.url = self._next_url
+        request.params = {}
 
     def get_resume_state(self) -> Optional[dict[str, Any]]:
         if self._next_url and self._has_next_page:
@@ -164,6 +271,75 @@ class RedditAdsPaginator(BasePaginator):
             self._has_next_page = True
 
 
+@dataclasses.dataclass
+class _FanoutEndpoint:
+    """Adapter exposing a `REDDIT_ADS_CONFIG` entry as the shape `build_dependent_resource` expects."""
+
+    name: str
+    path: str
+    incremental_fields: list[Any]
+    default_incremental_field: Optional[str]
+    page_size: int
+
+
+def _fanout_endpoint(name: str) -> _FanoutEndpoint:
+    config = REDDIT_ADS_CONFIG[name]
+    endpoint = config.resource["endpoint"]
+    if not isinstance(endpoint, dict):
+        raise ValueError(f"Expected endpoint to be a dict, got {type(endpoint)}")
+    page_size = (endpoint.get("params") or {}).get("page.size")
+    return _FanoutEndpoint(
+        name=name,
+        path=endpoint["path"] or "",
+        incremental_fields=list(config.incremental_fields or []),
+        default_incremental_field=None,
+        page_size=page_size if isinstance(page_size, int) else DEFAULT_PAGE_SIZE,
+    )
+
+
+def _data_selector(name: str) -> str:
+    endpoint = REDDIT_ADS_CONFIG[name].resource["endpoint"]
+    if not isinstance(endpoint, dict):
+        raise ValueError(f"Expected endpoint to be a dict, got {type(endpoint)}")
+    return str(endpoint["data_selector"])
+
+
+def _client_config(access_token: str) -> ClientConfig:
+    return {
+        "base_url": REDDIT_ADS_BASE_URL,
+        "auth": {
+            "type": "bearer",
+            "token": access_token,
+        },
+        "headers": {
+            "Content-Type": "application/json",
+        },
+        "paginator": RedditAdsPaginator(),
+    }
+
+
+def _fanout_items(endpoint: str, account_id: str, team_id: int, job_id: str, access_token: str):
+    fanout = REDDIT_ADS_FANOUT[endpoint]
+    # No resume hook: a fan-out walks one paginated child list per parent row, so a single saved
+    # `next_url` cannot say which parent it belonged to. These tables restart from the top instead.
+    return build_dependent_resource(
+        endpoint_configs={
+            fanout.parent_name: _fanout_endpoint(fanout.parent_name),
+            endpoint: _fanout_endpoint(endpoint),
+        },
+        child_endpoint=endpoint,
+        fanout=fanout,
+        client_config=_client_config(access_token),
+        path_format_values={"account_id": account_id},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra={"data_selector": _data_selector(fanout.parent_name)},
+        child_endpoint_extra={"data_selector": _data_selector(endpoint)},
+        page_size_param="page.size",
+    )
+
+
 def reddit_ads_source(
     account_id: str,
     endpoint: str,
@@ -174,18 +350,11 @@ def reddit_ads_source(
     resumable_source_manager: ResumableSourceManager[RedditAdsResumeConfig],
     should_use_incremental_field: bool = False,
 ):
+    if endpoint in REDDIT_ADS_FANOUT:
+        return _source_response(endpoint, _fanout_items(endpoint, account_id, team_id, job_id, access_token))
+
     config: RESTAPIConfig = {
-        "client": {
-            "base_url": "https://ads-api.reddit.com/api/v3",
-            "auth": {
-                "type": "bearer",
-                "token": access_token,
-            },
-            "headers": {
-                "Content-Type": "application/json",
-            },
-            "paginator": RedditAdsPaginator(),
-        },
+        "client": _client_config(access_token),
         "resource_defaults": {
             "write_disposition": {
                 "disposition": "merge",
@@ -220,11 +389,15 @@ def reddit_ads_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+    return _source_response(endpoint, resource)
+
+
+def _source_response(endpoint: str, items: Any) -> SourceResponse:
     endpoint_config = REDDIT_ADS_CONFIG[endpoint]
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=lambda: items,
         primary_keys=list(endpoint_config.resource["primary_key"])
         if isinstance(endpoint_config.resource["primary_key"], list | tuple)
         else None,

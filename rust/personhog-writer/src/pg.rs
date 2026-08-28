@@ -1,9 +1,12 @@
 use async_trait::async_trait;
+use std::str::from_utf8;
+
 use chrono::{DateTime, TimeZone, Utc};
 use metrics::counter;
 use personhog_proto::personhog::types::v1::Person;
 use sqlx::postgres::PgPool;
-use tracing::{error, warn};
+use tracing::error;
+use uuid::Uuid;
 
 use crate::error::{WriteError, WriteErrorKind};
 use crate::store::PersonDb;
@@ -22,18 +25,12 @@ pub struct PgStore {
 #[async_trait]
 impl PersonDb for PgStore {
     async fn execute_chunk(&self, chunk: &[Person]) -> Result<(), WriteError> {
-        let arrays = prepare_chunk(chunk);
+        let arrays = prepare_chunk(chunk)?;
         run_upsert(&self.pool, &self.upsert_sql, &arrays, "chunk").await
     }
 
-    async fn execute_row(
-        &self,
-        person: &Person,
-        properties_override: Option<&str>,
-    ) -> Result<(), WriteError> {
-        let Some(arrays) = prepare_single(person, properties_override) else {
-            return Ok(()); // Invalid input, already logged
-        };
+    async fn execute_row(&self, person: &Person) -> Result<(), WriteError> {
+        let arrays = prepare_single(person)?;
         run_upsert(&self.pool, &self.upsert_sql, &arrays, "row").await
     }
 }
@@ -46,30 +43,43 @@ impl PgStore {
             ALLOWED_TABLES
         );
 
+        // Most columns take the record's value outright — the record is the
+        // leader's authoritative snapshot and the version guard orders
+        // records — but three merge against the existing row instead. The
+        // meta columns coalesce because changelog records carry no meta
+        // (the leader does not maintain those columns; ingestion's direct
+        // writer does), so assignment would erase real values. last_seen_at
+        // takes GREATEST — which ignores NULL — because records may predate
+        // the field, and the column's invariant is that it only advances.
         let upsert_sql = format!(
             "INSERT INTO {table} (
                 id, team_id, uuid, properties, properties_last_updated_at,
                 properties_last_operation, created_at, version, is_identified,
-                last_seen_at
+                last_seen_at, is_deleted
             )
             SELECT id, team_id, uuid, properties::jsonb,
                    properties_last_updated_at::jsonb, properties_last_operation::jsonb,
-                   created_at, version, is_identified, last_seen_at
+                   created_at, version, is_identified, last_seen_at, is_deleted
             FROM UNNEST(
                 $1::bigint[], $2::int[], $3::uuid[],
                 $4::text[], $5::text[], $6::text[],
-                $7::timestamptz[], $8::bigint[], $9::bool[], $10::timestamptz[]
+                $7::timestamptz[], $8::bigint[], $9::bool[], $10::timestamptz[],
+                $11::bool[]
             ) AS u(id, team_id, uuid, properties, properties_last_updated_at,
-                   properties_last_operation, created_at, version, is_identified, last_seen_at)
+                   properties_last_operation, created_at, version, is_identified, last_seen_at,
+                   is_deleted)
             ON CONFLICT (team_id, id) DO UPDATE SET
                 uuid = EXCLUDED.uuid,
                 properties = EXCLUDED.properties,
-                properties_last_updated_at = EXCLUDED.properties_last_updated_at,
-                properties_last_operation = EXCLUDED.properties_last_operation,
+                properties_last_updated_at =
+                    COALESCE(EXCLUDED.properties_last_updated_at, {table}.properties_last_updated_at),
+                properties_last_operation =
+                    COALESCE(EXCLUDED.properties_last_operation, {table}.properties_last_operation),
                 created_at = EXCLUDED.created_at,
                 version = EXCLUDED.version,
                 is_identified = EXCLUDED.is_identified,
-                last_seen_at = EXCLUDED.last_seen_at
+                last_seen_at = GREATEST(EXCLUDED.last_seen_at, {table}.last_seen_at),
+                is_deleted = EXCLUDED.is_deleted
             WHERE EXCLUDED.version > COALESCE({table}.version, -1)",
             table = table_name
         );
@@ -81,109 +91,82 @@ impl PgStore {
 /// Build bind arrays from a slice of persons. Borrows string data directly
 /// from each Person's byte buffers; `PreparedArrays` is tied to the slice's
 /// lifetime and must not outlive `persons`.
-fn prepare_chunk(persons: &[Person]) -> PreparedArrays<'_> {
-    let cap = persons.len();
-    let mut arrays = PreparedArrays::with_capacity(cap);
-
-    for p in persons {
-        let uuid = match uuid::Uuid::parse_str(&p.uuid) {
-            Ok(u) => u,
-            Err(e) => {
-                counter!("personhog_writer_invalid_uuid_total").increment(1);
-                warn!(
-                    team_id = p.team_id,
-                    person_id = p.id,
-                    uuid = %p.uuid,
-                    error = %e,
-                    "skipping person with invalid UUID"
-                );
-                continue;
-            }
-        };
-
-        let team_id = match i32::try_from(p.team_id) {
-            Ok(t) => t,
-            Err(_) => {
-                counter!("personhog_writer_invalid_team_id_total").increment(1);
-                warn!(
-                    team_id = p.team_id,
-                    person_id = p.id,
-                    "skipping person with out-of-range team_id (exceeds i32)"
-                );
-                continue;
-            }
-        };
-
-        arrays.push(
-            p.id,
-            team_id,
-            uuid,
-            bytes_to_json_str(&p.properties, "{}"),
-            bytes_to_optional_json_str(&p.properties_last_updated_at),
-            bytes_to_optional_json_str(&p.properties_last_operation),
-            epoch_secs_to_datetime(p.created_at),
-            Some(p.version),
-            p.is_identified,
-            p.last_seen_at.map(epoch_secs_to_datetime),
-        );
+///
+/// Any field that cannot be bound losslessly (malformed uuid, team_id
+/// beyond the column's `integer` range, non-UTF-8 JSON bytes, timestamp
+/// outside chrono's range) is a `Data` error: the record is unapplyable
+/// as produced, which post-admission is an invariant violation the caller
+/// must halt on. Nothing is ever dropped or substituted here — a silent
+/// repair would diverge PG from the cache and changelog.
+fn prepare_chunk(persons: &[Person]) -> Result<PreparedArrays<'_>, WriteError> {
+    // Bind order is lock order: the upsert acquires row locks in unnest
+    // order, so binding in conflict-key order gives every flush one global
+    // lock direction. Concurrent multi-row writers on overlapping persons
+    // (the delete saga's unmap, another flush) sort the same way, and
+    // sorted-vs-sorted acquisition cannot deadlock. Only the bind order
+    // changes — batch composition and ack accounting are untouched.
+    let mut sorted: Vec<&Person> = persons.iter().collect();
+    sorted.sort_unstable_by_key(|p| (p.team_id, p.id));
+    let mut arrays = PreparedArrays::with_capacity(sorted.len());
+    for person in sorted {
+        push_person(&mut arrays, person)?;
     }
-
-    arrays
+    Ok(arrays)
 }
 
-/// Build a single-row PreparedArrays for the per-row path. Returns None if
-/// the person has an invalid UUID (already logged).
-fn prepare_single<'a>(
-    person: &'a Person,
-    properties_override: Option<&'a str>,
-) -> Option<PreparedArrays<'a>> {
-    let uuid = match uuid::Uuid::parse_str(&person.uuid) {
-        Ok(u) => u,
-        Err(e) => {
-            counter!("personhog_writer_invalid_uuid_total").increment(1);
-            warn!(
-                team_id = person.team_id,
-                person_id = person.id,
-                uuid = %person.uuid,
-                error = %e,
-                "skipping person with invalid UUID"
-            );
-            return None;
-        }
-    };
-
-    let team_id = match i32::try_from(person.team_id) {
-        Ok(t) => t,
-        Err(_) => {
-            counter!("personhog_writer_invalid_team_id_total").increment(1);
-            warn!(
-                team_id = person.team_id,
-                person_id = person.id,
-                "skipping person with out-of-range team_id (exceeds i32)"
-            );
-            return None;
-        }
-    };
-
-    let properties = match properties_override {
-        Some(s) => s,
-        None => bytes_to_json_str(&person.properties, "{}"),
-    };
-
+/// Build a single-row `PreparedArrays` for the per-row path.
+fn prepare_single(person: &Person) -> Result<PreparedArrays<'_>, WriteError> {
     let mut arrays = PreparedArrays::with_capacity(1);
+    push_person(&mut arrays, person)?;
+    Ok(arrays)
+}
+
+fn push_person<'a>(arrays: &mut PreparedArrays<'a>, p: &'a Person) -> Result<(), WriteError> {
+    let unbindable = |field: &str, detail: String| {
+        counter!("personhog_writer_unbindable_field_total", "field" => field.to_string())
+            .increment(1);
+        WriteError {
+            message: format!(
+                "unbindable {field} for team_id={} person_id={}: {detail}",
+                p.team_id, p.id
+            ),
+            kind: WriteErrorKind::Data,
+        }
+    };
+
+    let uuid = Uuid::parse_str(&p.uuid).map_err(|e| unbindable("uuid", e.to_string()))?;
+    let team_id = i32::try_from(p.team_id)
+        .map_err(|_| unbindable("team_id", "exceeds the column's integer range".to_string()))?;
+    let properties =
+        bytes_to_json_str(&p.properties, "{}").map_err(|e| unbindable("properties", e))?;
+    let properties_last_updated_at = bytes_to_optional_json_str(&p.properties_last_updated_at)
+        .map_err(|e| unbindable("properties_last_updated_at", e))?;
+    let properties_last_operation = bytes_to_optional_json_str(&p.properties_last_operation)
+        .map_err(|e| unbindable("properties_last_operation", e))?;
+    let created_at = epoch_ms_to_datetime(p.created_at)
+        .ok_or_else(|| unbindable("created_at", format!("epoch {} out of range", p.created_at)))?;
+    let last_seen_at = match p.last_seen_at {
+        None => None,
+        Some(ms) => Some(
+            epoch_ms_to_datetime(ms)
+                .ok_or_else(|| unbindable("last_seen_at", format!("epoch {ms} out of range")))?,
+        ),
+    };
+
     arrays.push(
-        person.id,
+        p.id,
         team_id,
         uuid,
         properties,
-        bytes_to_optional_json_str(&person.properties_last_updated_at),
-        bytes_to_optional_json_str(&person.properties_last_operation),
-        epoch_secs_to_datetime(person.created_at),
-        Some(person.version),
-        person.is_identified,
-        person.last_seen_at.map(epoch_secs_to_datetime),
+        properties_last_updated_at,
+        properties_last_operation,
+        created_at,
+        Some(p.version),
+        p.is_identified,
+        last_seen_at,
+        p.is_deleted,
     );
-    Some(arrays)
+    Ok(())
 }
 
 async fn run_upsert(
@@ -208,6 +191,7 @@ async fn run_upsert(
         .bind(&arrays.versions)
         .bind(&arrays.is_identified)
         .bind(&arrays.last_seen_at)
+        .bind(&arrays.is_deleted)
         .execute(pool)
         .await
     {
@@ -235,10 +219,13 @@ async fn run_upsert(
 
 fn classify_error(e: &sqlx::Error) -> WriteErrorKind {
     match e {
-        sqlx::Error::Io(_)
-        | sqlx::Error::PoolTimedOut
-        | sqlx::Error::PoolClosed
-        | sqlx::Error::WorkerCrashed => WriteErrorKind::Transient,
+        // Waiting on our own pool is backpressure, not database failure —
+        // classified apart so the writer retries without escalating.
+        sqlx::Error::PoolTimedOut => WriteErrorKind::Saturation,
+
+        sqlx::Error::Io(_) | sqlx::Error::PoolClosed | sqlx::Error::WorkerCrashed => {
+            WriteErrorKind::Transient
+        }
 
         sqlx::Error::Database(db_err) => {
             if let Some(code) = db_err.code() {
@@ -270,10 +257,11 @@ fn classify_error(e: &sqlx::Error) -> WriteErrorKind {
 /// Column-oriented bind arrays for the upsert statement. String fields
 /// borrow from each Person's byte buffer to avoid per-row allocations; the
 /// struct's lifetime is tied to the source slice.
+#[derive(Debug)]
 struct PreparedArrays<'a> {
     ids: Vec<i64>,
     team_ids: Vec<i32>,
-    uuids: Vec<uuid::Uuid>,
+    uuids: Vec<Uuid>,
     properties: Vec<&'a str>,
     properties_last_updated_at: Vec<Option<&'a str>>,
     properties_last_operation: Vec<Option<&'a str>>,
@@ -281,6 +269,7 @@ struct PreparedArrays<'a> {
     versions: Vec<Option<i64>>,
     is_identified: Vec<bool>,
     last_seen_at: Vec<Option<DateTime<Utc>>>,
+    is_deleted: Vec<bool>,
 }
 
 impl<'a> PreparedArrays<'a> {
@@ -296,6 +285,7 @@ impl<'a> PreparedArrays<'a> {
             versions: Vec::with_capacity(cap),
             is_identified: Vec::with_capacity(cap),
             last_seen_at: Vec::with_capacity(cap),
+            is_deleted: Vec::with_capacity(cap),
         }
     }
 
@@ -304,7 +294,7 @@ impl<'a> PreparedArrays<'a> {
         &mut self,
         id: i64,
         team_id: i32,
-        uuid: uuid::Uuid,
+        uuid: Uuid,
         properties: &'a str,
         properties_last_updated_at: Option<&'a str>,
         properties_last_operation: Option<&'a str>,
@@ -312,6 +302,7 @@ impl<'a> PreparedArrays<'a> {
         version: Option<i64>,
         is_identified: bool,
         last_seen_at: Option<DateTime<Utc>>,
+        is_deleted: bool,
     ) {
         self.ids.push(id);
         self.team_ids.push(team_id);
@@ -325,46 +316,33 @@ impl<'a> PreparedArrays<'a> {
         self.versions.push(version);
         self.is_identified.push(is_identified);
         self.last_seen_at.push(last_seen_at);
+        self.is_deleted.push(is_deleted);
     }
 }
 
-/// Interpret proto bytes as a JSON string. The leader serializes via
-/// serde_json::RawValue, so these are already valid JSON UTF-8. We pass
-/// them through to PG as text and let the `::jsonb` cast validate. Returns
-/// a borrow into `bytes`; on invalid UTF-8 or empty input, the static
-/// default (coerces to any lifetime).
-fn bytes_to_json_str<'a>(bytes: &'a [u8], default: &'static str) -> &'a str {
+/// Interpret proto bytes as a JSON string. The leader serializes a parsed
+/// `serde_json::Value`, so these are valid JSON UTF-8 by construction; the
+/// `::jsonb` cast in the statement re-validates at PG. Empty bytes are the
+/// proto default and decode to `default`. Invalid UTF-8 is an error, never
+/// a substitution.
+fn bytes_to_json_str<'a>(bytes: &'a [u8], default: &'static str) -> Result<&'a str, String> {
     if bytes.is_empty() {
-        return default;
+        return Ok(default);
     }
-    match std::str::from_utf8(bytes) {
-        Ok(s) => s,
-        Err(e) => {
-            counter!("personhog_writer_invalid_json_total").increment(1);
-            warn!(error = %e, "non-UTF8 in JSON field, using default");
-            default
-        }
-    }
+    from_utf8(bytes).map_err(|e| format!("non-UTF-8 JSON bytes: {e}"))
 }
 
-fn bytes_to_optional_json_str(bytes: &[u8]) -> Option<&str> {
+fn bytes_to_optional_json_str(bytes: &[u8]) -> Result<Option<&str>, String> {
     if bytes.is_empty() {
-        return None;
+        return Ok(None);
     }
-    match std::str::from_utf8(bytes) {
-        Ok(s) => Some(s),
-        Err(e) => {
-            counter!("personhog_writer_invalid_json_total").increment(1);
-            warn!(error = %e, "non-UTF8 in optional JSON field, treating as null");
-            None
-        }
-    }
+    from_utf8(bytes)
+        .map(Some)
+        .map_err(|e| format!("non-UTF-8 JSON bytes: {e}"))
 }
 
-fn epoch_secs_to_datetime(epoch_secs: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(epoch_secs, 0)
-        .single()
-        .unwrap_or_default()
+fn epoch_ms_to_datetime(epoch_ms: i64) -> Option<DateTime<Utc>> {
+    Utc.timestamp_millis_opt(epoch_ms).single()
 }
 
 #[cfg(test)]
@@ -372,10 +350,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn classify_pool_timeout_as_transient() {
+    fn classify_pool_timeout_as_saturation() {
         assert!(matches!(
             classify_error(&sqlx::Error::PoolTimedOut),
-            WriteErrorKind::Transient
+            WriteErrorKind::Saturation
         ));
     }
 
@@ -390,31 +368,36 @@ mod tests {
 
     #[test]
     fn bytes_to_json_str_valid() {
-        let s = bytes_to_json_str(b"{\"email\":\"test@example.com\"}", "{}");
+        let s = bytes_to_json_str(b"{\"email\":\"test@example.com\"}", "{}").unwrap();
         assert_eq!(s, "{\"email\":\"test@example.com\"}");
     }
 
     #[test]
     fn bytes_to_json_str_empty_returns_default() {
-        let s = bytes_to_json_str(b"", "{}");
-        assert_eq!(s, "{}");
+        assert_eq!(bytes_to_json_str(b"", "{}").unwrap(), "{}");
+    }
+
+    #[test]
+    fn bytes_to_json_str_rejects_invalid_utf8() {
+        assert!(bytes_to_json_str(&[0xff, 0xfe], "{}").is_err());
     }
 
     #[test]
     fn bytes_to_optional_json_str_empty_returns_none() {
-        assert!(bytes_to_optional_json_str(b"").is_none());
+        assert!(bytes_to_optional_json_str(b"").unwrap().is_none());
     }
 
     #[test]
     fn bytes_to_optional_json_str_valid() {
-        let s = bytes_to_optional_json_str(b"{\"key\":\"val\"}");
+        let s = bytes_to_optional_json_str(b"{\"key\":\"val\"}").unwrap();
         assert_eq!(s.unwrap(), "{\"key\":\"val\"}");
     }
 
     #[test]
-    fn epoch_secs_conversion() {
-        let dt = epoch_secs_to_datetime(1700000000);
-        assert_eq!(dt.timestamp(), 1700000000);
+    fn epoch_ms_conversion() {
+        let dt = epoch_ms_to_datetime(1700000000000).unwrap();
+        assert_eq!(dt.timestamp_millis(), 1700000000000);
+        assert!(epoch_ms_to_datetime(i64::MAX).is_none());
     }
 
     #[tokio::test]
@@ -435,27 +418,47 @@ mod tests {
         Person {
             id,
             team_id,
-            uuid: uuid::Uuid::new_v4().to_string(),
+            uuid: Uuid::new_v4().to_string(),
             version: 1,
             ..Default::default()
         }
     }
 
     #[test]
-    fn prepare_chunk_skips_out_of_range_team_id() {
+    fn prepare_chunk_binds_in_conflict_key_order() {
+        // Bind order is the upsert's lock order; a batch bound in buffer
+        // order deadlocks against concurrent sorted writers on overlapping
+        // rows.
+        let persons = [
+            person_with(5, 2),
+            person_with(3, 1),
+            person_with(4, 2),
+            person_with(1, 1),
+        ];
+        let arrays = prepare_chunk(&persons).expect("chunk prepares");
+        assert_eq!(arrays.team_ids, vec![1, 1, 2, 2]);
+        assert_eq!(arrays.ids, vec![1, 3, 4, 5]);
+    }
+
+    #[test]
+    fn prepare_chunk_errors_on_out_of_range_team_id() {
+        // One unbindable row fails the whole chunk: silently dropping it
+        // would permanently diverge PG from the cache and changelog.
         let good = person_with(1, 42);
         let bad = person_with(2, (i32::MAX as i64) + 1);
 
         let persons = [good, bad];
-        let arrays = prepare_chunk(&persons);
-        // Only the in-range person made it into the bind arrays.
-        assert_eq!(arrays.ids, vec![1]);
-        assert_eq!(arrays.team_ids, vec![42]);
+        let err = prepare_chunk(&persons).expect_err("unbindable row must error");
+        assert!(matches!(err.kind, WriteErrorKind::Data));
+        assert!(err.message.contains("team_id"));
     }
 
     #[test]
-    fn prepare_single_rejects_out_of_range_team_id() {
-        let bad = person_with(1, (i32::MAX as i64) + 1);
-        assert!(prepare_single(&bad, None).is_none());
+    fn prepare_single_errors_on_malformed_uuid() {
+        let mut bad = person_with(1, 42);
+        bad.uuid = "not-a-uuid".to_string();
+        let err = prepare_single(&bad).expect_err("malformed uuid must error");
+        assert!(matches!(err.kind, WriteErrorKind::Data));
+        assert!(err.message.contains("uuid"));
     }
 }

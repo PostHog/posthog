@@ -44,6 +44,17 @@ fn build_test_manager(token: CancellationToken) -> Manager {
 
 impl ServerHandle {
     pub async fn for_config(config: Config) -> ServerHandle {
+        Self::for_config_with_s3(config, None).await
+    }
+
+    /// Like `for_config`, but injects an S3 client for the flags-with-cohorts reader.
+    /// Pass a dummy that returns NotFound to make a cache miss classify as CacheMiss
+    /// (the flags Rust test job has no object store, so real S3 reads error out).
+    #[allow(dead_code)]
+    pub async fn for_config_with_s3(
+        config: Config,
+        flags_with_cohorts_s3: Option<Arc<dyn common_hypercache::S3Client + Send + Sync>>,
+    ) -> ServerHandle {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let shutdown = CancellationToken::new();
@@ -53,7 +64,14 @@ impl ServerHandle {
 
         let rayon_dispatcher = RayonDispatcher::new(2, None);
         tokio::spawn(async move {
-            serve(config, listener, rayon_dispatcher, handles).await;
+            serve(
+                config,
+                listener,
+                rayon_dispatcher,
+                handles,
+                flags_with_cohorts_s3,
+            )
+            .await;
             // Drain the lifecycle monitor after serve returns so the supervisor
             // thread exits cleanly. Any error is logged — a failing shutdown
             // shouldn't fail the test unless the test explicitly asserts on it.
@@ -485,21 +503,29 @@ impl Drop for ServerHandle {
     }
 }
 
-/// Poll `HGET key field` for up to ~1s, returning the value as soon as the
-/// key exists. Panics on timeout. Use for the positive ("the write should
-/// land") case in billing aggregator tests — for the negative case, sleep
-/// one flush window and check.
+/// Poll for a billing counter across every bucket field in `first_bucket..=last_bucket`,
+/// returning the first value found. Panics on timeout. Use for the positive ("the write
+/// should land") case in billing aggregator tests — for the negative case, sleep one flush
+/// window and check. The server captures the bucket inside `record()` while it handles the
+/// request, so a request that straddles a 2-minute bucket boundary lands the increment in
+/// either the bucket seen before or after the roundtrip. Pass both ends of the range to poll
+/// for the counter without racing the boundary.
 #[allow(dead_code)]
-pub async fn poll_for_billing_counter(
+pub async fn poll_for_billing_counter_across_buckets(
     client: &Arc<dyn common_redis::Client + Send + Sync>,
     key: &str,
-    field: &str,
+    first_bucket: u64,
+    last_bucket: u64,
 ) -> String {
     for _ in 0..40 {
-        if let Ok(v) = client.hget(key.to_string(), field.to_string()).await {
-            return v;
+        for bucket in first_bucket..=last_bucket {
+            if let Ok(v) = client.hget(key.to_string(), bucket.to_string()).await {
+                return v;
+            }
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    panic!("billing counter at {key}:{field} did not appear within 1s");
+    panic!(
+        "billing counter at {key} did not appear within 1s for buckets {first_bucket}..={last_bucket}"
+    );
 }

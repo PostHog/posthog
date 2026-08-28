@@ -5,7 +5,7 @@ import { Layout } from 'react-grid-layout'
 import { IconPlusSmall } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { computeBoundaries, InsertZone, LineSegment, TileRect } from 'scenes/dashboard/insertTileGeometry'
 
 interface InsertTileOverlayProps {
@@ -19,7 +19,8 @@ interface InsertTileOverlayProps {
     canEditDashboard: boolean
     isMobileView: boolean
     disabled?: boolean
-    getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItem[]
+    getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItems
+    onMenuOpen: () => void
 }
 
 export function InsertTileOverlay({
@@ -33,6 +34,7 @@ export function InsertTileOverlay({
     isMobileView,
     disabled,
     getMenuItems,
+    onMenuOpen,
 }: InsertTileOverlayProps): JSX.Element | null {
     const containerRef = useRef<HTMLDivElement>(null)
     const [tileRects, setTileRects] = useState<TileRect[]>([])
@@ -101,6 +103,8 @@ export function InsertTileOverlay({
     }
 
     return (
+        // Stays below the tiles' edge-resize hover zones (see EditModeEdgeOverlay), so hovering a tile border
+        // grabs the resize handle rather than this insert line. Keep this under those zones' z-index if changed.
         // eslint-disable-next-line react/forbid-dom-props
         <div ref={containerRef} className="absolute inset-0 pointer-events-none" style={{ zIndex: 6 }}>
             {boundaries.map((boundary) => (
@@ -113,16 +117,16 @@ export function InsertTileOverlay({
                     segments={boundary.segments}
                     zones={boundary.zones}
                     getMenuItems={getMenuItems}
+                    onMenuOpen={onMenuOpen}
                 />
             ))}
         </div>
     )
 }
 
-// Generous transparent hover zone so the thin line/"+" is easy to target (the visible bits stay
-// centered on the row boundary). Larger than the inter-row gap, so it bleeds a little into the
-// adjacent tiles — that's the intended trade-off for a comfortable hit area.
-const HOVER_HIT_HEIGHT = 28
+// Transparent hover zone centered on the row boundary. Kept within the inter-row gap (12px < the 16px
+// gap) so it doesn't bleed onto the adjacent tile borders, which carry their own resize-on-hover zones.
+const HOVER_HIT_HEIGHT = 12
 // Keep the "+" fully on the strip when the cursor is near either end.
 const BUTTON_EDGE_PADDING = 16
 
@@ -140,6 +144,7 @@ function InsertionStrip({
     segments,
     zones,
     getMenuItems,
+    onMenuOpen,
 }: {
     lineY: number
     gridRow: number
@@ -147,7 +152,8 @@ function InsertionStrip({
     cols: number
     segments: LineSegment[]
     zones: InsertZone[]
-    getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItem[]
+    getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItems
+    onMenuOpen: () => void
 }): JSX.Element {
     const stripRef = useRef<HTMLDivElement>(null)
     const buttonRef = useRef<HTMLDivElement>(null)
@@ -234,7 +240,15 @@ function InsertionStrip({
                     revealClass
                 )}
             >
-                <LemonMenu items={menuItems} onVisibilityChange={setMenuOpen}>
+                <LemonMenu
+                    items={menuItems}
+                    onVisibilityChange={(visible) => {
+                        setMenuOpen(visible)
+                        if (visible) {
+                            onMenuOpen()
+                        }
+                    }}
+                >
                     <LemonButton
                         size="xsmall"
                         type="primary"

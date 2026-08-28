@@ -1,3 +1,5 @@
+import type { BuiltLogic } from 'kea'
+
 import {
     AssistantMessage,
     AssistantMessageType,
@@ -6,7 +8,12 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 
 import { EnhancedToolCall } from './max-constants'
-import { findPendingClientToolCall, isMultiQuestionFormMessage, threadEndsWithMultiQuestionForm } from './utils'
+import {
+    activeSceneLogicHasMaxContext,
+    findPendingClientToolCall,
+    isMultiQuestionFormMessage,
+    threadEndsWithMultiQuestionForm,
+} from './utils'
 
 describe('max/utils', () => {
     describe('isMultiQuestionFormMessage()', () => {
@@ -279,6 +286,28 @@ describe('max/utils', () => {
         it('returns null for an empty thread or a thread ending with a human message', () => {
             expect(findPendingClientToolCall([], clientToolNames)).toBeNull()
             expect(findPendingClientToolCall([humanMessage('Hello')], clientToolNames)).toBeNull()
+        })
+    })
+
+    describe('activeSceneLogicHasMaxContext()', () => {
+        it('returns false for null or undefined scene logic', () => {
+            expect(activeSceneLogicHasMaxContext(null)).toBe(false)
+            expect(activeSceneLogicHasMaxContext(undefined)).toBe(false)
+        })
+
+        it.each([
+            { mounted: true, hasMaxContext: true, expected: true },
+            { mounted: true, hasMaxContext: false, expected: false },
+            // The crux of the fix: a built-but-unmounted scene logic must be rejected, since reading
+            // its selectors/values throws `[KEA] Can not find path` once its reducer path is gone.
+            { mounted: false, hasMaxContext: true, expected: false },
+            { mounted: false, hasMaxContext: false, expected: false },
+        ])('mounted=$mounted hasMaxContext=$hasMaxContext -> $expected', ({ mounted, hasMaxContext, expected }) => {
+            const logic = {
+                isMounted: () => mounted,
+                selectors: hasMaxContext ? { maxContext: () => [] } : {},
+            } as unknown as BuiltLogic
+            expect(activeSceneLogicHasMaxContext(logic)).toBe(expected)
         })
     })
 })

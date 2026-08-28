@@ -2,7 +2,6 @@ import { S3Client } from '@aws-sdk/client-s3'
 
 import { ValidRetentionPeriods } from '~/ingestion/pipelines/sessionreplay/constants'
 import { RetentionPeriodToDaysMap } from '~/ingestion/pipelines/sessionreplay/constants'
-import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/types'
 
 import { S3SessionBatchFileStorage } from './s3-session-batch-writer'
@@ -16,10 +15,7 @@ import {
 class RetentionAwareBatchFileWriter implements SessionBatchFileWriter {
     private writerMap: { [key in RetentionPeriod]: SessionBatchFileWriter | null }
 
-    constructor(
-        private readonly retentionService: RetentionService,
-        private readonly storageMap: { [key in RetentionPeriod]: SessionBatchFileStorage }
-    ) {
+    constructor(private readonly storageMap: { [key in RetentionPeriod]: SessionBatchFileStorage }) {
         this.writerMap = ValidRetentionPeriods.reduce(
             (writers, retentionPeriod) => {
                 writers[retentionPeriod] = null
@@ -30,10 +26,9 @@ class RetentionAwareBatchFileWriter implements SessionBatchFileWriter {
     }
 
     public async writeSession(sessionData: WriteSessionData): Promise<WriteSessionResult> {
-        const retentionPeriod = await this.retentionService.getSessionRetention(
-            sessionData.teamId,
-            sessionData.sessionId
-        )
+        // Retention is resolved upstream (in the resolve-retention record step) and carried on the
+        // session data, so routing to the right per-retention storage needs no Redis lookup here.
+        const retentionPeriod = sessionData.retentionPeriod
 
         let writer = this.writerMap[retentionPeriod]
 
@@ -72,8 +67,7 @@ export class RetentionAwareStorage implements SessionBatchFileStorage {
         private readonly s3: S3Client,
         private readonly bucket: string,
         private readonly prefix: string,
-        private readonly timeout: number = 5000,
-        private readonly retentionService: RetentionService
+        private readonly timeout: number = 5000
     ) {
         this.storageMap = ValidRetentionPeriods.reduce(
             (storage, retentionPeriod) => {
@@ -90,7 +84,7 @@ export class RetentionAwareStorage implements SessionBatchFileStorage {
     }
 
     public newBatch(): RetentionAwareBatchFileWriter {
-        return new RetentionAwareBatchFileWriter(this.retentionService, this.storageMap)
+        return new RetentionAwareBatchFileWriter(this.storageMap)
     }
 
     public checkHealth(): Promise<boolean> {

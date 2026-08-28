@@ -2,24 +2,32 @@ from dataclasses import dataclass
 
 from temporalio import activity
 
+from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
     GitHubAuthenticationError,
     OAuthTokenError,
     SnapshotNotFoundError,
     SnapshotNotReadyError,
     TaskNotFoundError,
 )
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import (
+    Sandbox,
+    SandboxConfig,
+    SandboxTemplate,
+    workload_for_origin_product,
+)
 from products.tasks.backend.models import SandboxSnapshot, Task
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
     build_sandbox_environment_variables,
     get_git_identity_env_vars,
     get_sandbox_github_token,
     get_sandbox_name_for_task,
+    get_task_run_credential_user,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -70,6 +78,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
+        actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
         if ctx.has_github_credentials:
             try:
@@ -79,10 +88,21 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
                         run_id=ctx.run_id,
                         state=ctx.state,
                         task=task,
+                        actor_user=actor_user,
                         github_user_integration_id=ctx.github_user_integration_id,
                         repository=ctx.repository,
                     )
                     or ""
+                )
+            except ReauthorizationRequired as e:
+                raise CredentialUnavailableError(
+                    "GitHub user integration for this run requires reauthorization",
+                    {
+                        "github_integration_id": ctx.github_integration_id,
+                        "task_id": ctx.task_id,
+                        "team_id": ctx.team_id,
+                    },
+                    cause=e,
                 )
             except Exception as e:
                 raise GitHubAuthenticationError(
@@ -97,7 +117,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
                 )
 
         try:
-            access_token = create_oauth_access_token(task)
+            access_token = create_oauth_access_token_for_run(task, ctx.state)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",
@@ -109,14 +129,17 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
         environment_variables = build_sandbox_environment_variables(
             github_token=github_token,
             access_token=access_token,
-            team_id=ctx.team_id,
+            ctx=ctx,
+            task=task,
             sandbox_environment=sandbox_env,
+            otel_telemetry_enabled=ctx.agent_otel_telemetry_enabled,
         )
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
             template=SandboxTemplate.DEFAULT_BASE,
+            workload=workload_for_origin_product(ctx.origin_product),
             environment_variables=environment_variables,
             snapshot_id=str(snapshot.id),
             metadata={"task_id": ctx.task_id},

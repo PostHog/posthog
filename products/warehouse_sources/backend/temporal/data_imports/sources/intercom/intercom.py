@@ -7,7 +7,6 @@ from requests import Request, Response, Session
 from requests.exceptions import HTTPError
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
     make_tracked_session,
@@ -17,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BaseNextUrlPaginator,
     BasePaginator,
     JSONResponseCursorPaginator,
     JSONResponsePaginator,
@@ -26,12 +26,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import (
     INTERCOM_ENDPOINTS,
     IntercomEndpointConfig,
 )
 
 INTERCOM_API_BASE = "https://api.intercom.io"
+# Version used for credential validation at source-create time, where no row pin exists yet.
+# Sync requests send the version resolved from the source pin (threaded into `intercom_source`).
 INTERCOM_API_VERSION = "2.13"
 
 logger = structlog.get_logger(__name__)
@@ -72,24 +75,34 @@ def _is_server_error(exc: HTTPError) -> bool:
     return resp is not None and 500 <= resp.status_code < 600
 
 
-def _default_headers() -> dict[str, str]:
+def _is_scroll_expired(exc: HTTPError) -> bool:
+    """A companies scroll cursor can be invalidated mid-walk (idle expiry, or a
+    concurrent scroll on the workspace — only one is allowed); the continuation
+    then returns 404. The scroll walk only ever hits `/companies/scroll`, so any
+    404 there is a dead cursor rather than a missing row — distinct from
+    `_is_not_found`, which classifies a vanished child row on a per-row fetch."""
+    resp = exc.response
+    return resp is not None and resp.status_code == 404
+
+
+def _default_headers(api_version: str) -> dict[str, str]:
     return {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Intercom-Version": INTERCOM_API_VERSION,
+        "Intercom-Version": api_version,
     }
 
 
-def _auth_headers(access_token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {access_token}", **_default_headers()}
+def _auth_headers(access_token: str, api_version: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {access_token}", **_default_headers(api_version)}
 
 
-# The substream walk reaches `/conversations/search` and `/companies/list` via
-# POST. The shared `DEFAULT_RETRY` excludes POST from `allowed_methods`, so a
-# transient read timeout on those calls is *not* retried — unlike the GET calls
-# in the same walk, which retry transparently. These POSTs are read-only,
-# idempotent queries (the body just carries the query + cursor), so it's safe to
-# retry them on transient read timeouts and 429/5xx like everything else.
+# The substream walk reaches `/conversations/search` via POST (the companies
+# scroll walk is all GET). The shared `DEFAULT_RETRY` excludes POST from
+# `allowed_methods`, so a transient read timeout on that call is *not* retried —
+# unlike the GET calls in the same walk, which retry transparently. This POST is
+# a read-only, idempotent query (the body just carries the query + cursor), so
+# it's safe to retry it on transient read timeouts and 429/5xx like everything else.
 # Derived from DEFAULT_RETRY so the shared policy stays the single source of
 # truth — the only intentional difference is adding POST to allowed_methods.
 _INTERCOM_RETRY = Retry(
@@ -101,14 +114,14 @@ _INTERCOM_RETRY = Retry(
 )
 
 
-def _make_intercom_session(access_token: str) -> Session:
+def _make_intercom_session(access_token: str, api_version: str) -> Session:
     """Build a tracked session with Intercom auth + default headers baked in.
 
     Reusing one session across the many requests a sync makes lets urllib3
     keep the underlying TCP+TLS connection alive — the substream generators
     (one GET per parent row) are the main beneficiary.
     """
-    return make_tracked_session(headers=_auth_headers(access_token), retry=_INTERCOM_RETRY)
+    return make_tracked_session(headers=_auth_headers(access_token, api_version), retry=_INTERCOM_RETRY)
 
 
 class IntercomSearchPaginator(BasePaginator):
@@ -149,6 +162,59 @@ class IntercomSearchPaginator(BasePaginator):
         pagination["starting_after"] = self._next_cursor
 
 
+class IntercomPagesPaginator(BaseNextUrlPaginator):
+    """Paginator for Intercom list endpoints whose ``pages.next`` shape varies.
+
+    Intercom's OpenAPI description types ``pages.next`` as a
+    ``{"starting_after": ...}`` object for the Help Center and News lists, but the
+    live Help Center endpoints return a plain next-page URL there instead — which
+    is why ``articles`` ships on ``JSONResponsePaginator``. Rather than bet on one
+    shape per endpoint, accept both: a string is followed as the next URL, an
+    object's ``starting_after`` is sent back as a query param.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._cursor: Optional[str] = None
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        pages = payload.get("pages") if isinstance(payload, dict) else None
+        next_block = pages.get("next") if isinstance(pages, dict) else None
+
+        if isinstance(next_block, str):
+            self._cursor = None
+            self._advance_to(next_block)
+            return
+
+        # Clear any URL from a previous page so `update_request` can't reuse it.
+        self._next_url = None
+        cursor = next_block.get("starting_after") if isinstance(next_block, dict) else None
+        if cursor and cursor == self._cursor:
+            # Same guard as the base class applies to a repeated next URL: a cursor that
+            # doesn't advance would re-fetch the same page until the activity times out.
+            logger.warning("intercom_pagination_not_advancing", paginator=str(self))
+            self._has_next_page = False
+            return
+        self._cursor = cursor or None
+        self._has_next_page = bool(cursor)
+
+    def update_request(self, request: Request) -> None:
+        if self._next_url is not None:
+            super().update_request(request)
+            return
+        if self._cursor is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["starting_after"] = self._cursor
+
+    def __str__(self) -> str:
+        return "IntercomPagesPaginator()"
+
+
 def _build_search_body(
     cfg: IntercomEndpointConfig,
     incremental_field: str,
@@ -180,6 +246,8 @@ def _build_paginator(cfg: IntercomEndpointConfig) -> BasePaginator:
         )
     if cfg.paginator_kind == "next_url":
         return JSONResponsePaginator(next_url_path="pages.next")
+    if cfg.paginator_kind == "pages":
+        return IntercomPagesPaginator()
     return SinglePagePaginator()
 
 
@@ -205,12 +273,7 @@ def get_resource(
         # `value: 0` matches every record. Default to "updated_at" (the only
         # cursor Intercom search endpoints support) when no field is passed.
         endpoint["json"] = _build_search_body(cfg, incremental_field or "updated_at", db_incremental_field_last_value)
-    elif cfg.method == "POST" and cfg.paginator_kind in ("cursor", "next_url"):
-        # POST list endpoints (`/companies/list`) take `per_page` in the body.
-        # The next-URL paginator preserves the POST method and body when it
-        # follows `pages.next`, so the body just needs to be set once.
-        endpoint["json"] = {"per_page": cfg.page_size}
-    elif cfg.paginator_kind in ("cursor", "next_url"):
+    elif cfg.paginator_kind in ("cursor", "next_url", "pages"):
         params: dict[str, Any] = {"per_page": cfg.page_size, **cfg.extra_params}
         if cfg.incremental_query_param:
             # Intercom's `/admins/activity_logs` returns a much smaller default
@@ -232,7 +295,7 @@ def get_resource(
     )
     write_disposition: Any = {"disposition": "merge", "strategy": "upsert"} if is_incremental else "replace"
 
-    return {
+    resource: EndpointResource = {
         "name": cfg.name,
         "table_name": cfg.name,
         "write_disposition": write_disposition,
@@ -240,22 +303,83 @@ def get_resource(
         "table_format": "delta",
     }
 
+    return resource
+
 
 def _resolve_intercom_url(path_or_url: str) -> str:
     """Accept either an API path or a full URL (e.g. a `pages.next` link)."""
     return path_or_url if path_or_url.startswith("http") else f"{INTERCOM_API_BASE}{path_or_url}"
 
 
+def _is_rate_limited(exc: HTTPError) -> bool:
+    """Intercom rate-limits per workspace and returns `429` once the window is
+    exhausted. It's transient — the counter resets on a short rolling window —
+    so retrying after a wait clears it. Match on the status, not the URL."""
+    resp = exc.response
+    return resp is not None and resp.status_code == 429
+
+
+def _rate_limit_backoff_seconds(resp: Response, default: float) -> float:
+    """Honor Intercom's `Retry-After` (seconds) on a 429 when present, else fall
+    back to `default`. Intercom sends `Retry-After` on some 429s and always sends
+    `X-RateLimit-Reset`, but a fixed window-sized fallback rides out the bucket
+    regardless, so we key off the simpler signal."""
+    raw = resp.headers.get("Retry-After")
+    if raw is None:
+        return default
+    try:
+        return max(float(raw), 0.0)
+    except (TypeError, ValueError):
+        return default
+
+
+# Intercom's default limit is 1000 requests/minute, metered in ~10s buckets, so a
+# burst of per-row substream fetches (one GET per company/conversation) can exhaust
+# one bucket and get 429ed. The shared transport retry lists 429 but backs off at
+# most ~2s across its attempts — shorter than the bucket window — so a rate-limited
+# burst surfaces and Temporal re-walks the whole activity. Wait out a bucket inline
+# and retry, capped so sustained pressure still surfaces instead of looping forever.
+_RATE_LIMIT_BACKOFF_SECONDS = 10.0
+_RATE_LIMIT_MAX_RETRIES = 3
+
+
+def _request_with_rate_limit_retry(do_request: Callable[[], Response]) -> dict[str, Any]:
+    """Run an Intercom request, riding out a transient 429 rate limit inline.
+
+    `do_request` performs the call and raises `HTTPError` on a non-2xx. On a 429
+    we back off (honoring `Retry-After` when Intercom sends it) and retry the same
+    request, which is safe: every Intercom call routed through here is a read."""
+    for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
+        try:
+            return do_request().json()
+        except HTTPError as exc:
+            resp = exc.response
+            if _is_rate_limited(exc) and resp is not None and attempt < _RATE_LIMIT_MAX_RETRIES:
+                wait = _rate_limit_backoff_seconds(resp, _RATE_LIMIT_BACKOFF_SECONDS)
+                logger.warning("intercom_rate_limited_retry", attempt=attempt + 1, backoff_seconds=wait)
+                time.sleep(wait)
+                continue
+            raise
+    # Unreachable: the final attempt either returns or re-raises above.
+    raise AssertionError("unreachable")
+
+
 def _intercom_get(session: Session, path_or_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    response = session.get(_resolve_intercom_url(path_or_url), params=params, timeout=30)
-    response.raise_for_status()
-    return response.json()
+    def do() -> Response:
+        response = session.get(_resolve_intercom_url(path_or_url), params=params, timeout=30)
+        response.raise_for_status()
+        return response
+
+    return _request_with_rate_limit_retry(do)
 
 
 def _intercom_post(session: Session, path_or_url: str, body: dict[str, Any]) -> dict[str, Any]:
-    response = session.post(_resolve_intercom_url(path_or_url), json=body, timeout=30)
-    response.raise_for_status()
-    return response.json()
+    def do() -> Response:
+        response = session.post(_resolve_intercom_url(path_or_url), json=body, timeout=30)
+        response.raise_for_status()
+        return response
+
+    return _request_with_rate_limit_retry(do)
 
 
 def _iter_conversations(
@@ -312,6 +436,13 @@ _SCROLL_EXISTS_MAX_RETRIES = 2
 # Temporal retries the activity (which re-opens a fresh scroll).
 _SCROLL_SERVER_ERROR_BACKOFF_SECONDS = 2.0
 _SCROLL_SERVER_ERROR_MAX_RETRIES = 3
+
+# A companies scroll cursor can be invalidated mid-walk: Intercom expires an idle
+# scroll (~1 min) and permits only one open scroll per workspace, so a concurrent
+# sync opening its own scroll kills this one. The continuation then returns 404. A
+# scroll can't be resumed, only restarted from the beginning, so recovery is a full
+# re-walk — safe only where no rows have been emitted yet (see `_drain_company_ids`).
+_SCROLL_EXPIRED_MAX_RETRIES = 2
 
 
 def _scroll_companies_get(session: Session, scroll_param: str | None = None) -> dict[str, Any]:
@@ -392,6 +523,29 @@ def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
             return
 
 
+def _drain_company_ids(session: Session) -> list[str]:
+    """Walk the whole companies scroll and collect every id, restarting the walk
+    from the beginning if the scroll cursor expires mid-drain (404 on a
+    continuation — see `_SCROLL_EXPIRED_MAX_RETRIES`).
+
+    Restarting is safe here precisely because the ids are drained up front,
+    before any segment row is yielded downstream: nothing has been written to the
+    destination yet, so a re-walk can't duplicate rows. (The streaming `companies`
+    endpoint can't recover this way — it yields rows as it walks, and the load is
+    full-refresh with no primary-key dedup, so an expired cursor there surfaces
+    and Temporal restarts the whole run from a freshly-wiped table instead.)"""
+    for attempt in range(_SCROLL_EXPIRED_MAX_RETRIES + 1):
+        try:
+            return [company["id"] for company in _iter_companies(session)]
+        except HTTPError as exc:
+            if _is_scroll_expired(exc) and attempt < _SCROLL_EXPIRED_MAX_RETRIES:
+                logger.warning("intercom_companies_scroll_expired_restart", attempt=attempt + 1)
+                continue
+            raise
+    # Unreachable: the final attempt either returns or re-raises above.
+    raise AssertionError("unreachable")
+
+
 def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
     """Walk all companies and yield each attached segment with `company_id`
     injected. Full refresh — Intercom has no server-side timestamp filter on
@@ -402,8 +556,10 @@ def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
     and a slow stretch of `/companies/{id}/segments` calls between two scroll
     pages lets the cursor lapse — the next continuation then 404s mid-walk.
     Draining first keeps the scroll requests back-to-back so it stays alive;
-    only the ids are held, so the memory cost stays flat regardless of count."""
-    company_ids = [company["id"] for company in _iter_companies(session)]
+    only the ids are held, not the full company payloads, so the memory
+    footprint stays small. If the cursor is still invalidated mid-drain,
+    `_drain_company_ids` restarts the walk from scratch."""
+    company_ids = _drain_company_ids(session)
     for company_id in company_ids:
         try:
             payload = _intercom_get(session, f"/companies/{company_id}/segments")
@@ -435,7 +591,9 @@ def _substream_items(
     raise ValueError(f"Unknown Intercom substream endpoint: {endpoint}")
 
 
-def validate_credentials(access_token: str, schema_name: str | None = None) -> tuple[bool, str | None]:
+def validate_credentials(
+    access_token: str, schema_name: str | None = None, api_version: str = INTERCOM_API_VERSION
+) -> tuple[bool, str | None]:
     """Validate an Intercom access token by hitting `/me`.
 
     Works identically with OAuth-issued access tokens and Personal Access
@@ -451,7 +609,7 @@ def validate_credentials(access_token: str, schema_name: str | None = None) -> t
         return False, "Missing Intercom access token"
 
     try:
-        response = _make_intercom_session(access_token).get(
+        response = _make_intercom_session(access_token, api_version).get(
             f"{INTERCOM_API_BASE}/me",
             timeout=10,
         )
@@ -474,6 +632,7 @@ def intercom_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    api_version: str,
     should_use_incremental_field: bool = False,
     incremental_field: str | None = None,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -485,8 +644,14 @@ def intercom_source(
         # One session built here is reused across the parent walk and every
         # per-row child fetch, so urllib3 keeps the connection alive instead
         # of re-handshaking per request.
-        session = _make_intercom_session(access_token)
+        session = _make_intercom_session(access_token, api_version)
         items = lambda: _substream_items(session, endpoint, incremental_field, db_incremental_field_last_value)
+    elif cfg.paginator_kind == "scroll":
+        # The Scroll API doesn't fit the framework paginators (the cursor is a
+        # `scroll_param`, not a request mutation), so `companies` walks it with a
+        # custom iterator. One session is reused across the whole scroll walk.
+        session = _make_intercom_session(access_token, api_version)
+        items = lambda: _iter_companies(session)
     else:
         config: RESTAPIConfig = {
             "client": {
@@ -495,7 +660,7 @@ def intercom_source(
                     "type": "bearer",
                     "token": access_token,
                 },
-                "headers": _default_headers(),
+                "headers": _default_headers(api_version),
             },
             "resource_defaults": {},
             "resources": [

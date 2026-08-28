@@ -3,7 +3,6 @@ from typing import Optional, cast
 from django.db.models import Q
 
 import structlog
-import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -13,6 +12,7 @@ from rest_framework.response import Response
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cdp.validation import HogFunctionFiltersSerializer
+from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -296,21 +296,22 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
         )
 
         try:
-            edges_count = len(serializer.instance.edges) if serializer.instance.edges else 0
-            actions_count = len(serializer.instance.actions) if serializer.instance.actions else 0
-
-            posthoganalytics.capture(
-                distinct_id=str(serializer.context["request"].user.distinct_id),
-                event="hog_flow_template_created",
-                properties={
+            # report_user_action injects source and MCP-client properties so template usage is
+            # attributable per channel (web builder vs MCP vs raw API).
+            report_user_action(
+                serializer.context["request"].user,
+                "hog_flow_template_created",
+                {
                     "workflow_template_id": str(serializer.instance.id),
                     "workflow_template_name": serializer.instance.name,
-                    "edges_count": edges_count,
-                    "actions_count": actions_count,
+                    "edges_count": len(serializer.instance.edges or []),
+                    "actions_count": len(serializer.instance.actions or []),
                     "team_id": str(self.team_id),
                     "organization_id": str(self.organization.id),
                     "scope": serializer.instance.scope if serializer.instance else None,
                 },
+                team=self.team,
+                request=serializer.context["request"],
             )
         except Exception as e:
             logger.warning("Failed to capture hog_flow_template_created event", error=str(e))

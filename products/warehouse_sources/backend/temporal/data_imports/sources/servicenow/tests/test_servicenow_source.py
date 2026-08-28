@@ -1,21 +1,20 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
+from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.servicenow import (
     ServiceNowAuthMethodConfig,
     ServiceNowSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.servicenow import (
+    SERVICENOW_API_VERSION_V1,
+    SERVICENOW_API_VERSION_V2,
     ServiceNowAuth,
-    ServiceNowResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source import ServiceNowSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _basic_config(username: str = "admin", password: str = "secret") -> ServiceNowSourceConfig:
@@ -32,7 +31,9 @@ def _api_key_config(api_key: str = "key123") -> ServiceNowSourceConfig:
     )
 
 
-def _source_inputs(schema_name: str = "incidents", incremental: bool = False) -> SourceInputs:
+def _source_inputs(
+    schema_name: str = "incidents", incremental: bool = False, api_version: str | None = None
+) -> SourceInputs:
     return SourceInputs(
         schema_name=schema_name,
         schema_id="schema-1",
@@ -46,6 +47,7 @@ def _source_inputs(schema_name: str = "incidents", incremental: bool = False) ->
         job_id="job-1",
         logger=mock.MagicMock(),
         reset_pipeline=False,
+        api_version=api_version,
     )
 
 
@@ -53,33 +55,6 @@ class TestServiceNowSource:
     def setup_method(self) -> None:
         self.source = ServiceNowSource()
         self.team_id = 1
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SERVICENOW
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "ServiceNow"
-        assert config.label == "ServiceNow"
-        assert config.unreleasedSource is not True
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["instance_url", "auth_method"]
-
-        instance_field = config.fields[0]
-        assert isinstance(instance_field, SourceFieldInputConfig)
-        assert instance_field.required is True
-
-        auth_field = config.fields[1]
-        assert isinstance(auth_field, SourceFieldSelectConfig)
-        assert {option.value for option in auth_field.options} == {"basic", "api_key"}
-
-    def test_non_retryable_errors(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
 
     def test_get_schemas_all_incremental(self) -> None:
         schemas = self.source.get_schemas(_api_key_config(), self.team_id)
@@ -89,14 +64,6 @@ class TestServiceNowSource:
         assert all(s.supports_append for s in schemas)
         # both audit timestamps are advertised as incremental options
         assert all({f["field"] for f in s.incremental_fields} == {"sys_updated_on", "sys_created_on"} for s in schemas)
-
-    def test_get_schemas_filtered_by_name(self) -> None:
-        schemas = self.source.get_schemas(_api_key_config(), self.team_id, names=["incidents"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "incidents"
-
-    def test_get_schemas_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(_api_key_config(), self.team_id, names=["nope"]) == []
 
     def test_auth_for_config_api_key(self) -> None:
         auth = self.source._auth_for_config(_api_key_config("abc"))
@@ -160,11 +127,6 @@ class TestServiceNowSource:
         assert valid is False
         assert error is not None
 
-    def test_get_resumable_source_manager(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ServiceNowResumeConfig
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.servicenow_source")
     def test_source_for_pipeline_plumbing(self, mock_source: mock.Mock) -> None:
         config = _api_key_config("abc")
@@ -181,3 +143,47 @@ class TestServiceNowSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01 00:00:00"
         assert kwargs["incremental_field"] == "sys_updated_on"
+
+    def test_default_version_is_v2(self) -> None:
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v2"
+
+    @parameterized.expand(
+        [
+            # no pin resolves to the default (v2); a present pin is honored verbatim.
+            ("unpinned", None, "v2"),
+            ("pinned_v1", "v1", "v1"),
+            ("pinned_v2", "v2", "v2"),
+        ]
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.servicenow_source")
+    def test_source_for_pipeline_resolves_api_version(
+        self, _name: str, pin: str | None, expected: str, mock_source: mock.Mock
+    ) -> None:
+        inputs = _source_inputs(api_version=pin)
+        self.source.source_for_pipeline(_api_key_config(), mock.MagicMock(), inputs)
+
+        _, kwargs = mock_source.call_args
+        assert kwargs["api_version"] == expected
+
+
+class TestValidateCredentialsResolvedPin:
+    @parameterized.expand(
+        [
+            (SERVICENOW_API_VERSION_V1, SERVICENOW_API_VERSION_V1),
+            (SERVICENOW_API_VERSION_V2, SERVICENOW_API_VERSION_V2),
+            # No pin (pre-creation) resolves to the default the new row is stamped with.
+            (None, ServiceNowSource.default_version),
+        ]
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.validate_servicenow_credentials"
+    )
+    def test_probe_receives_resolved_pin(self, pin, expected, mock_validate: mock.Mock) -> None:
+        # The probe hits the versioned Table API path, so a v1-pinned source must validate
+        # against /api/now/table while the (v2) default validates against /api/now/v2/table.
+        mock_validate.return_value = (True, None)
+        ServiceNowSource().validate_credentials(_api_key_config(), 1, api_version=pin)
+
+        _, kwargs = mock_validate.call_args
+        assert kwargs["api_version"] == expected

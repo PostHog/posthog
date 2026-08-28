@@ -14,8 +14,6 @@ export interface SlashCommand {
     flag?: FeatureFlagKey
     /** If true, this command is only available when the conversation is idle (not streaming) */
     requiresIdle?: boolean
-    /** If true, this command is only available for users on paid plans or with an active trial */
-    requiresPaidPlan?: boolean
     /**
      * If true, this command is hidden for sandbox-runtime conversations.
      * Core-memory commands (`/init`, `/remember`) are not yet supported under sandbox AI.
@@ -54,6 +52,5 @@ export const MAX_SLASH_COMMANDS: SlashCommand[] = [
         description: 'Create a support ticket with a summary of this conversation',
         icon: <IconSupport />,
         requiresIdle: true,
-        requiresPaidPlan: true,
     },
 ]

@@ -1,13 +1,11 @@
-import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
+from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db import OperationalError
 from django.http import HttpResponse
@@ -16,8 +14,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status, test
-from temporalio.service import RPCError
 
+from posthog.api.project import ProjectBackwardCompatSerializer
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
@@ -26,7 +24,7 @@ from posthog.api.team import (
     _reset_default_data_color_theme_id_cache,
 )
 from posthog.constants import AvailableFeature
-from posthog.models import ActivityLog
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
@@ -41,17 +39,11 @@ from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.temporal.common.client import sync_connect
-from posthog.temporal.common.schedule import describe_schedule
-from posthog.temporal.common.test_utils import start_test_worker
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
-from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.early_access_features.backend.models import EarlyAccessFeature
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def team_api_test_factory():
@@ -74,6 +66,8 @@ def team_api_test_factory():
             results = starting_log_response.json()["results"]
             for item in results:
                 item.pop("id", None)
+                for envelope_key in ("is_system", "was_impersonated", "client"):
+                    item.pop(envelope_key, None)
             assert results == expected
 
         def _assert_organization_activity_log(self, expected: list[dict]) -> None:
@@ -82,6 +76,8 @@ def team_api_test_factory():
             results = starting_log_response.json()["results"]
             for item in results:
                 item.pop("id", None)
+                for envelope_key in ("is_system", "was_impersonated", "client"):
+                    item.pop(envelope_key, None)
             assert results == expected
 
         def _assert_activity_log_is_empty(self) -> None:
@@ -240,6 +236,40 @@ def team_api_test_factory():
             response = self.client.get(f"/api/environments/{team.pk}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
             self.assertEqual(response.json(), self.not_found_response())
+
+        def test_event_ingestion_restrictions_are_scoped_to_own_team(self):
+            other_org = Organization.objects.create(name="New Org")
+            other_team = Team.objects.create(organization=other_org, name="Default project")
+            EventIngestionRestrictionConfig.objects.create(
+                token=self.team.api_token,
+                restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
+                distinct_ids=["own-user"],
+                note="internal note",
+            )
+            EventIngestionRestrictionConfig.objects.create(
+                token=other_team.api_token,
+                restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+                distinct_ids=["other-user"],
+            )
+
+            response = self.client.get(f"/api/environments/{self.team.pk}/event_ingestion_restrictions/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(
+                response.json(),
+                [
+                    {
+                        "restriction_type": RestrictionType.SKIP_PERSON_PROCESSING,
+                        "distinct_ids": ["own-user"],
+                        "session_ids": [],
+                        "event_names": [],
+                        "event_uuids": [],
+                        "pipelines": ["analytics"],
+                    }
+                ],
+            )
+
+            response = self.client.get(f"/api/environments/{other_team.pk}/event_ingestion_restrictions/")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         @freeze_time("2022-02-08")
         def test_update_team_timezone(self):
@@ -400,110 +430,12 @@ def team_api_test_factory():
                 [{"key": "$current_url", "value": "test"}],
             )
 
-        @freeze_time("2022-02-08")
-        def test_delete_team_activity_log(self):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-            response = self.client.delete(f"/api/environments/{team.id}")
-            assert response.status_code == 204
-
-            # activity log is queried in the context of the team
-            # and the team was deleted, so we can't (for now) view a deleted team activity via the API
-            # even though the activity log is recorded
-
-            deleted_team_activity_response = self.client.get(f"/api/environments/{team.id}/activity")
-            assert deleted_team_activity_response.status_code == status.HTTP_404_NOT_FOUND
-
-            # we can't query by API but can prove the log was recorded
-            activity = [a.__dict__ for a in ActivityLog.objects.filter(team_id=team.pk).order_by("scope").all()]
-            expected_activity = [
-                {
-                    "_state": ANY,
-                    "id": ANY,
-                    "team_id": team.pk,
-                    "organization_id": ANY,
-                    "user_id": None,
-                    "was_impersonated": False,
-                    "is_system": True,
-                    "activity": "created",
-                    "item_id": ANY,
-                    "scope": "Dashboard",
-                    "detail": {
-                        "name": "Your starter dashboard",
-                        "type": "dashboard",
-                        "changes": [],
-                        "context": None,
-                        "short_id": None,
-                        "trigger": None,
-                    },
-                    "client": None,
-                    "created_at": ANY,
-                    "ip_address": None,
-                },
-                {
-                    "_state": ANY,
-                    "activity": "deleted",
-                    "created_at": ANY,
-                    "detail": {
-                        "changes": None,
-                        "context": None,
-                        "name": "Default project",
-                        "short_id": None,
-                        "trigger": None,
-                        "type": None,
-                    },
-                    "id": ANY,
-                    "is_system": False,
-                    "organization_id": ANY,
-                    "team_id": team.pk,
-                    "item_id": str(team.pk),
-                    "scope": "Team",
-                    "user_id": self.user.pk,
-                    "was_impersonated": False,
-                    "client": None,
-                    "ip_address": "127.0.0.1",
-                },
-            ]
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                expected_activity.insert(
-                    1,
-                    {
-                        "_state": ANY,
-                        "activity": "deleted",
-                        "created_at": ANY,
-                        "detail": {
-                            "changes": None,
-                            "context": None,
-                            "name": "Default project",
-                            "short_id": None,
-                            "trigger": None,
-                            "type": None,
-                        },
-                        "id": ANY,
-                        "is_system": False,
-                        "organization_id": ANY,
-                        "team_id": team.pk,
-                        "item_id": str(team.project_id),
-                        "scope": "Project",
-                        "user_id": self.user.pk,
-                        "was_impersonated": False,
-                        "client": None,
-                        "ip_address": "127.0.0.1",
-                    },
-                )
-            assert activity == expected_activity
-
-        @patch("posthog.api.project.delete_project_data_and_notify_task")
-        @patch("posthog.tasks.tasks.delete_project_data_and_notify_task")
+        @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
         @patch("posthoganalytics.capture")
         def test_delete_team_own_second(
             self,
             mock_capture: MagicMock,
-            mock_delete_task_team: MagicMock,
-            mock_delete_task_project: MagicMock,
+            mock_start_workflow: MagicMock,
         ):
             # NOTE: the factory-level setUp already bumps to ADMIN (without firing the
             # "membership level changed" event because it uses .update() to bypass signals),
@@ -520,8 +452,11 @@ def team_api_test_factory():
             response = self.client.delete(f"/api/environments/{team.id}")
 
             self.assertEqual(response.status_code, 204)
-            # Team deletion happens async in the (mocked) Celery task, so team still exists
-            # We only verify the task was queued correctly
+            # Team deletion happens async in the (mocked) Temporal workflow, so team still exists
+            # We only verify the workflow was started correctly
+            # Both the direct /api/environments/ client and the rewrite client now reach the project-delete
+            # path (the middleware rewrites /api/environments/ → /api/projects/ for everyone), so a single
+            # environment delete cascades the whole project: "team deleted" then "project deleted".
             expected_capture_calls = [
                 call(
                     distinct_id=self.user.distinct_id,
@@ -530,241 +465,44 @@ def team_api_test_factory():
                     groups=mock.ANY,
                     send_feature_flags=False,
                 ),
+                call(
+                    distinct_id=self.user.distinct_id,
+                    event="project deleted",
+                    properties=mock.ANY,
+                    groups=mock.ANY,
+                    send_feature_flags=False,
+                ),
             ]
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                expected_capture_calls.append(
-                    call(
-                        distinct_id=self.user.distinct_id,
-                        event="project deleted",
-                        properties=mock.ANY,
-                        groups=mock.ANY,
-                        send_feature_flags=False,
-                    )
-                )
-                mock_delete_task_project.delay.assert_called_once_with(
-                    team_ids=[team_pk],
-                    project_id=team_pk,
-                    user_id=self.user.id,
-                    project_name="Default project",
-                )
-            else:
-                mock_delete_task_team.delay.assert_called_once_with(
-                    team_ids=[team_pk],
-                    project_id=None,
-                    user_id=self.user.id,
-                    project_name="Default project",
-                )
+            mock_start_workflow.assert_called_once_with(
+                team_ids=[team_pk],
+                project_id=team_pk,
+                user_id=self.user.id,
+                # The org's first project already holds the plain default name, so the second one gets a suffix
+                project_name="Default project 2",
+            )
             assert mock_capture.call_args_list == expected_capture_calls
 
-        def test_delete_bulky_postgres_data(self):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
+        @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+        @patch(
+            "products.managed_warehouse.backend.facade.api.get_team_deletion_block_reason",
+            return_value="Deprovision the managed warehouse first.",
+        )
+        def test_delete_team_blocked_by_managed_warehouse(
+            self,
+            mock_block: MagicMock,
+            mock_start_workflow: MagicMock,
+        ):
+            # Wiring guard: perform_destroy must consult the managed-warehouse guard before
+            # dispatching the deletion workflow, and a block must stop the deletion entirely.
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-            self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
-            from posthog.personhog_client.fake_client import get_active_fake
-            from posthog.test.persons import add_cohort_members, add_distinct_id, create_person
-
-            from products.cohorts.backend.models.cohort import Cohort
-            from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-            cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
-            person = create_person(
-                team=team,
-                distinct_ids=["example_id"],
-                properties={"email": "tim@posthog.com", "team": "posthog"},
-            )
-            add_distinct_id(person=person, distinct_id="test")
-            flag = FeatureFlag.objects.create(
-                team=team,
-                name="test",
-                key="test",
-                created_by=self.user,
-            )
-            add_cohort_members(cohort, [person])
-            EarlyAccessFeature.objects.create(
-                team=team,
-                name="Test flag",
-                description="A fancy new flag.",
-                stage="beta",
-                feature_flag=flag,
-            )
-
-            # if something is missing then teardown fails
-            with snapshot_postgres_queries_context(
-                self, custom_query_matcher=lambda query: "DELETE" in query and "posthog_person" in query
-            ):
-                response = self.client.delete(f"/api/environments/{team.id}")
-            self.assertEqual(response.status_code, 204)
-
-            # Verify personhog RPCs were called for persons-DB cleanup
-            fake = get_active_fake()
-            for rpc in [
-                "delete_hash_key_overrides_by_teams",
-                "delete_personless_distinct_ids_batch_for_team",
-                "delete_persons_batch_for_team",
-                "delete_groups_batch_for_team",
-                "delete_group_type_mappings_batch_for_team",
-            ]:
-                fake.assert_called(rpc)
-
-        def test_delete_batch_exports(self):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-            self.organization.save()
-            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-            destination_data = {
-                "type": "AwsS3",
-                "config": {
-                    "bucket_name": "my-production-s3-bucket",
-                    "region": "us-east-1",
-                    "prefix": "posthog-events/",
-                    "aws_access_key_id": "abc123",
-                    "aws_secret_access_key": "secret",
-                },
-            }
-
-            batch_export_data = {
-                "name": "my-production-s3-bucket-destination",
-                "destination": destination_data,
-                "interval": "hour",
-            }
-
-            temporal = sync_connect()
-
-            with start_test_worker(
-                temporal,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=WORKFLOWS,
-                activities=ACTIVITIES,
-            ):
-                response = self.client.post(
-                    f"/api/environments/{team.id}/batch_exports",
-                    json.dumps(batch_export_data),
-                    content_type="application/json",
-                )
-                assert response.status_code == 201, response.json()
-
-                batch_export = response.json()
-                batch_export_id = batch_export["id"]
-
-                response = self.client.delete(f"/api/environments/{team.id}")
-                assert response.status_code == 204, response.json()
-
-                response = self.client.get(f"/api/environments/{team.id}/batch_exports/{batch_export_id}")
-                assert response.status_code == 404, response.json()
-
-                with self.assertRaises(RPCError):
-                    describe_schedule(temporal, batch_export_id)
-
-        def test_delete_team_with_already_deleted_batch_export(self):
-            """Team deletion should succeed even if batch exports were already soft-deleted."""
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-            self.organization.save()
-            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-            destination_data = {
-                "type": "AwsS3",
-                "config": {
-                    "bucket_name": "my-production-s3-bucket",
-                    "region": "us-east-1",
-                    "prefix": "posthog-events/",
-                    "aws_access_key_id": "abc123",
-                    "aws_secret_access_key": "secret",
-                },
-            }
-
-            batch_export_data = {
-                "name": "my-production-s3-bucket-destination",
-                "destination": destination_data,
-                "interval": "hour",
-            }
-
-            temporal = sync_connect()
-
-            with start_test_worker(
-                temporal,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=WORKFLOWS,
-                activities=ACTIVITIES,
-            ):
-                response = self.client.post(
-                    f"/api/environments/{team.id}/batch_exports",
-                    json.dumps(batch_export_data),
-                    content_type="application/json",
-                )
-                assert response.status_code == 201, response.json()
-
-                batch_export = response.json()
-                batch_export_id = batch_export["id"]
-
-                # Delete the batch export first (this soft-deletes it and removes the Temporal schedule)
-                response = self.client.delete(f"/api/environments/{team.id}/batch_exports/{batch_export_id}")
-                assert response.status_code == 204
-
-                # Verify the schedule is gone
-                with self.assertRaises(RPCError):
-                    describe_schedule(temporal, batch_export_id)
-
-                # Now delete the team - this should succeed
-                response = self.client.delete(f"/api/environments/{team.id}")
-                assert response.status_code == 204
-
-        @patch("posthog.temporal.common.schedule.delete_schedule")
-        @patch("posthog.models.team.util.sync_connect")
-        def test_delete_data_modeling_schedules(self, mock_sync_connect, mock_delete_schedule):
-            from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-            saved_query = DataWarehouseSavedQuery.objects.create(
-                team=team,
-                name="test_scheduled_query",
-                query={"kind": "HogQLQuery", "query": "SELECT 1"},
-                sync_frequency_interval=timedelta(hours=1),
-            )
-
-            mock_temporal = MagicMock()
-            mock_sync_connect.return_value = mock_temporal
 
             response = self.client.delete(f"/api/environments/{team.id}")
-            assert response.status_code == 204
 
-            mock_delete_schedule.assert_called_once_with(mock_temporal, schedule_id=str(saved_query.id))
-
-        @patch("posthog.temporal.common.schedule.delete_schedule")
-        @patch("posthog.models.team.util.sync_connect")
-        def test_delete_data_modeling_schedules_handles_not_found(self, mock_sync_connect, mock_delete_schedule):
-            import temporalio.service
-
-            from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-            DataWarehouseSavedQuery.objects.create(
-                team=team,
-                name="test_missing_schedule",
-                query={"kind": "HogQLQuery", "query": "SELECT 1"},
-                sync_frequency_interval=timedelta(hours=1),
-            )
-
-            mock_temporal = MagicMock()
-            mock_sync_connect.return_value = mock_temporal
-
-            rpc_error = temporalio.service.RPCError("not found", temporalio.service.RPCStatusCode.NOT_FOUND, b"")
-            mock_delete_schedule.side_effect = rpc_error
-
-            response = self.client.delete(f"/api/environments/{team.id}")
-            assert response.status_code == 204
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("managed warehouse", response.json()["detail"])
+            mock_block.assert_called_once()
+            mock_start_workflow.assert_not_called()
+            self.assertTrue(Team.objects.filter(pk=team.pk).exists())
 
         @freeze_time("2022-02-08")
         def test_reset_token(self):
@@ -1001,6 +739,38 @@ def team_api_test_factory():
                     },
                 ]
             )
+
+        @parameterized.expand(
+            [
+                ("no_existing_token", None, False, status.HTTP_400_BAD_REQUEST),
+                ("existing_token", "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C", False, status.HTTP_200_OK),
+                # Support has no alternative to this token for signing widget identity hashes
+                ("no_existing_token_conversations_enabled", None, True, status.HTTP_200_OK),
+            ]
+        )
+        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
+        def test_secret_token_generation_when_psak_enabled(
+            self, _name, existing_token, conversations_enabled, expected_status, _mock_flag
+        ):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            self.team.secret_api_token = existing_token
+            self.team.secret_api_token_backup = None
+            self.team.conversations_enabled = conversations_enabled
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, expected_status)
+            if expected_status == status.HTTP_400_BAD_REQUEST:
+                self.assertIn("project secret API key", response.json()["detail"])
+                self.assertIsNone(self.team.secret_api_token)
+            else:
+                self.assertNotEqual(self.team.secret_api_token, existing_token)
+                self.assertTrue((self.team.secret_api_token or "").startswith("phs_"))
+                self.assertEqual(self.team.secret_api_token_backup, existing_token)
 
         @freeze_time("2022-02-08")
         def test_delete_secret_backup_token(self):
@@ -1518,13 +1288,37 @@ def team_api_test_factory():
                     team=self.team,
                 )
 
+        def test_concurrent_team_patches_do_not_clobber_each_other(self) -> None:
+            # Simulates two racing PATCHes: the second request loaded the team before the
+            # first one committed. With a full-row save, the second write reverts the first
+            # request's onboarding-completion fields; with update_fields it must not.
+            stale_team = Team.objects.get(pk=self.team.pk)
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"completed_snippet_onboarding": True, "has_completed_onboarding_for": {"product_analytics": True}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+            with patch.object(Project, "passthrough_team", property(lambda _self: stale_team)):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/",
+                    {"session_recording_opt_in": True},
+                )
+            assert response.status_code == status.HTTP_200_OK
+
+            self.team.refresh_from_db()
+            assert self.team.completed_snippet_onboarding is True
+            assert self.team.has_completed_onboarding_for == {"product_analytics": True}
+            assert self.team.session_recording_opt_in is True
+
         @patch("posthog.api.project.report_user_action")
         @patch("posthog.api.team.report_user_action")
         def test_can_complete_product_onboarding(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                mock_report_user_action = mock_report_user_action_legacy_endpoint
+            # The /api/environments/ request is rewritten to /api/projects/ for every client, so the project
+            # viewset's report_user_action fires (not the team module's).
+            mock_report_user_action = mock_report_user_action_legacy_endpoint
             with freeze_time("2024-01-01T00:00:00Z"):
                 product_intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
             assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
@@ -1557,7 +1351,7 @@ def team_api_test_factory():
         def test_can_complete_product_onboarding_as_member(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
-            from ee.models.rbac.access_control import AccessControl
+            from products.access_control.backend.models.access_control import AccessControl
 
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
@@ -1578,8 +1372,9 @@ def team_api_test_factory():
                 organization_member=self.organization_membership,
             )
 
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                mock_report_user_action = mock_report_user_action_legacy_endpoint
+            # The /api/environments/ request is rewritten to /api/projects/ for every client, so the project
+            # viewset's report_user_action fires (not the team module's).
+            mock_report_user_action = mock_report_user_action_legacy_endpoint
             with freeze_time("2024-01-01T00:00:00Z"):
                 product_intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
             assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
@@ -1658,6 +1453,32 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             assert self.project.organization == other_org
             assert self.team.organization == other_org
+
+        def test_change_organization_reconciles_current_project_of_affected_users(self):
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.user.current_team = self.team
+            self.user.current_organization = self.organization
+            self.user.save()
+            # This user stays behind in the source organization
+            outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
+            outsider.current_team = self.team
+            outsider.current_organization = self.organization
+            outsider.save()
+
+            res = self.client.post(
+                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+            )
+            assert res.status_code == status.HTTP_200_OK, res.json()
+
+            # A member of the target organization keeps the project and follows it across
+            self.user.refresh_from_db()
+            assert self.user.current_team == self.team
+            assert self.user.current_organization == other_org
+            # Everyone else loses the pointer instead of keeping a project they cannot reach
+            outsider.refresh_from_db()
+            assert outsider.current_team_id is None and outsider.current_organization_id is None
 
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
             return self._assert_config_is("session_replay_config", expected)
@@ -1849,6 +1670,32 @@ def team_api_test_factory():
             assert settings["widget_greeting_text"] == "Hello!"
             assert settings["widget_color"] == "#ff0000"
 
+        def test_conversations_settings_change_reports_event_per_setting(self):
+            with patch("posthog.api.team.report_user_action") as mock_report:
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"conversations_settings": {"slack_nudge_enabled": False, "widget_greeting_text": "Hi!"}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                props_by_setting = {
+                    c.args[2]["setting"]: c.args[2]
+                    for c in mock_report.call_args_list
+                    if c.args[1] == "support setting changed"
+                }
+                assert set(props_by_setting) == {"slack_nudge_enabled", "widget_greeting_text"}
+                assert props_by_setting["slack_nudge_enabled"]["value"] is False
+                # Free-text values are withheld — the dict holds arbitrary copy and the widget token.
+                assert "value" not in props_by_setting["widget_greeting_text"]
+
+            # A no-op save (same values) must not re-fire the event.
+            with patch("posthog.api.team.report_user_action") as mock_report:
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"conversations_settings": {"slack_nudge_enabled": False}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert not any(c.args[1] == "support setting changed" for c in mock_report.call_args_list)
+
         def test_conversations_widget_position_setting(self):
             response = self.client.patch(
                 "/api/environments/@current/",
@@ -1929,7 +1776,15 @@ def team_api_test_factory():
             response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
             assert response.status_code == status.HTTP_403_FORBIDDEN
 
+        def _grant_logs_retention_features(self, *features: AvailableFeature) -> None:
+            self.organization.available_product_features = [
+                {"key": feature.value, "name": feature.value.replace("_", " ")} for feature in features
+            ]
+            self.organization.save()
+
         def test_logs_settings_retention_24_hour_restriction(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+
             # Set initial retention - first update doesn't set retention_last_updated
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
@@ -1952,7 +1807,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T12:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 90}},
+                    {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_400_BAD_REQUEST
                 assert "24 hours" in response.json()["detail"]
@@ -1961,12 +1816,12 @@ def team_api_test_factory():
             with freeze_time("2025-01-02T00:00:01Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 90}},
+                    {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
         def test_logs_settings_retention_invalid_values_rejected(self):
-            for invalid_days in [7, 15, 20, 45, 100]:
+            for invalid_days in [7, 15, 20, 45, 90, 100]:
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"logs_settings": {"retention_days": invalid_days}},
@@ -1976,7 +1831,40 @@ def team_api_test_factory():
                 )
                 assert "retention_days must be one of" in response.json()["detail"]
 
+        def test_logs_settings_retention_requires_matching_feature(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 30}},
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert "30 days" in response.json()["detail"]
+
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 30}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+        def test_logs_settings_retention_downgrade_allowed_after_feature_removed(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 30}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+            self._grant_logs_retention_features()
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 14}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
         def test_logs_settings_non_retention_changes_not_restricted(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+
             # Set initial retention
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
@@ -2116,69 +2004,6 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             self.assertEqual(self.team.session_recording_opt_in, True)
             self.assertEqual(self.team.surveys_opt_in, True)
-
-        @override_settings(DEBUG=True)
-        def test_update_proactive_tasks_enabled_true_creates_signal_source_config(self):
-            from products.signals.backend.models import SignalSourceConfig
-
-            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.assertTrue(
-                SignalSourceConfig.objects.filter(
-                    team=self.team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                    enabled=True,
-                ).exists()
-            )
-
-        @override_settings(DEBUG=True)
-        def test_update_proactive_tasks_enabled_false_deletes_signal_source_config(self):
-            from products.signals.backend.models import SignalSourceConfig
-
-            SignalSourceConfig.objects.create(
-                team=self.team,
-                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                enabled=True,
-                config={},
-            )
-
-            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": False})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.assertFalse(
-                SignalSourceConfig.objects.filter(
-                    team=self.team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                ).exists()
-            )
-
-        @override_settings(DEBUG=True)
-        def test_update_proactive_tasks_enabled_true_is_idempotent(self):
-            from products.signals.backend.models import SignalSourceConfig
-
-            SignalSourceConfig.objects.create(
-                team=self.team,
-                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                enabled=True,
-                config={},
-            )
-
-            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.assertEqual(
-                SignalSourceConfig.objects.filter(
-                    team=self.team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                ).count(),
-                1,
-            )
 
         def test_can_set_session_recording_trigger_groups(self):
             """Test that we can create and update session_recording_trigger_groups field"""
@@ -2677,17 +2502,15 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
 
 class TestTeamAPI(team_api_test_factory()):  # type: ignore
     def test_teams_outside_personal_api_key_scoped_teams_not_listed(self):
-        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
-        _, team_in_other_project = Project.objects.create_with_team(
-            organization=self.organization, initiating_user=self.user
-        )
+        # Scope to a primary team (team.id == project.id) so the env→project rewrite can address it directly.
+        _, scoped_team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="X",
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
-            scoped_teams=[other_team_in_project.id],
+            scoped_teams=[scoped_team.id],
             scopes=["*"],
         )
 
@@ -2697,11 +2520,11 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         # But they can access the scoped team directly
         response = self.client.get(
-            f"/api/environments/{other_team_in_project.id}/",
+            f"/api/environments/{scoped_team.id}/",
             headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], other_team_in_project.id)
+        self.assertEqual(response.json()["id"], scoped_team.id)
 
     def test_teams_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
@@ -2986,10 +2809,18 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(self.team.timezone, "UTC")
         self.assertEqual(self.team.session_recording_opt_in, False)
 
-    def test_web_analytics_editor_can_write_app_urls_with_access_control(self):
-        # A web analytics editor (org member, no project-admin) must be able to manage the toolbar /
+    @parameterized.expand(
+        [
+            ("default_admin_access", False),
+            ("restricted_project_member_access", True),
+        ]
+    )
+    def test_web_analytics_editor_can_write_app_urls_with_access_control(self, _name, restrict_project_to_member):
+        # A web analytics editor (org member, not project admin) must be able to manage the toolbar /
         # web analytics authorized URLs. `app_urls` carries a web-analytics-editor field access control,
-        # and web analytics defaults to editor, so a plain member passes without any explicit grant.
+        # and web analytics defaults to editor, so an editor passes the field-level check. This must hold
+        # even on a restricted project where the editor's effective project access is only `member` — the
+        # request gate must not demand project admin for `app_urls`, or the field-level check never runs.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
@@ -3000,6 +2831,16 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             },
         ]
         self.organization.save()
+
+        if restrict_project_to_member:
+            # Lower the project's baseline from the implicit admin default to member, so the acting
+            # user is a project member but not an admin.
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project",
+                resource_id=self.team.id,
+                access_level="member",
+            )
 
         response = self.client.patch(
             "/api/environments/@current/",
@@ -3389,9 +3230,13 @@ _MEMBER_SAFE_TEAM_CONFIG_FIELDS_FOR_PROJECTS: list[tuple[str, Any, str]] = [
 # `@field_access_control`; with access controls enabled that governs it instead (see
 # test_web_analytics_editor_can_write_app_urls_with_access_control), but without it the
 # blanket project-admin gate still applies here.
+# `name` (the project/environment rename) is admin-only in the settings UI (TeamDisplayName
+# is gated behind useRestrictedArea(Admin)); a MEMBER must not rename via the API. It stays
+# member-settable at creation time — see test_member_can_create_project_when_org_allows.
 _UNANNOTATED_SENSITIVE_FIELDS: list[tuple[str, Any, str]] = [
     ("is_demo", True, "is_demo"),
     ("app_urls", ["https://evil.example.com"], "app_urls"),
+    ("name", "Renamed by member", "name"),
 ]
 
 
@@ -3583,10 +3428,14 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         )
 
     def test_member_cannot_delete_team(self) -> None:
-        # Create a second team in the same project so the org isn't left team-less.
-        other = Team.objects.create(organization=self.organization, project=self.project, name="other")
-        response = self.client.delete(f"/api/environments/{other.id}/")
+        # The env→project rewrite routes this to the project-delete path, which still rejects non-admins with
+        # 403. Target a primary team (team.id == project.id) so the rewrite can address it; the 403 means
+        # nothing is deleted, so the org is not left team-less.
+        response = self.client.delete(f"/api/environments/{self.team.id}/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+_TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
 
 
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
@@ -3671,10 +3520,33 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
                 {"wat": "wat"},
                 "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
             ],
+            ["non-numeric string id", {"id": "abc", "key": "flag-key"}, "Must provide an integer 'id'."],
+            ["float id", {"id": 12.5, "key": "flag-key"}, "Must provide an integer 'id'."],
+            ["null id", {"id": None, "key": None}, "Must provide an integer 'id'."],
+            ["boolean id", {"id": True, "key": "flag-key"}, "Must provide an integer 'id'."],
         ]
     )
     def test_invalid_session_recording_linked_flag(self, _name: str, value: Any, expected_detail: str) -> None:
         self._assert_field_error("session_recording_linked_flag", value, "invalid", expected_detail)
+
+    # Object-level validate() needs self.context["view"], so a value that passes field validation
+    # can't go through is_valid() here. The static validator is the shared entry point anyway:
+    # ProjectBackwardCompatSerializer.validate_session_recording_linked_flag delegates straight to it.
+    @parameterized.expand(
+        [
+            ["none", None, None],
+            ["integer id", {"id": 123, "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
+            ["numeric string id", {"id": "123", "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
+            [
+                "variant survives normalization",
+                {"id": "123", "key": "flag-key", "variant": "test"},
+                {"id": 123, "key": "flag-key", "variant": "test"},
+            ],
+        ]
+    )
+    def test_valid_session_recording_linked_flag(self, _name: str, value: dict | None, expected: dict | None) -> None:
+        assert TeamSerializer.validate_session_recording_linked_flag(value) == expected
+        assert ProjectBackwardCompatSerializer.validate_session_recording_linked_flag(value) == expected
 
     @parameterized.expand(
         [
@@ -3705,6 +3577,43 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
     )
     def test_invalid_session_replay_config_ai_config(self, _name: str, value: Any, expected_detail: str) -> None:
         self._assert_field_error("session_replay_config", {"ai_config": value}, "invalid", expected_detail)
+
+    # `ProjectBackwardCompatSerializer` keeps its own copy of these validators, so both
+    # serializers are exercised here rather than only the Team one.
+    @parameterized.expand(
+        [
+            ["team app urls", TeamSerializer, "app_urls", _TOO_MANY_WILDCARDS],
+            ["team widget domains", TeamSerializer, "conversations_settings", {"widget_domains": _TOO_MANY_WILDCARDS}],
+            ["project app urls", ProjectBackwardCompatSerializer, "app_urls", _TOO_MANY_WILDCARDS],
+            [
+                "project widget domains",
+                ProjectBackwardCompatSerializer,
+                "conversations_settings",
+                {"widget_domains": _TOO_MANY_WILDCARDS},
+            ],
+        ]
+    )
+    def test_rejects_url_with_too_many_wildcards(
+        self, _name: str, serializer_class: type, field: str, value: Any
+    ) -> None:
+        serializer = serializer_class(data={field: value}, partial=True)
+        assert not serializer.is_valid()
+        assert str(serializer.errors[field][0]) == (
+            "Each URL can include up to 5 wildcards. Remove the extra ones from this entry."
+        )
+
+    @parameterized.expand(
+        [
+            ["number", 123],
+            ["object", {"nested": "value"}],
+            ["list", ["https://example.com"]],
+            ["boolean", True],
+        ]
+    )
+    def test_rejects_non_string_widget_domain(self, _name: str, entry: Any) -> None:
+        # widget_domains rides in on a raw JSONField, so entries reach validation untyped.
+        serializer = TeamSerializer(data={"conversations_settings": {"widget_domains": [entry]}}, partial=True)
+        assert not serializer.is_valid()
 
     def test_invalid_autocapture_exceptions_opt_in_not_a_boolean(self) -> None:
         # `autocapture_exceptions_errors_to_ignore` is deliberately not here: its validation

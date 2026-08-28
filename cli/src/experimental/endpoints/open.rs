@@ -13,7 +13,7 @@ pub fn open_endpoint(args: &OpenArgs) -> Result<()> {
         .ui_url
         .ok_or_else(|| anyhow::anyhow!("Endpoint has no UI URL"))?;
 
-    println!("Opening {ui_url}...");
+    crate::safe_println!("Opening {ui_url}...");
     open::that(&ui_url).context("Failed to open browser")?;
 
     Ok(())

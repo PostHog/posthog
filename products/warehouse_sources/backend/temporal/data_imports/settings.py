@@ -22,10 +22,17 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
+from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+    PostImportWorkflow,
+    resolve_post_import_context_activity,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     acquire_v3_pipeline_lock_activity,
     check_pipeline_version_activity,
     release_v3_pipeline_lock_activity,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
+    maybe_repartition_table_activity,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
     sync_new_schemas_activity,
@@ -39,6 +46,7 @@ WORKFLOWS = [
     CDCExtractionWorkflow,
     CDCSlotCleanupWorkflow,
     DiscoverSchemasWorkflow,
+    PostImportWorkflow,
 ]
 
 ACTIVITIES = [
@@ -57,4 +65,6 @@ ACTIVITIES = [
     check_pipeline_version_activity,
     acquire_v3_pipeline_lock_activity,
     release_v3_pipeline_lock_activity,
+    maybe_repartition_table_activity,
+    resolve_post_import_context_activity,
 ]

@@ -1,50 +1,94 @@
+import json
+import math
 import uuid
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, cast, get_args
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
+from django.db import transaction
+from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 
+import requests
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from pydantic import ValidationError as PydanticValidationError
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.embedding_worker import generate_embedding
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
+from posthog.event_usage import report_user_action
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.rate_limit import ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
+from posthog.utils import relative_date_parse
 
-from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
+from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
+from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum, split_csv
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
+from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.embeddings import OBSERVATION_EMBEDDING_MODEL
+from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.models.replay_observation import (
+    IN_FLIGHT_STATUSES,
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
+    annotate_output_number,
+    hydrate_for_serialization,
+    jsonb_typeof,
 )
-from products.replay_vision.backend.models.replay_scanner import (
-    ReplayScanner,
-    ScannerModel,
-    ScannerProvider,
-    ScannerType,
+from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
+from products.replay_vision.backend.scanner_access import (
+    accessible_observations,
+    can_read_targeted_experiment,
+    readable_observation_scanner_ids,
+    scanner_for_reading_observations,
 )
+from products.replay_vision.backend.scanning import RetryOutcome, retry_observation
+from products.replay_vision.backend.search import (
+    DEFAULT_SEARCH_LIMIT,
+    MAX_SEARCH_LIMIT,
+    RANK_OVERFETCH_FACTOR,
+    ObservationSearchFilters,
+    fetch_ranked_observations,
+    rank_observations,
+)
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
+from products.tasks.backend.facade import api as tasks_facade
+
+from ee.hogai.utils.untrusted import as_untrusted_data
 
 logger = structlog.get_logger(__name__)
 
 
-def _jsonb_typeof(expr: Any) -> Func:
-    return Func(expr, function="JSONB_TYPEOF", output_field=CharField())
+class EmbeddingUnavailableError(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = (
+        "Search is unavailable right now because the embedding service didn't respond. Try again in a moment."
+    )
+    default_code = "embedding_unavailable"
 
 
 class ScannerSnapshotSerializer(serializers.Serializer):
@@ -60,13 +104,11 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     scanner_version = serializers.IntegerField(
         help_text="The `ReplayScanner.scanner_version` value at the moment the workflow ran.",
     )
-    model = serializers.ChoiceField(
-        choices=ScannerModel.choices,
-        help_text="Concrete model that ran the observation.",
+    model = serializers.CharField(
+        help_text="Concrete model that ran the observation; historical rows may carry since-retired model ids.",
     )
-    provider = serializers.ChoiceField(
-        choices=ScannerProvider.choices,
-        help_text="Concrete provider that ran the observation.",
+    provider = serializers.CharField(
+        help_text="Concrete provider that ran the observation; historical rows may carry since-retired providers.",
     )
     emits_signals = serializers.BooleanField(
         help_text="Whether the observation was run with Signal emission enabled.",
@@ -88,24 +130,42 @@ class ScannerResultSerializer(serializers.Serializer):
     )
 
 
+class ReplayObservationLabelSerializer(serializers.Serializer):
+    """The team's shared judgement on whether the scanner scored this session correctly."""
+
+    is_correct = serializers.BooleanField(
+        help_text="True if the scanner scored this session correctly, false if not.",
+    )
+    feedback = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=5000,
+        help_text=(
+            "Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got "
+            "right or wrong, or what it should have concluded."
+        ),
+    )
+
+
 class ReplayObservationSerializer(serializers.ModelSerializer):
     scanner_id = serializers.UUIDField(read_only=True, help_text="The scanner that produced this observation.")
+    scanner_origin = serializers.ChoiceField(
+        choices=ScannerOrigin.choices,
+        read_only=True,
+        help_text=(
+            "Where the producing scanner came from. `configured` scanners are saved, named, and have a detail "
+            "page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers "
+            "must not link to them."
+        ),
+    )
     session_id = serializers.CharField(read_only=True, help_text="Session recording id this scanner was applied to.")
     status = serializers.ChoiceField(
         choices=ObservationStatus.choices,
         read_only=True,
         help_text="Observation status (pending, running, succeeded, failed, ineligible).",
     )
-    error_reason = serializers.CharField(
-        read_only=True,
-        allow_blank=True,
-        help_text=(
-            "Populated on terminal non-success statuses; formatted as `kind:human-readable message`. "
-            "For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. "
-            "For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / "
-            "validation_failed / internal_error."
-        ),
-    )
+    error_reason = serializers.CharField(read_only=True, allow_blank=True, help_text=ERROR_REASON_HELP_TEXT)
     workflow_id = serializers.CharField(
         read_only=True,
         allow_blank=True,
@@ -141,7 +201,12 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     triggered_by = serializers.ChoiceField(
         choices=ObservationTrigger.choices,
         read_only=True,
-        help_text="Whether this observation came from the schedule or an on-demand request.",
+        help_text="Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.",
+    )
+    backfill_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Backfill that dispatched this observation; null for live, on-demand, and retry triggers.",
     )
     triggered_by_user = UserBasicSerializer(
         read_only=True,
@@ -162,10 +227,16 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         ),
     )
     previous_observation_id = serializers.SerializerMethodField(
-        help_text="Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.",
+        help_text=(
+            "Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list "
+            "filters and ordering passed to retrieve; only set on retrieve, null at the start of the set."
+        ),
     )
     next_observation_id = serializers.SerializerMethodField(
-        help_text="Id of the older sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the end.",
+        help_text=(
+            "Id of the following sibling observation for the same scanner (prev/next nav), honoring any list "
+            "filters and ordering passed to retrieve; only set on retrieve, null at the end of the set."
+        ),
     )
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
@@ -176,11 +247,25 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     def get_next_observation_id(self, _obj: ReplayObservation) -> uuid.UUID | None:
         return (self.context.get("neighbors") or {}).get("next")
 
+    # `label` shadows DRF's Field.label attribute; the field name is intentional.
+    label = serializers.SerializerMethodField(  # type: ignore[assignment]
+        help_text="The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled.",
+    )
+
+    @extend_schema_field(ReplayObservationLabelSerializer(allow_null=True))
+    def get_label(self, obj: ReplayObservation) -> dict | None:
+        # Reverse one-to-one from select_related("label"); getattr returns None when unlabeled.
+        label = getattr(obj, "label", None)
+        if label is None:
+            return None
+        return {"is_correct": label.is_correct, "feedback": label.feedback}
+
     class Meta:
         model = ReplayObservation
         fields = [
             "id",
             "scanner_id",
+            "scanner_origin",
             "session_id",
             "status",
             "error_reason",
@@ -189,10 +274,12 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "scanner_result",
             "triggered_by",
             "triggered_by_user",
+            "backfill_id",
             "distinct_id",
             "recording_subject_email",
             "previous_observation_id",
             "next_observation_id",
+            "label",
             "started_at",
             "completed_at",
             "created_at",
@@ -229,6 +316,22 @@ class ClassifierStatsSerializer(serializers.Serializer):
     fixed_ranked = TagCountSerializer(many=True, help_text="Top fixed-vocabulary tags by emission count.")
     freeform_ranked = TagCountSerializer(many=True, help_text="Top freeform tags by emission count.")
     total_with_tags = serializers.IntegerField(help_text="Succeeded observations that emitted at least one tag.")
+
+
+class FacetCountSerializer(serializers.Serializer):
+    term = serializers.CharField(help_text="The facet value as emitted by the summarizer (lowercased).")
+    count = serializers.IntegerField(help_text="Number of succeeded observations that emitted this value.")
+
+
+class SummarizerStatsSerializer(serializers.Serializer):
+    friction_ranked = FacetCountSerializer(many=True, help_text="Top friction points by emission count.")
+    keyword_ranked = FacetCountSerializer(many=True, help_text="Top keywords by emission count.")
+    total_with_facets = serializers.IntegerField(
+        help_text="Succeeded observations that emitted at least one friction point or keyword."
+    )
+    total_with_friction = serializers.IntegerField(
+        help_text="Succeeded observations that reported at least one friction point."
+    )
 
 
 class ScorerSummarySerializer(serializers.Serializer):
@@ -271,9 +374,75 @@ class CoverageStatsSerializer(serializers.Serializer):
     recent_days = serializers.IntegerField(help_text="Window size in days used for `recent_sessions`.")
 
 
+class ObservationLabelDayCountSerializer(serializers.Serializer):
+    date = serializers.DateField(help_text="Day (UTC) the observed sessions were scanned.")
+    up = serializers.IntegerField(help_text="Observations scanned this day labeled correct (thumbs up).")
+    down = serializers.IntegerField(help_text="Observations scanned this day labeled incorrect (thumbs down).")
+
+
+class ObservationVersionMarkerSerializer(serializers.Serializer):
+    date = serializers.DateField(help_text="First day (UTC) this prompt version produced observations.")
+    version = serializers.IntegerField(help_text="The scanner (prompt) version number.")
+    prompt = serializers.CharField(
+        allow_blank=True,
+        help_text="The prompt text this version ran with, taken from the observation run snapshots.",
+    )
+    scanner_config = serializers.JSONField(
+        help_text=(
+            "The full type-specific config this version ran with (prompt plus, depending on scanner type, "
+            "allow_inconclusive, tags, scale, or length), taken from the observation run snapshots."
+        ),
+    )
+    # The remaining version-tracked fields, so the history can name which one bumped a version.
+    # Null means this version's run snapshots predate recording that field.
+    scanner_type = serializers.CharField(allow_null=True, help_text="The scanner type this version ran as.")
+    model = serializers.CharField(allow_null=True, help_text="The model this version ran on.")
+    provider = serializers.CharField(allow_null=True, help_text="The provider this version ran on.")
+    emits_signals = serializers.BooleanField(allow_null=True, help_text="Whether this version emitted signals.")
+    query = serializers.JSONField(
+        allow_null=True,
+        help_text="The `RecordingsQuery` recording filters this version ran with.",
+    )
+    sampling_rate = serializers.FloatField(allow_null=True, help_text="The 0..1 downsample this version ran with.")
+    sampling_mode = serializers.CharField(
+        allow_null=True,
+        help_text="The session-coverage pre-filter this version ran with.",
+    )
+    up = serializers.IntegerField(help_text="Thumbs-up ratings on this version's observations.")
+    down = serializers.IntegerField(help_text="Thumbs-down ratings on this version's observations.")
+    total = serializers.IntegerField(help_text="Succeeded (ratable) observations this version produced, rated or not.")
+
+
+class ObservationLabelStatsSerializer(serializers.Serializer):
+    up_total = serializers.IntegerField(help_text="Observations in the filtered set labeled correct (thumbs up).")
+    down_total = serializers.IntegerField(help_text="Observations in the filtered set labeled incorrect (thumbs down).")
+    by_day = ObservationLabelDayCountSerializer(
+        many=True,
+        help_text=(
+            "Daily label counts over the last `recent_days` days, bucketed by the day the session was scanned "
+            "so the series tracks scanner quality over time. Days without labels are omitted."
+        ),
+    )
+    by_rating_day = ObservationLabelDayCountSerializer(
+        many=True,
+        help_text=(
+            "Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set "
+            "or changed: the team's rating activity. Days without rating changes are omitted."
+        ),
+    )
+    version_markers = ObservationVersionMarkerSerializer(
+        many=True,
+        help_text=(
+            "Each scanner version that produced observations (all-time), with its first day, the config it ran "
+            "with, and rating counts, for chart markers and the config version history."
+        ),
+    )
+
+
 class ObservationStatsSerializer(serializers.Serializer):
     status_counts = ObservationStatusCountsSerializer(help_text="Counts of observations by terminal status.")
     coverage = CoverageStatsSerializer(help_text="Session-level scanner coverage.")
+    labels = ObservationLabelStatsSerializer(help_text="Team label (thumbs up/down) aggregates over the filtered set.")
     available_tags = serializers.ListField(
         child=serializers.CharField(),
         help_text="All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set.",
@@ -290,17 +459,36 @@ class ObservationStatsSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Scorer-type aggregates; null when the scanner is not a scorer.",
     )
+    summarizer = SummarizerStatsSerializer(
+        allow_null=True,
+        help_text="Summarizer-type facet aggregates; null when the scanner is not a summarizer.",
+    )
+
+
+class RetryResponseSerializer(serializers.Serializer):
+    """Async-accepted response for POST /vision/scanners/{id}/observations/{id}/retry/."""
+
+    workflow_id = serializers.CharField(
+        help_text=(
+            "Temporal workflow id for the re-run. The retried observation row is deleted; look up its "
+            "replacement via GET /vision/scanners/{id}/observations/?session_id=<session_id>."
+        ),
+    )
 
 
 # Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
 OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status")
 
-# JSONB-backed sort keys; numeric values (`result_score`, `scanner_version`) need a numeric cast in the filter.
-_JSONB_ORDER_KEYS = ("result_score", "result_verdict", "scanner_version")
-_ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_subject_email",)
+# JSONB-backed sort keys. Numeric values (result_score, result_confidence, scanner_version) need a numeric cast.
+_JSONB_ORDER_KEYS = ("result_score", "result_verdict", "result_confidence", "scanner_version")
+_ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_subject_email", "label")
 
 
-_MONITOR_VERDICTS = frozenset({"yes", "no", "inconclusive"})
+# Derived from the scanner output schema so the filter can never drift from what monitors emit.
+_MONITOR_VERDICTS = frozenset(get_args(MonitorVerdict))
+
+# Annotation alias for the scorer score bounds; kept apart from the ordering aliases so both can apply at once.
+_SCORE_FILTER_ALIAS = "_filter_score"
 
 
 class _ObservationOrderByFilter(OrderByFilter):
@@ -309,29 +497,31 @@ class _ObservationOrderByFilter(OrderByFilter):
     _allowed_keys = frozenset(_ALL_ORDER_KEYS)
 
     def _handle(self, qs: QuerySet[ReplayObservation], key: str, descending: bool) -> QuerySet[ReplayObservation]:
+        if key in ("started_at", "completed_at"):
+            # Null until the row starts/settles — keep in-flight rows out of the way regardless of direction.
+            return self._order_nulls_last(qs, key, descending)
         if key in OBSERVATION_ORDER_FIELDS:
             return self._order_plain(qs, key, descending)
         if key == "recording_subject_email":
             # Nullable column — keep unidentified subjects out of the way regardless of direction.
             return self._order_nulls_last(qs, "recording_subject_email", descending)
+        if key == "label":
+            # Sort by the shared label; unlabeled observations sort last regardless of direction so
+            # labeled sessions cluster together (asc: incorrect then correct; desc: correct then incorrect).
+            return self._order_nulls_last(qs, "label__is_correct", descending)
         if key == "result_score":
-            # CASE-guard the cast so a non-numeric `score` (schema drift, manual fixup) doesn't 500 the query.
-            score_jsonb = KeyTransform("score", KeyTransform("model_output", "scanner_result"))
-            score_text = KeyTextTransform("score", KeyTextTransform("model_output", "scanner_result"))
-            qs = qs.annotate(
-                _score_type=_jsonb_typeof(score_jsonb),
-                _order_score=Case(
-                    When(_score_type="number", then=Cast(score_text, FloatField())),
-                    default=Value(None),
-                    output_field=FloatField(),
-                ),
+            return self._order_nulls_last(
+                annotate_output_number(qs, "score", "_order_score"), "_order_score", descending
             )
-            return self._order_nulls_last(qs, "_order_score", descending)
+        if key == "result_confidence":
+            return self._order_nulls_last(
+                annotate_output_number(qs, "confidence", "_order_confidence"), "_order_confidence", descending
+            )
         if key == "scanner_version":
             version_jsonb = KeyTransform("scanner_version", "scanner_snapshot")
             version_text = KeyTextTransform("scanner_version", "scanner_snapshot")
             qs = qs.annotate(
-                _version_type=_jsonb_typeof(version_jsonb),
+                _version_type=jsonb_typeof(version_jsonb),
                 _order_version=Case(
                     When(_version_type="number", then=Cast(version_text, IntegerField())),
                     default=Value(None),
@@ -345,6 +535,13 @@ class _ObservationOrderByFilter(OrderByFilter):
         return self._order_nulls_last(qs, "_order_verdict", descending)
 
 
+class _TeamAwareFilterBackend(DjangoFilterBackend):
+    """Passes the viewset's team into the filterset so date bounds can use the project timezone."""
+
+    def get_filterset_kwargs(self, request: Request, queryset: QuerySet, view: Any) -> dict[str, Any]:
+        return {**super().get_filterset_kwargs(request, queryset, view), "team": getattr(view, "team", None)}
+
+
 class ReplayObservationFilter(django_filters.FilterSet):
     status = MultiChoiceFilter(
         field_name="status",
@@ -354,13 +551,30 @@ class ReplayObservationFilter(django_filters.FilterSet):
     triggered_by = MultiChoiceFilter(
         field_name="triggered_by",
         valid_choices=frozenset(v for v, _ in ObservationTrigger.choices),
-        help_text="Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.",
+        help_text="Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.",
+    )
+    backfill_id = django_filters.UUIDFilter(
+        field_name="backfill_id", help_text="Only observations dispatched by this backfill."
     )
     verdict = MultiChoiceFilter(
         field_name="scanner_result__model_output__verdict",
         valid_choices=_MONITOR_VERDICTS,
         error_key="verdict",
         help_text="Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).",
+    )
+    min_score = django_filters.NumberFilter(
+        method="_filter_min_score",
+        help_text=(
+            "Filter scorer observations to those scoring at or above this value. Rows with no numeric score "
+            "(other scanner types, failed or in-flight runs) are excluded."
+        ),
+    )
+    max_score = django_filters.NumberFilter(
+        method="_filter_max_score",
+        help_text=(
+            "Filter scorer observations to those scoring at or below this value. Rows with no numeric score "
+            "(other scanner types, failed or in-flight runs) are excluded."
+        ),
     )
     tags = django_filters.CharFilter(
         method="_filter_tags",
@@ -376,13 +590,35 @@ class ReplayObservationFilter(django_filters.FilterSet):
     recording_subject = django_filters.CharFilter(
         field_name="recording_subject_email",
         lookup_expr="icontains",
-        help_text="Filter to observations whose recording subject email contains this value (case-insensitive).",
+        help_text="Filter to observations whose person email contains this value (case-insensitive).",
+    )
+    date_from = django_filters.CharFilter(
+        method="_filter_date_from",
+        help_text=(
+            "Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; "
+            "values without an explicit offset are interpreted in the project's timezone."
+        ),
+    )
+    date_to = django_filters.CharFilter(
+        method="_filter_date_to",
+        help_text=(
+            "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; "
+            "date-only values include the whole day, interpreted in the project's timezone."
+        ),
+    )
+    labeled = django_filters.BooleanFilter(
+        method="_filter_labeled",
+        help_text=(
+            "When true, return only observations that have a shared label (thumbs up or down); "
+            "when false, only unlabeled observations."
+        ),
     )
     order_by = _ObservationOrderByFilter(
         help_text=(
             "Sort observations by created_at, started_at, completed_at, status, recording_subject_email, "
-            "result_score, result_verdict, or scanner_version. Prefix with `-` for descending. Keys that can be "
-            "null (recording_subject_email, result_*, scanner_version) sort nulls last regardless of direction."
+            "result_score, result_verdict, result_confidence, or scanner_version. Prefix with `-` for descending. "
+            "Keys that can be null (started_at, completed_at, recording_subject_email, result_*, scanner_version) "
+            "sort nulls last regardless of direction."
         ),
     )
 
@@ -390,13 +626,24 @@ class ReplayObservationFilter(django_filters.FilterSet):
         model = ReplayObservation
         fields = ["status", "triggered_by", "session_id"]
 
+    def __init__(self, *args: Any, team: Team | None = None, **kwargs: Any) -> None:
+        self._team = team
+        super().__init__(*args, **kwargs)
+
+    @property
+    def _timezone_info(self) -> ZoneInfo:
+        # Date bounds come from UI date pickers, so users mean them in the project timezone, not UTC.
+        return self._team.timezone_info if self._team else ZoneInfo("UTC")
+
     @classmethod
     def schema_parameters(cls) -> list[OpenApiParameter]:
         """Mirror declared filters as `OpenApiParameter`s for `@action` methods drf-spectacular can't auto-discover."""
         return [
             OpenApiParameter(
                 name,
-                str,
+                # Numeric filters must not surface as strings, or the generated clients type them
+                # differently here than on the list endpoint drf-spectacular discovers on its own.
+                float if isinstance(field, django_filters.NumberFilter) else str,
                 OpenApiParameter.QUERY,
                 required=False,
                 description=str(field.extra.get("help_text", "")),
@@ -404,6 +651,45 @@ class ReplayObservationFilter(django_filters.FilterSet):
             for name, field in cls.declared_filters.items()
             if name != "order_by"
         ]
+
+    def _filter_labeled(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: bool
+    ) -> QuerySet[ReplayObservation]:
+        return queryset.filter(label__isnull=not value)
+
+    def _filter_date_from(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: str
+    ) -> QuerySet[ReplayObservation]:
+        return queryset.filter(created_at__gte=relative_date_parse(value, self._timezone_info))
+
+    def _filter_date_to(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: str
+    ) -> QuerySet[ReplayObservation]:
+        parsed = relative_date_parse(value, self._timezone_info)
+        # Date-only values include the whole day; relative values stay exact.
+        if not value.startswith(("-", "+")) and "T" not in value and ":" not in value:
+            parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return queryset.filter(created_at__lte=parsed)
+
+    def _scored(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
+        # min_score and max_score can arrive together, and re-annotating the same alias raises.
+        if _SCORE_FILTER_ALIAS in queryset.query.annotations:
+            return queryset
+        return annotate_output_number(queryset, "score", _SCORE_FILTER_ALIAS)
+
+    # Both bounds look up the annotation `_scored` adds, via a literal key in a `**` dict: a plain
+    # keyword can't be used because django-stubs resolves those against the model's real fields.
+    # The key is spelled out rather than built from `_SCORE_FILTER_ALIAS` so no variable reaches a
+    # filter lookup; rename the alias and these two have to move with it.
+    def _filter_min_score(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: float
+    ) -> QuerySet[ReplayObservation]:
+        return self._scored(queryset).filter(**{"_filter_score__gte": value})
+
+    def _filter_max_score(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: float
+    ) -> QuerySet[ReplayObservation]:
+        return self._scored(queryset).filter(**{"_filter_score__lte": value})
 
     def _filter_tags(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
@@ -419,25 +705,70 @@ class ReplayObservationFilter(django_filters.FilterSet):
         return queryset.filter(q)
 
 
-@extend_schema_view(
-    list=extend_schema(
-        parameters=[
-            # OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
-            # string the filter rejects. Declare it as a single-value string enum so it serializes as ?order_by=field.
-            OpenApiParameter(
-                "order_by",
-                str,
-                OpenApiParameter.QUERY,
-                required=False,
-                enum=ordering_enum(_ALL_ORDER_KEYS),
-                description=(
-                    "Sort observations. Plain keys: created_at, started_at, completed_at, status, "
-                    "recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), "
-                    "scanner_version. Prefix with `-` for descending."
-                ),
-            )
-        ]
+# OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
+# string the filter rejects. Declare it as a single-value string enum so it serializes as ?order_by=field.
+_ORDER_BY_PARAMETER = OpenApiParameter(
+    "order_by",
+    str,
+    OpenApiParameter.QUERY,
+    required=False,
+    enum=ordering_enum(_ALL_ORDER_KEYS),
+    description=(
+        "Sort observations. Plain keys: created_at, started_at, completed_at, status, "
+        "recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), "
+        "result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way."
+    ),
+)
+
+
+class CreateTaskFromObservationResponseSerializer(serializers.Serializer):
+    """The PostHog Task created from an observation."""
+
+    task_id = serializers.UUIDField(
+        help_text="ID of the PostHog Task holding this observation's finding, created now (201) or by an earlier call (200).",
     )
+
+
+@dataclass(frozen=True)
+class _TaskContent:
+    title: str
+    description: str
+
+
+def _observation_task_content(observation: ReplayObservation, scanner: ReplayScanner) -> _TaskContent:
+    """Title and description for a Task created from an observation's finding."""
+    snapshot = observation.scanner_snapshot or {}
+    scanner_name = snapshot.get("name") or scanner.name or "Replay Vision scanner"
+    result = observation.scanner_result or {}
+    model_output = result.get("model_output")
+    # Bound the rendered finding so a large model output can't create an unwieldy task description.
+    finding = (
+        json.dumps(model_output, indent=2, ensure_ascii=False)[:4000] if model_output is not None else "(no result)"
+    )
+    title = f"Replay Vision: {scanner_name}"[:255]
+    # The description becomes a coding agent's prompt when the task is later run, and the finding is
+    # model output derived from recorded sessions. Fence it as untrusted data so agent-directed
+    # instructions planted in a recording can't steer the agent (indirect prompt injection).
+    fenced_finding = as_untrusted_data("scanner_finding", finding.splitlines())
+    description = (
+        f"Finding from the Replay Vision scanner '{scanner_name}' on session {observation.session_id}.\n\n"
+        f"Observation: {observation.id}\n"
+        f"Scanner: {scanner.id}\n\n"
+        f"{fenced_finding}\n"
+    )
+    return _TaskContent(title=title, description=description)
+
+
+@extend_schema_view(
+    list=extend_schema(parameters=[_ORDER_BY_PARAMETER]),
+    retrieve=extend_schema(
+        parameters=[*ReplayObservationFilter.schema_parameters(), _ORDER_BY_PARAMETER],
+        description=(
+            "Retrieve one observation. Any list filters passed along (status, tags, order_by, …) scope the "
+            "`previous_observation_id`/`next_observation_id` navigation to the matching, identically-ordered "
+            "set — so prev/next from a filtered table stays within that filtered list."
+        ),
+    ),
 )
 class ReplayObservationViewSet(
     TeamAndOrgViewSetMixin,
@@ -447,12 +778,14 @@ class ReplayObservationViewSet(
 ):
     """Read-only access to observations produced by a scanner."""
 
+    # Upper bound on ids materialized for filtered prev/next computation (see `_observation_neighbors`).
+    NEIGHBOR_SCAN_LIMIT = 5000
+
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
-    permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayObservationSerializer
     queryset = ReplayObservation.objects.all()
-    filter_backends = [DjangoFilterBackend]
+    filter_backends = [_TeamAwareFilterBackend]
     filterset_class = ReplayObservationFilter
 
     def _scanner_for_url(self) -> ReplayScanner:
@@ -464,23 +797,106 @@ class ReplayObservationViewSet(
             scanner_id = uuid.UUID(self.kwargs["parent_lookup_scanner_id"])
         except (KeyError, ValueError):
             raise NotFound()
-        scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
+        scanner = scanner_for_reading_observations(self.team_id, scanner_id)
         if scanner is None:
             raise NotFound()
         # Observations expose recording-derived output, so they inherit the scanner's RBAC and also require session_recording read.
         self.check_object_permissions(self.request, scanner)
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading replay observations requires session_recording read access.")
+        # An experiment scanner's observations are that experiment's exposed sessions, so reading them
+        # needs experiment access too. Not-found, not 403: a denied experiment scanner reads as if it
+        # doesn't exist, matching the serializer's targeting redaction.
+        if not can_read_targeted_experiment(self.user_access_control, self.team_id, scanner):
+            raise NotFound()
         self._scanner_for_url_cache = scanner
         return scanner
 
     def safely_get_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
         scanner = self._scanner_for_url()
-        return (
-            queryset.filter(team_id=self.team_id, scanner_id=scanner.id)
-            .select_related("triggered_by_user")
-            .order_by("-created_at", "id")
+        # `_scanner_for_url` gated the scanner's *current* experiment; this gates each row against the
+        # experiment recorded in its own snapshot, so retargeting can't surface historical rows the
+        # caller can't access.
+        return hydrate_for_serialization(
+            accessible_observations(
+                self.user_access_control, self.team_id, queryset.filter(team_id=self.team_id, scanner_id=scanner.id)
+            )
+        ).order_by("-created_at", "id")
+
+    def filter_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
+        # List filters scope prev/next neighbors only; the observation itself must always resolve on retrieve.
+        if self.action == "retrieve":
+            return queryset
+        return super().filter_queryset(queryset)
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        observation = self.get_object()
+        context = {**self.get_serializer_context(), "neighbors": self._observation_neighbors(observation)}
+        response = Response(self.get_serializer(observation, context=context).data)
+        # Viewed step of the created → viewed → rated funnel. In-flight observations are excluded
+        # because the observation scene polls this endpoint every few seconds while a scan runs.
+        if observation.status not in IN_FLIGHT_STATUSES:
+            report_user_action(
+                cast(User, request.user),
+                "replay_vision_observation_viewed",
+                {
+                    "observation_id": str(observation.id),
+                    "scanner_id": str(observation.scanner_id),
+                    "status": observation.status,
+                },
+                team=self.team,
+                request=request,
+            )
+        return response
+
+    def _observation_neighbors(self, observation: ReplayObservation) -> dict[str, uuid.UUID | None]:
+        # Neighbors honor the same filters and ordering as the scanner's list endpoint, so prev/next
+        # navigation started from a filtered table stays within the filtered set. Same snapshot gate
+        # as the list, so prev/next can't step onto a historical row the caller can't access.
+        siblings = accessible_observations(
+            self.user_access_control,
+            observation.team_id,
+            ReplayObservation.objects.filter(team_id=observation.team_id, scanner_id=observation.scanner_id),
+        ).order_by("-created_at", "id")
+        # Empty values (`?status=`) are no-ops in the filterset, so they must not opt out of the fast path.
+        if not any(self.request.query_params.get(key) for key in ReplayObservationFilter.base_filters):
+            return self._unfiltered_neighbors(observation, siblings)
+        filterset = ReplayObservationFilter(
+            self.request.query_params, queryset=siblings, request=self.request, team=self.team
         )
+        if not filterset.is_valid():
+            # Same 400 the list endpoint gives for the identical bad query string.
+            raise ValidationError(filterset.errors)
+        # Hard bound on the id scan; past it, degrade to no neighbors rather than unbounded memory.
+        ids: list[uuid.UUID] = list(filterset.qs.values_list("id", flat=True)[: self.NEIGHBOR_SCAN_LIMIT])
+        try:
+            index = ids.index(observation.id)
+        except ValueError:
+            # Outside the filtered set (stale deep link) or beyond the scan bound — no neighbors.
+            return {"previous": None, "next": None}
+        return {
+            "previous": ids[index - 1] if index > 0 else None,
+            "next": ids[index + 1] if index < len(ids) - 1 else None,
+        }
+
+    @staticmethod
+    def _unfiltered_neighbors(
+        observation: ReplayObservation, siblings: QuerySet[ReplayObservation]
+    ) -> dict[str, uuid.UUID | None]:
+        # Two indexed lookups instead of materializing every sibling id; mirrors the (-created_at, id) order.
+        ids = siblings.values_list("id", flat=True)
+        return {
+            "previous": ids.filter(
+                Q(created_at__gt=observation.created_at) | Q(created_at=observation.created_at, id__lt=observation.id)
+            )
+            .order_by("created_at", "-id")
+            .first(),
+            "next": ids.filter(
+                Q(created_at__lt=observation.created_at) | Q(created_at=observation.created_at, id__gt=observation.id)
+            )
+            .order_by("-created_at", "id")
+            .first(),
+        }
 
     @extend_schema(
         parameters=[
@@ -514,6 +930,256 @@ class ReplayObservationViewSet(
         payload = compute_observation_stats(scanner, queryset, recent_days=recent_days)
         return Response(payload)
 
+    @extend_schema(
+        request=None,
+        responses={
+            201: CreateTaskFromObservationResponseSerializer,
+            200: CreateTaskFromObservationResponseSerializer,
+        },
+        description=(
+            "Create a PostHog Task from this observation's finding so it can be triaged and fixed. "
+            "Title and description are derived from the scanner and its result. Record-only: this does "
+            "not start the coding agent. Idempotent per observation: once a task exists, repeat calls "
+            "return its id with a 200 instead of creating a duplicate."
+        ),
+    )
+    # task:write on top of the source-resource scopes: this mints a durable Task, so a token deliberately
+    # limited to replay-vision must not bypass the Tasks endpoint's own scope requirement.
+    @action(
+        detail=True,
+        methods=["post"],
+        required_scopes=["replay_scanner:write", "session_recording:read", "task:write"],
+    )
+    def create_task(self, request: Request, **kwargs: Any) -> Response:
+        observation = self.get_object()
+        # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
+        scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
+        # Materializing a restricted scanner's finding into a task needs object access to that scanner;
+        # the session route's get_object only object-checks the observation row.
+        self.check_object_permissions(self.request, scanner)
+        user = cast(User, request.user)
+        content = _observation_task_content(observation, scanner)
+        # Lock the observation row so a client retry or concurrent double submit returns the task the
+        # first call minted instead of creating a duplicate to triage.
+        with transaction.atomic():
+            locked = ReplayObservation.objects.select_for_update().get(pk=observation.pk)
+            if locked.created_task_id is not None:
+                return Response({"task_id": locked.created_task_id}, status=status.HTTP_200_OK)
+            task_id = tasks_facade.create_task_without_run(
+                team=self.team,
+                user_id=user.id,
+                origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
+                title=content.title,
+                description=content.description,
+            )
+            locked.created_task_id = task_id
+            locked.save(update_fields=["created_task_id"])
+        return Response({"task_id": task_id}, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=None,
+        responses={
+            202: RetryResponseSerializer,
+            409: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="The previous run is still finishing."
+            ),
+            503: OpenApiResponse(response=ReplayVisionErrorSerializer, description="The retry couldn't be started."),
+        },
+    )
+    @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
+    def retry(self, request: Request, **kwargs: Any) -> Response:
+        """Delete a failed or ineligible observation and re-run its scanner on the same recording. Returns 202 with the workflow handle."""
+        observation = self.get_object()
+        # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
+        scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
+        # Retry writes to the scanner; the session route's get_object only object-checks the observation row.
+        self.check_object_permissions(self.request, scanner)
+        # Status first, matching the order before this moved: it needs no query, and a succeeded
+        # observation should hear that it isn't retryable rather than about consent.
+        if observation.status not in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
+            raise ValidationError("Only failed or ineligible observations can be retried.")
+        # Consent is gated before the row is touched: the replacement workflow fails closed at create
+        # time when consent is off, and the sweep never revisits past sessions, so a delete would leave
+        # nothing behind.
+        if not is_ai_data_processing_approved(self.team.id):
+            raise ValidationError(
+                "AI data processing is turned off for this organization, so the scan can't run. "
+                "An organization admin can turn it on in organization settings."
+            )
+        outcome, workflow_id = retry_observation(observation=observation, user=cast(User, request.user))
+        if outcome is RetryOutcome.NOT_RETRYABLE:
+            # Re-read under the row lock disagreed with the check above; a racing retry won.
+            raise ValidationError("Only failed or ineligible observations can be retried.")
+        if outcome is RetryOutcome.CAPPED:
+            raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
+        if outcome is RetryOutcome.ALREADY_RUNNING:
+            # The prior run is still closing, so its deterministic id blocks the restart and no new row
+            # will appear.
+            return Response(
+                {"detail": "The previous run is still finishing. Retry again in a moment."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if outcome is RetryOutcome.FAILED:
+            # `detail` (not `error`) so ApiError carries the message into the frontend toast.
+            return Response(
+                {"detail": "Failed to start the retry. The failed observation was kept; retry again in a moment."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(RetryResponseSerializer({"workflow_id": workflow_id}).data, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        methods=["POST"],
+        request=ReplayObservationLabelSerializer,
+        responses={200: ReplayObservationLabelSerializer},
+        description=(
+            "Set or update the observation's shared label: whether the scanner scored the session correctly, "
+            "plus optional feedback on what it got wrong. One label per observation, shared across the team; "
+            "these labels feed prompt improvement. Requires editor access to the scanner."
+        ),
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        responses={204: None},
+        description="Remove the observation's shared label. Requires editor access to the scanner.",
+    )
+    @action(
+        detail=True,
+        methods=["post", "delete"],
+        url_path="label",
+        # Shared team data: writing requires the scanner write scope, mirroring the scanner-edit gate.
+        required_scopes=["replay_scanner:write", "session_recording:read"],
+    )
+    def label(self, request: Request, **kwargs: Any) -> Response:
+        observation = self.get_object()
+        # Label writes are scanner writes; the session route's get_object only object-checks the observation row.
+        # `label`'s required_scopes carries replay_scanner:write, so this already resolves to an editor-level
+        # check — object-level too, so a per-scanner grant correctly overrides a resource-wide "none" default.
+        scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
+        self.check_object_permissions(self.request, scanner)
+        user = cast(User, request.user)
+        if request.method == "DELETE":
+            ReplayObservationLabel.objects.filter(observation=observation, team_id=observation.team_id).delete()
+            return Response(status=204)
+        input_serializer = ReplayObservationLabelSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        # Lock the parent row so two concurrent first-time ratings serialize: unlocked, both see no label,
+        # both insert, and the loser hits the OneToOne constraint as a 500.
+        with transaction.atomic():
+            # `only("pk")`: the lock is the point, and the full row drags its JSONB columns along.
+            ReplayObservation.objects.select_for_update().only("pk").filter(
+                pk=observation.pk, team_id=observation.team_id
+            ).first()
+            # team_id in the lookup keeps the query team-scoped.
+            label, _ = ReplayObservationLabel.objects.update_or_create(
+                observation=observation,
+                team_id=observation.team_id,
+                defaults={
+                    "is_correct": input_serializer.validated_data["is_correct"],
+                    "feedback": input_serializer.validated_data.get("feedback", ""),
+                    "created_by": user,
+                },
+            )
+        # The core calibration signal: thumbs up/down on whether the scanner got the session right.
+        report_user_action(
+            user,
+            "replay_vision_observation_rated",
+            {
+                "observation_id": str(observation.id),
+                "scanner_id": str(observation.scanner_id),
+                "is_correct": label.is_correct,
+                "has_feedback": bool(label.feedback),
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(ReplayObservationLabelSerializer(label).data)
+
+
+class ObservationSearchQuerySerializer(serializers.Serializer):
+    q = serializers.CharField(
+        max_length=2000,
+        help_text="Natural-language description of what to find, e.g. 'users confused by the pricing page'.",
+    )
+    scanner_id = serializers.UUIDField(
+        required=False,
+        help_text="Search a single scanner's observations. Defaults to every scanner you can read.",
+    )
+    verdict = serializers.CharField(
+        required=False,
+        help_text="Comma-separated monitor verdicts to keep, e.g. `yes,inconclusive`.",
+    )
+    tags = serializers.CharField(
+        required=False,
+        help_text="Comma-separated classifier tags to keep. Matching is case- and format-insensitive. "
+        "Unlike `verdict`, tags are not validated against a fixed list, so an unknown tag matches nothing.",
+    )
+    min_score = serializers.FloatField(
+        required=False, help_text="Keep only scorer observations with a score at or above this value."
+    )
+    max_score = serializers.FloatField(
+        required=False, help_text="Keep only scorer observations with a score at or below this value."
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_SEARCH_LIMIT,
+        default=DEFAULT_SEARCH_LIMIT,
+        help_text=f"Maximum number of results (default {DEFAULT_SEARCH_LIMIT}, at most {MAX_SEARCH_LIMIT}).",
+    )
+
+    def validate_verdict(self, value: str) -> str:
+        # Same contract as the list endpoint's verdict filter: an unknown verdict is a 400, not a silent empty result.
+        invalid = sorted({v for v in split_csv(value) if v not in _MONITOR_VERDICTS})
+        if invalid:
+            raise serializers.ValidationError(f"Invalid value(s) {invalid}; allowed: {sorted(_MONITOR_VERDICTS)}.")
+        return value
+
+    def validate_min_score(self, value: float) -> float:
+        return self._finite_score(value)
+
+    def validate_max_score(self, value: float) -> float:
+        return self._finite_score(value)
+
+    @staticmethod
+    def _finite_score(value: float) -> float:
+        # FloatField accepts `nan` and `inf`, which would reach the ClickHouse parameter binding.
+        if not math.isfinite(value):
+            raise serializers.ValidationError("Must be a finite number.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        min_score, max_score = attrs.get("min_score"), attrs.get("max_score")
+        # An empty-by-construction range is a caller mistake; a 400 here is cheaper than an embedding
+        # call plus a ClickHouse scan that can only return nothing.
+        if min_score is not None and max_score is not None and min_score > max_score:
+            raise serializers.ValidationError("`min_score` cannot be greater than `max_score`.")
+        return attrs
+
+
+class ObservationSearchResultSerializer(serializers.Serializer):
+    observation = ReplayObservationSerializer(help_text="The matching observation.")
+    distance = serializers.FloatField(
+        help_text="Cosine distance between the search text and the observation's closest embedding. Lower is a "
+        "closer match. Only comparable to other results in the same response.",
+    )
+    matched_content = serializers.CharField(
+        allow_blank=True,
+        help_text="Excerpt of the observation text that best matched the search, truncated. Empty for "
+        "observations analyzed before excerpts were stored.",
+    )
+
+
+class ObservationSearchResponseSerializer(serializers.Serializer):
+    results = ObservationSearchResultSerializer(many=True, help_text="Matching observations, most relevant first.")
+    truncated = serializers.BooleanField(
+        help_text="True when more matches may exist beyond `results`, so the response is a top slice "
+        "rather than everything that matched."
+    )
+
+
+def _csv_values(raw: str | None) -> list[str] | None:
+    return split_csv(raw) or None if raw else None
+
 
 @extend_schema_view(
     list=extend_schema(
@@ -526,10 +1192,11 @@ class ReplayObservationViewSet(
                 description="Session recording id to return observations for.",
             )
         ]
-    )
+    ),
 )
 class SessionReplayObservationViewSet(ReplayObservationViewSet):
-    """Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock."""
+    """A session's observations across every scanner the caller can read, plus the team-level semantic
+    `search` action, which resolves its own scanner scope instead of this queryset."""
 
     # The dock fetches one session's observations; `session_id` is required and enforced in
     # safely_get_queryset, so this viewset needs none of the base's optional list filters.
@@ -540,17 +1207,17 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading replay observations requires session_recording read access.")
         # Observations inherit their scanner's RBAC. The generic access filter keys on the ReplayObservation
-        # row rather than its scanner, so scope explicitly to the scanners this caller can read.
-        readable_scanner_ids = list(
-            self.user_access_control.filter_queryset_by_access_level(
-                ReplayScanner.objects.filter(team_id=self.team_id)
-            ).values_list("id", flat=True)
-        )
-        queryset = (
-            queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids)
-            .select_related("triggered_by_user")
-            .order_by("-created_at", "id")
-        )
+        # row rather than its scanner, so scope explicitly to the scanners this caller can read (current
+        # targeting included), then gate each row against the experiment in its own snapshot so a
+        # retargeted scanner can't surface historical rows the caller can't access.
+        readable_scanner_ids = readable_observation_scanner_ids(self.user_access_control, self.team_id)
+        queryset = hydrate_for_serialization(
+            accessible_observations(
+                self.user_access_control,
+                self.team_id,
+                queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids),
+            )
+        ).order_by("-created_at", "id")
         # A bare list would scan the whole team's observation history; the replay page always has a session.
         if self.action == "list":
             session_id = self.request.query_params.get("session_id")
@@ -559,38 +1226,109 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             queryset = queryset.filter(session_id=session_id)
         return queryset
 
-    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        observation = self.get_object()
-        context = {**self.get_serializer_context(), "neighbors": self._observation_neighbors(observation)}
-        return Response(self.get_serializer(observation, context=context).data)
-
-    @staticmethod
-    def _observation_neighbors(observation: ReplayObservation) -> dict[str, uuid.UUID | None]:
-        # Newest-first list order, so the newer sibling is "previous" and the older one is "next".
-        siblings = ReplayObservation.objects.filter(
-            team_id=observation.team_id, scanner_id=observation.scanner_id
-        ).values_list("id", flat=True)
-        # Tie-break on id to mirror the list's (-created_at, id) order, so same-timestamp siblings aren't skipped.
-        return {
-            "previous": siblings.filter(
-                Q(created_at__gt=observation.created_at) | Q(created_at=observation.created_at, id__lt=observation.id)
-            )
-            .order_by("created_at", "-id")
-            .first(),
-            "next": siblings.filter(
-                Q(created_at__lt=observation.created_at) | Q(created_at=observation.created_at, id__gt=observation.id)
-            )
-            .order_by("-created_at", "id")
-            .first(),
-        }
-
     # Hide `stats/` on the session-scoped viewset — it has no `parent_lookup_scanner_id` to dispatch on.
     def stats(self, request: Request, **kwargs: Any) -> Response:  # type: ignore[override]
         raise NotFound()
 
+    @extend_schema(
+        parameters=[ObservationSearchQuerySerializer],
+        responses={
+            200: ObservationSearchResponseSerializer,
+            503: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="The embedding service did not respond."
+            ),
+        },
+    )
+    @action(
+        detail=False,
+        methods=["GET"],
+        throttle_classes=[ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle],
+    )
+    def search(self, request: Request, **kwargs: Any) -> Response:
+        """Rank observations by semantic similarity to the search text, optionally filtered by exact outcome
+        (verdict, score, tags)."""
+        params = ObservationSearchQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        validated = params.validated_data
+
+        scanner_ids = self._searchable_scanner_ids(validated.get("scanner_id"))
+        if not scanner_ids:
+            return self._search_response([])
+        # Gate before the embedding call so an opted-out org gets an actionable 400, not an opaque failure.
+        if not is_ai_data_processing_approved(self.team.id):
+            raise ValidationError(
+                "Your organization needs to allow AI analysis before you can search Replay Vision observations."
+            )
+        try:
+            # Short timeout: this sync call pins a request thread, and search users don't wait long.
+            embedding_response = generate_embedding(
+                self.team, validated["q"], model=OBSERVATION_EMBEDDING_MODEL.value, timeout=10.0
+            )
+        except (requests.ConnectionError, requests.Timeout):
+            # The embedding worker is unreachable or slow, so the caller can retry. A rejected request
+            # (requests.HTTPError) is a bug, not retryable, and should surface as a 500.
+            logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
+            raise EmbeddingUnavailableError()
+        filters = ObservationSearchFilters.from_raw(
+            verdict=_csv_values(validated.get("verdict")),
+            tags=_csv_values(validated.get("tags")),
+            min_score=validated.get("min_score"),
+            max_score=validated.get("max_score"),
+        )
+        limit = validated["limit"]
+        # Over-fetch, then slice back down after hydration drops rows (see RANK_OVERFETCH_FACTOR).
+        rank_limit = limit * RANK_OVERFETCH_FACTOR
+        matches = rank_observations(
+            self.team,
+            cast(User, request.user),
+            scanner_ids,
+            embedding_response.embedding,
+            rank_limit,
+            filters,
+        )
+        match_by_id = {match.observation_id: match for match in matches}
+        observations = fetch_ranked_observations(
+            self.team_id, scanner_ids, [match.observation_id for match in matches], self.user_access_control
+        )
+        # ClickHouse filling its limit means it may hold further matches it never ranked.
+        truncated = len(matches) >= rank_limit or len(observations) > limit
+        return self._search_response(
+            [
+                {
+                    "observation": obs,
+                    "distance": match_by_id[str(obs.id)].distance,
+                    "matched_content": match_by_id[str(obs.id)].matched_content,
+                }
+                for obs in observations[:limit]
+            ],
+            truncated=truncated,
+        )
+
+    def _search_response(self, results: list[dict[str, Any]], truncated: bool = False) -> Response:
+        serializer = ObservationSearchResponseSerializer(
+            {"results": results, "truncated": truncated}, context=self.get_serializer_context()
+        )
+        return Response(serializer.data)
+
+    def _searchable_scanner_ids(self, scanner_id: uuid.UUID | None) -> list[str]:
+        # Observations expose recording-derived output, so searching them requires session_recording read.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Searching replay observations requires session_recording read access.")
+        if scanner_id is not None:
+            scanner = scanner_for_reading_observations(self.team_id, scanner_id)
+            # Not-found doubles as no-access so the response never leaks the scanner or its experiment.
+            if (
+                scanner is None
+                or not self.user_access_control.check_access_level_for_object(scanner, "viewer")
+                or not can_read_targeted_experiment(self.user_access_control, self.team_id, scanner)
+            ):
+                raise NotFound("Scanner not found.")
+            return [str(scanner.id)]
+        return [str(sid) for sid in readable_observation_scanner_ids(self.user_access_control, self.team_id)]
+
     @extend_schema(exclude=True)
     @action(detail=True, methods=["GET"], url_path="progress", renderer_classes=[ServerSentEventRenderer])
-    def progress(self, request: Request, **kwargs: Any) -> StreamingHttpResponse:
+    def progress(self, request: Request, **kwargs: Any) -> HttpResponseBase:
         """Stream live progress (phase + rendering frame counts) for one in-flight observation as SSE.
 
         `get_object()` applies the same RBAC scoping as retrieve, so this can't leak observations the caller
@@ -600,4 +1338,4 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
             raise RuntimeError("observation progress stream requires ASGI.")
         observation = self.get_object()
-        return sse_streaming_response(stream_observation_progress(observation))
+        return sse_streaming_response(stream_observation_progress(observation), endpoint="replay_vision_observation")

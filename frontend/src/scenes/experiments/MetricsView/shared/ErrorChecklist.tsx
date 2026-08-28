@@ -11,6 +11,11 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { ActivityTab, Experiment, InsightType, MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
+import {
+    EXPOSURE_DEFAULT_EVENT,
+    EXPOSURE_FEATURE_FLAG_PROPERTY,
+    featureFlagVariantProperty,
+} from '../../exposureContract'
 
 export enum ResultErrorCode {
     NO_CONTROL_VARIANT = 'no-control-variant',
@@ -58,7 +63,7 @@ function ChecklistItem({
     const requiredEvent =
         insightType === InsightType.TRENDS
             ? hasMissingExposure
-                ? metric.exposure_query?.series[0]?.event || '$feature_flag_called'
+                ? metric.exposure_query?.series[0]?.event || EXPOSURE_DEFAULT_EVENT
                 : metric.count_query?.series[0]?.event
             : metric.funnels_query?.series[0]?.event
 
@@ -67,13 +72,18 @@ function ChecklistItem({
         full: true,
         source: {
             kind: NodeKind.EventsQuery,
-            select: ['*', 'event', `properties."$feature/${experiment.feature_flag?.key}"`, 'timestamp'],
+            select: [
+                '*',
+                'event',
+                `properties."${featureFlagVariantProperty(experiment.feature_flag?.key ?? '')}"`,
+                'timestamp',
+            ],
             orderBy: ['timestamp DESC'],
             after: experiment.start_date,
             event: requiredEvent,
             properties: [
                 {
-                    key: `$feature/${experiment.feature_flag?.key}`,
+                    key: featureFlagVariantProperty(experiment.feature_flag?.key ?? ''),
                     value: hasMissingExposure
                         ? variants.map((variant) => variant.key)
                         : errorCode === ResultErrorCode.NO_CONTROL_VARIANT
@@ -85,7 +95,7 @@ function ChecklistItem({
                 ...(hasMissingExposure
                     ? [
                           {
-                              key: '$feature_flag',
+                              key: EXPOSURE_FEATURE_FLAG_PROPERTY,
                               value: [experiment.feature_flag?.key],
                               operator: 'exact',
                               type: 'event',

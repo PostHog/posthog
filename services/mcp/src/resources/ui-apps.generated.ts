@@ -15,19 +15,21 @@ export const EXPERIMENT_RESULTS_RESOURCE_URI = 'ui://posthog/experiment-results.
 export const FEATURE_FLAG_RESOURCE_URI = 'ui://posthog/feature-flag.html'
 export const FEATURE_FLAG_LIST_RESOURCE_URI = 'ui://posthog/feature-flag-list.html'
 export const FEATURE_FLAG_TESTING_RESOURCE_URI = 'ui://posthog/feature-flag-testing.html'
+export const INLINE_SCAN_RESOURCE_URI = 'ui://posthog/inline-scan.html'
 export const INSIGHT_ACTORS_RESOURCE_URI = 'ui://posthog/insight-actors.html'
 export const INVITE_EMAIL_PREVIEW_RESOURCE_URI = 'ui://posthog/invite-email-preview.html'
 export const LLM_COSTS_RESOURCE_URI = 'ui://posthog/llm-costs.html'
+export const LOOPS_REVIEW_RESOURCE_URI = 'ui://posthog/loops-review.html'
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
 export const RENDER_UI_RESOURCE_URI = 'ui://posthog/render-ui.html'
 export const SESSION_RECORDING_RESOURCE_URI = 'ui://posthog/session-recording.html'
-export const SESSION_SUMMARY_RESOURCE_URI = 'ui://posthog/session-summary.html'
 export const SURVEY_RESOURCE_URI = 'ui://posthog/survey.html'
 export const SURVEY_GLOBAL_STATS_RESOURCE_URI = 'ui://posthog/survey-global-stats.html'
 export const SURVEY_LIST_RESOURCE_URI = 'ui://posthog/survey-list.html'
 export const SURVEY_STATS_RESOURCE_URI = 'ui://posthog/survey-stats.html'
 export const TRACE_SPAN_RESOURCE_URI = 'ui://posthog/trace-span.html'
 export const TRACE_SPAN_LIST_RESOURCE_URI = 'ui://posthog/trace-span-list.html'
+export const VISION_OBSERVATION_LIST_RESOURCE_URI = 'ui://posthog/vision-observation-list.html'
 export const VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI = 'ui://posthog/visual-review-snapshots.html'
 export const WORKFLOW_RESOURCE_URI = 'ui://posthog/workflow.html'
 export const WORKFLOW_LIST_RESOURCE_URI = 'ui://posthog/workflow-list.html'
@@ -48,19 +50,21 @@ export type UiAppKey =
     | 'feature-flag'
     | 'feature-flag-list'
     | 'feature-flag-testing'
+    | 'inline-scan'
     | 'insight-actors'
     | 'invite-email-preview'
     | 'llm-costs'
+    | 'loops-review'
     | 'query-results'
     | 'render-ui'
     | 'session-recording'
-    | 'session-summary'
     | 'survey'
     | 'survey-global-stats'
     | 'survey-list'
     | 'survey-stats'
     | 'trace-span'
     | 'trace-span-list'
+    | 'vision-observation-list'
     | 'visual-review-snapshots'
     | 'workflow'
     | 'workflow-list'
@@ -81,27 +85,29 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'feature-flag': FEATURE_FLAG_RESOURCE_URI,
     'feature-flag-list': FEATURE_FLAG_LIST_RESOURCE_URI,
     'feature-flag-testing': FEATURE_FLAG_TESTING_RESOURCE_URI,
+    'inline-scan': INLINE_SCAN_RESOURCE_URI,
     'insight-actors': INSIGHT_ACTORS_RESOURCE_URI,
     'invite-email-preview': INVITE_EMAIL_PREVIEW_RESOURCE_URI,
     'llm-costs': LLM_COSTS_RESOURCE_URI,
+    'loops-review': LOOPS_REVIEW_RESOURCE_URI,
     'query-results': QUERY_RESULTS_RESOURCE_URI,
     'render-ui': RENDER_UI_RESOURCE_URI,
     'session-recording': SESSION_RECORDING_RESOURCE_URI,
-    'session-summary': SESSION_SUMMARY_RESOURCE_URI,
     survey: SURVEY_RESOURCE_URI,
     'survey-global-stats': SURVEY_GLOBAL_STATS_RESOURCE_URI,
     'survey-list': SURVEY_LIST_RESOURCE_URI,
     'survey-stats': SURVEY_STATS_RESOURCE_URI,
     'trace-span': TRACE_SPAN_RESOURCE_URI,
     'trace-span-list': TRACE_SPAN_LIST_RESOURCE_URI,
+    'vision-observation-list': VISION_OBSERVATION_LIST_RESOURCE_URI,
     'visual-review-snapshots': VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI,
     workflow: WORKFLOW_RESOURCE_URI,
     'workflow-list': WORKFLOW_LIST_RESOURCE_URI,
 }
 
 /**
- * App keys with a generated detail/list view that the `render-ui` umbrella tool
- * can render. Excludes custom apps, which have no convention view component.
+ * App keys with a reusable view that the `render-ui` umbrella tool can render.
+ * Custom apps are included only when they explicitly configure `render_ui`.
  */
 export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'action',
@@ -118,17 +124,19 @@ export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'feature-flag',
     'feature-flag-list',
     'feature-flag-testing',
+    'inline-scan',
     'insight-actors',
     'invite-email-preview',
     'llm-costs',
+    'query-results',
     'session-recording',
-    'session-summary',
     'survey',
     'survey-global-stats',
     'survey-list',
     'survey-stats',
     'trace-span',
     'trace-span-list',
+    'vision-observation-list',
     'workflow',
     'workflow-list',
 ]
@@ -230,6 +238,12 @@ export const UI_APPS: Array<{
         appDir: 'generated/feature-flag-testing',
     },
     {
+        name: 'PostHog Inline Scan',
+        uri: INLINE_SCAN_RESOURCE_URI,
+        description: 'Inline Scan detail view',
+        appDir: 'generated/inline-scan',
+    },
+    {
         name: 'PostHog Insight Actors',
         uri: INSIGHT_ACTORS_RESOURCE_URI,
         description: 'Insight Actors detail view',
@@ -248,6 +262,12 @@ export const UI_APPS: Array<{
         appDir: 'generated/llm-costs',
     },
     {
+        name: 'PostHog Loop Review',
+        uri: LOOPS_REVIEW_RESOURCE_URI,
+        description: 'Review card for a loop before creation, with a Create loop action.',
+        appDir: 'loops-review',
+    },
+    {
         name: 'Query Results',
         uri: QUERY_RESULTS_RESOURCE_URI,
         description: 'Interactive visualization for PostHog query results',
@@ -264,12 +284,6 @@ export const UI_APPS: Array<{
         uri: SESSION_RECORDING_RESOURCE_URI,
         description: 'Session Recording detail view',
         appDir: 'generated/session-recording',
-    },
-    {
-        name: 'PostHog Session Summary',
-        uri: SESSION_SUMMARY_RESOURCE_URI,
-        description: 'Session Summary detail view',
-        appDir: 'generated/session-summary',
     },
     {
         name: 'PostHog Survey',
@@ -306,6 +320,12 @@ export const UI_APPS: Array<{
         uri: TRACE_SPAN_LIST_RESOURCE_URI,
         description: 'Trace Span List view',
         appDir: 'generated/trace-span-list',
+    },
+    {
+        name: 'PostHog Vision Observation List',
+        uri: VISION_OBSERVATION_LIST_RESOURCE_URI,
+        description: 'Vision Observation List view',
+        appDir: 'generated/vision-observation-list',
     },
     {
         name: 'PostHog Visual Review Snapshots',

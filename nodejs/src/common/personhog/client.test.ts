@@ -25,6 +25,7 @@ import {
     PersonHogClient,
     parseRolloutTeamIds,
     resolveConsistencyHeader,
+    resolvePersonRoutingKey,
     shouldUseGrpcForTeam,
     shouldUseGrpcForTeamItems,
     shouldUseGrpcForTeams,
@@ -133,6 +134,11 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     deletePersons: () => ({ deletedCount: 0n }),
     deletePersonsBatchForTeam: () => ({ deletedCount: 0n }),
     splitPerson: () => ({ splits: [] }),
+    setPersonDistinctIdVersionFloor: () => ({}),
+    setPersonVersionFloor: () => ({ updated: false }),
+    fencePerson: () => ({}),
+    releaseFence: () => ({}),
+    foldPersonDocument: () => ({}),
 }
 
 function createMockClient(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): PersonHogClient {
@@ -256,6 +262,28 @@ describe('resolveConsistencyHeader', () => {
     })
 })
 
+describe('resolvePersonRoutingKey', () => {
+    const routingKey = { teamId: 7n, personId: 42n }
+
+    it.each([
+        ['UpdatePersonProperties', ConsistencyLevel.UNSPECIFIED],
+        ['FencePerson', ConsistencyLevel.UNSPECIFIED],
+        ['ReleaseFence', ConsistencyLevel.UNSPECIFIED],
+        ['FoldPersonDocument', ConsistencyLevel.UNSPECIFIED],
+        ['GetPerson', ConsistencyLevel.STRONG],
+    ])('returns the key for leader-bound %s', (method, consistency) => {
+        expect(resolvePersonRoutingKey(method, { ...routingKey, readOptions: { consistency } })).toEqual(routingKey)
+    })
+
+    it.each([
+        ['GetPerson', ConsistencyLevel.EVENTUAL],
+        ['GetPersons', ConsistencyLevel.STRONG],
+        ['GetPersonsByDistinctIds', ConsistencyLevel.UNSPECIFIED],
+    ])('returns null for replica-bound %s', (method, consistency) => {
+        expect(resolvePersonRoutingKey(method, { ...routingKey, readOptions: { consistency } })).toBeNull()
+    })
+})
+
 describe('PersonHogClient', () => {
     describe('groups', () => {
         describe('fetchGroup', () => {
@@ -356,8 +384,22 @@ describe('PersonHogClient', () => {
                 const result = await client.groups.fetchGroupsByKeys([1, 2], [0, 1], ['acme', 'globex'])
 
                 expect(result).toEqual([
-                    { team_id: 1, group_type_index: 0, group_key: 'acme', group_properties: { name: 'Acme' } },
-                    { team_id: 2, group_type_index: 1, group_key: 'globex', group_properties: { name: 'Globex' } },
+                    {
+                        team_id: 1,
+                        group_type_index: 0,
+                        group_key: 'acme',
+                        group_properties: { name: 'Acme' },
+                        created_at: DateTime.fromMillis(Number(CREATED_AT_MS), { zone: 'utc' }),
+                        version: 3,
+                    },
+                    {
+                        team_id: 2,
+                        group_type_index: 1,
+                        group_key: 'globex',
+                        group_properties: { name: 'Globex' },
+                        created_at: DateTime.fromMillis(Number(CREATED_AT_MS), { zone: 'utc' }),
+                        version: 3,
+                    },
                 ])
             })
 
@@ -380,7 +422,14 @@ describe('PersonHogClient', () => {
                 const result = await client.groups.fetchGroupsByKeys([1, 1], [0, 1], ['found', 'missing'])
 
                 expect(result).toEqual([
-                    { team_id: 1, group_type_index: 0, group_key: 'found', group_properties: { x: 1 } },
+                    {
+                        team_id: 1,
+                        group_type_index: 0,
+                        group_key: 'found',
+                        group_properties: { x: 1 },
+                        created_at: DateTime.fromMillis(Number(CREATED_AT_MS), { zone: 'utc' }),
+                        version: 3,
+                    },
                 ])
             })
 

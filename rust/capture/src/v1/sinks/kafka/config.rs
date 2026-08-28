@@ -104,6 +104,17 @@ pub struct Config {
     pub topic_exception: String,
     pub topic_heatmap: String,
     pub topic_client_ingestion_warning: String,
+
+    /// Dedicated topic for `$ai_*` events. Not meant to be set via per-sink
+    /// env: setup injects the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` into
+    /// every sink config, overwriting whatever the env parse produced.
+    #[envconfig(default = "events_plugin_ingestion_ai")]
+    pub topic_ai: String,
+
+    /// Optional overflow topic for the AI lane. Like `topic_ai`, injected at
+    /// setup from the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`; unset
+    /// means the pipeline never produces `Destination::AiEventsOverflow`.
+    pub topic_ai_overflow: Option<String>,
 }
 
 const VALID_ACKS: &[&str] = &["0", "1", "-1", "all"];
@@ -158,6 +169,8 @@ impl Config {
             Destination::ExceptionErrorTracking => Some(&self.topic_exception),
             Destination::HeatmapMain => Some(&self.topic_heatmap),
             Destination::ClientIngestionWarning => Some(&self.topic_client_ingestion_warning),
+            Destination::AiEvents => Some(&self.topic_ai),
+            Destination::AiEventsOverflow => self.topic_ai_overflow.as_deref(),
             Destination::Custom(t) => Some(t.as_str()),
             Destination::Drop => None,
         }
@@ -386,5 +399,38 @@ mod tests {
     fn topic_for_resolves_destination(#[case] dest: Destination, #[case] expected: Option<&str>) {
         let cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
         assert_eq!(cfg.topic_for(&dest), expected);
+    }
+
+    #[test]
+    fn topic_ai_defaults() {
+        let cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
+        assert_eq!(cfg.topic_ai, "events_plugin_ingestion_ai");
+        assert_eq!(
+            cfg.topic_for(&Destination::AiEvents),
+            Some("events_plugin_ingestion_ai")
+        );
+        assert_eq!(cfg.topic_ai_overflow, None);
+        assert_eq!(cfg.topic_for(&Destination::AiEventsOverflow), None);
+    }
+
+    #[test]
+    fn topic_ai_overflow_present_resolves_destination() {
+        // Set the field directly, mirroring how setup injects
+        // CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC into sink configs after env loading.
+        let mut cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
+        cfg.topic_ai_overflow = Some("ai_events_overflow".to_string());
+        assert_eq!(
+            cfg.topic_for(&Destination::AiEventsOverflow),
+            Some("ai_events_overflow")
+        );
+    }
+
+    #[test]
+    fn topic_ai_present_resolves_destination() {
+        // Set the field directly, mirroring how setup injects CAPTURE_ANALYTICS_AI_EVENTS_TOPIC
+        // into sink configs after env loading.
+        let mut cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
+        cfg.topic_ai = "ai_events".to_string();
+        assert_eq!(cfg.topic_for(&Destination::AiEvents), Some("ai_events"));
     }
 }

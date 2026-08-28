@@ -1,11 +1,16 @@
+import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
 import React, { Suspense, useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
+import { PostHogProvider } from '@posthog/react'
+
+import { ProductEmptyStateGate } from 'lib/components/ProductEmptyState/ProductEmptyStateGate'
+import { productSetupPreloadLogic } from 'lib/components/ProductEmptyState/productSetupPreloadLogic'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
-import { KeaDevtools } from 'lib/KeaDevTools'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
@@ -49,11 +54,24 @@ function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.El
     )
 }
 
+/** Lazy-loaded Kea devtools panel, only rendered in dev mode with dev tools open */
+function KeaDevtoolsLoader(): JSX.Element | null {
+    const [DevTools, setDevTools] = React.useState<React.ComponentType | null>(null)
+    React.useEffect(() => {
+        import('lib/KeaDevTools').then((mod) => setDevTools(() => mod.KeaDevtools)).catch(() => {})
+    }, [])
+    return DevTools ? <DevTools /> : null
+}
+
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner, showingDevTools } = useValues(appLogic)
 
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(autofillReleaseLogic)
+
+    // Resolves product setup statuses on idle, so gated scenes open without a spinner.
+    useMountedLogic(productSetupPreloadLogic)
+
     // Unconditional so /oauth/callback's urlToAction is registered before routing. Inert in prod
     // (OAuth UI gated on preflight.is_debug); no timers/listeners, so cheap to always mount.
     useMountedLogic(oauthLogic)
@@ -63,7 +81,7 @@ export function App(): JSX.Element | null {
     // root init and triggers a circular-import TDZ. Its urlToAction fires on the current URL on mount.
     useEffect(() => {
         let unmount: (() => void) | undefined
-        void import('lib/components/Support/supportRouterLogic').then(({ supportRouterLogic }) => {
+        void retryImport(() => import('lib/components/Support/supportRouterLogic')).then(({ supportRouterLogic }) => {
             unmount = supportRouterLogic.mount()
         })
         return () => unmount?.()
@@ -74,19 +92,33 @@ export function App(): JSX.Element | null {
     // A cloud OAuth redirect lands at /oauth/callback on the local origin. Render the exchange
     // screen here (oauthLogic's urlToAction performs the token exchange), before normal routing.
     if (window.location.pathname === '/oauth/callback') {
-        return <OAuthCallback />
-    }
-
-    if (showApp) {
         return (
-            <>
-                <AppScene />
-                {showingDevTools ? <KeaDevtools /> : null}
-            </>
+            <ErrorBoundary>
+                <PostHogProvider client={posthog}>
+                    <OAuthCallback />
+                </PostHogProvider>
+            </ErrorBoundary>
         )
     }
 
-    return <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
+    const sceneContent = (
+        <ErrorBoundary>
+            <PostHogProvider client={posthog}>
+                <BaseTooltip.Provider delay={500} closeDelay={0} timeout={400}>
+                    {showApp ? (
+                        <>
+                            <AppScene />
+                            {showingDevTools ? <KeaDevtoolsLoader /> : null}
+                        </>
+                    ) : (
+                        <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
+                    )}
+                </BaseTooltip.Provider>
+            </PostHogProvider>
+        </ErrorBoundary>
+    )
+
+    return sceneContent
 }
 
 function AppScene(): JSX.Element | null {
@@ -126,12 +158,18 @@ function AppScene(): JSX.Element | null {
 
     let sceneElement: JSX.Element
     if (activeExportedScene?.component) {
-        const { component: SceneComponent } = activeExportedScene
-        sceneElement = (
-            <SceneAnimationRoot key={`scene-${activeSceneId}`}>
-                <SceneComponent user={user} {...activeSceneComponentParams} />
-            </SceneAnimationRoot>
+        const { component: SceneComponent, emptyState } = activeExportedScene
+        const sceneNode = <SceneComponent user={user} {...activeSceneComponentParams} />
+
+        // Scenes that declare an empty state are gated behind the product's
+        // setup screen until the product has data (or the user skips).
+        const resolvedNode = emptyState ? (
+            <ProductEmptyStateGate emptyState={emptyState}>{sceneNode}</ProductEmptyStateGate>
+        ) : (
+            sceneNode
         )
+
+        sceneElement = <SceneAnimationRoot key={`scene-${activeSceneId}`}>{resolvedNode}</SceneAnimationRoot>
     } else {
         sceneElement = <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
     }

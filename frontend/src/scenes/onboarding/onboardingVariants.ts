@@ -1,8 +1,8 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-/** Shipped onboarding variants. `legacy` is the existing experience; `redesign` is the new (stubbed) one. */
-export type OnboardingFlowVariant = 'legacy' | 'redesign'
+/** Shipped onboarding variants. `legacy` is the existing experience; `self-driving` is the redesigned one. */
+export type OnboardingFlowVariant = 'legacy' | 'self-driving'
 
 /**
  * Chrome rendered around an onboarding variant.
@@ -26,21 +26,18 @@ const DEFAULT_VARIANT_CONFIG: OnboardingVariantConfig = { chrome: 'minimal' }
  */
 export const ONBOARDING_FLOW_VARIANTS: Record<OnboardingFlowVariant, OnboardingVariantConfig> = {
     legacy: { chrome: 'minimal' },
-    redesign: { chrome: 'minimal' },
+    'self-driving': { chrome: 'none' },
 }
 
 /**
- * Resolve the active flow variant from the raw flag value, defaulting to `legacy`. Unknown values
- * and the original `control` flag value (which selected the existing design) both map to `legacy`.
+ * Resolve the active flow variant from the raw flag value. The flag's variant values are `control`
+ * and `self-driving`; only `self-driving` selects the redesign. Everything else — `control`, the
+ * historical `legacy` value (treated as an alias of control), unknown values, booleans, unset —
+ * maps to the internal `legacy` variant (the existing design).
  */
 export function resolveOnboardingFlowVariant(featureFlags: FeatureFlagsSet): OnboardingFlowVariant {
     const variant = featureFlags[FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]
-    if (variant === 'control') {
-        return 'legacy'
-    }
-    return typeof variant === 'string' && variant in ONBOARDING_FLOW_VARIANTS
-        ? (variant as OnboardingFlowVariant)
-        : DEFAULT_VARIANT
+    return variant === 'self-driving' ? 'self-driving' : DEFAULT_VARIANT
 }
 
 export function onboardingVariantChrome(variant: OnboardingFlowVariant): OnboardingVariantChrome {

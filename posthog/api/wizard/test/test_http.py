@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -6,12 +7,14 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from rest_framework import status
 
 from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.cloud_utils import get_api_host
-from posthog.models import Organization, User
+from posthog.models import Organization, PersonalAPIKey, User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 
 class SetupWizardTests(APIBaseTest):
@@ -22,7 +25,9 @@ class SetupWizardTests(APIBaseTest):
         self.hash = "testhash"
         self.cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{self.hash}"
         cache.set(
-            self.cache_key, {"project_api_key": "test-key", "host": "http://localhost:8010"}, SETUP_WIZARD_CACHE_TIMEOUT
+            self.cache_key,
+            {"project_api_key": "test-key", "host": "http://localhost:8010", "team_id": self.team.id},
+            SETUP_WIZARD_CACHE_TIMEOUT,
         )
 
     def test_initialize_creates_hash(self):
@@ -115,6 +120,39 @@ class SetupWizardTests(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"data": {"foo": "bar"}}
+        assert mock_openai_instance.chat.completions.create.call_args.kwargs["posthog_properties"] == {
+            "ai_product": "wizard",
+            "ai_feature": "query",
+            "team_id": self.team.id,
+        }
+
+    @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    @patch("posthog.api.wizard.http.OpenAI")
+    def test_query_endpoint_uses_oauth_scoped_team(self, mock_openai, mock_authentication):
+        mock_openai_instance = mock_openai.return_value
+        mock_openai_instance.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=json.dumps({"foo": "bar"})))]
+        )
+        mock_authenticator = mock_authentication.return_value
+        mock_authenticator.authenticate.return_value = (self.user, None)
+        mock_authenticator.access_token.scoped_teams = [self.team.id]
+
+        response = self.client.post(
+            self.query_url,
+            data=json.dumps(
+                {"message": "test", "json_schema": {"type": "object", "properties": {"name": {"type": "number"}}}}
+            ),
+            content_type="application/json",
+            headers={"authorization": "Bearer pha_test"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_openai_instance.chat.completions.create.call_args.kwargs["posthog_properties"] == {
+            "ai_product": "wizard",
+            "ai_feature": "query",
+            "team_id": self.team.id,
+        }
 
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
     @patch("posthog.api.wizard.http.OpenAI")
@@ -190,7 +228,11 @@ class SetupWizardTests(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"data": {"result": "gemini_success"}}
-        mock_client_instance.models.generate_content.assert_called_once()
+        assert mock_client_instance.models.generate_content.call_args.kwargs["posthog_properties"] == {
+            "ai_product": "wizard",
+            "ai_feature": "query",
+            "team_id": self.team.id,
+        }
 
     def test_query_endpoint_rejects_invalid_model(self):
         response = self.client.post(
@@ -244,6 +286,7 @@ class SetupWizardTests(APIBaseTest):
         assert cached_data["project_api_key"] == "mock-project-api-key"
         assert cached_data["host"] == "http://localhost:8010"
         assert cached_data["user_distinct_id"] == "mock-user-id"
+        assert cached_data["team_id"] == 1
 
     @patch("django.conf.settings.DEBUG", True)
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
@@ -280,6 +323,7 @@ class SetupWizardTests(APIBaseTest):
         assert cached_data["project_api_key"] == "mock-project-api-key"
         assert cached_data["host"] == "http://localhost:8010"
         assert cached_data["user_distinct_id"] == "mock-user-id"
+        assert cached_data["team_id"] == 1
 
     @patch("django.conf.settings.DEBUG", False)
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
@@ -394,6 +438,7 @@ class SetupWizardTests(APIBaseTest):
         self.assertEqual(updated_data["project_api_key"], self.team.api_token)
         self.assertEqual(updated_data["host"], get_api_host())
         self.assertEqual(updated_data["user_distinct_id"], self.user.distinct_id)
+        self.assertEqual(updated_data["team_id"], self.team.id)
 
     @override_settings(
         CACHES={
@@ -444,6 +489,130 @@ class SetupWizardTests(APIBaseTest):
         self.assertEqual(response_data["code"], "permission_denied")
         self.assertEqual(response_data["detail"], "You don't have access to this project.")
         self.assertEqual(response_data["attr"], "projectId")
+
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()  # Clears out all DRF throttle data
+
+
+@override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client-id")
+class SetupWizardCloudRunTests(APIBaseTest):
+    CLOUD_RUN_URL = "/api/wizard/cloud_run"
+
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="")
+    def test_returns_404_when_feature_not_configured(self):
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_creates_run_and_returns_ids(self, mock_create):
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app", "branch": ""},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {"task_id": "task-uuid", "run_id": "run-uuid", "status": "queued"}
+        assert mock_create.call_count == 1
+        kwargs = mock_create.call_args.kwargs
+        assert kwargs["repository"] == "acme/app"
+        assert kwargs["user_id"] == self.user.id
+        assert kwargs["branch"] is None
+        assert kwargs["team"].id == self.team.id
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_rejects_invalid_repository_format(self, mock_create):
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "not-a-repo"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_create.assert_not_called()
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_rejects_personal_api_key_auth(self, mock_create):
+        # Cloud run is a UI/session-only action — an API token must not be able to start a run,
+        # even with a broad scope, since the project visibility check below wouldn't honor token scopes.
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test API Key",
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+            headers={"authorization": f"Bearer {api_key_value}"},
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        mock_create.assert_not_called()
+
+    def test_rejects_project_without_access(self):
+        other_org = Organization.objects.create(name="Other Cloud Run Org")
+        other_user = User.objects.create_and_join(other_org, "other-cloud-run@example.com", None)
+        self.client.force_login(other_user)
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times")
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_throttles_when_quota_counting_runs_reports_the_cap(self, mock_create, mock_run_times):
+        # Wiring guard for the outcome-aware throttles: the endpoint must consult the facade's
+        # run count (the exclusion behavior itself is covered in the tasks product's facade tests).
+        mock_run_times.return_value = [timezone.now() - timedelta(minutes=5), timezone.now() - timedelta(minutes=1)]
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        mock_create.assert_not_called()
+
+    @patch("posthog.api.wizard.http.WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP", 2)
+    @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times")
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_attempt_reservation_is_a_hard_ceiling_regardless_of_run_outcome(self, mock_create, mock_run_times):
+        # The DB-counted throttles ignore failed/cancelled runs, so the atomic reservation is
+        # the only thing bounding a start-fail or start-cancel loop.
+        mock_run_times.return_value = []
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+
+        for _ in range(2):
+            response = self.client.post(
+                self.CLOUD_RUN_URL,
+                data={"project_id": self.team.id, "repository": "acme/app"},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.content
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert mock_create.call_count == 2
 
     def tearDown(self):
         super().tearDown()

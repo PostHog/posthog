@@ -22,6 +22,7 @@ from ee.hogai.chat_agent.slash_commands.commands.usage.queries import (
     CLOUD_REGION_TO_URL,
     DEFAULT_FREE_TIER_CREDITS,
     DEFAULT_GA_LAUNCH_DATE,
+    POSTHOG_AI_PRODUCTS,
     AiUsagePeriod,
     format_usage_message,
     get_ai_credits,
@@ -129,6 +130,9 @@ class TestUsage(BaseTest):
             query, params = mock_sync_execute.call_args[0][:2]
             self.assertEqual(params["team_to_query"], expected_team_to_query)
             self.assertEqual(params["session_id"], str(conversation_id))
+            # Only PostHog AI bucket products count — posthog_code bills separately.
+            self.assertIn("AND JSONExtractString(properties, 'ai_product') IN %(ai_products)s", query)
+            self.assertEqual(params["ai_products"], tuple(POSTHOG_AI_PRODUCTS))
             if expected_region_url is None:
                 self.assertNotIn("region_url", params)
                 self.assertNotIn("%(region_url)s", query)

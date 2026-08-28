@@ -2193,6 +2193,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 0,  # 20:00
             ],
         )
+        # The previous period spans the full day (00:00–23:00), not just the elapsed part of today,
+        # so both series can be compared hour-by-hour across the whole chart.
         self.assertEqual(
             response[1]["days"],
             [
@@ -2217,6 +2219,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "2020-01-01 18:00:00",
                 "2020-01-01 19:00:00",
                 "2020-01-01 20:00:00",
+                "2020-01-01 21:00:00",
+                "2020-01-01 22:00:00",
+                "2020-01-01 23:00:00",
             ],
         )
         self.assertEqual(
@@ -2243,6 +2248,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 0,  # 18:00
                 0,  # 19:00
                 0,  # 20:00
+                0,  # 21:00
+                0,  # 22:00
+                0,  # 23:00
             ],
         )
 
@@ -2404,7 +2412,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._test_events_with_dates(
             dates=["2020-06-2", "2020-07-30"],
             interval="month",
-            date_from="2020-6-7",  # should round down to 6-1
+            date_from="2020-6-7",  # rounds labels down to 6-1 but only includes events on or after date_from
             date_to="2020-7-30",
             result=[
                 {
@@ -2421,8 +2429,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         "properties": [],
                     },
                     "label": "event_name",
-                    "count": 2.0,
-                    "data": [1.0, 1.0],
+                    "count": 1.0,
+                    "data": [0.0, 1.0],
                     "labels": ["Jun 2020", "Jul 2020"],
                     "days": ["2020-06-01", "2020-07-01"],
                 }

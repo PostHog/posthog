@@ -18,7 +18,11 @@ import click
 from hogli.command_types import _run
 from hogli.manifest import REPO_ROOT
 
+from hogli_commands.change_detection import changed_files
+
 _PYTHON_ROOTS = ("posthog/", "ee/", "products/", "common/", "dags/", "tools/", "services/")
+
+_DESKTOP_ROOT = "products/desktop"
 
 
 def _is_test_file(path: str, rs_cfg_test: set[str] | None = None) -> bool:
@@ -367,6 +371,37 @@ def _detect_go_test(file_only: str) -> TestRunConfig:
     )
 
 
+def _detect_desktop_vitest(path: str, node_id: str | None = None) -> TestRunConfig:
+    """Detect Vitest configuration for the desktop nested workspace.
+
+    products/desktop is a standalone pnpm workspace whose packages test with
+    Vitest; the root Jest config ignores the whole tree, so run vitest from the
+    nearest desktop package (its own config and deps). For the workspace root
+    itself, defer to desktop's `pnpm test` (turbo), which is what desktop CI runs.
+    """
+    package_json = _find_nearest(path, "package.json")
+    pkg_dir = str(package_json.parent.relative_to(REPO_ROOT)) if package_json else None
+    if pkg_dir is None or pkg_dir in (_DESKTOP_ROOT, "products", "."):
+        return TestRunConfig(
+            test_type="vitest",
+            command=["pnpm", "--dir", _DESKTOP_ROOT, "test"],
+            description="Desktop tests via turbo (nested workspace)",
+        )
+
+    rel = str(PurePosixPath(path).relative_to(pkg_dir))
+    command = ["pnpm", "--dir", pkg_dir, "exec", "vitest", "run"]
+    if rel != ".":
+        command.append(rel)
+    if node_id:
+        command.extend(["-t", node_id])
+
+    return TestRunConfig(
+        test_type="vitest",
+        command=command,
+        description=f"Desktop Vitest (in {pkg_dir})",
+    )
+
+
 def _detect_jest_test(file_only: str, file_path: str, node_id: str | None = None) -> TestRunConfig:
     """Detect Jest test configuration by finding the nearest package.json.
 
@@ -375,6 +410,8 @@ def _detect_jest_test(file_only: str, file_path: str, node_id: str | None = None
     rely on. The product's own package.json has no jest config, so route them to
     @posthog/frontend; jest treats the path as a testPathPattern and matches it there.
     """
+    if file_only.startswith(_DESKTOP_ROOT + "/"):
+        return _detect_desktop_vitest(file_only, node_id)
     if file_only.startswith("products/"):
         pkg_name: str | None = "@posthog/frontend"
     else:
@@ -405,6 +442,11 @@ def _detect_directory(dir_path: str) -> TestRunConfig:
     # Rust: directory contains or is under a Cargo.toml
     if _find_nearest(dir_path, "Cargo.toml"):
         return _detect_rust_test(dir_path)
+
+    # Desktop nested workspace: Vitest, not the root turbo/pytest/Jest routing
+    normalized = dir_path.rstrip("/")
+    if normalized == _DESKTOP_ROOT or normalized.startswith(_DESKTOP_ROOT + "/"):
+        return _detect_desktop_vitest(normalized)
 
     # Product root: use Turbo pipeline (only for top-level product dirs)
     if dir_path.startswith("products/"):
@@ -523,58 +565,21 @@ def detect_test_type(file_path: str) -> TestRunConfig:
 # ---------------------------------------------------------------------------
 
 
-def _parse_porcelain_path(line: str) -> str:
-    """Extract the file path from a ``git status --porcelain`` line.
-
-    Handles renames/copies (``R  old -> new``) by taking the destination,
-    and strips quotes that git adds for paths with special characters.
-    """
-    raw = line[3:]
-    # Renames/copies: "old -> new" — take the destination
-    if " -> " in raw:
-        raw = raw.split(" -> ", 1)[1]
-    # Git quotes paths containing special chars
-    return raw.strip().strip('"')
-
-
 def _get_changed_files() -> list[str]:
-    """Get files changed on the current branch vs master, plus uncommitted changes."""
+    """Files changed on the current branch vs master, plus uncommitted changes.
+
+    ``--changed`` is meaningless on master, so guard that here; the diffing itself
+    is delegated to the shared change-detection module."""
     branch = subprocess.run(
         ["git", "branch", "--show-current"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
     ).stdout.strip()
-
     if branch == "master":
         raise click.UsageError("Cannot use --changed on the master branch.")
-
-    # Files changed between master and HEAD
-    diff_vs_master = (
-        subprocess.run(
-            ["git", "diff", "--name-only", "master...HEAD"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        .stdout.strip()
-        .splitlines()
-    )
-
-    # Uncommitted / staged changes
-    porcelain = (
-        subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        .stdout.strip()
-        .splitlines()
-    )
-    uncommitted = [_parse_porcelain_path(line) for line in porcelain if len(line) > 3]
-
-    return sorted(set(diff_vs_master + uncommitted))
+    # Drop deleted/renamed-away paths — pytest errors on files that no longer exist.
+    return [f for f in changed_files() if (REPO_ROOT / f).exists()]
 
 
 def _detect_all(test_files: list[str]) -> list[tuple[str, TestRunConfig]]:

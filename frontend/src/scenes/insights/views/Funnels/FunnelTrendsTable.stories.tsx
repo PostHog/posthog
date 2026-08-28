@@ -14,6 +14,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { InsightLogicProps } from '~/types'
 
+import __funnelHistoricalTrends from '../../../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
 import { FunnelTrendsTable } from './FunnelTrendsTable'
 
 let uniqueNode = 0
@@ -24,7 +25,7 @@ function TrendsTableStory({ result }: { result: Record<string, any>[] }): JSX.El
     const [dashboardItemId] = useState(() => `FunnelTrendsTableStory.${uniqueNode++}`)
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const baseInsight = require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json')
+    const baseInsight = __funnelHistoricalTrends as any
     const insight = { ...baseInsight, result }
     const cachedInsight = { ...insight, short_id: dashboardItemId }
     const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps

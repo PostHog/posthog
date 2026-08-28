@@ -1,16 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconPlus, IconRefresh } from '@posthog/icons'
+import { IconPlus, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { EmailForwardingAddress } from '../../components/EmailForwardingAddress'
 import { EmailConfigStatus, supportSettingsLogic } from './supportSettingsLogic'
 
 interface DnsRecord {
@@ -61,8 +61,9 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }): JSX.Element | n
 }
 
 function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Element {
-    const { emailVerifyingConfigId, emailTestingConfigId } = useValues(supportSettingsLogic)
-    const { disconnectEmail, verifyEmailDomain, sendTestEmail } = useActions(supportSettingsLogic)
+    const { emailVerifyingConfigId, emailTestingConfigId, settingDefaultEmailConfigId } =
+        useValues(supportSettingsLogic)
+    const { disconnectEmail, verifyEmailDomain, sendTestEmail, setDefaultEmail } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -71,40 +72,12 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
     const sendingRecords = config.dns_records?.sending_dns_records as DnsRecord[] | undefined
     const isVerifying = emailVerifyingConfigId === config.id
     const isTesting = emailTestingConfigId === config.id
+    const isSettingDefault = settingDefaultEmailConfigId === config.id
+    const isSettingAnyDefault = settingDefaultEmailConfigId !== null
 
     return (
         <div className="flex flex-col gap-3 p-3">
-            {/* Forwarding address */}
-            {config.forwarding_address && (
-                <div>
-                    <label className="font-medium text-sm">Forwarding address</label>
-                    <p className="text-xs text-muted-alt mb-1">
-                        Forward incoming emails to this address in your email provider.
-                    </p>
-                    <div className="flex items-center gap-2">
-                        <code className="bg-surface-primary px-2 py-1 rounded text-sm break-all">
-                            {config.forwarding_address}
-                        </code>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconCopy />}
-                            onClick={() => {
-                                void navigator.clipboard.writeText(config.forwarding_address!)
-                                lemonToast.success('Copied to clipboard')
-                            }}
-                        />
-                    </div>
-                    <div className="text-xs text-muted-alt mt-2 flex flex-col gap-0.5">
-                        <p className="mb-0">
-                            <strong>Gmail:</strong> Settings → Forwarding → Add a forwarding address
-                        </p>
-                        <p className="mb-0">
-                            <strong>Outlook:</strong> Settings → Mail → Forwarding → Enable forwarding
-                        </p>
-                    </div>
-                </div>
-            )}
+            {config.forwarding_address && <EmailForwardingAddress forwardingAddress={config.forwarding_address} />}
 
             {/* Domain verification */}
             <div>
@@ -147,8 +120,25 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                 </div>
             </div>
 
-            {/* Disconnect */}
-            <div className="flex justify-end border-t pt-2">
+            {/* Default + disconnect */}
+            <div className="flex justify-between items-center border-t pt-2">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    loading={isSettingDefault}
+                    disabledReason={
+                        adminRestrictionReason ??
+                        (config.is_default
+                            ? 'This is already the primary email address'
+                            : isSettingAnyDefault
+                              ? 'Updating the primary address…'
+                              : undefined)
+                    }
+                    tooltip="Tickets opened from the widget are sent from the primary address"
+                    onClick={() => setDefaultEmail(config.id)}
+                >
+                    {config.is_default ? 'Primary address' : 'Set as primary'}
+                </LemonButton>
                 <LemonButton
                     type="secondary"
                     status="danger"
@@ -246,6 +236,11 @@ function configHeader(config: EmailConfigStatus): JSX.Element {
         <div className="flex min-w-0 items-center gap-2 text-left">
             <span className="font-medium truncate">{config.from_email}</span>
             {config.from_name && <span className="text-xs text-muted truncate">({config.from_name})</span>}
+            {config.is_default && (
+                <LemonTag type="primary" size="small" className="shrink-0">
+                    Primary
+                </LemonTag>
+            )}
             {config.domain_verified ? (
                 <LemonTag type="success" size="small" className="shrink-0">
                     Verified

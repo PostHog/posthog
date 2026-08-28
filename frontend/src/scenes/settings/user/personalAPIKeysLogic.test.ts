@@ -109,4 +109,28 @@ describe('personalAPIKeysLogic', () => {
         expect(capturedCreatePayload).not.toBeNull()
         expect(capturedCreatePayload.scopes).toEqual(['*'])
     })
+
+    it.each(['survey', 'early_access_feature'])(
+        'auto-selects feature_flag:write when %s write is granted',
+        async (scope) => {
+            logic.actions.setEditingKeyId('new')
+            logic.actions.setScopeRadioValue(scope, 'write')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.editingKey.scopes).toContain(`${scope}:write`)
+            expect(logic.values.editingKey.scopes).toContain('feature_flag:write')
+        }
+    )
+
+    it('leaves the auto-selected feature_flag:write removable', async () => {
+        logic.actions.setEditingKeyId('new')
+        logic.actions.setScopeRadioValue('survey', 'write')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setScopeRadioValue('feature_flag', 'none')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.editingKey.scopes).toContain('survey:write')
+        expect(logic.values.editingKey.scopes).not.toContain('feature_flag:write')
+    })
 })

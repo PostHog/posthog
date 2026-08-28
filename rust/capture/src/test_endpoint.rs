@@ -10,13 +10,14 @@ use axum::{
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
 use bytes::{Buf, Bytes};
+use common_compression::has_gzip_magic_header;
 use flate2::bufread::GzDecoder;
 use tracing::error;
 
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     extractors::extract_body_with_timeout,
-    payload::{decompression::GZIP_MAGIC_NUMBERS, Compression, EventFormData, EventQuery},
+    payload::{Compression, EventFormData, EventQuery},
     router,
     utils::extract_and_verify_token,
     v0_request::RawRequest,
@@ -34,6 +35,7 @@ pub const UTF8_FAILED: &str = "capture_test_utf8_failed";
 // A handler that does nothing except try to parse the request, and produce a tonne of metrics
 // about failures. Once python capture is dead, we should remove file entirely.
 #[debug_handler]
+#[allow(clippy::too_many_arguments)]
 pub async fn test_black_hole(
     state: State<router::State>,
     _ip: InsecureClientIp,
@@ -41,12 +43,15 @@ pub async fn test_black_hole(
     headers: HeaderMap,
     _method: Method,
     _path: MatchedPath,
+    wire_limit: Option<axum::Extension<router::WireBodyLimit>>,
     body: Body,
 ) -> Result<Json<CaptureResponse>, CaptureError> {
     // Extract body with optional chunk timeout
     let body = extract_body_with_timeout(
         body,
-        state.event_payload_size_limit,
+        wire_limit
+            .map(|axum::Extension(l)| l.0)
+            .unwrap_or(state.event_payload_size_limit),
         state.body_chunk_read_timeout,
         state.body_read_chunk_size_kb,
         "/test/black_hole",
@@ -191,7 +196,7 @@ pub async fn test_black_hole(
 }
 
 pub fn from_bytes(bytes: Bytes, limit: usize, comp: String) -> Result<RawRequest, CaptureError> {
-    let payload = if bytes.starts_with(&GZIP_MAGIC_NUMBERS) {
+    let payload = if has_gzip_magic_header(&bytes) {
         metrics::counter!(GZIP_FOUND, "comp" => comp.clone()).increment(1);
         let len = bytes.len();
         let mut zipstream = GzDecoder::new(bytes.reader());

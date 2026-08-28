@@ -209,6 +209,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
                 if (result.error) {
                     await job.fail()
+                } else if (result.canceled) {
+                    await job.cancel()
                 } else if (result.finished) {
                     await job.ack()
                 } else {
@@ -220,6 +222,14 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                         personId: extractPersonId(result.invocation),
                         actionId: extractActionId(result.invocation),
                         queueName: result.invocation.queue,
+                        // Persisted only across email-queue transitions: entering carries the
+                        // class routeEmailToQueue assigned, leaving restores the origin
+                        // priority. Elsewhere the row keeps its insert-time priority, so the
+                        // in-memory retry bumps on other queues stay unpersisted as before.
+                        priority:
+                            result.invocation.queue === 'email' || job.queueName === 'email'
+                                ? result.invocation.queuePriority
+                                : undefined,
                     })
                 }
             })
@@ -238,18 +248,6 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         )
     }
 
-    public async cancelInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
-        await Promise.all(
-            invocations.map(async (inv) => {
-                const job = this.pendingJobs.get(inv.id)
-                if (job) {
-                    this.pendingJobs.delete(inv.id)
-                    await job.cancel()
-                }
-            })
-        )
-    }
-
     public async releaseInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
         await Promise.all(
             invocations.map(async (inv) => {
@@ -257,6 +255,32 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 if (job) {
                     this.pendingJobs.delete(inv.id)
                     await job.ack()
+                }
+            })
+        )
+    }
+
+    public async heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
+        await Promise.all(
+            invocations.map(async (inv) => {
+                const job = this.pendingJobs.get(inv.id)
+                if (!job) {
+                    return
+                }
+                try {
+                    await job.heartbeat()
+                } catch (err) {
+                    const message = err instanceof Error ? err.message : String(err)
+                    if (message.includes('already released')) {
+                        // Benign race with ack/fail/reschedule flipping `released` on the wrapper.
+                        logger.debug('CyclotronV2 heartbeat skipped for released job', { id: inv.id })
+                    } else {
+                        // Real failure (connection error, pool exhaustion, query timeout) —
+                        // surface it so we can act. Don't rethrow: the tick continues for
+                        // the other jobs and the interval keeps firing so a transient blip
+                        // doesn't kill the batch.
+                        logger.warn('CyclotronV2 heartbeat failed', { id: inv.id, error: message })
+                    }
                 }
             })
         )
@@ -314,7 +338,7 @@ export function extractActionId(invocation: CyclotronJobInvocation): string | nu
     return (invocation as LookupColumnSource).state?.currentAction?.id || null
 }
 
-function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {
+export function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {
     let parsed: SerializedJobState = { state: null }
 
     if (job.state) {
@@ -340,6 +364,10 @@ function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation 
 
     if (job.parentRunId) {
         invocation.parentRunId = job.parentRunId
+    }
+
+    if (job.cancelRequestedAt) {
+        invocation.cancelRequestedAt = job.cancelRequestedAt
     }
 
     return invocation

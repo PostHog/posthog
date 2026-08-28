@@ -46,20 +46,32 @@ class ThinningConfig:
 FAILURE_THINNING = ThinningConfig()
 
 
+@dataclasses.dataclass(frozen=True)
+class ThinnedLine:
+    """One line of a thinned log. ``original_line_number`` is the line's 1-based position in the full
+    pre-thinning log; None for a synthetic ``... N lines omitted ...`` marker. The number is the only
+    durable anchor back to the original — the full log isn't stored and GitHub expires it.
+    """
+
+    text: str
+    original_line_number: int | None
+
+
 def _matches_marker(line: str, markers: tuple[str, ...]) -> bool:
     return any(marker in line for marker in markers)
 
 
-def thin_log(text: str, config: ThinningConfig = FAILURE_THINNING) -> str:
-    """Return the failure-relevant slice of ``text`` with omitted gaps marked. Pure; no I/O.
+def thin_log_lines(text: str, config: ThinningConfig = FAILURE_THINNING) -> list[ThinnedLine]:
+    """Return the failure-relevant slice of ``text`` as lines, each tagged with its 1-based position in
+    the full log (None for an omission marker). Pure; no I/O.
 
-    Logs at or under ``config.max_lines`` are returned unchanged — thinning only kicks in once a log
-    is large enough to be worth trimming, so small failures keep full fidelity.
+    Logs at or under ``config.max_lines`` pass through untouched (every line kept, numbered) so small
+    failures keep full fidelity; larger logs collapse the noise to ``... N lines omitted ...`` markers.
     """
     lines = text.splitlines()
     total = len(lines)
     if total <= config.max_lines:
-        return text
+        return [ThinnedLine(line, index + 1) for index, line in enumerate(lines)]
 
     keep: set[int] = set()
     for index, line in enumerate(lines):
@@ -74,13 +86,18 @@ def thin_log(text: str, config: ThinningConfig = FAILURE_THINNING) -> str:
         # Bias to the end: the final summary matters more than the first of many failures.
         selected = selected[-config.max_lines :]
 
-    out: list[str] = []
+    out: list[ThinnedLine] = []
     if selected and selected[0] > 0:
-        out.append(f"... {selected[0]} lines omitted ...")
+        out.append(ThinnedLine(f"... {selected[0]} lines omitted ...", None))
     previous: int | None = None
     for index in selected:
         if previous is not None and index > previous + 1:
-            out.append(f"... {index - previous - 1} lines omitted ...")
-        out.append(lines[index])
+            out.append(ThinnedLine(f"... {index - previous - 1} lines omitted ...", None))
+        out.append(ThinnedLine(lines[index], index + 1))
         previous = index
-    return "\n".join(out)
+    return out
+
+
+def thin_log(text: str, config: ThinningConfig = FAILURE_THINNING) -> str:
+    """Text rendering of :func:`thin_log_lines` — kept lines joined, omission markers inline."""
+    return "\n".join(line.text for line in thin_log_lines(text, config))

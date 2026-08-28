@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod authorizer;
 pub mod avro_schema;
 pub mod config;
 pub mod endpoints;

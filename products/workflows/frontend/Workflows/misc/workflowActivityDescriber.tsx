@@ -14,6 +14,16 @@ const nameOrLinkToWorkflow = (id?: string | null, name?: string | null): string 
 
 type ArrayChangeItem = { id?: string; key?: string; name?: string; label?: string }
 
+// Activity-log values are only diffable per item when they really are arrays. `actions` is masked
+// server-side (the graph can carry secret function inputs), so those entries hold the string
+// 'masked' rather than a list. Returns null for anything undiffable, so callers can fall back.
+function asItemArray(value: unknown): ArrayChangeItem[] | null {
+    if (value == null) {
+        return []
+    }
+    return Array.isArray(value) ? (value as ArrayChangeItem[]) : null
+}
+
 function processArrayChanges<T extends ArrayChangeItem>(
     itemsBefore: T[],
     itemsAfter: T[],
@@ -97,7 +107,31 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
-    if (logItem.activity == 'updated') {
+    if (logItem.activity == 'revision_restored') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> restored a past version
+                    into the staged draft of the {objectNoun}:{' '}
+                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'draft_discarded') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> discarded the staged draft
+                    of the {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'updated' || logItem.activity == 'published') {
+        const verb = logItem.activity == 'published' ? 'published' : 'updated'
         const changes: JSX.Element[] = []
         for (const change of logItem.detail.changes ?? []) {
             switch (change.field) {
@@ -120,8 +154,12 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
                     break
                 }
                 case 'actions': {
-                    const actionsBefore = (change.before as any[]) || []
-                    const actionsAfter = (change.after as any[]) || []
+                    const actionsBefore = asItemArray(change.before)
+                    const actionsAfter = asItemArray(change.after)
+                    if (!actionsBefore || !actionsAfter) {
+                        changes.push(<>updated {change.field}</>)
+                        break
+                    }
                     changes.push(
                         ...processArrayChanges(
                             actionsBefore,
@@ -134,8 +172,12 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
                     break
                 }
                 case 'variables': {
-                    const variablesBefore = (change.before as any[]) || []
-                    const variablesAfter = (change.after as any[]) || []
+                    const variablesBefore = asItemArray(change.before)
+                    const variablesAfter = asItemArray(change.after)
+                    if (!variablesBefore || !variablesAfter) {
+                        changes.push(<>updated {change.field}</>)
+                        break
+                    }
                     changes.push(
                         ...processArrayChanges(
                             variablesBefore,
@@ -162,7 +204,7 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         return {
             description: (
                 <div>
-                    <strong className="ph-no-capture">{name}</strong> updated the {objectNoun}: {workflowName}
+                    <strong className="ph-no-capture">{name}</strong> {verb} the {objectNoun}: {workflowName}
                     <ul className="ml-5 list-disc">
                         {changes.map((c, i) => (
                             <li key={i}>{c}</li>

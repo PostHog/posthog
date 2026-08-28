@@ -2,6 +2,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import type { Hono } from 'hono'
 
 import { isLocalApi } from '@/lib/constants'
+import { corsHeadersForOAuthMetadata, oauthMetadataPreflightResponse } from '@/lib/oauth-metadata-cors'
 import { buildRedirectUrl, getPublicUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 
@@ -48,6 +49,11 @@ function readyzHandler(redis: RedisWithPing, lifecycle: Lifecycle) {
 // the client connected on, so we derive it from the request rather than
 // hard-coding the host.
 const wellKnownHandler = (c: HonoCtx): Response => {
+    const preflight = oauthMetadataPreflightResponse(c.req.raw)
+    if (preflight) {
+        return preflight
+    }
+
     const url = new URL(c.req.url)
     const resourcePath = url.pathname.slice(WELL_KNOWN_PREFIX.length) || '/'
     const resourceUrl = getPublicUrl(c.req.raw)
@@ -62,7 +68,7 @@ const wellKnownHandler = (c: HonoCtx): Response => {
             bearer_methods_supported: ['header'],
         },
         200,
-        { 'Cache-Control': 'public, max-age=3600' }
+        { 'Cache-Control': 'public, max-age=3600', ...corsHeadersForOAuthMetadata(c.req.raw) }
     )
 }
 

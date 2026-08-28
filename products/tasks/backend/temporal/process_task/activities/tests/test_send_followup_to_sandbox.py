@@ -3,9 +3,13 @@ import json
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
+    STEER_DECLINE_REASON_UNREPORTED,
     SendFollowupToSandboxInput,
     _get_stop_reason,
+    _steer_decline_reason,
     _write_turn_complete,
     send_followup_to_sandbox,
 )
@@ -22,6 +26,23 @@ class TestGetStopReason(BaseTest):
 
     def test_defaults_to_end_turn_when_result_is_not_a_dict(self):
         self.assertEqual(_get_stop_reason({"result": "ok"}), "end_turn")
+
+
+class TestSteerDeclineReason(BaseTest):
+    @parameterized.expand(
+        [
+            ("startup_turn", {"result": {"steered": False, "reason": "startup_turn"}}, "startup_turn"),
+            ("no_active_turn", {"result": {"steered": False, "reason": "no_active_turn"}}, "no_active_turn"),
+            ("adapter_rejected", {"result": {"steered": False, "reason": "adapter_rejected"}}, "adapter_rejected"),
+            ("older_sandbox_omits_reason", {"result": {"steered": False}}, STEER_DECLINE_REASON_UNREPORTED),
+            ("reason_outside_result", {"reason": "startup_turn"}, STEER_DECLINE_REASON_UNREPORTED),
+            ("result_is_not_a_dict", {"result": "steer_declined"}, STEER_DECLINE_REASON_UNREPORTED),
+            ("empty_reason", {"result": {"reason": ""}}, STEER_DECLINE_REASON_UNREPORTED),
+            ("no_data", None, STEER_DECLINE_REASON_UNREPORTED),
+        ]
+    )
+    def test_reads_reason_from_command_result(self, _name, data, expected):
+        self.assertEqual(_steer_decline_reason(data), expected)
 
 
 class TestWriteTurnComplete(BaseTest):
@@ -65,3 +86,62 @@ class TestSendFollowupToSandbox(BaseTest):
         payload = mock_conn.xadd.call_args.args[1]["data"]
         event = json.loads(payload)
         self.assertEqual(event["notification"]["params"]["stopReason"], "max_tokens")
+
+    # A bare mock would return a truthy value, which now reads as a rebind failure.
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp",
+        return_value=None,
+    )
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_tasks_stream_redis_sync"
+    )
+    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message")
+    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.TaskRun.objects")
+    def test_steer_skips_refresh_and_synthetic_turn_complete(
+        self,
+        mock_task_run_objects,
+        mock_send_user_message,
+        mock_get_tasks_stream_redis_sync,
+        mock_refresh_sandbox_mcp,
+    ):
+        task_run = MagicMock()
+        task_run.id = "run-123"
+        task_run.state = {"sandbox_id": "sandbox-123"}
+        task_run.task.created_by_id = 42
+        task_run.task.created_by = MagicMock(id=42)
+        mock_task_run_objects.select_related.return_value.get.return_value = task_run
+        mock_send_user_message.return_value = MagicMock(
+            success=True,
+            data={"result": {"stopReason": "steered", "steered": True}},
+        )
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_mcp_session_user",
+                return_value=42,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_sandbox_connection_token",
+                return_value=None,
+            ),
+        ):
+            send_followup_to_sandbox(
+                SendFollowupToSandboxInput(
+                    run_id="run-123",
+                    message="change direction",
+                    actor_user_id=42,
+                    steer=True,
+                )
+            )
+
+        mock_refresh_sandbox_mcp.assert_not_called()
+        mock_send_user_message.assert_called_once_with(
+            task_run,
+            "change direction",
+            artifacts=None,
+            auth_token=None,
+            timeout=1800,
+            message_id=None,
+            steer=True,
+        )
+        mock_get_tasks_stream_redis_sync.assert_not_called()

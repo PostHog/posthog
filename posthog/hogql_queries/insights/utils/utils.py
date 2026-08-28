@@ -14,16 +14,17 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.utils.query_date_range import compare_interval_length
+from posthog.interval_specs import get_trunc_func
 from posthog.models.team.team import Team, WeekStartDay
-from posthog.queries.util import get_trunc_func_ch
 
 
 def get_start_of_interval_hogql(interval: str, *, team: Team, source: Optional[ast.Expr] = None) -> ast.Expr:
-    trunc_func = get_trunc_func_ch(interval)
+    trunc_func = get_trunc_func(interval)
     trunc_func_args: list[ast.Expr] = [source] if source else [ast.Field(chain=["timestamp"])]
     if trunc_func == "toStartOfWeek":
         trunc_func_args.append(ast.Constant(value=int((WeekStartDay(team.week_start_day or 0)).clickhouse_mode)))
@@ -31,7 +32,7 @@ def get_start_of_interval_hogql(interval: str, *, team: Team, source: Optional[a
 
 
 def get_start_of_interval_hogql_str(interval: str, *, team: Team, source: str) -> str:
-    trunc_func = get_trunc_func_ch(interval)
+    trunc_func = get_trunc_func(interval)
     return f"{trunc_func}({source}{f', {int((WeekStartDay(team.week_start_day or 0)).clickhouse_mode)}' if trunc_func == 'toStartOfWeek' else ''})"
 
 
@@ -75,11 +76,18 @@ def get_response_hogql(
     team: Team,
     timings: HogQLTimings,
     modifiers: Optional[HogQLQueryModifiers] = None,
+    database: Optional[Database] = None,
 ) -> str:
     if len(queries) == 0:
         return ""
 
     response_hogql_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
 
+    # This only prints the query for the response payload — it never executes — and access to the
+    # underlying warehouse tables is already enforced on the insight's executed query. Bypass warehouse
+    # access control so building the printer's database doesn't fail closed in userless contexts.
+    # When the caller already built a database for the executed query, `database` reuses it here.
     with timings.measure("printing_hogql_for_response"):
-        return to_printed_hogql(response_hogql_query, team, modifiers)
+        return to_printed_hogql(
+            response_hogql_query, team, modifiers, bypass_warehouse_access_control=True, database=database
+        )

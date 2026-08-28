@@ -16,12 +16,12 @@ from posthog.models.integration import Integration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS
 from ee.tasks.subscriptions.slack_subscriptions import (
     MAX_SLACK_UPLOAD_BYTES,
-    SlackGalleryData,
+    SlackGallery,
     _block_for_asset,
     _prepare_slack_gallery,
     _prepare_slack_message,
@@ -625,7 +625,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
     def test_deliver_slack_gallery_uploads_files(self, MockSlackIntegration: MagicMock) -> None:
         mock_async = self._setup_async_mock(MockSlackIntegration)
         mock_async.files_upload_v2 = AsyncMock(return_value={"ok": True, "files": [{"id": "F1"}]})
-        gallery = SlackGalleryData(
+        gallery = SlackGallery(
             channel="C1",
             initial_comment="hi",
             file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
@@ -644,7 +644,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
     ) -> None:
         mock_async = self._setup_async_mock(MockSlackIntegration)
         mock_async.files_upload_v2 = AsyncMock(side_effect=[TimeoutError(), {"ok": True, "files": [{"id": "F1"}]}])
-        gallery = SlackGalleryData(
+        gallery = SlackGallery(
             channel="C1",
             initial_comment="hi",
             file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
@@ -659,7 +659,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         mock_async.files_upload_v2 = AsyncMock()
         mock_async.chat_postMessage.return_value = {"ts": "1.234"}
 
-        gallery = SlackGalleryData(channel="C1", initial_comment="hi", file_uploads=[])
+        gallery = SlackGallery(channel="C1", initial_comment="hi", file_uploads=[])
         result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
 
         mock_async.files_upload_v2.assert_not_awaited()
@@ -729,6 +729,22 @@ class TestSlackErrorTruncation(APIBaseTest):
         assert block["type"] == "section"
         text = block["text"]["text"]
         assert "*My Test subscription*" in text
+        assert ASSET_GENERATION_FAILED_MESSAGE in text
+
+    def test_block_for_asset_hides_out_of_memory_cause(self) -> None:
+        oom_error = (
+            "This query ran out of memory before it could finish, usually because it's scanning too "
+            "much data. Try a shorter date range or narrower filters."
+        )
+        asset = ExportedAsset.objects.create(
+            team=self.team, insight_id=self.insight.id, export_format="image/png", exception=oom_error
+        )
+
+        block = _block_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
+
+        text = block["text"]["text"]
+        assert "ran out of memory" not in text
+        assert "shorter date range" not in text
         assert ASSET_GENERATION_FAILED_MESSAGE in text
 
 

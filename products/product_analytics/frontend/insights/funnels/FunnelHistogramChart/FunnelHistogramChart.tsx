@@ -5,20 +5,18 @@ import { useMemo, type ErrorInfo } from 'react'
 import { BarChart, ValueLabels } from '@posthog/quill-charts'
 import type { BarChartConfig } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { hexToRGBA } from 'lib/utils/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-
 import { buildFunnelHistogramData } from './funnelHistogramTransforms'
 
 const CHART_CONFIG: BarChartConfig = {
     showGrid: true,
-    bars: { cornerRadius: 4 },
+    barCornerRadius: 4,
     yTickFormatter: (value) => humanFriendlyNumber(value),
     // Value labels already show bucket counts; tooltip would just duplicate them.
     tooltip: { enabled: false },
@@ -35,8 +33,7 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
 }
 
 export function FunnelHistogramChart(): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
     const { histogramGraphData, histogramGraphDataPrevious } = useValues(funnelDataLogic(insightProps))
     const { theme: dataColorTheme } = useValues(insightVizDataLogic(insightProps))
@@ -58,7 +55,7 @@ export function FunnelHistogramChart(): JSX.Element | null {
         [histogramGraphData, histogramGraphDataPrevious, currentColor]
     )
 
-    const config = useMemo<BarChartConfig>(
+    const config = useChartConfig<BarChartConfig>(
         () => (isComparing ? { ...CHART_CONFIG, barLayout: 'grouped' } : CHART_CONFIG),
         [isComparing]
     )

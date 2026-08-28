@@ -13,7 +13,6 @@ on:
         branches:
             - master
     pull_request:
-    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -32,14 +31,17 @@ jobs:
             llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -71,12 +73,13 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Install dependencies
               run: uv sync --frozen --dev
 
             - name: Run tests
+              id: run-tests
               env:
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -101,17 +104,21 @@ jobs:
         name: LLM Services Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: ${{ !cancelled() }}
+        # always(), not !cancelled(): a skipped required check is treated as a pass by
+        # branch protection, so on cancellation the gate must run and emit an explicit
+        # result rather than skip into a green. A cancelled or timed-out job is caught
+        # by the != success && != skipped checks below; a legitimate no-change skip passes.
+        if: always()
         steps:
             - name: Check outcomes
               run: |
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.llm-gateway.result }}" == "failure" ]]; then
-                    echo "LLM Gateway tests failed."
+                  if [[ "${{ needs.llm-gateway.result }}" != "success" && "${{ needs.llm-gateway.result }}" != "skipped" ]]; then
+                    echo "LLM Gateway tests did not succeed (result: ${{ needs.llm-gateway.result }})."
                     exit 1
                   fi
 

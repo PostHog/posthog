@@ -26,12 +26,24 @@ DEFAULT_USER_COST_LIMIT = UserCostLimit(
 
 DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "llm_gateway": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
-    "wizard": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
+    "ci": ProductCostLimit(limit_usd=1000.0, window_seconds=2592000),  # $1000 / 30 days
+    "wizard": ProductCostLimit(limit_usd=10000.0, window_seconds=86400),
     "posthog_code": ProductCostLimit(limit_usd=5000.0, window_seconds=3600),
     "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
+    "onboarding": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
     "django": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
+    "custom_image_scans": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
     "signals": ProductCostLimit(limit_usd=25000.0, window_seconds=86400),
+    # Signals runs a customer started by hand (Inbox "Create PR" / "Discuss", scout chat).
+    # Held apart from the scheduled pipeline's pool so a customer burning this budget can't
+    # stall scouts and report research for every other customer.
+    "signals_interactive": ProductCostLimit(limit_usd=10000.0, window_seconds=86400),
     "posthog_ai": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
+    "changelog_bot": ProductCostLimit(limit_usd=500.0, window_seconds=86400),
+    # Path-cleaning suggestions: haiku-only, a few short calls per team per week. The product is
+    # unbilled and reachable with any feature-gated llm_gateway:read key, so a tight cap bounds
+    # abuse of the shared budget rather than real usage.
+    "web_analytics": ProductCostLimit(limit_usd=100.0, window_seconds=86400),
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
@@ -40,12 +52,6 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         burst_window_seconds=2592000,  # 30 days
         sustained_limit_usd=100.0,
         sustained_window_seconds=2592000,  # 30 days
-    ),
-    "posthog_code": UserCostLimit(
-        burst_limit_usd=500.0,
-        burst_window_seconds=86400,
-        sustained_limit_usd=3000.0,
-        sustained_window_seconds=2592000,
     ),
     "background_agents": UserCostLimit(
         burst_limit_usd=500.0,
@@ -59,15 +65,37 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         sustained_limit_usd=10000.0,
         sustained_window_seconds=2592000,
     ),
+    # The Inbox CTAs and scout chat. Sized for one person's hands-on use, not for the
+    # scheduled pipeline: the `signals` limit above has to cover fleet-wide scout and research
+    # work for a whole team, so a surface a person drives one run at a time needs far less.
+    "signals_interactive": UserCostLimit(
+        burst_limit_usd=250.0,
+        burst_window_seconds=604800,
+        sustained_limit_usd=750.0,
+        sustained_window_seconds=2592000,
+    ),
+    # Nobody is billed for onboarding (credit_bucket=None), so this bounds blast radius rather than
+    # spend: the route's server-credential marker proves a token was minted server-side, not that it
+    # belongs to a wizard run, and INTERNAL_SCOPES in posthog/temporal/oauth.py grants that marker to
+    # every task run. Sized to stay clear of real onboarding rather than to be tight, since cutting a
+    # user off mid-setup is worse than the unbilled spend: half of DEFAULT_USER_COST_LIMIT, and well
+    # under the comparable agentic product (background_agents, $500/week burst). Staff bypass this
+    # entirely via is_usage_unlimited, so internal runs are never capped by it.
+    "onboarding": UserCostLimit(
+        burst_limit_usd=50.0,
+        burst_window_seconds=86400,
+        sustained_limit_usd=500.0,
+        sustained_window_seconds=2592000,
+    ),
 }
 
-FREE_PLAN_COST_LIMIT = UserCostLimit(
-    burst_limit_usd=75.0,
-    burst_window_seconds=86400,
-    sustained_limit_usd=75.0,
-    sustained_window_seconds=2592000,
-)
-
+# Per-sandbox-run ceilings, keyed the same way as the cost limits above. Opt-in: a key with no
+# entry has no per-run ceiling, so adding one here is the only way a product gains one. The
+# window is a floor on how long a single run's spend is remembered, not a refill schedule —
+# runs are far shorter than this, so in practice each task gets one budget for its lifetime.
+DEFAULT_SANDBOX_TASK_COST_LIMITS: dict[str, "ProductCostLimit"] = {
+    "signals_interactive": ProductCostLimit(limit_usd=50.0, window_seconds=604800),
+}
 
 _COST_LIMIT_KEY_ALIASES: dict[str, str] = {
     "array": "posthog_code",
@@ -140,6 +168,20 @@ class Settings(BaseSettings):
     fireworks_api_key: str | None = None
     cloudflare_api_key: str | None = None
     cloudflare_account_id: str | None = None
+    baseten_api_base: str | None = None
+    baseten_api_key: str | None = None
+
+    # Modal-hosted GLM inference (OpenAI-compatible vLLM endpoint); auth is a proxy-token pair
+    # sent as Modal-Key/Modal-Secret headers. All three must be set for Modal routing.
+    modal_api_base: str | None = None
+    modal_kimi_api_base: str | None = None
+    modal_key: str | None = None
+    modal_secret: str | None = None
+
+    # User-sticky fraction (0..1) of GLM traffic served by Modal; per-product entries override the
+    # global value. The tasks-glm-modal-inference flag ORs with this.
+    glm_modal_traffic_fraction: float = 0.0
+    glm_modal_product_traffic_fractions: dict[str, float] = {}
 
     # Project token for AI observability events
     posthog_project_token: str | None = None
@@ -149,6 +191,10 @@ class Settings(BaseSettings):
     # so the EU deployment lands EU events on EU PostHog (team_id=1) for regional billing.
     posthog_secondary_project_token: str | None = None
     posthog_secondary_host: str | None = None
+
+    # Set false on local dev stacks whose ingestion-ai forwarder rejects AI-lane batches
+    # (401 on /batch/, events silently dropped) — capture falls back to the standard lane.
+    posthog_ai_lane_capture: bool = True
 
     metrics_enabled: bool = True
 
@@ -164,15 +210,40 @@ class Settings(BaseSettings):
     # Combined with the team multiplier by taking the larger of the two.
     staff_rate_limit_multiplier: int = 10
 
+    # When true, PostHog staff (authenticated is_staff) bypass the per-user
+    # burst/sustained cost caps entirely, on every product. Spend is still
+    # recorded for observability — only enforcement and the reported usage
+    # status treat staff as unlimited. Set false to fall back to the
+    # elevated-but-finite `staff_rate_limit_multiplier` cap.
+    staff_unlimited_usage: bool = True
+
     product_cost_limits: dict[str, ProductCostLimit] = DEFAULT_PRODUCT_COST_LIMITS
 
     user_cost_limits: dict[str, UserCostLimit] = DEFAULT_USER_COST_LIMITS
     user_cost_limits_disabled: bool = False
 
+    # Per-sandbox-run ceiling, keyed on the task the token was minted for. Product and user
+    # budgets are windowed, so neither bounds one runaway conversation inside its window.
+    sandbox_task_cost_limits: dict[str, ProductCostLimit] = DEFAULT_SANDBOX_TASK_COST_LIMITS
+    sandbox_task_cost_limits_disabled: bool = False
+
+    posthog_code_free_tier_models: list[str] = [
+        "@cf/zai-org/glm-5.2",
+        "deepseek-ai/deepseek-v4-flash-0731",
+        "moonshotai/kimi-k3",
+    ]
+
     default_fallback_cost_usd: float = 0.01
 
     posthog_api_base_url: str = "https://us.posthog.com"
     plan_cache_ttl: int = 900  # 15 minutes
+
+    desktop_access_gate_enabled: bool = True
+    desktop_access_cache_ttl: int = 60
+    desktop_access_denied_cache_ttl: int = 30
+    desktop_access_request_timeout: float = 6.0
+    desktop_access_max_connections: int = 10
+
     # Billing recomputes quota at most hourly, so we tolerate slight overage rather than
     # a Django roundtrip on every billable request.
     quota_cache_ttl: int = 300  # 5 minutes
@@ -192,10 +263,47 @@ class Settings(BaseSettings):
     def parse_product_cost_limits(cls, v: str | dict | None) -> dict[str, ProductCostLimit]:
         return _parse_model_dict(v, ProductCostLimit, DEFAULT_PRODUCT_COST_LIMITS, "product_cost_limits")
 
+    @field_validator("sandbox_task_cost_limits", mode="before")
+    @classmethod
+    def parse_sandbox_task_cost_limits(cls, v: str | dict | None) -> dict[str, ProductCostLimit]:
+        return _parse_model_dict(v, ProductCostLimit, DEFAULT_SANDBOX_TASK_COST_LIMITS, "sandbox_task_cost_limits")
+
     @field_validator("user_cost_limits", mode="before")
     @classmethod
     def parse_user_cost_limits(cls, v: str | dict | None) -> dict[str, UserCostLimit]:
         return _parse_model_dict(v, UserCostLimit, DEFAULT_USER_COST_LIMITS, "user_cost_limits")
+
+    @field_validator("glm_modal_traffic_fraction")
+    @classmethod
+    def validate_glm_modal_traffic_fraction(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"glm_modal_traffic_fraction must be between 0 and 1, got {v}")
+        return v
+
+    @field_validator("glm_modal_product_traffic_fractions", mode="before")
+    @classmethod
+    def parse_glm_modal_product_traffic_fractions(cls, v: str | dict[str, float] | None) -> dict[str, float]:
+        if v is None or v == "":
+            return {}
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON in glm_modal_product_traffic_fractions: {e}") from e
+        if not isinstance(v, dict):
+            raise ValueError("glm_modal_product_traffic_fractions must be a JSON object")
+        result: dict[str, float] = {}
+        for product, fraction in v.items():
+            try:
+                value = float(fraction)
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"glm_modal_product_traffic_fractions values must be numbers: {e}") from e
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(
+                    f"glm_modal_product_traffic_fractions values must be between 0 and 1, got {value} for {product}"
+                )
+            result[_normalize_cost_key(str(product))] = value
+        return result
 
     @field_validator("staff_rate_limit_multiplier")
     @classmethod

@@ -1,0 +1,7 @@
+version: 1
+owners: []
+rules:
+    - match: ['/api/proxy.py', '/api/test/test_proxy.py']
+      owners: team-ai-gateway
+    - match: '/models/llm_prompt.py'
+      owners: [team-ai-observability, team-experiments]

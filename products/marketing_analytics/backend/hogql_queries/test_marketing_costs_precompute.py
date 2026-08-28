@@ -7,6 +7,8 @@ from unittest.mock import Mock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel, MarketingAnalyticsTableQuery
 
 from posthog.hogql import ast
@@ -28,7 +30,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.google_ads impo
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_marketing_costs"
 
@@ -148,15 +150,23 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
         # cost_date is a real per-day date (not the sentinel empty), enabling daily-window caching.
         assert all(r[self._col(cols, "cost_date")] is not None for r in rows)
 
-    def test_native_read_takes_latest_job_per_cell_not_sum(self):
+    @parameterized.expand(
+        [
+            ("stale_and_matured_job", "c1", "c1"),
+            # match_key is re-derived per job from the team's campaign_field_preferences, so a preference
+            # flip writes the same real cell under two match_key values; the view must still collapse them.
+            ("campaign_field_preference_flip", "Camp 1", "c1"),
+        ]
+    )
+    def test_native_read_takes_latest_job_per_cell_not_sum(self, _name, match_key_old, match_key_new):
         # The same (campaign, day) cell materialized under two job_ids — a stale value and a matured one.
-        # job_id is in the ReplacingMergeTree sort key, so both rows survive; the read must return the
-        # latest-computed value (argMax), not their sum, even when both job_ids are read together.
+        # job_id is in the raw ReplacingMergeTree sort key, so both rows survive. The read filters by
+        # source (not job_id) and goes through the `marketing_costs_precomputed` view, which must collapse the cell to
+        # its latest-computed value (argMax), not sum the two rows.
         cell = {
             "source_id": "google_test",
             "source_name": "google",
             "grain": "campaign",
-            "match_key": "c1",
             "campaign_id": "c1",
             "campaign_name": "Camp 1",
             "cost_date": date(2023, 1, 15),
@@ -169,7 +179,7 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
                 cell["source_id"],
                 cell["source_name"],
                 cell["grain"],
-                cell["match_key"],
+                match_key,
                 cell["campaign_id"],
                 cell["campaign_name"],
                 "",
@@ -185,9 +195,9 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
                 computed_at,
                 date(2099, 1, 1),
             )
-            for job, cost, computed_at in (
-                (job_old, 100.0, datetime(2023, 1, 15, 10, 0)),
-                (job_new, 150.0, datetime(2023, 1, 16, 10, 0)),
+            for job, match_key, cost, computed_at in (
+                (job_old, match_key_old, 100.0, datetime(2023, 1, 15, 10, 0)),
+                (job_new, match_key_new, 150.0, datetime(2023, 1, 16, 10, 0)),
             )
         ]
         sync_execute(
@@ -204,13 +214,98 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
             team=self.team,
         )
         read = runner._costs_native_read_query(
-            [job_old, job_new],
+            [cell["source_id"]],
             MarketingAnalyticsDrillDownLevel.CAMPAIGN,
             QueryDateRange(date_range=date_range, team=self.team, interval=None, now=datetime(2025, 1, 1)),
         )
         result_rows, result_cols = self._execute(read)
         total_cost = sum(float(r[self._col(result_cols, MarketingSourceAdapter.cost_field)]) for r in result_rows)
         assert total_cost == 150.0, f"expected latest job cost 150 (argMax), got {total_cost} (sum would be 250)"
+
+    @parameterized.expand(
+        [
+            ("match_key", "Camp 1", "c1", False, 150.0, 1),
+            ("campaign_name", "Old Name", "New Name", False, 300.0, 2),
+            ("campaign_name", "Old Name", "New Name", True, 150.0, 1),
+        ]
+    )
+    def test_native_read_dedups_when_label_changes_across_jobs(
+        self, label_column, pre_value, post_value, dedup_v2, expected_cost, expected_rows
+    ):
+        base = {
+            "source_id": "google_test",
+            "source_name": "google",
+            "grain": "campaign",
+            "match_key": "c1",
+            "campaign_id": "c1",
+            "campaign_name": "Camp 1",
+            "cost_date": date(2023, 1, 15),
+        }
+
+        def row(job_id, computed_at, **overrides):
+            cell = {**base, **overrides}
+            return (
+                self.team.pk,
+                job_id,
+                cell["source_id"],
+                cell["source_name"],
+                cell["grain"],
+                cell["match_key"],
+                cell["campaign_id"],
+                cell["campaign_name"],
+                "",
+                "",
+                "",
+                "",
+                cell["cost_date"],
+                150.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                computed_at,
+                date(2099, 1, 1),
+            )
+
+        rows = [
+            row(str(uuid.uuid4()), datetime(2023, 1, 16, 10, 0), **{label_column: pre_value}),
+            row(str(uuid.uuid4()), datetime(2023, 1, 17, 10, 0), **{label_column: post_value}),
+        ]
+        sync_execute(
+            f"INSERT INTO {DISTRIBUTED_MARKETING_COSTS_TABLE()} "
+            "(team_id, job_id, source_id, source_name, grain, match_key, campaign_id, campaign_name, "
+            "ad_group_id, ad_group_name, ad_id, ad_name, cost_date, cost, clicks, impressions, "
+            "reported_conversions, reported_conversion_value, computed_at, expires_at) VALUES",
+            rows,
+        )
+
+        date_range = DateRange(date_from="2023-01-01", date_to="2023-01-31")
+        runner = MarketingAnalyticsTableQueryRunner(
+            query=MarketingAnalyticsTableQuery(dateRange=date_range, limit=100, offset=0, properties=[]),
+            team=self.team,
+        )
+        self.team._ma_costs_dedup_v2 = dedup_v2  # type: ignore[attr-defined]
+        read = runner._costs_native_read_query(
+            [base["source_id"]],
+            MarketingAnalyticsDrillDownLevel.CAMPAIGN,
+            QueryDateRange(date_range=date_range, team=self.team, interval=None, now=datetime(2025, 1, 1)),
+        )
+        result_rows, result_cols = self._execute(read)
+
+        total_cost = sum(float(r[self._col(result_cols, MarketingSourceAdapter.cost_field)]) for r in result_rows)
+        assert total_cost == expected_cost, (
+            f"{label_column} changing across jobs with dedup_v2={dedup_v2}: expected {expected_cost}, got {total_cost}"
+        )
+        assert len(result_rows) == expected_rows, f"expected {expected_rows} row(s), got {len(result_rows)}"
+
+        if expected_rows == 1:
+            output_alias = {
+                "match_key": MarketingSourceAdapter.match_key_field,
+                "campaign_name": MarketingSourceAdapter.campaign_name_field,
+            }[label_column]
+            assert result_rows[0][self._col(result_cols, output_alias)] == post_value, (
+                f"deduped row should carry the latest {label_column} '{post_value}', not the stale '{pre_value}'"
+            )
 
     def test_one_unmaterializable_source_does_not_force_all_to_s3(self):
         # One source materializes, one can't. The result must read the native table for the materialized
@@ -247,7 +342,7 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
             patch.object(MarketingSourceFactory, "create_adapters", lambda self: [good, bad]),
             patch.object(MarketingSourceFactory, "get_valid_adapters", lambda self, adapters: adapters),
             patch(
-                "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner.ensure_precomputed",
+                "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner.marketing_ensure_precomputed",
                 return_value=ready,
             ),
         ):
@@ -255,5 +350,5 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
 
         assert result is not None, "one unmaterializable source must not force every source back to S3"
         hogql = result.to_hogql()
-        assert "marketing_costs_preaggregated" in hogql, "materialized source should read the native table"
+        assert "marketing_costs_precomputed" in hogql, "materialized source should read the deduplicated view"
         assert "live_s3_marker" in hogql, "unmaterializable source should stay on the live S3 union"

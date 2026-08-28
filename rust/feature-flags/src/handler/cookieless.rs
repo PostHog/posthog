@@ -13,10 +13,11 @@ pub async fn handle_distinct_id(
 ) -> Result<String, FlagError> {
     let event_data = EventData {
         ip: &context.ip.to_string(),
-        timestamp_ms: context
-            .meta
-            .sent_at
-            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()) as u64,
+        timestamp_ms: request
+            .resolve_sent_at(context.meta.sent_at)
+            .unwrap_or_else(|| {
+                u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or_default()
+            }),
         host: context
             .headers
             .get(ORIGIN)

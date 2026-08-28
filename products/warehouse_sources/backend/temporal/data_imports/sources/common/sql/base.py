@@ -27,10 +27,6 @@ from typing import TYPE_CHECKING, Any, Generic
 import structlog
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -44,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     sql_schema_metadata,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import prune_enabled_columns
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -60,6 +57,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     """
 
     supports_column_selection: bool = True
+    supports_row_filters: bool = True
 
     @property
     @abstractmethod
@@ -99,11 +97,13 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     def _default_primary_key_from_columns(self, columns: list[tuple[str, str, bool]]) -> list[str] | None:
         """Fallback: use `id` when the driver didn't detect a PK but one is present.
 
-        Mirrors what every SQL source has always done just before building
-        a `SourceSchema`.
+        Mirrors what every SQL source has always done just before building a `SourceSchema`.
+        Matched case-insensitively (Snowflake uppercases unquoted identifiers) but the column's
+        actual stored casing is returned, because the merge indexes batches by the real name.
         """
-        if any(col[0] == "id" for col in columns):
-            return ["id"]
+        id_column = next((col[0] for col in columns if col[0].lower() == "id"), None)
+        if id_column is not None:
+            return [id_column]
         return None
 
     def get_schemas(
@@ -113,6 +113,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         impl = self.get_implementation
         with impl.connect(config) as conn:
@@ -199,17 +200,17 @@ def reconcile_source_schema_metadata(
         existing_config["schema_metadata"] = new_metadata
 
         available_names = extract_available_column_names(new_metadata)
-        pruned_enabled_columns, removed_columns = prune_enabled_columns(row.enabled_columns, available_names)
+        pruned = prune_enabled_columns(row.enabled_columns, available_names)
         update_fields = ["sync_type_config", "updated_at"]
-        if removed_columns:
+        if pruned.removed:
             log.info(
                 "sql_source.reconcile_schema_metadata.pruned_enabled_columns",
                 source_id=str(source.id),
                 schema_id=str(row.id),
                 schema_name=row.name,
-                removed_columns=removed_columns,
+                removed_columns=pruned.removed,
             )
-            row.enabled_columns = pruned_enabled_columns
+            row.enabled_columns = pruned.kept
             update_fields.append("enabled_columns")
 
         row.sync_type_config = existing_config

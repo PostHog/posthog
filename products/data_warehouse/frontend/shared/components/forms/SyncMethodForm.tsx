@@ -2,7 +2,6 @@ import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -52,7 +51,8 @@ const getIncrementalSyncSupported = (
     if (schema.incremental_fields.length === 0) {
         return {
             disabled: true,
-            disabledReason: 'No incremental fields found on table',
+            disabledReason:
+                'Incremental replication needs a timestamp, date, or auto-incrementing numeric column to track new rows, and none was found on this table',
         }
     }
 
@@ -74,7 +74,8 @@ const getAppendOnlySyncSupported = (
     if (schema.incremental_fields.length === 0) {
         return {
             disabled: true,
-            disabledReason: 'No incremental fields found on table',
+            disabledReason:
+                'Append only replication needs a timestamp, date, or auto-incrementing numeric column to track new rows, and none was found on this table',
         }
     }
 
@@ -124,9 +125,9 @@ const getCdcSyncSupported = (
     }
 }
 
-// xmin is offered only when the source advertises it for the table and the gating flag is on.
-export const shouldOfferXmin = (schema: ExternalDataSourceSyncSchema, xminFlagEnabled: boolean): boolean =>
-    !schema.webhook_only && xminFlagEnabled && !!schema.xmin_available
+// xmin is offered only when the source advertises it for the table.
+export const shouldOfferXmin = (schema: ExternalDataSourceSyncSchema): boolean =>
+    !schema.webhook_only && !!schema.xmin_available
 
 const getSaveDisabledReason = (
     syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | undefined,
@@ -188,7 +189,6 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     },
     ref
 ): JSX.Element {
-    const xminFlagEnabled = useFeatureFlag('DWH_POSTGRES_XMIN')
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
@@ -203,9 +203,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     )
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(defaultField)
     const [appendFieldValue, setAppendFieldValue] = useState(defaultField)
-    // Prefill detected PKs only when the selector is editable. For locked schemas
-    // (already synced) the backend rejects any PK diff, so prefilling from detected
-    // would silently turn unrelated edits into "Primary key cannot be changed" errors.
+    // Prefill detected PKs only when the selector is editable. A locked schema already has a key
+    // the backend refuses to swap, so prefilling from detected would silently turn unrelated edits
+    // into "Primary key cannot be changed" errors.
     const [primaryKeyColumns, setPrimaryKeyColumns] = useState<string[]>(
         schema.primary_key_columns ?? (primaryKeyLocked ? [] : (resolvedDetectedPks ?? []))
     )
@@ -331,7 +331,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         })
     }
 
-    if (shouldOfferXmin(schema, xminFlagEnabled)) {
+    if (shouldOfferXmin(schema)) {
         radioOptions.push({
             value: 'xmin',
             label: (

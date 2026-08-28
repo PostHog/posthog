@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import * as hogpatchPng from '@posthog/brand/hoggies/png/hogpatch'
 import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, LemonSelect, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { ClimberHog1, ClimberHog2, YCHog } from 'lib/components/hedgehogs'
+import { ClimberHog1, ClimberHog2 } from 'lib/components/hedgehogs'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
@@ -21,6 +23,8 @@ import { BillingProductV2Type, StartupProgramLabel } from '~/types'
 
 import { RAISED_OPTIONS } from './constants'
 import { StartupProgramLogicProps, startupProgramLogic } from './startupProgramLogic'
+
+const HedgehogHogpatch = pngHoggie(hogpatchPng)
 
 const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
 
@@ -58,13 +62,16 @@ export function StartupProgram(): JSX.Element {
         isCurrentlyOnStartupPlan,
         wasPreviouslyOnStartupPlan,
         isAdminOrOwner,
+        isAnnualPlanCustomer,
         isYC,
         isReferralProgram,
         referrerDisplayName,
+        shouldShowEmailDomainBlockedGate,
+        user,
         ycBatchOptions,
         currentStartupProgramLabel,
     } = useValues(startupProgramLogic)
-    const { billing, billingLoading, isAnnualPlanCustomer, accountOwner } = useValues(billingLogic)
+    const { billing, billingLoading, accountOwner } = useValues(billingLogic)
     const { setStartupProgramValue } = useActions(startupProgramLogic)
 
     const currentProgramName = currentStartupProgramLabel === StartupProgramLabel.YC ? 'YC Program' : 'Startup Program'
@@ -93,7 +100,7 @@ export function StartupProgram(): JSX.Element {
                     {currentStartupProgramLabel === StartupProgramLabel.YC && (
                         <p>
                             Your credits will renew automatically{' '}
-                            <span className="font-semibold">every year, forever.</span>
+                            <span className="font-semibold">every year, forever</span>, until you hit $25M in funding.
                         </p>
                     )}
                     <p>If you have any questions, please contact our support team.</p>
@@ -167,7 +174,7 @@ export function StartupProgram(): JSX.Element {
                     <div className="flex flex-col items-center mt-8">
                         <div className="px-4 w-full max-w-100 mb-4">
                             <div className="relative">
-                                <YCHog className="h-auto w-full" />
+                                <HedgehogHogpatch className="h-auto w-full" />
                             </div>
                         </div>
                         <div className="text-center">
@@ -176,7 +183,8 @@ export function StartupProgram(): JSX.Element {
                             </h1>
                             <p className="text-sm sm:text-base text-muted">
                                 Get $50,000 in credits <span className="font-semibold">every. year. forever.</span>{' '}
-                                (plus extras you'll actually use) to help you get to product-market fit.
+                                (plus extras you'll actually use) to help you get to product-market fit. You'll keep
+                                getting them until you hit $25M in funding.
                             </p>
                         </div>
                     </div>
@@ -302,8 +310,9 @@ export function StartupProgram(): JSX.Element {
                             <div className="text-xs text-muted space-y-1">
                                 <div className="flex gap-1">
                                     <span className="text-xxs align-super">1</span>
-                                    Credits renew automatically each year. If you've previously been in the program and
-                                    your credits expired, you can reapply and continue getting $50,000 annually.
+                                    Credits renew automatically each year until you hit $25M in funding. If you've
+                                    previously been in the program and your credits expired, you can reapply and
+                                    continue getting $50,000 annually.
                                 </div>
                                 <div className="flex gap-1">
                                     <span className="text-xxs align-super">2</span>
@@ -326,7 +335,8 @@ export function StartupProgram(): JSX.Element {
                             {currentStartupProgramLabel === StartupProgramLabel.YC ? (
                                 <p>
                                     Your credits will renew automatically{' '}
-                                    <span className="font-semibold">every year, forever.</span>
+                                    <span className="font-semibold">every year, forever</span>, until you hit $25M in
+                                    funding.
                                 </p>
                             ) : (
                                 <p>
@@ -407,6 +417,21 @@ export function StartupProgram(): JSX.Element {
                                             Return to PostHog
                                         </LemonButton>
                                     </div>
+                                ) : shouldShowEmailDomainBlockedGate ? (
+                                    <LemonBanner type="warning">
+                                        <h3 className="mb-2">A company email is required</h3>
+                                        <p>
+                                            You're signed in as {user?.email}, which uses a personal email domain. The
+                                            startup program requires a company email address.
+                                        </p>
+                                        <p>
+                                            Change your account email in settings and verify it, then come back to
+                                            apply.
+                                        </p>
+                                        <LemonButton type="primary" to={urls.settings('user')} className="mt-2">
+                                            Update your email
+                                        </LemonButton>
+                                    </LemonBanner>
                                 ) : (
                                     <Form
                                         logic={startupProgramLogic}
@@ -472,6 +497,43 @@ export function StartupProgram(): JSX.Element {
 
                                         {isYC && (
                                             <>
+                                                <LemonField
+                                                    name="yc_verification_url"
+                                                    label="Your YC verification link"
+                                                    info={
+                                                        <span>
+                                                            See{' '}
+                                                            <Link
+                                                                target="_blank"
+                                                                to="https://www.ycombinator.com/verify"
+                                                            >
+                                                                YC's verification docs
+                                                            </Link>{' '}
+                                                            for how verification links work. We check your link when you
+                                                            submit the application.
+                                                        </span>
+                                                    }
+                                                    help={
+                                                        <span>
+                                                            Create a verification link at{' '}
+                                                            <Link
+                                                                target="_blank"
+                                                                to="https://www.ycombinator.com/verify/manage"
+                                                            >
+                                                                ycombinator.com/verify/manage
+                                                            </Link>{' '}
+                                                            with your company details and batch visible, so we can
+                                                            verify you automatically. Phone number, personal email, and
+                                                            social profiles can be left off.
+                                                        </span>
+                                                    }
+                                                >
+                                                    <LemonInput
+                                                        placeholder="https://www.ycombinator.com/verify/your-unique-code"
+                                                        className="bg-bg-light"
+                                                    />
+                                                </LemonField>
+
                                                 <LemonField name="yc_batch" label="Which YC batch are you?">
                                                     <LemonSelect options={ycBatchOptions} className="bg-bg-light" />
                                                 </LemonField>

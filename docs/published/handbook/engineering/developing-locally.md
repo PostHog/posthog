@@ -62,6 +62,10 @@ This is the recommended option for most developers.
 
 ### Prerequisites
 
+**GitHub access.**
+Before your first push, set up an [SSH key and commit signing](https://posthog.com/handbook/engineering/security#github) using Secretive or 1Password.
+Signing is required: an org-wide ruleset rejects unsigned commits in every PostHog repository, so an unsigned push fails with `GH013: Commits must have verified signatures`.
+
 #### macOS
 
 1. Install Xcode Command Line Tools if you haven't already: `xcode-select --install`.
@@ -190,6 +194,8 @@ This starts all services in the background and returns once the IPC socket is bo
 
 - `hogli wait` – blocks until all services are ready (useful in scripts)
 - `hogli down` – gracefully stops the detached stack (`hogli stop` is also available as an equivalent)
+- `hogli docker:services:down` – stops the docker compose containers, which keep running after `hogli down` or quitting phrocs (the compose stack is shared across worktrees)
+- `hogli docker:services:remove` – like `docker:services:down`, but also wipes all docker volumes (postgres, clickhouse, and the rest of the stack's data)
 
 ### Manual setup
 
@@ -210,6 +216,33 @@ If you see `Error while fetching server API version: 500 Server Error for http+d
 
 **GeoLite database missing**
 The feature-flags container needs the GeoLite database in `/share`. If it's missing, run `./bin/download-mmdb` and then `chmod 0755 ./share/GeoLite2-City.mmdb`.
+
+**Local ClickHouse suddenly empty (July 2026 named-volume switch)**
+ClickHouse and ZooKeeper store their data in named docker volumes (`clickhouse-data`, `zookeeper-data`), so their state survives container recreation.
+The first `hogli start` after updating past the July 2026 switch to named volumes would otherwise recreate both containers with fresh volumes (the data previously lived in anonymous volumes that container recreation discards).
+`hogli start` runs `hogli doctor:migrate-volumes` before bringing the stack up, which salvages the old anonymous volumes into the new named ones automatically whenever it can prove the mapping is unambiguous — no action needed, and it's a no-op on every subsequent start once migrated.
+
+If it prints a warning instead of migrating (an ambiguous or missing old container — for example two clickhouse containers left over under this same compose project, or the old container already removed by a prior cleanup), it deliberately didn't guess, and local ClickHouse data resets once instead.
+Run `hogli migrations:run` to recreate the ClickHouse schema, or `hogli dev:reset` for a full wipe plus demo data.
+The old anonymous volumes are left dangling in that case; reclaim the disk space with `docker volume prune` (check first with `docker volume ls -f dangling=true`) once you're done, or salvage them manually if you still need that data:
+
+Stop the stack (`hogli docker:services:down`), then identify the old volumes by peeking inside each dangling candidate:
+
+```bash
+docker volume ls -qf dangling=true
+docker run --rm -v <volume>:/v alpine ls /v
+```
+
+The ClickHouse volume contains `store` and `metadata`; the ZooKeeper snapshot volume has `version-2/snapshot.*`; the ZooKeeper transaction-log volume has `version-2/log.*`.
+Copy each old volume into its named replacement. The `posthog_` prefix below is the compose project name (`$COMPOSE_PROJECT_NAME`, `posthog` by default); substitute yours if you've overridden it:
+
+```bash
+docker run --rm -v <old-clickhouse-volume>:/from:ro -v posthog_clickhouse-data:/to alpine sh -c 'rm -rf /to/* && cp -a /from/. /to/'
+```
+
+Repeat for `posthog_zookeeper-data` (snapshots) and `posthog_zookeeper-datalog` (transaction logs).
+ClickHouse and ZooKeeper state must move together — restoring only one side breaks every replicated table with "replica already exists" errors.
+Then start the stack again with `hogli up`.
 
 **ClickHouse "get_mempolicy" warning**
 You might see `get_mempolicy: Operation not permitted` in the ClickHouse logs. This is harmless and can be ignored. To verify ClickHouse started properly, run `docker exec -it posthog-clickhouse-1 bash` then `clickhouse-client --query "SELECT 1"`.
@@ -344,6 +377,10 @@ This command automatically turns any feature flag ending in `_EXPERIMENT` as a m
 Backend side flags are automatically configured in DEBUG mode using the
 dev API key created by `manage.py setup_local_api_key`.
 If you need to override the key, set the `POSTHOG_PERSONAL_API_KEY` env var.
+
+That dev key's full value is also shown in [Settings > Personal API keys](http://localhost:8010/settings/user-api-keys), so you can copy it without rerunning the command.
+This needs `DEBUG=1` and `ALLOW_DEV_API_KEY_REVEAL=1`, both of which are already set in `.env.development`.
+No other personal API key is ever shown in full: the dev key is the only one whose value is a repo constant rather than a hash.
 
 ## Extra: Debugging with VS Code
 

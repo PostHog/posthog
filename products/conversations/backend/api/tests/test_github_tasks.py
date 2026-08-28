@@ -104,6 +104,8 @@ class TestProcessGithubEvent(BaseTest):
         assert ticket.channel_source == "github"
         assert ticket.channel_detail == "github_issue"
         assert ticket.status == Status.NEW
+        # Created from a signature-validated GitHub webhook — platform-attested.
+        assert ticket.identity_verified is True
 
         comment = Comment.objects.get(team=self.team, item_id=str(ticket.id))
         assert comment.content is not None

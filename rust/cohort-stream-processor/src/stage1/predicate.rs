@@ -8,17 +8,16 @@ use crate::stage1::compressed_history::compressed_sum;
 use crate::stage1::pick_state::PredicateOp;
 use crate::stage1::state::Stage1State;
 
-/// Whether `state` currently satisfies its leaf predicate, for the **op-less** variants
-/// (`BehavioralSingle`, `PersonProperty`). The bucket variants carry a count comparator and must be
-/// evaluated via [`daily_predicate`] / [`compressed_predicate`] with their leaf's [`PredicateOp`] —
-/// every real caller already does (the worker's `mutate_behavioral_daily` and the sweep call those
-/// directly). Reaching a bucket variant here is a dispatch desync: the `LeafStateKey` pins the
-/// variant, so this can only happen on a coding error, and it is counted via
-/// `STAGE1_STATE_DECODE_ERROR` and read as a non-member — loud, never a silently-dropped member.
+/// Whether `state` currently satisfies its leaf predicate, for the **op-less** `BehavioralSingle`
+/// variant. The bucket variants carry a count comparator and must be evaluated via [`daily_predicate`]
+/// / [`compressed_predicate`] with their leaf's [`PredicateOp`] — every real caller already does (the
+/// worker's `mutate_behavioral_daily` and the sweep call those directly). Reaching a bucket variant
+/// here is a dispatch desync: the `LeafStateKey` pins the variant, so this can only happen on a coding
+/// error, and it is counted via `STAGE1_STATE_DECODE_ERROR` and read as a non-member — loud, never a
+/// silently-dropped member.
 pub fn predicate(state: &Stage1State) -> bool {
     match state {
         Stage1State::BehavioralSingle { has_match, .. } => *has_match,
-        Stage1State::PersonProperty { matches, .. } => *matches,
         Stage1State::BehavioralDailyBuckets { .. }
         | Stage1State::BehavioralCompressedHistory { .. } => {
             counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
@@ -66,22 +65,6 @@ mod tests {
             has_match: false,
             last_event_at_ms: 1,
             earliest_eviction_at_ms: 2,
-        };
-        assert!(predicate(&matched));
-        assert!(!predicate(&unmatched));
-    }
-
-    #[test]
-    fn person_property_predicate_is_matches() {
-        let matched = Stage1State::PersonProperty {
-            matches: true,
-            last_updated_at_ms: 1,
-            last_updated_offset: 2,
-        };
-        let unmatched = Stage1State::PersonProperty {
-            matches: false,
-            last_updated_at_ms: 1,
-            last_updated_offset: 2,
         };
         assert!(predicate(&matched));
         assert!(!predicate(&unmatched));

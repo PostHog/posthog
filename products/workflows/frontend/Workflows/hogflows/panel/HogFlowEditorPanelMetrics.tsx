@@ -5,16 +5,16 @@ import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import {
+    AppMetricsSeriesOverride,
+    AppMetricsTimeSeriesChart,
+} from 'lib/components/AppMetrics/AppMetricsTimeSeriesChart'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
-import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { ChartDisplayType } from '~/types'
-
 import { EXIT_NODE_ID, TRIGGER_NODE_ID } from '../../workflowLogic'
 import { WORKFLOW_METRICS_INFO } from '../../WorkflowMetrics'
-import { WORKFLOW_EMAIL_METRICS } from '../../workflowMetricsSummaryLogic'
+import { WORKFLOW_EMAIL_METRICS, WORKFLOW_PUSH_METRICS } from '../../workflowMetricsSummaryLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
 export function HogFlowEditorPanelMetrics(): JSX.Element | null {
@@ -31,6 +31,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
 
     const selectedAction = workflow.actions.find((action) => action.id === actionId)
     const isEmailAction = selectedAction?.type === 'function_email'
+    const isPushAction = selectedAction?.type === 'function_push'
 
     const metricName = useMemo(() => {
         return actionId === TRIGGER_NODE_ID
@@ -39,8 +40,10 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
               ? ['succeeded', 'failed']
               : isEmailAction
                 ? (Object.keys(WORKFLOW_EMAIL_METRICS) as string[])
-                : undefined
-    }, [actionId, isEmailAction])
+                : isPushAction
+                  ? (Object.keys(WORKFLOW_PUSH_METRICS) as string[])
+                  : undefined
+    }, [actionId, isEmailAction, isPushAction])
 
     const logic = appMetricsLogic({
         logicKey,
@@ -56,6 +59,21 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     })
 
     const { appMetricsTrendsLoading, appMetricsTrends, params, currentTeam, getDateRangeAbsolute } = useValues(logic)
+
+    const seriesOverrides = useMemo(() => {
+        if (!appMetricsTrends) {
+            return undefined
+        }
+        const colorSource = (
+            isEmailAction ? WORKFLOW_EMAIL_METRICS : isPushAction ? WORKFLOW_PUSH_METRICS : WORKFLOW_METRICS_INFO
+        ) as Record<string, { name: string; color: string }>
+        return Object.fromEntries(
+            appMetricsTrends.series.map((x): [string, AppMetricsSeriesOverride] => [
+                x.name,
+                { label: colorSource[x.name]?.name, color: colorSource[x.name]?.color },
+            ])
+        )
+    }, [appMetricsTrends, isEmailAction, isPushAction])
 
     useEffect(() => {
         if (!shouldShowActionLevelMetrics) {
@@ -97,7 +115,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
                         <AppMetricsFilters logicKey={logicKey} />
                     </div>
 
-                    <div className="relative border rounded min-h-[20rem] bg-white flex flex-1 flex-col">
+                    <div className="relative border rounded min-h-[20rem] bg-surface-primary flex flex-1 flex-col">
                         {appMetricsTrendsLoading ? (
                             <div className="flex-1 flex items-center justify-center p-8">
                                 <SpinnerOverlay />
@@ -107,45 +125,11 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
                                 <div className="text-muted">No data</div>
                             </div>
                         ) : (
-                            <LineGraph
+                            <AppMetricsTimeSeriesChart
                                 className="p-2"
-                                xData={{
-                                    column: {
-                                        name: 'date',
-                                        type: {
-                                            name: 'DATE',
-                                            isNumerical: false,
-                                        },
-                                        label: 'Date',
-                                        dataIndex: 0,
-                                    },
-                                    data: appMetricsTrends.labels,
-                                }}
-                                yData={appMetricsTrends.series.map((x): AxisSeries<number | null> => {
-                                    const colorSource = isEmailAction ? WORKFLOW_EMAIL_METRICS : WORKFLOW_METRICS_INFO
-                                    return {
-                                        column: {
-                                            name: x.name,
-                                            type: { name: 'INTEGER', isNumerical: true },
-                                            label:
-                                                (colorSource as Record<string, { name: string }>)[x.name]?.name ??
-                                                x.name,
-                                            dataIndex: 0,
-                                        },
-                                        settings: {
-                                            display: {
-                                                color: (colorSource as Record<string, { color: string }>)[x.name]
-                                                    ?.color,
-                                            },
-                                        },
-                                        data: x.values,
-                                    }
-                                })}
-                                visualizationType={ChartDisplayType.ActionsLineGraph}
-                                chartSettings={{
-                                    showLegend: true,
-                                    showTotalRow: false,
-                                }}
+                                timeSeries={appMetricsTrends}
+                                seriesOverrides={seriesOverrides}
+                                showLegend
                             />
                         )}
                     </div>

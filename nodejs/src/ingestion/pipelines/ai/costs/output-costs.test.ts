@@ -104,16 +104,36 @@ describe('calculateOutputCost()', () => {
             expectCost(result, expectedCost)
         })
 
-        it.each([
+        // 100 output tokens at 0.00001 is 0.001; a reasoning count that survives
+        // coercion is billed at the same rate on top.
+        it.each<{ reasoningTokens: unknown; expectedCost: number; description: string }>([
             {
                 reasoningTokens: undefined,
+                expectedCost: 0.001,
                 description: 'handles undefined reasoning tokens',
             },
             {
                 reasoningTokens: 0,
+                expectedCost: 0.001,
                 description: 'handles zero reasoning tokens',
             },
-        ])('$description for gemini-2.5', ({ reasoningTokens }) => {
+            {
+                reasoningTokens: 'abc',
+                expectedCost: 0.001,
+                description: 'ignores non-numeric reasoning tokens',
+            },
+            {
+                // Number() reads this as 16, but bigDecimal reads it as "NaN10".
+                reasoningTokens: '0x10',
+                expectedCost: 0.001,
+                description: 'ignores hexadecimal reasoning tokens',
+            },
+            {
+                reasoningTokens: ' 200 ',
+                expectedCost: 0.003,
+                description: 'bills reasoning tokens sent as a numeric string',
+            },
+        ])('$description for gemini-2.5', ({ reasoningTokens, expectedCost }) => {
             const event = createAIEvent({
                 $ai_provider: 'google',
                 $ai_model: 'gemini-2.5-pro',
@@ -123,7 +143,7 @@ describe('calculateOutputCost()', () => {
 
             const result = calculateOutputCost(event, gemini25ProModel)
 
-            expectCost(result, 0.001) // 100 * 0.00001 = 0.001
+            expectCost(result, expectedCost)
         })
 
         it.each([
@@ -179,6 +199,18 @@ describe('calculateOutputCost()', () => {
                 // (100 + 200) * 1.2e-5 = 0.0036
                 expectedCost: 0.0036,
                 description: 'includes reasoning tokens for gemini-3.1-pro-preview',
+            },
+            {
+                // The Gemini SDK reports models as `models/<name>`; the provider
+                // prefix must be stripped before the anchored reasoning regex,
+                // otherwise reasoning tokens are silently priced at zero.
+                modelName: 'models/gemini-3-flash-preview',
+                modelRow: gemini3FlashModel,
+                outputTokens: 2,
+                reasoningTokens: 77,
+                // (2 + 77) * 3e-6 = 0.000237
+                expectedCost: 0.000237,
+                description: 'includes reasoning tokens for models/-prefixed gemini-3-flash-preview',
             },
         ])('$description', ({ modelName, modelRow, outputTokens, reasoningTokens, expectedCost }) => {
             const event = createAIEvent({

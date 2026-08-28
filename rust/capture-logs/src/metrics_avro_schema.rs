@@ -116,6 +116,12 @@ pub const METRICS_AVRO_SCHEMA: &str = r#"
         "values": "string"
     }],
     "doc": "A map of custom string-valued attributes associated with the data point."
+    },
+    {
+    "name": "series_fingerprint",
+    "type": ["null", "long"],
+    "default": null,
+    "doc": "Stable per-series identity assigned at ingest (hash of metric_name, metric_type, service_name, and sorted resource/data-point attributes). Stored verbatim by ClickHouse, never recomputed. u64 bits carried as a signed long."
     }
 ]
 }"#;

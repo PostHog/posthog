@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    MessageAssetApi,
     PaginatedAsyncDeletionStatusListApi,
     PaginatedPersonRecordListApi,
     PatchedPersonRecordApi,
@@ -28,17 +29,15 @@ import type {
     PersonsCohortsRetrieveParams,
     PersonsDeletePropertyCreateParams,
     PersonsDeletionStatusListParams,
-    PersonsFunnelCreateParams,
-    PersonsFunnelRetrieveParams,
-    PersonsLifecycleRetrieveParams,
+    PersonsEmailsListParams,
     PersonsListParams,
     PersonsPartialUpdateParams,
     PersonsPropertiesAtTimeRetrieveParams,
     PersonsPropertiesTimelineRetrieveParams,
+    PersonsPushNotificationsListParams,
     PersonsResetPersonDistinctIdCreateParams,
     PersonsRetrieveParams,
     PersonsSplitCreateParams,
-    PersonsTrendsRetrieveParams,
     PersonsUpdateParams,
     PersonsUpdatePropertyCreateParams,
     PersonsValuesRetrieveParams,
@@ -265,6 +264,37 @@ export const personsDeletePropertyCreate = async (
     })
 }
 
+export const getPersonsEmailsListUrl = (projectId: string, id: number, params?: PersonsEmailsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/persons/${id}/emails/?${stringifiedParams}`
+        : `/api/projects/${projectId}/persons/${id}/emails/`
+}
+
+/**
+ * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
+ */
+export const personsEmailsList = async (
+    projectId: string,
+    id: number,
+    params?: PersonsEmailsListParams,
+    options?: RequestInit
+): Promise<MessageAssetApi[]> => {
+    return apiMutator<MessageAssetApi[]>(getPersonsEmailsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getPersonsPropertiesTimelineRetrieveUrl = (
     projectId: string,
     id: number,
@@ -295,6 +325,41 @@ export const personsPropertiesTimelineRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getPersonsPropertiesTimelineRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPersonsPushNotificationsListUrl = (
+    projectId: string,
+    id: number,
+    params?: PersonsPushNotificationsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/persons/${id}/push_notifications/?${stringifiedParams}`
+        : `/api/projects/${projectId}/persons/${id}/push_notifications/`
+}
+
+/**
+ * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
+ */
+export const personsPushNotificationsList = async (
+    projectId: string,
+    id: number,
+    params?: PersonsPushNotificationsListParams,
+    options?: RequestInit
+): Promise<MessageAssetApi[]> => {
+    return apiMutator<MessageAssetApi[]>(getPersonsPushNotificationsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -571,99 +636,6 @@ export const personsDeletionStatusList = async (
     })
 }
 
-export const getPersonsFunnelRetrieveUrl = (projectId: string, params?: PersonsFunnelRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persons/funnel/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persons/funnel/`
-}
-
-/**
- * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
- */
-export const personsFunnelRetrieve = async (
-    projectId: string,
-    params?: PersonsFunnelRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsFunnelRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getPersonsFunnelCreateUrl = (projectId: string, params?: PersonsFunnelCreateParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persons/funnel/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persons/funnel/`
-}
-
-/**
- * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
- */
-export const personsFunnelCreate = async (
-    projectId: string,
-    personRecordApi?: NonReadonly<PersonRecordApi>,
-    params?: PersonsFunnelCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsFunnelCreateUrl(projectId, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personRecordApi),
-    })
-}
-
-export const getPersonsLifecycleRetrieveUrl = (projectId: string, params?: PersonsLifecycleRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persons/lifecycle/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persons/lifecycle/`
-}
-
-/**
- * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
- */
-export const personsLifecycleRetrieve = async (
-    projectId: string,
-    params?: PersonsLifecycleRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsLifecycleRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getPersonsPropertiesAtTimeRetrieveUrl = (
     projectId: string,
     params: PersonsPropertiesAtTimeRetrieveParams
@@ -738,36 +710,6 @@ export const personsResetPersonDistinctIdCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(personRecordApi),
-    })
-}
-
-export const getPersonsTrendsRetrieveUrl = (projectId: string, params?: PersonsTrendsRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persons/trends/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persons/trends/`
-}
-
-/**
- * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
- */
-export const personsTrendsRetrieve = async (
-    projectId: string,
-    params?: PersonsTrendsRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsTrendsRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
     })
 }
 

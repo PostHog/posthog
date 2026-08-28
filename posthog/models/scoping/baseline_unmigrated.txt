@@ -47,8 +47,6 @@ DataWarehouseSavedQuery
 DataWarehouseSavedQueryDraft
 DataWarehouseSavedQueryFolder
 DataWarehouseTable
-Dataset
-DatasetItem
 EarlyAccessFeature
 Edge
 EmailChannel
@@ -57,6 +55,7 @@ Endpoint
 EnterpriseEventDefinition
 EnterprisePropertyDefinition
 ErrorTrackingAssignmentRule
+ErrorTrackingBypassRule
 ErrorTrackingGroupingRule
 ErrorTrackingIssue
 ErrorTrackingIssueFingerprintV2
@@ -104,6 +103,7 @@ IntervieweeContext
 KernelRuntime
 LLMModelConfiguration
 LLMPrompt
+LLMPromptLabel
 LLMProviderKey
 LLMSkill
 LLMTraceSummary
@@ -111,6 +111,7 @@ Link
 LiveDebuggerBreakpoint
 LogsAlertConfiguration
 LogsExclusionRule
+LogsRetentionRule
 LogsView
 MCPAnalyticsSubmission
 MCPServerInstallation
@@ -133,7 +134,10 @@ QuickFilter
 QuickFilterContext
 Reminder
 ReplayObservation
+ReplayObservationLabel
+ReplayObservationUsage
 ReplayScanner
+ReplayScannerPromptSuggestion
 RepoRoutingRule
 ReviewQueue
 ReviewQueueItem
@@ -141,7 +145,6 @@ SandboxEnvironment
 SavedHeatmap
 ScheduledChange
 ScoreDefinition
-SessionGroupSummary
 SessionRecording
 SessionRecordingPlaylist
 SessionRecordingViewed
@@ -152,7 +155,6 @@ SignalReportArtefact
 SignalReportTask
 SignalSourceConfig
 SignalTeamConfig
-SingleSessionSummary
 SlackThreadTaskMapping
 SourceBatch
 SourceGroupLease
@@ -166,7 +168,6 @@ Task
 TaskRun
 TeamConversationsTeamsConfig
 TeamFeatureFlagDefaultsConfig
-TeamSessionSummariesConfig
 TeamWorkflowsConfig
 Text
 Threshold

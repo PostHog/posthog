@@ -18,7 +18,7 @@ from posthog.schema import (
 )
 
 from posthog.api.services.query import ExecutionMode
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.insight_result import InsightResult
 
 from products.alerts.backend.evaluation.contract import execution_mode_for_alert
 from products.alerts.backend.evaluation.detector import extract_detector_series
@@ -27,7 +27,7 @@ from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 ALWAYS = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
 IF_STALE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE

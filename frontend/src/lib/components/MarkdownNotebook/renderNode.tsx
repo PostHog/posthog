@@ -22,6 +22,7 @@ import {
     TextSelectionPointerStartEvent,
 } from './editorTypes'
 import { MemoizedNotebookComponentShell } from './NotebookComponentShell'
+import { isMermaidCodeBlock, NotebookMermaidBlock } from './NotebookMermaidBlock'
 import { NotebookBlockNode, NotebookComponentRegistry, NotebookMode } from './types'
 
 export function renderNode({
@@ -33,6 +34,8 @@ export function renderNode({
     componentPanels,
     rememberedComponentPanels,
     persistComponentPanelVisibility,
+    allowViewModeFilters,
+    hideResourceLinks,
     isSelected,
     toggleComponentPanel,
     setLocalComponentPanels,
@@ -80,6 +83,8 @@ export function renderNode({
     componentPanels: ComponentPanelVisibility
     rememberedComponentPanels?: ComponentPanelVisibility
     persistComponentPanelVisibility: boolean
+    allowViewModeFilters?: boolean
+    hideResourceLinks?: boolean
     isSelected: boolean
     toggleComponentPanel: (panel: ComponentPanel) => void
     setLocalComponentPanels: (nodeId: string, panels: ComponentPanelVisibility) => void
@@ -181,6 +186,8 @@ export function renderNode({
                 toggleComponentPanel={toggleComponentPanel}
                 rememberedComponentPanels={rememberedComponentPanels}
                 persistComponentPanelVisibility={persistComponentPanelVisibility}
+                allowViewModeFilters={allowViewModeFilters}
+                hideResourceLinks={hideResourceLinks}
                 setLocalComponentPanels={setLocalComponentPanels}
                 rememberComponentPanels={rememberComponentPanels}
                 setBlockRef={setBlockRef}
@@ -224,6 +231,11 @@ export function renderNode({
     }
 
     if (node.type === 'code') {
+        // Render mermaid fences as diagrams in view mode; edit mode keeps the source editable.
+        if (mode === 'view' && isMermaidCodeBlock(node)) {
+            return <NotebookMermaidBlock node={node} setBlockRef={setBlockRef} />
+        }
+
         return (
             <EditableCodeBlock
                 node={node}

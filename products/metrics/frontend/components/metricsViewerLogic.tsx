@@ -1,31 +1,52 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
-import { type MetricSummary } from 'lib/components/Metric/metricSummary'
-import { type SparklineTimeSeries } from 'lib/components/Sparkline'
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
+import { escapeRegex } from 'lib/utils/actions'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { objectsEqual } from 'lib/utils/objects'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
-import { metricsCharacterizeCreate, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
+import { MetricsQuery, MetricsQueryClause, MetricsQueryFilter, NodeKind } from '~/queries/schema/schema-general'
+import { QueryBasedInsightModel } from '~/types'
+import { PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
+
+import {
+    metricsAttributesRetrieve,
+    metricsCharacterizeCreate,
+    metricsQueryCreate,
+} from 'products/metrics/frontend/generated/api'
+import { OtelMetricTypeEnumApi } from 'products/metrics/frontend/generated/api.schemas'
 import type {
     _MetricAnomalyReportApi,
     _MetricFilterApi,
     _MetricSeriesApi,
     MetricAnomalyDirectionEnumApi,
 } from 'products/metrics/frontend/generated/api.schemas'
+import { canCreateMetricsInsight, canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
-import { formatSeriesName, seriesColor } from './metricsSeries'
-import type { metricsViewerLogicType } from './metricsViewerLogicType'
+import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
+import type { _MetricNameApi } from '../generated/api.schemas'
+import { metricNamePickerLogic } from './metricNamePickerLogic'
+import type { MetricNameItem } from './metricNamePickerLogic'
+import type { MetricsChartSeries } from './metricsSeries'
 
-export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95'
-
-// `chart` shows the time series; `stat` shows a single headline value + change pill (a Grafana "stat" panel).
-export type MetricsViewMode = 'chart' | 'stat'
+// A derived type ((typeof METRIC_AGGREGATIONS)[number]) would keep these in sync, but
+// kea-typegen inlines derived unions into every consumer's generated block — keep the
+// named alias so those blocks stay stable.
+export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
+export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'p95', 'rate', 'increase']
 
 export type MetricsViewerSeries = _MetricSeriesApi
 
-// Display shape for the stat card's "vs baseline" anomaly badge (null = no anomaly / flat metric).
+// Display shape for the "vs baseline" anomaly badge (null = no anomaly / flat metric).
 export interface MetricsAnomalyBadge {
     direction: MetricAnomalyDirectionEnumApi
     percent: number
@@ -34,24 +55,112 @@ export interface MetricsAnomalyBadge {
     onsetTime: string | null
 }
 
-const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
-const DEFAULT_DATE_FROM = '-1h'
-const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, cancelling the previous one'
+export const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
+
+// Aggregation applied automatically when a metric of this type is selected.
+// Cumulative counters (OTel type 'sum') summed raw give meaningless ever-growing
+// totals — 'increase' is the honest default and is temporality-aware server-side
+// (delta samples are summed as-is), so it's correct for delta producers too.
+export const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> = {
+    gauge: 'avg',
+    sum: 'increase',
+    counter: 'increase',
+    histogram: 'p95',
+    summary: 'p95',
+    exponential_histogram: 'p95',
+}
+export const DEFAULT_DATE_FROM = '-1h'
+export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, canceling the previous one'
+
+// A superseded or unmounted request rejects with an abort, not a real failure — never surface it as an error.
+// The cancel path aborts with NEW_QUERY_STARTED_ERROR_MESSAGE, whose text doesn't contain "abort", so match it
+// explicitly alongside the generic abort check (mirrors logsViewerDataLogic's isUserInitiatedError).
+export const isUserInitiatedError = (error: unknown): boolean => {
+    const errorStr = String(error).toLowerCase()
+    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
+}
 // The anomaly badge characterizes the most recent slice of the selected window against the rest.
 const ANOMALY_WINDOW_FRACTION = 0.2
 export const LIVE_REFRESH_MS = 15_000
 const LIVE_REFRESH_KEY = 'metricsLiveRefresh'
 
-// Parse a "key=value" chip into an equality filter. Returns null for malformed input (no key before '=').
-const parseFilter = (raw: string): _MetricFilterApi | null => {
-    const eq = raw.indexOf('=')
-    if (eq <= 0) {
-        return null
-    }
-    return { key: raw.slice(0, eq).trim(), op: 'eq', value: raw.slice(eq + 1).trim() }
+// The metrics backend speaks Prometheus-style label matchers, not the full PropertyOperator set.
+export const METRIC_FILTER_OPERATOR_ALLOWLIST: PropertyOperator[] = [
+    PropertyOperator.Exact,
+    PropertyOperator.IsNot,
+    PropertyOperator.Regex,
+    PropertyOperator.NotRegex,
+]
+
+const OPERATOR_TO_FILTER_OP: Partial<Record<PropertyOperator, _MetricFilterApi['op']>> = {
+    [PropertyOperator.Exact]: 'eq',
+    [PropertyOperator.IsNot]: 'neq',
+    [PropertyOperator.Regex]: 'regex',
+    [PropertyOperator.NotRegex]: 'not_regex',
 }
 
-const resolveDate = (value: string | null | undefined): string | null => {
+const toValueStrings = (value: unknown): string[] => {
+    const raw = Array.isArray(value) ? value : value === null || value === undefined ? [] : [value]
+    return raw.map((item) => String(item)).filter((item) => item.length > 0)
+}
+
+// Convert one filter-bar chip into the backend's `{key, op, value}` matcher. Filters run with
+// scope 'auto' (resource attributes first, datapoint attributes as fallback), so scope is omitted.
+// Returns null for chips still being edited (no key/value) or unsupported operators.
+const propertyFilterToMetricFilter = (filter: UniversalFilterValue): _MetricFilterApi | null => {
+    const key = 'key' in filter && filter.key ? String(filter.key) : ''
+    const operator = 'operator' in filter && filter.operator ? filter.operator : PropertyOperator.Exact
+    // A non-PropertyOperator value (e.g. an ActionFilter's fields) simply isn't in the map -> null.
+    const op = OPERATOR_TO_FILTER_OP[operator as PropertyOperator]
+    if (!key || !op) {
+        return null
+    }
+    const values = toValueStrings('value' in filter ? filter.value : null)
+    if (values.length === 0) {
+        return null
+    }
+    if (values.length === 1) {
+        return { key, op, value: values[0] }
+    }
+    // Multi-value chips become Prometheus-style alternations: eq/neq turn into an anchored
+    // (not-)regex over the escaped literals; regex operators just OR the patterns together.
+    if (op === 'eq' || op === 'neq') {
+        return {
+            key,
+            op: op === 'eq' ? 'regex' : 'not_regex',
+            value: `^(?:${values.map(escapeRegex).join('|')})$`,
+        }
+    }
+    return { key, op, value: values.map((pattern) => `(?:${pattern})`).join('|') }
+}
+
+const flattenFilterValues = (group: UniversalFiltersGroup): UniversalFilterValue[] =>
+    group.values.flatMap((value) => (isUniversalGroupFilterLike(value) ? flattenFilterValues(value) : [value]))
+
+// Ingestion promotes `service.name` to its own column, so it is the one label the
+// picker can be narrowed by cheaply — see MetricNamesQueryRunner.
+export const SERVICE_NAME_KEY = 'service_name'
+
+// The anchored regex standing in for senders that set no service name: the empty
+// string cannot survive the filter pipeline, which drops empty chip values.
+export const EMPTY_SERVICE_PATTERN = '^$'
+
+/** The services a chip pins the query to, or `[]` when it isn't a membership test. */
+const serviceChipValues = (chip: UniversalFilterValue): string[] => {
+    const operator = 'operator' in chip ? chip.operator : undefined
+    const values = toValueStrings('value' in chip ? chip.value : null)
+    if (operator === PropertyOperator.Exact) {
+        return values
+    }
+    // `toValueStrings` drops the empty string, so the "unknown service" chip only
+    // survives the trip as this regex; anything else narrows in ways an IN cannot.
+    if (operator === PropertyOperator.Regex && values.length === 1 && values[0] === EMPTY_SERVICE_PATTERN) {
+        return ['']
+    }
+    return []
+}
+
+export const resolveDate = (value: string | null | undefined): string | null => {
     if (!value) {
         return null
     }
@@ -59,21 +168,255 @@ const resolveDate = (value: string | null | undefined): string | null => {
     return dj.isValid() ? dj.toISOString() : null
 }
 
+// The picker reports raw ingest strings; only enum members may reach the API.
+export const toKnownMetricType = (metricType: string | undefined): OtelMetricTypeEnumApi | null => {
+    const known = Object.values(OtelMetricTypeEnumApi) as string[]
+    return metricType && known.includes(metricType) ? (metricType as OtelMetricTypeEnumApi) : null
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface metricsViewerLogicValues {
+    items: MetricNameItem[] // metricNamePickerLogic
+    pickerServices: string[] // metricNamePickerLogic
+    currentTeamId: number | null // teamLogic
+    aggregation: MetricAggregation
+    anomalyBadge: MetricsAnomalyBadge | null
+    anomalyReport: _MetricAnomalyReportApi | null
+    anomalyReportLoading: boolean
+    attributeEndpointFilters: Record<string, string>
+    attributeKeyOptions: {
+        key: string
+        label: string
+    }[]
+    attributeKeyOptionsLoading: boolean
+    chartSeries: MetricsChartSeries[]
+    dateFrom: string | null
+    dateTo: string | null
+    filterGroup: UniversalFiltersGroup
+    groupByKeys: string[]
+    groupBySearch: string
+    hasMetricName: boolean
+    hasResults: boolean
+    isAddToDashboardModalOpen: boolean
+    lastSavedQueryNode: MetricsQuery | null
+    liveRefresh: boolean
+    metricName: string
+    metricsQueryNode: MetricsQuery | null
+    pendingAddToDashboard: boolean
+    queryAbortController: AbortController | null
+    queryError: string | null
+    queryFilters: _MetricFilterApi[]
+    queryResults: MetricsViewerSeries[]
+    queryResultsLoading: boolean
+    savedInsight: QueryBasedInsightModel | null
+    savedInsightLoading: boolean
+    selectedMetricType: OtelMetricTypeEnumApi | null
+    selectedServices: string[]
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface metricsViewerLogicActions {
+    loadItemsSuccess: (
+        items: _MetricNameApi[],
+        payload?:
+            | {
+                  debounce: boolean
+              }
+            | undefined
+    ) => {
+        items: _MetricNameApi[]
+        payload?: {
+            debounce: boolean
+        }
+    } // metricNamePickerLogic
+    setServices: (services: string[]) => {
+        services: string[]
+    } // metricNamePickerLogic
+    addToDashboard: () => {
+        value: true
+    }
+    cancelInProgressQuery: (controller: AbortController | null) => {
+        controller: AbortController | null
+    }
+    clearAnomaly: () => any
+    clearAnomalyFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    clearAnomalySuccess: (
+        anomalyReport: null,
+        payload?: any
+    ) => {
+        anomalyReport: null
+        payload?: any
+    }
+    closeAddToDashboardModal: () => {
+        value: true
+    }
+    fetchAnomaly: (_: any) => any
+    fetchAnomalyFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    fetchAnomalySuccess: (
+        anomalyReport: _MetricAnomalyReportApi | null,
+        payload?: any
+    ) => {
+        anomalyReport: _MetricAnomalyReportApi | null
+        payload?: any
+    }
+    fetchQueryResults: (_: any) => any
+    fetchQueryResultsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    fetchQueryResultsSuccess: (
+        queryResults: _MetricSeriesApi[],
+        payload?: any
+    ) => {
+        queryResults: _MetricSeriesApi[]
+        payload?: any
+    }
+    loadAttributeKeyOptions: (_: any) => any
+    loadAttributeKeyOptionsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAttributeKeyOptionsSuccess: (
+        attributeKeyOptions: {
+            key: string
+            label: string
+        }[],
+        payload?: any
+    ) => {
+        attributeKeyOptions: {
+            key: string
+            label: string
+        }[]
+        payload?: any
+    }
+    openAddToDashboardModal: () => {
+        value: true
+    }
+    saveAsInsight: () => any
+    saveAsInsightFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    saveAsInsightSuccess: (
+        savedInsight: QueryBasedInsightModel<Node<Record<string, any>>> | null,
+        payload?: any
+    ) => {
+        savedInsight: QueryBasedInsightModel<Node<Record<string, any>>> | null
+        payload?: any
+    }
+    setAggregation: (aggregation: MetricAggregation) => {
+        aggregation: MetricAggregation
+    }
+    setDateFrom: (dateFrom: string | null) => {
+        dateFrom: string | null
+    }
+    setDateTo: (dateTo: string | null) => {
+        dateTo: string | null
+    }
+    setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
+        filterGroup: UniversalFiltersGroup
+    }
+    setGroupByKeys: (groupByKeys: string[]) => {
+        groupByKeys: string[]
+    }
+    setGroupBySearch: (groupBySearch: string) => {
+        groupBySearch: string
+    }
+    setLastSavedQueryNode: (query: MetricsQuery) => {
+        query: MetricsQuery
+    }
+    setLiveRefresh: (liveRefresh: boolean) => {
+        liveRefresh: boolean
+    }
+    setMetricName: (metricName: string) => {
+        metricName: string
+    }
+    setQueryAbortController: (controller: AbortController | null) => {
+        controller: AbortController | null
+    }
+    setRecommendedAggregation: (aggregation: MetricAggregation) => {
+        aggregation: MetricAggregation
+    }
+    setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => {
+        metricType: OtelMetricTypeEnumApi | null
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface metricsViewerLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        hasMetricName: (metricName: string) => boolean
+        metricsQueryNode: (
+            metricName: string,
+            aggregation: MetricAggregation,
+            selectedMetricType: OtelMetricTypeEnumApi | null,
+            dateFrom: string | null,
+            dateTo: string | null,
+            groupByKeys: string[],
+            queryFilters: _MetricFilterApi[]
+        ) => MetricsQuery | null
+        queryFilters: (filterGroup: UniversalFiltersGroup) => _MetricFilterApi[]
+        selectedServices: (filterGroup: UniversalFiltersGroup) => string[]
+        attributeEndpointFilters: (dateFrom: string | null, dateTo: string | null) => Record<string, string>
+        chartSeries: (queryResults: _MetricSeriesApi[]) => MetricsChartSeries[]
+        hasResults: (queryResults: _MetricSeriesApi[]) => boolean
+        anomalyBadge: (anomalyReport: _MetricAnomalyReportApi | null) => MetricsAnomalyBadge | null
+    }
+}
+
+export type metricsViewerLogicType = MakeLogicType<
+    metricsViewerLogicValues,
+    metricsViewerLogicActions,
+    Record<string, any>,
+    metricsViewerLogicMeta
+>
+
 export const metricsViewerLogic = kea<metricsViewerLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'metricsViewerLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], metricNamePickerLogic, ['items', 'services as pickerServices']],
+        actions: [metricNamePickerLogic, ['loadItemsSuccess', 'setServices']],
     })),
     actions({
         setMetricName: (metricName: string) => ({ metricName }),
+        setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => ({ metricType }),
         setAggregation: (aggregation: MetricAggregation) => ({ aggregation }),
+        // Auto-applied on metric switch — a separate action so usage tracking can
+        // tell it apart from the user picking an aggregation themselves.
+        setRecommendedAggregation: (aggregation: MetricAggregation) => ({ aggregation }),
         setDateFrom: (dateFrom: string | null) => ({ dateFrom }),
         setDateTo: (dateTo: string | null) => ({ dateTo }),
-        setViewMode: (viewMode: MetricsViewMode) => ({ viewMode }),
-        setStatSummary: (statSummary: MetricSummary) => ({ statSummary }),
         setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
         setGroupByKeys: (groupByKeys: string[]) => ({ groupByKeys }),
-        setFilterStrings: (filterStrings: string[]) => ({ filterStrings }),
+        setGroupBySearch: (groupBySearch: string) => ({ groupBySearch }),
+        setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
+        // Saves the current query as an insight (reusing the last save while the
+        // query is unchanged) and opens the dashboard picker for it.
+        addToDashboard: true,
+        openAddToDashboardModal: true,
+        closeAddToDashboardModal: true,
+        setLastSavedQueryNode: (query: MetricsQuery) => ({ query }),
         // AbortController plumbing mirrors logsViewerDataLogic: a `cancelInProgress`
         // action aborts the previous controller before storing the new one.
         setQueryAbortController: (controller: AbortController | null) => ({ controller }),
@@ -81,29 +424,141 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     }),
     reducers({
         metricName: ['' as string, { setMetricName: (_, { metricName }) => metricName }],
+        // The picked metric's type, latched at pick time (and backfilled if the
+        // picker list arrives later). Not derived from the picker's `items` —
+        // those are live search results, so typing a new search would wipe a
+        // derived value and queries/saves would silently go untyped. Sent with
+        // queries so a name that exists as several types (e.g. a counter and a
+        // gauge) charts only the picked one instead of blending them.
+        selectedMetricType: [
+            null as OtelMetricTypeEnumApi | null,
+            { setSelectedMetricType: (_, { metricType }) => metricType },
+        ],
         aggregation: [
             DEFAULT_AGGREGATION as MetricAggregation,
-            { setAggregation: (_, { aggregation }) => aggregation },
+            {
+                setAggregation: (_, { aggregation }) => aggregation,
+                setRecommendedAggregation: (_, { aggregation }) => aggregation,
+            },
         ],
         dateFrom: [DEFAULT_DATE_FROM as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
         dateTo: [null as string | null, { setDateTo: (_, { dateTo }) => dateTo }],
-        viewMode: ['chart' as MetricsViewMode, { setViewMode: (_, { viewMode }) => viewMode }],
-        // 'latest' (current value) is the natural default for a live single-metric stat.
-        statSummary: ['latest' as MetricSummary, { setStatSummary: (_, { statSummary }) => statSummary }],
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
         // Attribute keys to split the metric into one series each (e.g. ['service.name', 'env']).
         groupByKeys: [[] as string[], { setGroupByKeys: (_, { groupByKeys }) => groupByKeys }],
-        // Raw "key=value" filter chips; parsed into query filters by the `queryFilters` selector.
-        filterStrings: [[] as string[], { setFilterStrings: (_, { filterStrings }) => filterStrings }],
+        // Free-text search backing the group-by attribute-key autocomplete.
+        groupBySearch: ['' as string, { setGroupBySearch: (_, { groupBySearch }) => groupBySearch }],
+        // The filter bar's UniversalFilters group; converted into backend matchers by `queryFilters`.
+        filterGroup: [DEFAULT_UNIVERSAL_GROUP_FILTER, { setFilterGroup: (_, { filterGroup }) => filterGroup }],
         queryAbortController: [
             null as AbortController | null,
             { setQueryAbortController: (_, { controller }) => controller },
         ],
+        isAddToDashboardModalOpen: [
+            false,
+            {
+                openAddToDashboardModal: () => true,
+                closeAddToDashboardModal: () => false,
+            },
+        ],
+        // The query node exactly as the last successful save sent it. The reuse
+        // check compares against this, not the server-returned insight.query —
+        // the API may normalize the stored node (injected defaults, version
+        // stamps), and a comparison against that would never match and would
+        // save a duplicate insight on every click.
+        lastSavedQueryNode: [null as MetricsQuery | null, { setLastSavedQueryNode: (_, { query }) => query }],
+        // Armed while an addToDashboard-initiated save is in flight, so the success
+        // path opens the modal instead of the "View insight" toast. Not reset on
+        // success by a reducer — the success listener must still read it as armed.
+        pendingAddToDashboard: [
+            false,
+            {
+                addToDashboard: (state) => (canCreateMetricsInsight() ? true : state),
+                openAddToDashboardModal: () => false,
+                saveAsInsightFailure: () => false,
+            },
+        ],
+        // A real query failure (bad regex, 500, timeout) — surfaced as a banner so it isn't mistaken
+        // for the empty-result state. Cleared when a new query starts or one succeeds; an aborted
+        // (superseded) query leaves the previous state untouched so refetches don't flash an error.
+        queryError: [
+            null as string | null,
+            {
+                fetchQueryResults: () => null,
+                fetchQueryResultsSuccess: () => null,
+                fetchQueryResultsFailure: (state, { error }) =>
+                    isUserInitiatedError(error) ? state : error || 'Something went wrong running this query.',
+            },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
+        // Narrows the metric picker to the filtered services, so it offers only the
+        // metrics they report. `setFilterGroup` is the one action that changes the
+        // chips, and the scope is compared before pushing so editing an unrelated
+        // chip does not refetch the list.
+        setFilterGroup: () => {
+            if (!objectsEqual(values.selectedServices, values.pickerServices)) {
+                actions.setServices(values.selectedServices)
+            }
+        },
+        setMetricName: ({ metricName }) => {
+            const metricType = values.items.find((item) => item.name === metricName.trim())?.metric_type
+            actions.setSelectedMetricType(toKnownMetricType(metricType))
+            // Each metric type has one sensible default; a manual aggregation pick
+            // holds only until the next metric switch.
+            const recommended = metricType ? RECOMMENDED_AGGREGATION_BY_TYPE[metricType] : undefined
+            if (recommended && recommended !== values.aggregation) {
+                actions.setRecommendedAggregation(recommended)
+            }
+        },
+        // Recovers the type when the metric name was set before the picker's list
+        // arrived (initial load); an already-latched type is left alone.
+        loadItemsSuccess: () => {
+            if (values.selectedMetricType !== null || !values.hasMetricName) {
+                return
+            }
+            const metricType = values.items.find((item) => item.name === values.metricName.trim())?.metric_type
+            const known = toKnownMetricType(metricType)
+            if (known) {
+                actions.setSelectedMetricType(known)
+            }
+            // The name was set before the list arrived, so the pick-time recommendation
+            // never ran. Apply it late, but only over the untouched default — an
+            // aggregation restored from the URL or picked by the user stays.
+            const recommended = metricType ? RECOMMENDED_AGGREGATION_BY_TYPE[metricType] : undefined
+            if (recommended && values.aggregation === DEFAULT_AGGREGATION && recommended !== values.aggregation) {
+                actions.setRecommendedAggregation(recommended)
+            }
+        },
+        saveAsInsightFailure: ({ error }) => {
+            lemonToast.error(`Failed to save insight: ${error}`)
+        },
+        addToDashboard: () => {
+            if (!canCreateMetricsInsight() || !values.metricsQueryNode) {
+                return
+            }
+            // Re-clicking with an unchanged query reuses the saved insight instead
+            // of littering saved insights with duplicates.
+            if (values.savedInsight && objectsEqual(values.lastSavedQueryNode, values.metricsQueryNode)) {
+                actions.openAddToDashboardModal()
+                return
+            }
+            actions.saveAsInsight()
+        },
+        saveAsInsightSuccess: ({ savedInsight }) => {
+            if (savedInsight && values.pendingAddToDashboard) {
+                actions.openAddToDashboardModal()
+            }
+        },
+        setGroupBySearch: () => {
+            actions.loadAttributeKeyOptions({})
+        },
         cancelInProgressQuery: ({ controller }) => {
             if (values.queryAbortController !== null) {
-                values.queryAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                // An AbortError-named DOMException (not a bare string) is what api.ts and the global
+                // loader onFailure recognize as a cancellation, so a superseded query is swallowed
+                // rather than logged/captured as a real error.
+                values.queryAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setQueryAbortController(controller)
         },
@@ -116,19 +571,43 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             cache.disposables.add(() => {
                 const intervalId = setInterval(() => {
                     actions.fetchQueryResults({})
-                    if (values.viewMode === 'stat') {
-                        actions.fetchAnomaly({})
-                    }
+                    actions.fetchAnomaly({})
                 }, LIVE_REFRESH_MS)
                 return () => clearInterval(intervalId)
             }, LIVE_REFRESH_KEY)
         },
     })),
     loaders(({ values, actions }) => ({
+        // Backs the group-by attribute-key autocomplete. Scoped to the viewer's window so
+        // suggestions match the data on screen; debounced to match the chart fetch cadence.
+        attributeKeyOptions: [
+            [] as { key: string; label: string }[],
+            {
+                loadAttributeKeyOptions: async (_, breakpoint) => {
+                    if (!canViewMetrics()) {
+                        return []
+                    }
+                    await breakpoint(300)
+                    const dateFrom = resolveDate(values.dateFrom) ?? undefined
+                    const dateTo = resolveDate(values.dateTo) ?? undefined
+                    const response = await metricsAttributesRetrieve(String(values.currentTeamId), {
+                        search: values.groupBySearch,
+                        ...(dateFrom ? { dateFrom } : {}),
+                        ...(dateTo ? { dateTo } : {}),
+                        limit: 100,
+                    })
+                    breakpoint()
+                    return response.results.map((result) => ({ key: result.name, label: result.name }))
+                },
+            },
+        ],
         queryResults: [
             [] as MetricsViewerSeries[],
             {
                 fetchQueryResults: async (_, breakpoint) => {
+                    if (!canViewMetrics()) {
+                        return []
+                    }
                     const trimmedName = values.metricName.trim()
                     if (!trimmedName) {
                         return []
@@ -147,6 +626,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                             query: {
                                 metricName: trimmedName,
                                 aggregation: values.aggregation,
+                                ...(values.selectedMetricType ? { metricType: values.selectedMetricType } : {}),
                                 dateFrom: dateFromISO,
                                 ...(dateToISO ? { dateTo: dateToISO } : {}),
                                 ...(values.groupByKeys.length
@@ -163,11 +643,44 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 },
             },
         ],
+        savedInsight: [
+            null as QueryBasedInsightModel | null,
+            {
+                saveAsInsight: async () => {
+                    if (!canCreateMetricsInsight()) {
+                        return null
+                    }
+                    const query = values.metricsQueryNode
+                    if (!query) {
+                        return null
+                    }
+                    const insight = await insightsApi.create({
+                        name: `${values.metricName} (${values.aggregation})`,
+                        query,
+                        saved: true,
+                    })
+                    actions.setLastSavedQueryNode(query)
+                    // The add-to-dashboard flow opens the dashboard picker instead of a toast.
+                    if (!values.pendingAddToDashboard) {
+                        lemonToast.success('Insight saved', {
+                            button: {
+                                label: 'View insight',
+                                action: () => router.actions.push(urls.insightView(insight.short_id)),
+                            },
+                        })
+                    }
+                    return insight
+                },
+            },
+        ],
         anomalyReport: [
             null as _MetricAnomalyReportApi | null,
             {
                 clearAnomaly: () => null,
                 fetchAnomaly: async (_, breakpoint) => {
+                    if (!canViewMetrics()) {
+                        return null
+                    }
                     const trimmedName = values.metricName.trim()
                     const fromISO = resolveDate(values.dateFrom)
                     if (!trimmedName || !fromISO) {
@@ -198,38 +711,113 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         ],
     })),
     selectors({
-        hasMetricName: [(s) => [s.metricName], (metricName) => metricName.trim().length > 0],
-        queryFilters: [
-            (s) => [s.filterStrings],
-            (filterStrings: string[]): _MetricFilterApi[] =>
-                filterStrings.map(parseFilter).filter((f): f is _MetricFilterApi => f !== null),
+        hasMetricName: [(s) => [s.metricName], (metricName: string) => metricName.trim().length > 0],
+        // The viewer state as a `MetricsQuery` schema node — what "Save as insight"
+        // persists, so the saved tile re-runs exactly what the viewer shows.
+        // The REST viewer's 'p95' shorthand maps to the node's quantile aggregation.
+        metricsQueryNode: [
+            (s) => [
+                s.metricName,
+                s.aggregation,
+                s.selectedMetricType,
+                s.dateFrom,
+                s.dateTo,
+                s.groupByKeys,
+                s.queryFilters,
+            ],
+            (
+                metricName: string,
+                aggregation: MetricAggregation,
+                selectedMetricType: OtelMetricTypeEnumApi | null,
+                dateFrom: string | null,
+                dateTo: string | null,
+                groupByKeys: string[],
+                queryFilters: _MetricFilterApi[]
+            ): MetricsQuery | null => {
+                const trimmedName = metricName.trim()
+                if (!trimmedName) {
+                    return null
+                }
+                const clause: MetricsQueryClause = {
+                    name: 'a',
+                    metricName: trimmedName,
+                    aggregation: aggregation === 'p95' ? 'quantile' : aggregation,
+                    // Pins the OTel type so the saved tile can't blend same-named
+                    // series of different types (mirrors the live viewer's query).
+                    ...(selectedMetricType ? { metricType: selectedMetricType } : {}),
+                    ...(aggregation === 'p95' ? { quantile: 0.95 } : {}),
+                    ...(queryFilters.length
+                        ? {
+                              filters: queryFilters.map(
+                                  (f): MetricsQueryFilter => ({
+                                      key: f.key,
+                                      op: f.op as MetricsQueryFilter['op'],
+                                      value: f.value,
+                                  })
+                              ),
+                          }
+                        : {}),
+                    ...(groupByKeys.length ? { groupBy: groupByKeys.map((key) => ({ key })) } : {}),
+                }
+                return {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [clause],
+                    dateRange: {
+                        date_from: dateFrom ?? DEFAULT_DATE_FROM,
+                        ...(dateTo ? { date_to: dateTo } : {}),
+                    },
+                }
+            },
         ],
-        // The viewer renders the first series only for now; group-by lands
-        // multi-series rendering in a later PR.
-        // Metrics has no compare/previous-series concept, so "current" is simply the first series.
-        currentSeries: [(s) => [s.queryResults], (results): MetricsViewerSeries | undefined => results[0]],
+        queryFilters: [
+            (s) => [s.filterGroup],
+            (filterGroup: UniversalFiltersGroup): _MetricFilterApi[] =>
+                flattenFilterValues(filterGroup)
+                    .map(propertyFilterToMetricFilter)
+                    .filter((f): f is _MetricFilterApi => f !== null),
+        ],
+        // Services the metric picker is narrowed to, so it only offers metrics the
+        // filtered services actually report. Empty means "every service".
+        selectedServices: [
+            (s) => [s.filterGroup],
+            (filterGroup: UniversalFiltersGroup): string[] => {
+                const chips = flattenFilterValues(filterGroup).filter(
+                    (filter) => 'key' in filter && filter.key === SERVICE_NAME_KEY
+                )
+                // Two service chips are ANDed, which no single IN list expresses, so
+                // the picker stays unscoped rather than guessing at the intersection.
+                if (chips.length !== 1) {
+                    return []
+                }
+                return serviceChipValues(chips[0])
+            },
+        ],
+        // Scopes the filter bar's key/value suggestions to the viewer's window; splatted onto the
+        // taxonomic endpoints as query params.
+        attributeEndpointFilters: [
+            (s) => [s.dateFrom, s.dateTo],
+            (dateFrom: string | null, dateTo: string | null): Record<string, string> => ({
+                ...(resolveDate(dateFrom) ? { dateFrom: resolveDate(dateFrom) as string } : {}),
+                ...(resolveDate(dateTo) ? { dateTo: resolveDate(dateTo) as string } : {}),
+            }),
+        ],
         // All series rendered as chart lines (a group-by query returns one series per label combination).
-        // The x-axis labels come from `sparklineLabels` (the backend grids every series onto one time axis).
+        // `MetricsSeriesChart` owns naming and colors; this only bridges the API's snake_case field.
         chartSeries: [
-            (s) => [s.queryResults, s.metricName],
-            (results: MetricsViewerSeries[], metricName: string): SparklineTimeSeries[] =>
-                results.map((series, index) => ({
-                    name: formatSeriesName(series, metricName),
-                    values: series.points.map((p) => p.value),
-                    color: seriesColor(index),
+            (s) => [s.queryResults],
+            (results: MetricsViewerSeries[]): MetricsChartSeries[] =>
+                results.map((series) => ({
+                    labels: series.labels,
+                    points: series.points,
+                    metricName: series.metric_name,
                 })),
         ],
-        sparklineValues: [
-            (s) => [s.currentSeries],
-            (series: MetricsViewerSeries | undefined) => (series?.points ?? []).map((p) => p.value),
+        // Whether the chart has anything to draw. A metric can return a series with no points
+        // in the selected window, which is the empty state rather than a plottable result.
+        hasResults: [
+            (s) => [s.queryResults],
+            (results: MetricsViewerSeries[]): boolean => (results[0]?.points.length ?? 0) > 0,
         ],
-        sparklineLabels: [
-            (s) => [s.currentSeries],
-            (series: MetricsViewerSeries | undefined) => (series?.points ?? []).map((p) => p.time),
-        ],
-        // The stat card summarizes the per-bucket `sparklineValues` into one headline value;
-        // `statTotal` is the grand total across buckets (the basis for the 'total' summary).
-        statTotal: [(s) => [s.sparklineValues], (values: number[]) => values.reduce((sum, v) => sum + v, 0)],
         // Display shape for the anomaly badge — null when there's no report or the metric is flat.
         anomalyBadge: [
             (s) => [s.anomalyReport],

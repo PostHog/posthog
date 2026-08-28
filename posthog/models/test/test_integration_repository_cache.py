@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
 from posthog.models.integration_repository_cache import (
     GITHUB_REPOSITORY_FULL_CACHE_TTL_SECONDS,
@@ -69,7 +70,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
             return responses[path]
 
         return patch(
-            "posthog.models.integration.GitHubIntegration._gh_api_get", autospec=True, side_effect=_side_effect
+            "posthog.models.integration.github.GitHubIntegration._gh_api_get", autospec=True, side_effect=_side_effect
         )
 
     def _cache_for(self, integration: Integration) -> GitHubRepositoryFullCache:
@@ -107,7 +108,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
             tree_paths="old/path",
         )
 
-        with patch("posthog.models.integration.GitHubIntegration._gh_api_get", autospec=True) as mock_gh_api_get:
+        with patch("posthog.models.integration.github.GitHubIntegration._gh_api_get", autospec=True) as mock_gh_api_get:
             entry = async_to_sync(self._cache_for(integration).sync_full_cache_entry_async)("posthog/posthog")
 
         assert mock_gh_api_get.call_count == 0  # TTL short-circuits before any API calls
@@ -208,7 +209,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
             return responses[path]
 
         with patch(
-            "posthog.models.integration.GitHubIntegration._gh_api_get",
+            "posthog.models.integration.github.GitHubIntegration._gh_api_get",
             autospec=True,
             side_effect=_side_effect,
         ):
@@ -228,24 +229,18 @@ class TestGitHubRepositoryFullCache(BaseTest):
 
         def _side_effect(self_, path, *, endpoint=None, timeout=10):
             if path.startswith("/repos/posthog/posthog/readme"):
-                raise GitHubIntegrationError(
-                    "secondary rate limit on /readme",
-                    status_code=403,
-                    is_rate_limit=True,
-                    retry_after_seconds=60.0,
-                )
+                raise GitHubRateLimitError("secondary rate limit on /readme", retry_after=60)
             return responses[path]
 
         with patch(
-            "posthog.models.integration.GitHubIntegration._gh_api_get",
+            "posthog.models.integration.github.GitHubIntegration._gh_api_get",
             autospec=True,
             side_effect=_side_effect,
         ):
-            with pytest.raises(GitHubIntegrationError) as excinfo:
+            with pytest.raises(GitHubRateLimitError) as excinfo:
                 async_to_sync(self._cache_for(integration).sync_full_cache_entry_async)("posthog/posthog")
 
-        assert excinfo.value.is_rate_limit is True
-        assert excinfo.value.retry_after_seconds == 60.0
+        assert excinfo.value.retry_after == 60
         assert not IntegrationRepositoryCacheEntry.objects.filter(integration=integration).exists()
 
     def test_sync_full_cache_entry_propagates_non_404_readme_errors(self):
@@ -258,7 +253,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
             return responses[path]
 
         with patch(
-            "posthog.models.integration.GitHubIntegration._gh_api_get",
+            "posthog.models.integration.github.GitHubIntegration._gh_api_get",
             autospec=True,
             side_effect=_side_effect,
         ):
@@ -471,7 +466,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
         assert IntegrationRepositoryCacheEntry.objects.filter(pk=keep.pk).exists()
 
     def test_sync_full_cache_evicts_cross_source_rows_for_team(self):
-        # Team upgrade scenario: PostHog Code (UserIntegration) hydrated rows for this team, then
+        # Team upgrade scenario: PostHog Desktop (UserIntegration) hydrated rows for this team, then
         # the team connected a team-level Integration. Cascade now picks the Integration; the old
         # UserIntegration row would otherwise linger and surface as a duplicate to HogQL queries.
         user = User.objects.create(email="user@example.com")

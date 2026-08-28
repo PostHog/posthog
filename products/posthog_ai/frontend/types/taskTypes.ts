@@ -1,5 +1,11 @@
 import { Optional } from 'lib/utils/types'
 
+import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
+export function isPiTaskRuntime(runtime: RuntimeEnumApi | undefined): boolean {
+    return runtime === RuntimeEnumApi.Pi
+}
+
 export interface RepositoryConfig {
     integrationId?: number
     /** `owner/repo` (GitHub `full_name`), same as data warehouse / Cyclotron GitHub pickers */
@@ -17,9 +23,18 @@ export enum OriginProduct {
     // Tasks kicked off from an Inbox SignalReport (Discuss / Create PR). Backend already
     // accepts `signal_report` + `signal_report_task_relationship` for this origin.
     SIGNAL_REPORT = 'signal_report',
-    // Runs created by a Signals scout (automated agent) — no interactive context budget to surface.
+    // Tasks created autonomously by the headless Signals Scout — team-scoped, visible to everyone.
     SIGNALS_SCOUT = 'signals_scout',
+    POSTHOG_AI = 'posthog_ai',
+    // "Create fix task" on the MCP analytics tool-quality failure drill-down.
+    MCP_ANALYTICS = 'mcp_analytics',
 }
+
+/**
+ * TaskTracker list filter: the current user's own non-scout tasks, their own scout tasks, every
+ * team scout task, or — staff only — every task on the team.
+ */
+export type TaskAssigneeFilter = 'for_you' | 'my_scouts' | 'team_scouts' | 'all_team'
 
 export enum TaskRunStatus {
     NOT_STARTED = 'not_started',
@@ -53,6 +68,9 @@ export interface TaskRun {
     branch: string | null
     status: TaskRunStatus
     environment: TaskRunEnvironment
+    runtime_adapter: string | null
+    model: string | null
+    reasoning_effort: string | null
     log_url: string | null
     error_message: string | null
     output: Record<string, any> | null
@@ -70,8 +88,11 @@ export interface Task {
     title: string
     description: string
     origin_product: OriginProduct
+    runtime: RuntimeEnumApi
     repository: string | null
     github_integration: number | null
+    /** For signal-report-origin tasks: the inbox `SignalReport` this task ran for (set-once at creation). */
+    signal_report: string | null
     json_schema: Record<string, any> | null
     internal: boolean
     latest_run: TaskRun | null
@@ -97,9 +118,16 @@ export interface TaskListParams {
     organization?: string
     stage?: string
     origin_product?: string
-    internal?: boolean
+    exclude_origin_product?: string
+    /** `all` includes internal tasks (shown-by-default flag, not an access gate); `true` narrows to only-internal tasks. */
+    internal?: 'true' | 'false' | 'all'
     search?: string
     status?: TaskRunStatus
+    /** Staff-only. List every task on the team, bypassing the per-user visibility filter. Ignored server-side for non-staff. */
+    all_team_tasks?: boolean
+    /** Page size (LimitOffset pagination); the viewset caps it at 100. */
+    limit?: number
+    offset?: number
 }
 
 export interface KanbanColumn {

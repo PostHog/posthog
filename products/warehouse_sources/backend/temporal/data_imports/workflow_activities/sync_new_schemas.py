@@ -6,12 +6,17 @@ from django.db import close_old_connections
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_discover_schemas_schedule
-from products.warehouse_sources.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
+from products.warehouse_sources.backend.models.external_data_schema import (
+    auto_enable_new_schemas,
+    sync_old_schemas_with_new_schemas,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -69,7 +74,9 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             return
 
         try:
-            schemas = new_source.get_schemas(config, inputs.team_id)
+            schemas = new_source.get_schemas(
+                config, inputs.team_id, api_version=new_source.resolve_api_version(source.api_version)
+            )
         except Exception as e:
             # Schema discovery is best-effort and runs on its own ~6h cadence. If the source's
             # credentials are broken (expired/revoked tokens, permission denied, deleted account,
@@ -77,9 +84,17 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             # retry here, and the per-schema sync path surfaces and disables the source on the
             # same error. Skip quietly on known non-retryable source errors rather than spamming
             # retries and error tracking on every discovery run. Other errors still propagate.
+            #
+            # UndecryptedIntegrationSecretError is checked by type, not message, mirroring
+            # import_data_sync.py's handling: it's shared across every OAuth-based source and
+            # fails identically on every retry, so it shouldn't depend on each source listing the
+            # message in get_non_retryable_errors.
+            if isinstance(e, UndecryptedIntegrationSecretError):
+                logger.warning(f"Skipping schema discovery due to non-retryable source error: {e}")
+                return
             error_msg = str(e)
             non_retryable_errors = new_source.get_non_retryable_errors()
-            if any(pattern in error_msg for pattern in non_retryable_errors):
+            if error_message_matches(error_msg, non_retryable_errors):
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {error_msg}")
                 return
             raise
@@ -90,18 +105,30 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
 
     # TODO: this could cause a race condition where each schema worker creates the missing schema
 
-    schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
+    # GitHub keeps its legacy repo's rows bare alongside qualified rows for added repos, so
+    # bare↔qualified tail matching would wrongly collapse them; match names exactly and seed
+    # per-repo location metadata on newly created rows.
+    is_github = source_type_enum == ExternalDataSourceType.GITHUB
+    sync_result = sync_old_schemas_with_new_schemas(
         schemas_to_sync,
         source_id=inputs.source_id,
         team_id=inputs.team_id,
+        strict_name_match=is_github,
+        schema_metadata_by_name={s.name: s.schema_metadata for s in schemas if s.schema_metadata}
+        if is_github
+        else None,
     )
 
-    if len(schemas_created) > 0:
-        logger.info(f"Added new schemas: {', '.join(schemas_created)}")
+    if len(sync_result.created) > 0:
+        logger.info(f"Added new schemas: {', '.join(sync_result.created)}")
+
+        auto_enabled = auto_enable_new_schemas(source, sync_result.created, {s.name: s for s in schemas})
+        if auto_enabled:
+            logger.info(f"Auto-enabled sync for new schemas: {', '.join(auto_enabled)}")
     else:
         logger.info("No new schemas to create")
 
-    if len(schemas_deleted) > 0:
-        logger.info(f"Deleted schemas: {', '.join(schemas_deleted)}")
+    if len(sync_result.deleted) > 0:
+        logger.info(f"Deleted schemas: {', '.join(sync_result.deleted)}")
     else:
         logger.info("No schemas to delete")

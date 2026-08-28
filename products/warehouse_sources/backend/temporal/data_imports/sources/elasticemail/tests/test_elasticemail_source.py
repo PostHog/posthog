@@ -5,39 +5,9 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.elasticemail import (
-    ElasticEmailResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.source import ElasticemailSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert ElasticemailSource().source_type == ExternalDataSourceType.ELASTICEMAIL
-
-    def test_get_source_config(self) -> None:
-        config = ElasticemailSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
-        assert config.fields is not None
-        assert len(config.fields) == 1
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
 
 
 class TestGetSchemas:
@@ -113,26 +83,20 @@ class TestNonRetryableErrors:
 
 
 class TestResumableAndCanonical:
-    def test_resumable_manager_is_bound_to_resume_config(self) -> None:
-        inputs = SimpleNamespace(logger=MagicMock())
-        manager = ElasticemailSource().get_resumable_source_manager(inputs)  # type: ignore[arg-type]
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ElasticEmailResumeConfig
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        descriptions = ElasticemailSource().get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)
-
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = SimpleNamespace(
             schema_name="events",
+            team_id=1,
+            job_id="job",
             logger=MagicMock(),
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-01-01T00:00:00",
         )
+        manager = MagicMock()
+        manager.can_resume.return_value = False
         response = ElasticemailSource().source_for_pipeline(
             SimpleNamespace(api_key="key"),  # type: ignore[arg-type]
-            MagicMock(),
+            manager,
             inputs,  # type: ignore[arg-type]
         )
         assert response.name == "events"

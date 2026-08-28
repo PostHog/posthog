@@ -1,11 +1,11 @@
 import { Message } from 'node-rdkafka'
 
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
-import { KafkaProducerRegistryComponent } from '~/ingestion/common/producer-registry'
+import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
 import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
-} from '~/ingestion/common/producers'
+} from '~/ingestion/common/outputs/producers'
 import { Component, newScope } from '~/ingestion/common/scopes'
 import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
 import {
@@ -23,7 +23,6 @@ import {
     waitForClickHouseKafkaConsumer,
 } from '~/tests/helpers/ingestion-e2e'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { resetTestDatabase } from '~/tests/helpers/sql'
 
 type CapturedBatchHandler = (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>
 
@@ -121,14 +120,10 @@ describe('Heatmaps consumer E2E', () => {
     beforeAll(async () => {
         clickhouse = Clickhouse.create()
         await ensureKafkaTopics(TEST_KAFKA_TOPICS)
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
         await waitForClickHouseKafkaConsumer(clickhouse)
     })
 
-    afterAll(async () => {
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
+    afterAll(() => {
         clickhouse.close()
     })
 

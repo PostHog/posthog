@@ -37,9 +37,10 @@ const GEN_AI: SupportedProvider = SupportedProvider {
     },
 };
 
-/// Vercel AI SDK (`ai.*`).
+/// Vercel AI SDK (`ai.*`) and Eve (`eve.*`). Eve root turn spans can omit
+/// `ai.*` attributes, so its namespace must be accepted by the same provider.
 const VERCEL_AI: SupportedProvider = SupportedProvider {
-    prefixes: &["ai."],
+    prefixes: &["ai.", "eve."],
     classify: |attrs| {
         classify_by_key(attrs, "ai.operationId", |op_id| match op_id {
             s if s.ends_with(".doGenerate") || s.ends_with(".doStream") => "$ai_generation",
@@ -215,6 +216,10 @@ mod tests {
     fn test_supported_provider_prefix_defaults_to_ai_span() {
         assert_eq!(
             get_event_name(&attrs_with("gen_ai.request.model", "gpt-4")),
+            Some("$ai_span")
+        );
+        assert_eq!(
+            get_event_name(&attrs_with("eve.session.id", "session-123")),
             Some("$ai_span")
         );
         assert_eq!(

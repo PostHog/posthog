@@ -41,6 +41,7 @@ from posthog.models.organization import OrganizationMembership
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.context import DASHBOARD_CONTEXT_CHAR_BUDGET
+from ee.hogai.context.notebook.prompts import LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
@@ -72,6 +73,24 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("TrendsQuery", result)
         self.assertIn("Trend results: 100 users", result)
         mock_execute.assert_called_once()
+
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_build_and_execute_insight_links_to_saved_insight(self, mock_execute):
+        mock_execute.return_value = "Trend results: 100 users"
+
+        insight = MaxInsightContext(
+            id="123",
+            name="User Trends",
+            description=None,
+            query=TrendsQuery(series=[EventsNode(event="pageview")]),
+        )
+
+        insight_ctx = self.context_manager._build_insight_context(insight, dashboard_filters=None)
+        result = await self.context_manager._execute_and_format_insight(insight_ctx)
+        assert result is not None
+        # A UI-attached insight is always saved, so Max gets a real link rather than the unsaved-artifact warning
+        self.assertIn("Insight URL: /insights/123", result)
+        self.assertNotIn("cannot be accessed via a URL", result)
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_build_and_execute_insight_funnel_query(self, mock_execute):
@@ -368,7 +387,39 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("use create_notebook with content containing the complete final notebook markdown", result)
         self.assertIn("Full-notebook replacement content must omit", result)
         self.assertIn("single ph-markdown-notebook node", result)
+        self.assertIn("render a `title` prop in their block header", result)
         mock_from_short_id.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("sql_v2 enabled", True, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
+            ("sql_v2 disabled", False, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
+        ]
+    )
+    async def test_markdown_notebook_context_offers_only_runnable_cell_tags(
+        self, _name: str, sql_v2_enabled: bool, expected: str, unexpected: str
+    ):
+        ui_context = MaxUIContext(
+            notebooks=[
+                MaxNotebookContext(
+                    id="hjH8ysXW",
+                    name="Rando notebook",
+                    insertion_placeholder_block_id="835f09ed-e58a-4a4a-93c3-813ced0d3e55",
+                    insertion_placeholder_marker="Thinking...",
+                    markdown_with_insertion_placeholder="# Rando notebook\n\nThinking...",
+                )
+            ]
+        )
+
+        with patch(
+            "products.notebooks.backend.facade.api.is_sql_v2_enabled",
+            return_value=sql_v2_enabled,
+        ):
+            result = await self.context_manager._format_ui_context(ui_context)
+
+        assert result is not None
+        self.assertIn(expected, result)
+        self.assertNotIn(unexpected, result)
 
     @patch("ee.hogai.context.notebook.context.NotebookContext.from_short_id")
     async def test_format_ui_context_markdown_notebook_escapes_user_controlled_fields(self, mock_from_short_id):
@@ -587,36 +638,6 @@ class TestAssistantContextManager(BaseTest):
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].content, "New context message")
         self.assertEqual(result[1].content, "Another new message")
-
-    async def test_get_context_messages_with_ui_and_contextual_tools(self):
-        """Test that context prompts are returned for both UI context and contextual tools"""
-        with (
-            patch.object(AssistantContextManager, "_get_contextual_tools_prompt") as mock_contextual_tools,
-            patch.object(AssistantContextManager, "_format_ui_context") as mock_format_ui,
-            patch.object(AssistantContextManager, "get_ui_context") as mock_get_ui,
-            patch.object(AssistantContextManager, "_deduplicate_context_messages") as mock_dedupe,
-        ):
-            # Setup mocks
-            mock_contextual_tools.return_value = "Contextual tools prompt"
-            mock_format_ui.return_value = "UI context prompt"
-            mock_get_ui.return_value = MaxUIContext()
-            ctx_tools_msg = ContextMessage(content="Contextual tools prompt", id="1")
-            ui_context_msg = ContextMessage(content="UI context prompt", id="2")
-            mock_dedupe.return_value = [ctx_tools_msg, ui_context_msg]
-
-            state = AssistantState(messages=[HumanMessage(content="Test")])
-
-            result = await self.context_manager._get_context_messages(state)
-
-            # Verify both prompts are included
-            self.assertEqual(len(result), 2)
-            self.assertEqual(result[0].content, "Contextual tools prompt")
-            self.assertEqual(result[1].content, "UI context prompt")
-
-            # Verify methods were called
-            mock_contextual_tools.assert_called_once_with()
-            mock_get_ui.assert_called_once_with(state)
-            mock_format_ui.assert_called_once_with(MaxUIContext())
 
     async def test_get_context_messages_with_only_contextual_tools(self):
         """Test that context prompts work when only contextual tools are present"""

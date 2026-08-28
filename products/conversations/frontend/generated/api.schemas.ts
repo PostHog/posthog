@@ -53,6 +53,7 @@ export const TopicEnumApi = {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -65,6 +66,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -116,6 +118,17 @@ export const ConversationTypeApi = {
 } as const
 
 /**
+ * * `acp` - ACP
+ * * `pi` - Pi
+ */
+export type RuntimeEnumApi = (typeof RuntimeEnumApi)[keyof typeof RuntimeEnumApi]
+
+export const RuntimeEnumApi = {
+    Acp: 'acp',
+    Pi: 'pi',
+} as const
+
+/**
  * @nullable
  */
 export type TaskUserBasicInfoApiHedgehogConfig = { [key: string]: unknown } | null
@@ -141,17 +154,14 @@ export interface TaskUserBasicInfoApi {
 /**
  * @nullable
  */
-export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
+export type ConversationTaskApiJsonSchema = { [key: string]: unknown } | null
 
 /**
  * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
  * run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id
- * avoids presigning a log URL per conversation.
- *
- * Read access here follows the conversation (the share-by-link unit), not per-creator task
- * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
+ * avoids presigning a log URL per conversation. Task data follows the task's space visibility.
  */
-export interface TaskDetailDTOApi {
+export interface ConversationTaskApi {
     id: string
     /** @nullable */
     task_number: number | null
@@ -160,6 +170,11 @@ export interface TaskDetailDTOApi {
     title_manually_set: boolean
     description: string
     origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    readonly runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
     /** @nullable */
@@ -169,7 +184,7 @@ export interface TaskDetailDTOApi {
     /** @nullable */
     signal_report: string | null
     /** @nullable */
-    json_schema: TaskDetailDTOApiJsonSchema
+    json_schema: ConversationTaskApiJsonSchema
     internal: boolean
     archived: boolean
     /** @nullable */
@@ -229,7 +244,7 @@ export interface ConversationMinimalApi {
      * @nullable
      */
     readonly slack_workspace_domain: string | null
-    readonly task: TaskDetailDTOApi | null
+    readonly task: ConversationTaskApi | null
 }
 
 export interface PaginatedConversationMinimalListApi {
@@ -367,7 +382,7 @@ export interface ConversationApi {
      * Combines metadata from conversation.approval_decisions with payload from checkpoint
      * interrupts (single source of truth for payload data). */
     readonly pending_approvals: readonly ConversationApiPendingApprovalsItem[]
-    readonly task: TaskDetailDTOApi | null
+    readonly task: ConversationTaskApi | null
 }
 
 /**
@@ -438,7 +453,7 @@ export interface PatchedConversationApi {
      * Combines metadata from conversation.approval_decisions with payload from checkpoint
      * interrupts (single source of truth for payload data). */
     readonly pending_approvals?: readonly PatchedConversationApiPendingApprovalsItem[]
-    readonly task?: TaskDetailDTOApi | null
+    readonly task?: ConversationTaskApi | null
 }
 
 /**
@@ -467,6 +482,10 @@ export const SandboxAttachedContextItemTypeEnumApi = {
 
 /**
  * One typed attachment carried by a sandbox message.
+ *
+ * DEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in
+ * `context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;
+ * the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
  */
 export interface SandboxAttachedContextItemApi {
     /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
@@ -613,6 +632,7 @@ export const TicketStatusEnumApi = {
  * * `low` - Low
  * * `medium` - Medium
  * * `high` - High
+ * * `critical` - Critical
  */
 export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
 
@@ -620,6 +640,7 @@ export const TicketPriorityEnumApi = {
     Low: 'low',
     Medium: 'medium',
     High: 'high',
+    Critical: 'critical',
 } as const
 
 /**
@@ -660,7 +681,7 @@ export interface TicketPersonApi {
 }
 
 /**
- * Serializer mixin that handles tags for objects.
+ * Mixin for serializers to add user access control fields
  */
 export interface TicketApi {
     readonly id: string
@@ -676,15 +697,21 @@ export interface TicketApi {
      * * `on_hold` - On hold
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
-    /** Ticket priority: low, medium, or high. Null if unset.
+    /** Ticket priority: low, medium, high, or critical. Null if unset.
      *
      * * `low` - Low
      * * `medium` - Medium
-     * * `high` - High */
+     * * `high` - High
+     * * `critical` - Critical */
     priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
+    /**
+     * Trust signal indicating whether the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). True when verified, false when assessed but not attested, null when unknown (e.g. created before this signal existed).
+     * @nullable
+     */
+    readonly identity_verified: boolean | null
     ai_resolved?: boolean
     /** @nullable */
     escalation_reason?: string | null
@@ -726,13 +753,25 @@ export interface TicketApi {
     readonly github_repo: string | null
     /** @nullable */
     readonly github_issue_number: number | null
+    /** @nullable */
+    readonly zendesk_ticket_id: number | null
     /**
      * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
      * @nullable
      */
     readonly organization_id: string | null
+    /**
+     * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+     * @nullable
+     */
+    readonly organization_id_source: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedTicketListApi {
@@ -745,15 +784,46 @@ export interface PaginatedTicketListApi {
 }
 
 /**
- * Serializer mixin that handles tags for objects.
+ * Assign the ticket to a user.
  */
-export interface PatchedTicketApi {
-    readonly id?: string
-    readonly ticket_number?: number
-    readonly channel_source?: ChannelSourceEnumApi
-    readonly channel_detail?: ChannelDetailEnumApi | null
-    readonly distinct_id?: string
-    /** Ticket status: new, open, pending, on_hold, or resolved
+export type UserTicketAssigneeRequestApiType =
+    (typeof UserTicketAssigneeRequestApiType)[keyof typeof UserTicketAssigneeRequestApiType]
+
+export const UserTicketAssigneeRequestApiType = {
+    User: 'user',
+} as const
+
+export interface UserTicketAssigneeRequestApi {
+    /** Assign the ticket to a user. */
+    type: UserTicketAssigneeRequestApiType
+    /** User ID. */
+    id: number
+}
+
+/**
+ * Assign the ticket to a role.
+ */
+export type RoleTicketAssigneeRequestApiType =
+    (typeof RoleTicketAssigneeRequestApiType)[keyof typeof RoleTicketAssigneeRequestApiType]
+
+export const RoleTicketAssigneeRequestApiType = {
+    Role: 'role',
+} as const
+
+export interface RoleTicketAssigneeRequestApi {
+    /** Assign the ticket to a role. */
+    type: RoleTicketAssigneeRequestApiType
+    /** Role ID. */
+    id: string
+}
+
+export type TicketAssigneeRequestApi = UserTicketAssigneeRequestApi | RoleTicketAssigneeRequestApi
+
+/**
+ * Fields accepted when updating a ticket.
+ */
+export interface TicketUpdateRequestApi {
+    /** Ticket status: new, open, pending, on_hold, or resolved.
      *
      * * `new` - New
      * * `open` - Open
@@ -761,63 +831,112 @@ export interface PatchedTicketApi {
      * * `on_hold` - On hold
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
-    /** Ticket priority: low, medium, or high. Null if unset.
+    /** Ticket priority: low, medium, high, or critical. Pass null to clear it.
      *
      * * `low` - Low
      * * `medium` - Medium
-     * * `high` - High */
+     * * `high` - High
+     * * `critical` - Critical */
     priority?: TicketPriorityEnumApi | BlankEnumApi | null
-    readonly assignee?: TicketAssignmentApi
-    /** Customer-provided traits such as name and email */
+    /** User or role to assign. Pass null to remove the current assignee. */
+    assignee?: TicketAssigneeRequestApi | null
+    /** Customer details such as name and email. */
     anonymous_traits?: unknown
+    /** Whether AI resolved the ticket. */
     ai_resolved?: boolean
-    /** @nullable */
-    escalation_reason?: string | null
-    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
-    readonly ai_triage?: unknown
-    readonly created_at?: string
-    readonly updated_at?: string
-    readonly message_count?: number
-    /** @nullable */
-    readonly last_message_at?: string | null
-    /** @nullable */
-    readonly last_message_text?: string | null
-    readonly unread_team_count?: number
-    readonly unread_customer_count?: number
-    /** @nullable */
-    readonly session_id?: string | null
-    readonly session_context?: unknown
     /**
-     * SLA deadline set via workflows. Null means no SLA.
+     * Reason the ticket was escalated. Pass null to clear it.
+     * @nullable
+     */
+    escalation_reason?: string | null
+    /**
+     * SLA deadline. Pass null to clear it.
      * @nullable
      */
     sla_due_at?: string | null
-    /** @nullable */
-    snoozed_until?: string | null
-    /** @nullable */
-    readonly slack_channel_id?: string | null
-    /** @nullable */
-    readonly slack_thread_ts?: string | null
-    /** @nullable */
-    readonly slack_team_id?: string | null
-    /** @nullable */
-    readonly email_subject?: string | null
-    /** @nullable */
-    readonly email_from?: string | null
-    /** @nullable */
-    readonly email_to?: string | null
-    readonly cc_participants?: unknown
-    /** @nullable */
-    readonly github_repo?: string | null
-    /** @nullable */
-    readonly github_issue_number?: number | null
     /**
-     * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+     * Time to reopen the ticket. Pass null to reopen it now.
      * @nullable
      */
-    readonly organization_id?: string | null
-    readonly person?: TicketPersonApi | null
-    tags?: unknown[]
+    snoozed_until?: string | null
+    /** Tag names to set on the ticket. */
+    tags?: string[]
+}
+
+/**
+ * Fields accepted when updating a ticket.
+ */
+export interface PatchedTicketUpdateRequestApi {
+    /** Ticket status: new, open, pending, on_hold, or resolved.
+     *
+     * * `new` - New
+     * * `open` - Open
+     * * `pending` - Pending
+     * * `on_hold` - On hold
+     * * `resolved` - Resolved */
+    status?: TicketStatusEnumApi
+    /** Ticket priority: low, medium, high, or critical. Pass null to clear it.
+     *
+     * * `low` - Low
+     * * `medium` - Medium
+     * * `high` - High
+     * * `critical` - Critical */
+    priority?: TicketPriorityEnumApi | BlankEnumApi | null
+    /** User or role to assign. Pass null to remove the current assignee. */
+    assignee?: TicketAssigneeRequestApi | null
+    /** Customer details such as name and email. */
+    anonymous_traits?: unknown
+    /** Whether AI resolved the ticket. */
+    ai_resolved?: boolean
+    /**
+     * Reason the ticket was escalated. Pass null to clear it.
+     * @nullable
+     */
+    escalation_reason?: string | null
+    /**
+     * SLA deadline. Pass null to clear it.
+     * @nullable
+     */
+    sla_due_at?: string | null
+    /**
+     * Time to reopen the ticket. Pass null to reopen it now.
+     * @nullable
+     */
+    snoozed_until?: string | null
+    /** Tag names to set on the ticket. */
+    tags?: string[]
+}
+
+/**
+ * * `good` - good
+ * * `bad` - bad
+ */
+export type RatingEnumApi = (typeof RatingEnumApi)[keyof typeof RatingEnumApi]
+
+export const RatingEnumApi = {
+    Good: 'good',
+    Bad: 'bad',
+} as const
+
+/**
+ * Payload for recording reviewer feedback on an AI reply.
+ */
+export interface AiFeedbackRequestApi {
+    /**
+     * ID of the AI message being rated.
+     * @maxLength 200
+     */
+    message_id: string
+    /** Reviewer rating: good or bad.
+     *
+     * * `good` - good
+     * * `bad` - bad */
+    rating: RatingEnumApi
+    /**
+     * Optional text explaining a bad rating.
+     * @maxLength 2000
+     */
+    feedback_text?: string
 }
 
 /**
@@ -836,6 +955,8 @@ export interface TicketMessageApi {
     readonly author_name: string
     /** True for internal notes not visible to the customer. */
     readonly is_private: boolean
+    /** Edit count. 0 means never edited. */
+    readonly version: number
     readonly created_at: string
 }
 
@@ -846,6 +967,24 @@ export interface PaginatedTicketMessageListApi {
     /** @nullable */
     previous?: string | null
     results: TicketMessageApi[]
+}
+
+/**
+ * Payload for updating a private note on a ticket.
+ */
+export interface PatchedTicketNoteUpdateRequestApi {
+    /**
+     * Updated note content in markdown.
+     * @maxLength 5000
+     */
+    message?: string
+    /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
+    rich_content?: unknown
+}
+
+export interface TicketErrorApi {
+    detail: string
+    error_type?: string
 }
 
 /**
@@ -891,9 +1030,9 @@ export interface BulkUpdateStatusResponseApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -910,7 +1049,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -961,25 +1100,169 @@ export interface ComposeTicketResponseApi {
     ticket_number: number
 }
 
-export interface TicketErrorApi {
-    detail: string
-    error_type?: string
-}
+/**
+ * * `widget` - widget
+ * * `email` - email
+ * * `slack` - slack
+ * * `teams` - teams
+ * * `github` - github
+ * * `all` - all
+ */
+export type TicketChannelFilterEnumApi = (typeof TicketChannelFilterEnumApi)[keyof typeof TicketChannelFilterEnumApi]
+
+export const TicketChannelFilterEnumApi = {
+    Widget: 'widget',
+    Email: 'email',
+    Slack: 'slack',
+    Teams: 'teams',
+    Github: 'github',
+    All: 'all',
+} as const
 
 /**
- * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
+ * * `breached` - breached
+ * * `at-risk` - at-risk
+ * * `on-track` - on-track
+ * * `all` - all
  */
-export type TicketViewApiFilters = { [key: string]: unknown }
+export type TicketSlaFilterEnumApi = (typeof TicketSlaFilterEnumApi)[keyof typeof TicketSlaFilterEnumApi]
+
+export const TicketSlaFilterEnumApi = {
+    Breached: 'breached',
+    AtRisk: 'at-risk',
+    OnTrack: 'on-track',
+    All: 'all',
+} as const
+
+/**
+ * * `persisted` - persisted
+ * * `escalated_with_best` - escalated_with_best
+ * * `escalated_no_reply` - escalated_no_reply
+ * * `skipped_unactionable` - skipped_unactionable
+ * * `blocked_unsafe` - blocked_unsafe
+ * * `blocked_unsafe_reply` - blocked_unsafe_reply
+ * * `in_progress` - in_progress
+ */
+export type AiTriageResultEnumApi = (typeof AiTriageResultEnumApi)[keyof typeof AiTriageResultEnumApi]
+
+export const AiTriageResultEnumApi = {
+    Persisted: 'persisted',
+    EscalatedWithBest: 'escalated_with_best',
+    EscalatedNoReply: 'escalated_no_reply',
+    SkippedUnactionable: 'skipped_unactionable',
+    BlockedUnsafe: 'blocked_unsafe',
+    BlockedUnsafeReply: 'blocked_unsafe_reply',
+    InProgress: 'in_progress',
+} as const
+
+/**
+ * * `any` - any
+ * * `all` - all
+ */
+export type TicketTagsMatchEnumApi = (typeof TicketTagsMatchEnumApi)[keyof typeof TicketTagsMatchEnumApi]
+
+export const TicketTagsMatchEnumApi = {
+    Any: 'any',
+    All: 'all',
+} as const
+
+/**
+ * * `1` - 1
+ * * `-1` - -1
+ */
+export type TicketSortOrderEnumApi = (typeof TicketSortOrderEnumApi)[keyof typeof TicketSortOrderEnumApi]
+
+export const TicketSortOrderEnumApi = {
+    Number1: 1,
+    NumberMinus1: -1,
+} as const
+
+export interface TicketViewSortingApi {
+    /** Ticket column to sort by (updated_at, sla_due_at, snoozed_until, created_at, ticket_number). Unknown columns fall back to updated_at. */
+    columnKey: string
+    /** 1 for ascending, -1 for descending.
+     *
+     * * `1` - 1
+     * * `-1` - -1 */
+    order: TicketSortOrderEnumApi
+}
+
+export type TicketViewFiltersApiAssigneeItem =
+    | 'me'
+    | 'unassigned'
+    | {
+          type: 'user' | 'role'
+          id: string | number
+      }
+
+/**
+ * Canonical shape of a saved ticket view's filters. Every field is optional; an omitted
+ * field (or an 'all' sentinel) leaves that dimension unfiltered.
+ */
+export interface TicketViewFiltersApi {
+    /** Ticket statuses to include. Empty or omitted means all statuses. */
+    status?: TicketStatusEnumApi[]
+    /** Ticket priorities to include. Empty or omitted means all priorities. */
+    priority?: TicketPriorityEnumApi[]
+    /** Channel the ticket originated from. 'all' disables the filter.
+     *
+     * * `widget` - widget
+     * * `email` - email
+     * * `slack` - slack
+     * * `teams` - teams
+     * * `github` - github
+     * * `all` - all */
+    channel?: TicketChannelFilterEnumApi
+    /** SLA state: 'breached' is past due, 'at-risk' is due within the next hour, 'on-track' has more than an hour remaining. 'all' disables the filter.
+     *
+     * * `breached` - breached
+     * * `at-risk` - at-risk
+     * * `on-track` - on-track
+     * * `all` - all */
+    sla?: TicketSlaFilterEnumApi
+    /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. */
+    aiTriageResult?: AiTriageResultEnumApi[]
+    /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list. */
+    assignee?: TicketViewFiltersApiAssigneeItem[]
+    /** Tag names to match, combined according to tagsMatch. */
+    tags?: string[]
+    /** 'any' returns tickets with at least one of tags (OR); 'all' requires every tag (AND).
+     *
+     * * `any` - any
+     * * `all` - all */
+    tagsMatch?: TicketTagsMatchEnumApi
+    /** Tickets carrying any of these tags are excluded. */
+    tagsExclude?: string[]
+    /**
+     * Only include tickets updated on or after this date. Accepts absolute dates (2026-01-01) or relative ones (-7d). 'all' or null disables the bound.
+     * @nullable
+     */
+    dateFrom?: string | null
+    /**
+     * Only include tickets updated on or before this date. Same format as dateFrom.
+     * @nullable
+     */
+    dateTo?: string | null
+    /** Sort order for the ticket list. */
+    sorting?: TicketViewSortingApi | null
+    /**
+     * Free-text search. A numeric value matches a ticket number exactly; otherwise matches the customer's name or email, the email subject, or message content.
+     * @maxLength 200
+     */
+    search?: string
+}
 
 export interface TicketViewApi {
     readonly id: string
     readonly short_id: string
     /** @maxLength 400 */
     name: string
-    /** Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys. */
-    filters?: TicketViewApiFilters
+    /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
+    filters?: TicketViewFiltersApi
     readonly created_at: string
     readonly created_by: UserBasicApi
+    /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
+    is_favorited?: boolean
 }
 
 export interface PaginatedTicketViewListApi {
@@ -989,6 +1272,108 @@ export interface PaginatedTicketViewListApi {
     /** @nullable */
     previous?: string | null
     results: TicketViewApi[]
+}
+
+export interface PatchedTicketViewApi {
+    readonly id?: string
+    readonly short_id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
+    filters?: TicketViewFiltersApi
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
+    is_favorited?: boolean
+}
+
+export interface ZendeskImportStartApi {
+    /**
+     * Zendesk subdomain (e.g. 'acme' from acme.zendesk.com).
+     * @maxLength 255
+     */
+    subdomain: string
+    /** Zendesk agent email tied to the API token. */
+    email_address: string
+    /**
+     * Zendesk API token with ticket read access.
+     * @maxLength 500
+     */
+    api_token: string
+    /**
+     * Optional fallback email channel for tickets whose original Zendesk recipient doesn't match a configured support address (or isn't an email). Omit or null to leave those tickets without an email channel.
+     * @nullable
+     */
+    default_email_channel_id?: string | null
+}
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type ZendeskImportJobStatusEnumApi =
+    (typeof ZendeskImportJobStatusEnumApi)[keyof typeof ZendeskImportJobStatusEnumApi]
+
+export const ZendeskImportJobStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface ZendeskImportJobApi {
+    /** Unique identifier for the import job. */
+    readonly id: string
+    /** Current job state: pending, running, completed, or failed.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: ZendeskImportJobStatusEnumApi
+    /**
+     * Zendesk subdomain used for this import job.
+     * @nullable
+     */
+    readonly subdomain: string | null
+    /** Whether stored Zendesk credentials exist for this job (the token/email are never returned). */
+    readonly has_credentials: boolean
+    /** Total number of tickets discovered for import. */
+    readonly total_tickets: number
+    /** Number of tickets processed so far. */
+    readonly processed_tickets: number
+    /** Number of tickets successfully imported. */
+    readonly imported_tickets: number
+    /** Number of tickets skipped because they were already imported. */
+    readonly skipped_tickets: number
+    /** Number of tickets that failed to import. */
+    readonly failed_tickets: number
+    /**
+     * When the import started running.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When the import reached a terminal state.
+     * @nullable
+     */
+    readonly finished_at: string | null
+    /**
+     * Generic, user-safe error message when the job failed.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /** When the import job was created. */
+    readonly created_at: string
+    /** When the import job was last updated. */
+    readonly updated_at: string
+}
+
+export interface ZendeskImportErrorApi {
+    /** Human-readable error message. */
+    detail: string
 }
 
 export type ConversationsListParams = {
@@ -1004,7 +1389,11 @@ export type ConversationsListParams = {
 
 export type ConversationsTicketsListParams = {
     /**
-     * Filter by assignee. Use `unassigned` for tickets with no assignee, `user:<user_id>` for a specific user, or `role:<role_uuid>` for a role.
+     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `in_progress`.
+     */
+    ai_triage_result?: string
+    /**
+     * Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `me` (the requesting user), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.
      */
     assignee?: string
     /**
@@ -1028,6 +1417,10 @@ export type ConversationsTicketsListParams = {
      */
     distinct_ids?: string
     /**
+     * Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).
+     */
+    emails?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1040,17 +1433,21 @@ export type ConversationsTicketsListParams = {
      */
     order_by?: string
     /**
-     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`.
+     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`.
      */
     priority?: string
     /**
-     * Free-text search. A numeric value matches a ticket number exactly; otherwise matches against the customer's name or email (case-insensitive, partial match).
+     * Free-text search. A numeric value (optionally prefixed with `#`) matches a ticket number exactly; otherwise matches against the customer's name or email, the email subject, or message content (case-insensitive, partial match).
      */
     search?: string
     /**
      * Filter by SLA state. `breached` = past `sla_due_at`, `at-risk` = due within the next hour, `on-track` = more than an hour remaining.
      */
     sla?: ConversationsTicketsListSla
+    /**
+     * Filter by snooze state: `true` returns only snoozed tickets, `false` only non-snoozed.
+     */
+    snoozed?: boolean
     /**
      * Filter by status. Accepts a single value or a comma-separated list (e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `resolved`.
      */
@@ -1067,6 +1464,10 @@ export type ConversationsTicketsListParams = {
      * JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `["escalated"]`.
      */
     tags_exclude?: string
+    /**
+     * Apply a saved ticket view's filters by its `short_id` (list views via the `conversations/views` endpoint). Any filter param passed explicitly overrides the view's saved value for that dimension. Returns 400 if no view matches.
+     */
+    view?: string
 }
 
 export type ConversationsTicketsListChannelDetail =

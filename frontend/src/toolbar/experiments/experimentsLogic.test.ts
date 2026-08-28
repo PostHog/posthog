@@ -4,10 +4,17 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },
 }))
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 import { experimentsLogic } from './experimentsLogic'
+
+// The toolbar logger mirrors intentional error/auth paths to the console (its job on
+// customer pages); tests exercise those paths on purpose, so stub the boundary.
+jest.mock('~/toolbar/toolbarLogger', () => ({
+    toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
 
 const web_experiments = [{ id: 1, name: 'Test Experiment 1', variants: {} }]
 
@@ -16,6 +23,11 @@ function mockFetch(response: Partial<Response> & { json?: () => Promise<unknown>
 }
 
 describe('experimentsLogic', () => {
+    // These suites intentionally reject requests to exercise error states; the
+    // failures are asserted via authStatus/values, so skip the global loader logging.
+    beforeAll(silenceKeaLoadersErrors)
+    afterAll(resumeKeaLoadersErrors)
+
     let logic: ReturnType<typeof experimentsLogic.build>
     const savedFetch = global.fetch
 

@@ -5,21 +5,31 @@ import { useActions } from 'kea'
 import { useEffect } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
-import { LLMPromptVersionSummary } from '~/types'
 
 import { CreatePromptExperimentModal } from './CreatePromptExperimentModal'
 import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
+import { LLMPromptVersionSummary } from './types'
 
 const PROMPT_NAME = 'storybook-prompt'
 
 const MOCK_VERSIONS: LLMPromptVersionSummary[] = [
-    { id: 'v5', version: 5, created_by: MOCK_DEFAULT_BASIC_USER, created_at: '2025-01-15T10:00:00Z', is_latest: true },
+    {
+        id: 'v5',
+        version: 5,
+        created_by: MOCK_DEFAULT_BASIC_USER,
+        created_at: '2025-01-15T10:00:00Z',
+        is_latest: true,
+        version_description: null,
+        labels: [],
+    },
     {
         id: 'v4',
         version: 4,
         created_by: MOCK_DEFAULT_BASIC_USER,
         created_at: '2025-01-12T10:00:00Z',
         is_latest: false,
+        version_description: null,
+        labels: [],
     },
     {
         id: 'v3',
@@ -27,6 +37,8 @@ const MOCK_VERSIONS: LLMPromptVersionSummary[] = [
         created_by: MOCK_DEFAULT_BASIC_USER,
         created_at: '2025-01-10T10:00:00Z',
         is_latest: false,
+        version_description: null,
+        labels: [],
     },
     {
         id: 'v2',
@@ -34,6 +46,8 @@ const MOCK_VERSIONS: LLMPromptVersionSummary[] = [
         created_by: MOCK_DEFAULT_BASIC_USER,
         created_at: '2025-01-05T10:00:00Z',
         is_latest: false,
+        version_description: null,
+        labels: [],
     },
     {
         id: 'v1',
@@ -41,6 +55,8 @@ const MOCK_VERSIONS: LLMPromptVersionSummary[] = [
         created_by: MOCK_DEFAULT_BASIC_USER,
         created_at: '2025-01-01T10:00:00Z',
         is_latest: false,
+        version_description: null,
+        labels: [],
     },
 ]
 

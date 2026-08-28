@@ -165,5 +165,15 @@ describe('TeamService', () => {
             const retention = await teamService.getRetentionPeriodByTeamId(999)
             expect(retention).toBeNull()
         })
+
+        it('should throw when the stored retention value is not a valid period', async () => {
+            fetchSpy.mockResolvedValue({
+                tokenMap: {},
+                retentionMap: { 7: 'forever' },
+            })
+            await expect(teamService.getRetentionPeriodByTeamId(7)).rejects.toThrow(
+                "Invalid session_recording_retention_period 'forever' for team 7"
+            )
+        })
     })
 })

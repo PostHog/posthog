@@ -127,6 +127,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     # how often to recalculate the alert
     CALCULATION_INTERVAL_CHOICES = [
+        (AlertCalculationInterval.REAL_TIME, AlertCalculationInterval.REAL_TIME.value),
         (AlertCalculationInterval.EVERY_15_MINUTES, AlertCalculationInterval.EVERY_15_MINUTES.value),
         (AlertCalculationInterval.HOURLY, AlertCalculationInterval.HOURLY.value),
         (AlertCalculationInterval.DAILY, AlertCalculationInterval.DAILY.value),
@@ -195,7 +196,12 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     @property
     def is_high_frequency_interval(self) -> bool:
-        return self.calculation_interval == AlertCalculationInterval.EVERY_15_MINUTES
+        # Real-time counts as high frequency so its checks always run fresh ClickHouse
+        # queries (CALCULATE_BLOCKING_ALWAYS) instead of reading a possibly stale cache.
+        return self.calculation_interval in (
+            AlertCalculationInterval.EVERY_15_MINUTES,
+            AlertCalculationInterval.REAL_TIME,
+        )
 
     def get_subscribed_users_emails(self) -> list[str]:
         return list(
@@ -203,25 +209,6 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
                 "email", flat=True
             )
         )
-
-    def mark_for_recheck(self, *, reset_state: bool = False) -> list[str]:
-        """Returns list of field names that were modified (for use with update_fields)."""
-        updated: list[str] = []
-        if reset_state:
-            self.state = AlertState.NOT_FIRING
-            updated.append("state")
-        self.next_check_at = None
-        updated.append("next_check_at")
-        return updated
-
-    def save(self, *args, **kwargs) -> None:
-        if not self.enabled:
-            # When disabling an alert, set the state to not firing
-            self.state = AlertState.NOT_FIRING
-            if "update_fields" in kwargs:
-                kwargs["update_fields"].append("state")
-
-        super().save(*args, **kwargs)
 
     def _get_event_properties(self) -> dict:
         detector_config = self.detector_config or {}
@@ -269,6 +256,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "calculation_interval": self.calculation_interval,
             "is_high_frequency_interval": self.is_high_frequency_interval,
             "enabled": self.enabled,
+            "investigation_agent_enabled": self.investigation_agent_enabled,
             "skip_weekend": bool(self.skip_weekend),
             "has_schedule_restriction": has_schedule_restriction,
             "has_threshold": has_threshold,
@@ -333,6 +321,92 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             return "15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on."
         return None
 
+    @classmethod
+    def real_time_interval_validation_error(
+        cls,
+        *,
+        calculation_interval: str | AlertCalculationInterval | None,
+        organization: Organization,
+    ) -> str | None:
+        if calculation_interval != AlertCalculationInterval.REAL_TIME:
+            return None
+        if not organization.is_feature_available(AvailableFeature.REAL_TIME_ALERTS):
+            return "Real-time alert intervals require a Scale or Enterprise plan."
+        return None
+
+    @classmethod
+    def interval_entitlement_error(
+        cls,
+        *,
+        calculation_interval: str | AlertCalculationInterval | None,
+        organization: Organization,
+    ) -> str | None:
+        """Entitlement gate for any plan-restricted interval — the single entry point for
+        write paths and evaluation-time downgrade checks. Each underlying check returns None
+        unless the interval matches, so at most one can produce an error."""
+        return cls.real_time_interval_validation_error(
+            calculation_interval=calculation_interval, organization=organization
+        ) or cls.every_15_minutes_interval_validation_error(
+            calculation_interval=calculation_interval, organization=organization
+        )
+
+    @classmethod
+    def check_real_time_alert_limit(
+        cls, team_id: int, organization: Organization, *, exclude_id: str | None = None
+    ) -> str | None:
+        """Return an error message if the team has reached its real-time alert limit, else None.
+
+        Unlike check_alert_limit (which counts every alert against the ALERTS feature), this
+        counts only real-time alerts against the REAL_TIME_ALERTS feature's limit. Orgs without
+        the feature are already blocked by real_time_interval_validation_error.
+        """
+        feature = organization.get_available_feature(AvailableFeature.REAL_TIME_ALERTS)
+        if not feature:
+            return None
+
+        allowed = feature.get("limit")
+        if allowed is None:
+            return None
+
+        qs = cls.objects.filter(team_id=team_id, calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
+        if exclude_id:
+            qs = qs.exclude(pk=exclude_id)
+        existing_count = qs.count()
+        if existing_count >= allowed:
+            return f"Your team has reached the limit of {allowed} real-time alerts on your plan."
+        return None
+
+    @classmethod
+    def real_time_alert_validation_error(
+        cls,
+        *,
+        team_id: int,
+        organization: Organization,
+        calculation_interval: str | AlertCalculationInterval | None,
+        enabled: bool,
+        existing: AlertConfiguration | None = None,
+    ) -> str | None:
+        """Validate the active real-time limit for a create/update that would leave an alert
+        in the given real-time state.
+
+        Purely the limit check — callers gate the entitlement first via
+        interval_entitlement_error. The limit only applies when the change increases the
+        active real-time count — an alert that already was an enabled real_time alert
+        doesn't re-count against it.
+        """
+        if calculation_interval != AlertCalculationInterval.REAL_TIME:
+            return None
+        if not enabled:
+            return None
+        already_active_real_time = (
+            existing is not None
+            and existing.calculation_interval == AlertCalculationInterval.REAL_TIME
+            and existing.enabled
+        )
+        if already_active_real_time:
+            return None
+        return cls.check_real_time_alert_limit(team_id, organization, exclude_id=str(existing.pk) if existing else None)
+
 
 class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     user = models.ForeignKey(
@@ -360,6 +434,8 @@ class AlertCheck(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
     calculated_value = models.FloatField(null=True, blank=True)
     condition = models.JSONField(default=dict)  # Snapshot of the condition at the time of the check
+    # {} = no delivery. For legacy reasons "users" holds email addresses only;
+    # "destinations" holds the other channels' receipts (see AlertDelivery).
     targets_notified = models.JSONField(default=dict)
     error = models.JSONField(null=True, blank=True)
 
@@ -405,6 +481,12 @@ class AlertCheck(UUIDTModel):
 
     def __str__(self) -> str:
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"
+
+    @property
+    def has_delivery_receipts(self) -> bool:
+        """True when this row was written by record_alert_delivery (which always sets
+        the "destinations" key); legacy rows only carry configured recipients."""
+        return "destinations" in (self.targets_notified or {})
 
     @classmethod
     def clean_up_old_checks(cls) -> int:

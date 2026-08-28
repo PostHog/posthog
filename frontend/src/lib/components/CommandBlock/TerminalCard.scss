@@ -1,0 +1,49 @@
+// Only the animations tailwind can't express: a steps() timing function driven by
+// a CSS variable, and a keyframe animating to a variable width. Everything else
+// on TerminalCard is tailwind.
+
+.TerminalCard__cmd {
+    width: var(--terminal-cmd-chars);
+    animation: TerminalCard__type 2s steps(var(--terminal-cmd-steps, 40), end) 0.4s both;
+
+    // Storybook snapshots: render the finished state, no motion.
+    &--static {
+        width: auto;
+        animation: none;
+    }
+}
+
+.TerminalCard__caret {
+    animation: TerminalCard__blink 1.1s step-end infinite;
+
+    &--static {
+        animation: none;
+    }
+}
+
+@keyframes TerminalCard__type {
+    from {
+        width: 0;
+    }
+
+    to {
+        width: var(--terminal-cmd-chars);
+    }
+}
+
+@keyframes TerminalCard__blink {
+    50% {
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .TerminalCard__cmd {
+        width: auto;
+        animation: none;
+    }
+
+    .TerminalCard__caret {
+        animation: none;
+    }
+}

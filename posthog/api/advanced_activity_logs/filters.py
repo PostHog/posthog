@@ -1,11 +1,95 @@
 import re
 from typing import Any
 
-from django.db.models import Q, QuerySet
+from django.db.models import JSONField, Q, QuerySet
+from django.db.models.fields.json import KeyTransform
+
+from rest_framework import serializers
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 _ALLOWED_DETAIL_FILTER_OPERATIONS = {"exact", "contains", "in"}
+
+# Names Django resolves as a lookup instead of a JSON key. A field path segment matching one of
+# these turns the caller's key into the ORM operation: `regex` becomes `detail::text ~ <value>`
+# and `name.regex` becomes `(detail ->> 'name')::text ~ <value>`, which evaluates an arbitrary
+# Postgres regular expression against every row. Computed from Django's registries so the set
+# stays correct when Django adds lookups.
+_DJANGO_LOOKUP_NAMES = frozenset(JSONField().get_lookups()) | frozenset(KeyTransform.get_lookups())
+
+_MAX_DETAIL_FILTERS = 100
+_MAX_FIELD_PATH_LENGTH = 500
+# Array filters only look at the first _MAX_ARRAY_INDICES_TO_CHECK elements of each array. Each
+# `[]` marker in a field path multiplies the number of generated index permutations by that number,
+# and every permutation costs a path string plus a Q object, so capping the product keeps a deeply
+# nested path from exhausting the worker's memory before any SQL runs. The cap is 5 ** 3, which
+# lets a path nest three arrays and rejects a fourth.
+_MAX_ARRAY_INDICES_TO_CHECK = 5
+_MAX_INDEXED_PATHS = 125
+
+
+def validate_detail_filters(detail_filters: Any) -> dict[str, Any]:
+    """Reject detail filters that Django would turn into an ORM operation or an unbounded expansion.
+
+    Raises ``serializers.ValidationError`` so callers surface a 400 rather than running the query.
+    """
+    if not isinstance(detail_filters, dict):
+        raise serializers.ValidationError("detail_filters must be an object.")
+
+    if len(detail_filters) > _MAX_DETAIL_FILTERS:
+        raise serializers.ValidationError(f"detail_filters accepts at most {_MAX_DETAIL_FILTERS} entries.")
+
+    for field_path, filter_config in detail_filters.items():
+        _validate_detail_filter(field_path, filter_config)
+
+    return detail_filters
+
+
+def _validate_detail_filter(field_path: Any, filter_config: Any) -> None:
+    if not isinstance(field_path, str) or not field_path:
+        raise serializers.ValidationError("Detail filter field paths must be non-empty strings.")
+
+    if len(field_path) > _MAX_FIELD_PATH_LENGTH:
+        raise serializers.ValidationError(
+            f"Detail filter field paths must be at most {_MAX_FIELD_PATH_LENGTH} characters."
+        )
+
+    if not isinstance(filter_config, dict):
+        raise serializers.ValidationError(f"Detail filter '{field_path}' must be an object.")
+
+    operation = filter_config.get("operation", "exact")
+    if operation not in _ALLOWED_DETAIL_FILTER_OPERATIONS:
+        raise serializers.ValidationError(
+            f"Unsupported detail filter operation '{operation}'. "
+            f"Allowed operations: {', '.join(sorted(_ALLOWED_DETAIL_FILTER_OPERATIONS))}."
+        )
+
+    # `__` is Django's lookup separator, so it would let a path traverse relationships or append a
+    # lookup regardless of the per-segment checks below.
+    if "__" in field_path:
+        raise serializers.ValidationError(f"Detail filter field path '{field_path}' contains '__'.")
+
+    if _MAX_ARRAY_INDICES_TO_CHECK ** field_path.count("[]") > _MAX_INDEXED_PATHS:
+        raise serializers.ValidationError(f"Detail filter field path '{field_path}' nests too many arrays.")
+
+    stripped = field_path.replace("[]", "")
+    for segment in stripped.split("."):
+        if not segment:
+            raise serializers.ValidationError(f"Detail filter field path '{field_path}' has an empty segment.")
+
+    # Check the components Django will actually see, not the dot-separated segments. A segment
+    # ending in `_` next to one starting with `_` joins into a run of underscores that shifts the
+    # `__` boundary, so a lookup name can surface as its own component without ever having been a
+    # segment -- and reach the database as a lookup.
+    for component in stripped.replace(".", "__").split("__"):
+        if not component:
+            raise serializers.ValidationError(
+                f"Detail filter field path '{field_path}' has an ambiguous underscore boundary."
+            )
+        if component in _DJANGO_LOOKUP_NAMES:
+            raise serializers.ValidationError(
+                f"Detail filter field path '{field_path}' uses reserved segment '{component}'."
+            )
 
 
 class AdvancedActivityLogFilterManager:
@@ -58,16 +142,16 @@ class AdvancedActivityLogFilterManager:
     def _apply_detail_filters(
         self, queryset: QuerySet[ActivityLog], detail_filters: dict[str, Any]
     ) -> QuerySet[ActivityLog]:
+        if not detail_filters:
+            return queryset
+
+        validate_detail_filters(detail_filters)
+
         for field_path, filter_config in detail_filters.items():
             operation = filter_config.get("operation", "exact")
             value = filter_config.get("value")
 
             if value is None:
-                continue
-
-            # Block Django ORM relationship traversal (e.g. "user__password") and
-            # restrict operations to a safe allowlist to prevent injection via arbitrary lookups.
-            if "__" in field_path or operation not in _ALLOWED_DETAIL_FILTER_OPERATIONS:
                 continue
 
             if "[]" in field_path:
@@ -93,7 +177,7 @@ class AdvancedActivityLogFilterManager:
         self, queryset: QuerySet[ActivityLog], field_path: str, value: Any
     ) -> QuerySet[ActivityLog]:
         base_array_path = field_path.split("[]")[0]
-        # nosemgrep: orm-field-injection -- field_path validated (__ rejected) and prefixed by detail__ JSONField
+        # nosemgrep: orm-field-injection -- field_path checked by validate_detail_filters (no `__`, no segment named after a Django lookup)
         return queryset.filter(**{f"detail__{base_array_path}__icontains": value})
 
     def _apply_array_exact_filter(
@@ -103,10 +187,9 @@ class AdvancedActivityLogFilterManager:
         if len(parts) < 2:
             return self._apply_array_contains_filter(queryset, field_path, value)
 
-        max_indices_to_check = 5  # Check first 5 elements of each array
         query_conditions = []
 
-        indexed_paths = self._generate_indexed_paths(parts, field_path, max_indices_to_check)
+        indexed_paths = self._generate_indexed_paths(parts, field_path, _MAX_ARRAY_INDICES_TO_CHECK)
 
         for django_path in indexed_paths:
             query_condition = self._create_type_insensitive_query(f"detail__{django_path}", operation, value)
@@ -308,10 +391,10 @@ class AdvancedActivityLogFilterManager:
             return combined_condition
         elif operation == "in":
             unique_values = self._expand_values_with_type_variants(value)
-            # nosemgrep: orm-field-injection -- field_path validated (__ rejected) and prefixed by detail__ JSONField
+            # nosemgrep: orm-field-injection -- field_path checked by validate_detail_filters (no `__`, no segment named after a Django lookup)
             return Q(**{f"{field_path}__in": unique_values})
         elif operation == "contains":
-            # nosemgrep: orm-field-injection -- field_path validated (__ rejected) and prefixed by detail__ JSONField
+            # nosemgrep: orm-field-injection -- field_path checked by validate_detail_filters (no `__`, no segment named after a Django lookup)
             return Q(**{f"{field_path}__icontains": value})
         else:
             return Q(**{field_path: value})

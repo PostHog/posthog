@@ -26,8 +26,8 @@ from zoneinfo import ZoneInfo
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
-from django.db import ProgrammingError
-from django.db.models.functions import Lower
+from django.db import ProgrammingError, models
+from django.db.models.functions import Coalesce, Lower
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -58,7 +58,9 @@ from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
-from posthog.security.url_validation import has_authority_bypass_chars
+from posthog.security.url_validation import has_ambiguous_authority
+
+from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
 
 tracer = trace.get_tracer(__name__)
 
@@ -80,7 +82,7 @@ if TYPE_CHECKING:
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_tile import DashboardTile
     from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
-    from products.product_analytics.backend.models.insight_variable import InsightVariable
+    from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -121,7 +123,7 @@ def absolute_uri(url: Optional[str] = None) -> str:
     if not url:
         return settings.SITE_URL
 
-    if has_authority_bypass_chars(url):
+    if has_ambiguous_authority(url):
         raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
     provided_url = urlparse(url)
@@ -138,9 +140,19 @@ def absolute_uri(url: Optional[str] = None) -> str:
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
-def get_previous_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class DayRange:
+    start: datetime.datetime
+    end: datetime.datetime
+
+    def __post_init__(self) -> None:
+        if self.start > self.end:
+            raise ValueError(f"DayRange start must not be after end: start={self.start}, end={self.end}")
+
+
+def get_previous_day(at: Optional[datetime.datetime] = None) -> DayRange:
     """
-    Returns a pair of datetimes, representing the start and end of the preceding day.
+    Returns the start and end of the preceding day.
     `at` is the datetime to use as a reference point.
     """
 
@@ -159,12 +171,12 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.d
         tzinfo=ZoneInfo("UTC"),
     )  # start of the previous day
 
-    return (period_start, period_end)
+    return DayRange(start=period_start, end=period_end)
 
 
-def get_current_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:
+def get_current_day(at: Optional[datetime.datetime] = None) -> DayRange:
     """
-    Returns a pair of datetimes, representing the start and end of the current day.
+    Returns the start and end of the current day.
     `at` is the datetime to use as a reference point.
     """
 
@@ -183,7 +195,7 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.da
         tzinfo=ZoneInfo("UTC"),
     )  # start of the reference day
 
-    return (period_start, period_end)
+    return DayRange(start=period_start, end=period_end)
 
 
 def relative_date_parse_with_delta_mapping(
@@ -246,6 +258,15 @@ def relative_date_parse_with_delta_mapping(
         parsed_dt += relativedelta(**delta_mapping)  # type: ignore
     else:
         parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+
+    if match_group_dict["kind"] == "q":
+        # Quarter boundaries depend on the resulting month, so they can't be expressed
+        # as a static delta mapping like mStart/yStart — snap after applying the delta
+        quarter_start_month = ((parsed_dt.month - 1) // 3) * 3 + 1
+        if match_group_dict["position"] == "Start":
+            parsed_dt += relativedelta(month=quarter_start_month, day=1)
+        elif match_group_dict["position"] == "End":
+            parsed_dt += relativedelta(month=quarter_start_month + 2, day=31)
 
     if always_truncate:
         # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
@@ -329,7 +350,11 @@ def get_delta_mapping_for(
             delta_mapping["seconds"] = int(number)
     elif kind == "q":
         if number:
-            delta_mapping["weeks"] = 13 * int(number)
+            if human_friendly_comparison_periods:
+                # 13 whole weeks keeps weekdays aligned when comparing to the previous quarter
+                delta_mapping["weeks"] = 13 * int(number)
+            else:
+                delta_mapping["months"] = 3 * int(number)
     elif kind == "y":
         if number:
             if human_friendly_comparison_periods:
@@ -403,6 +428,62 @@ def get_js_url(request: HttpRequest) -> str:
     return settings.JS_URL
 
 
+@lru_cache(maxsize=2)
+def _resolve_entry_assets(include_authenticated_shell: bool) -> tuple[str, tuple[str, ...], str]:
+    """
+    Return (css_url, js_preload_urls, font_url) for <head> preload tags, relative to JS_URL.
+    Preloading lets the browser fetch the boot chain (entry -> App -> AuthenticatedShell chunks,
+    the CSS bundle, and the Inter font, which is otherwise discovered only once the CSS is parsed)
+    in parallel instead of as a waterfall.
+
+    Reads the esbuild preload manifest (see writePreloadManifest in frontend/build.mjs). Returns
+    empty values in debug/test mode and when no manifest exists (e.g. a Vite build, which isn't
+    wired for production serving). Cached per process: manifests are immutable within a deploy.
+    """
+    if settings.DEBUG or settings.TEST:
+        return ("", (), "")
+    return _read_preload_manifest(
+        os.path.join(settings.BASE_DIR, "frontend", "dist", "preload-manifest.json"),
+        include_authenticated_shell,
+    )
+
+
+def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool) -> tuple[str, tuple[str, ...], str]:
+    """
+    Parse preload-manifest.json defensively: hints are an optimization, so any failure must
+    degrade to "no hints" rather than break page rendering — but loudly, because the caller
+    caches the result for the process lifetime, so a silent failure would turn the
+    optimization off fleet-wide until the next deploy.
+    """
+    try:
+        if not os.path.isfile(manifest_path):
+            return ("", (), "")
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        css = manifest.get("css", "")
+        font = manifest.get("font", "")
+        js = manifest.get("js", [])
+        authenticated_js = manifest.get("authenticatedJs", []) if include_authenticated_shell else []
+        if not (
+            isinstance(css, str)
+            and isinstance(font, str)
+            and isinstance(js, list)
+            and isinstance(authenticated_js, list)
+        ):
+            raise ValueError("preload manifest fields have unexpected types")
+        js_urls: list[str] = []
+        for url in [*js, *authenticated_js]:
+            if not isinstance(url, str):
+                raise ValueError("preload manifest fields have unexpected types")
+            if url not in js_urls:
+                js_urls.append(url)
+        return (css, tuple(js_urls), font)
+    except Exception as e:
+        logger.warning("preload_manifest_unreadable", manifest_path=manifest_path, error=str(e))
+        capture_exception(e)
+        return ("", (), "")
+
+
 @tracer.start_as_current_span("template.context")
 def get_context_for_template(
     template_name: str,
@@ -462,7 +543,20 @@ def _build_template_context(
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
-        if posthoganalytics.api_key:
+        # posthog-js uses this token to evaluate PostHog's own gating flags, so it must point at the
+        # team the server-side bootstrap evaluates against via _build_flag_provider(). Both resolve
+        # through resolve_self_flags_team() for that reason: the POSTHOG_SELF_TEAM_ID override when
+        # it is set, else the dogfood-flags team that `sync_feature_flags_from_api` writes to. Do NOT
+        # use the self-capture team here (posthoganalytics.api_key = most-recently-active user's
+        # current_team): it drifts onto demo teams that hold no internal flags, so flags load from
+        # the bootstrap and then vanish the moment posthog-js reloads them against that team.
+        self_flags_team = resolve_self_flags_team()
+        if self_flags_team is not None:
+            context["js_posthog_api_key"] = self_flags_team.api_token
+            context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
+        elif get_explicit_self_team_id() is None and posthoganalytics.api_key:
+            # Only reachable without an override. A pinned team that does not exist leaves the token
+            # unset, because sending any other team's token is the mismatch described above.
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
@@ -474,7 +568,9 @@ def _build_template_context(
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {
-        "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+        "persisted_feature_flags": get_dynamic_persisted_feature_flags(
+            posthoganalytics.feature_flag_definitions(), settings.PERSISTED_FEATURE_FLAGS
+        ),
         "anonymous": not request.user or not request.user.is_authenticated,
     }
 
@@ -490,9 +586,13 @@ def _build_template_context(
         from posthog.api.user import UserSerializer
         from posthog.models.file_system.user_product_list import UserProductList
         from posthog.models.user_home_settings import UserHomeSettings
-        from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
+
+        from products.access_control.backend.facade.user_access_control import (
+            ACCESS_CONTROL_RESOURCES,
+            UserAccessControl,
+        )
 
         with tracer.start_as_current_span("template.preflight"):
             preflight_payload = json.loads(preflight_check(request).getvalue())
@@ -531,7 +631,8 @@ def _build_template_context(
                 resource_access: dict[str, Any] = {}
                 for resource in ACCESS_CONTROL_RESOURCES:
                     with tracer.start_as_current_span(f"template.rbac.levels.{resource}"):
-                        resource_access[resource] = user_access_control.access_level_for_resource(resource)
+                        access = user_access_control.access_level_for_resource(resource)
+                        resource_access[resource] = access.access_level if access else None
                 posthog_app_context["resource_access_control"] = resource_access
 
             with tracer.start_as_current_span("template.user_serializer"):
@@ -572,6 +673,7 @@ def _build_template_context(
                 posthog_app_context["default_event_name"] = event_info["default_event_name"]
                 posthog_app_context["has_pageview"] = event_info["has_pageview"]
                 posthog_app_context["has_screen"] = event_info["has_screen"]
+                posthog_app_context["has_person_email"] = get_has_person_email(user.team)
 
                 with tracer.start_as_current_span("template.user_product_list"):
                     user_product_list = UserProductListSerializer(
@@ -589,6 +691,8 @@ def _build_template_context(
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
     if "oauth_application" in context:
         posthog_app_context["oauth_application"] = context.pop("oauth_application")
+    if "oauth_mcp_consent" in context:
+        posthog_app_context["oauth_mcp_consent"] = context.pop("oauth_mcp_consent")
 
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer
@@ -626,6 +730,19 @@ def _build_template_context(
     context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
+
+    # Only the SPA shell references these; other templates (exporter, layout, ...) load different bundles
+    if template_name == "index.html":
+        context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
+            bool(request.user and request.user.is_authenticated)
+        )
+        # Theme for the pre-React shell (critical CSS in index.html), mirroring the app's
+        # themeLogic.isDarkModeOn: anonymous pages are always light, a missing theme_mode
+        # means light, and only "system" defers to prefers-color-scheme.
+        user_theme_mode = (
+            getattr(request.user, "theme_mode", None) if request.user and request.user.is_authenticated else None
+        )
+        context["boot_theme"] = user_theme_mode or "light"
 
     if posthog_distinct_id:
         from posthog.models.instance_setting import get_instance_setting
@@ -724,6 +841,39 @@ def get_dogfood_flags_team_id() -> Optional[int]:
     return team.id if team is not None else None
 
 
+def get_explicit_self_team_id() -> Optional[int]:
+    """The `POSTHOG_SELF_TEAM_ID` operator override, or None when it is unset.
+
+    Truthiness, not `is not None`: an empty env var means "unset" and must fall through to the
+    defaults, not crash on int("").
+    """
+    raw_team_id = os.environ.get("POSTHOG_SELF_TEAM_ID")
+    return int(raw_team_id) if raw_team_id else None
+
+
+def resolve_self_flags_team() -> Optional["Team"]:
+    """Resolve the team whose flag definitions represent this instance, honoring the override.
+
+    This must stay in lockstep with `_build_flag_provider()`, which pins the same team for the
+    server-side bootstrap. posthog-js evaluates PostHog's own gating flags with this team's token,
+    so when the two resolve to different teams the browser reloads flags against a team that holds
+    no definitions for them.
+
+    When the override names a team that does not exist, return None rather than another team: the
+    provider still pins definitions to that id, so substituting a different team here reintroduces
+    the mismatch above.
+    """
+    Team = apps.get_model("posthog", "Team")
+    explicit_team_id = get_explicit_self_team_id()
+    if explicit_team_id is None:
+        return resolve_dogfood_flags_team()
+    try:
+        return Team.objects.filter(pk=explicit_team_id).first()
+    except ProgrammingError:
+        # Table absent before migrations have run.
+        return None
+
+
 def _build_flag_provider() -> "HyperCacheFlagProvider":
     """Construct the HyperCache flag-definition provider for this deploy.
 
@@ -731,23 +881,29 @@ def _build_flag_provider() -> "HyperCacheFlagProvider":
     initialize_self_capture_api_token() (ASGI). Callers assign the result to
     posthoganalytics.flag_definition_cache_provider and handle loading themselves.
     """
+    from products.feature_flags.backend.cache_keys import (
+        EU_CROSS_REGION_MIRROR_CACHE_KEY,  # noqa: PLC0415 — this core module doesn't otherwise depend on product code
+    )
     from products.feature_flags.backend.sdk_cache_provider import (  # noqa: PLC0415 — keeps the heavy dep off the import path
         HyperCacheFlagProvider,
     )
 
-    explicit_team_id = os.environ.get("POSTHOG_SELF_TEAM_ID")
-    if explicit_team_id:
-        # Operator override: pin the flag-definitions team explicitly.
-        # Truthiness, not `is not None`: an empty env var means "unset" and must
-        # fall through to the defaults below, not crash on int("").
-        return HyperCacheFlagProvider.for_static_team(int(explicit_team_id))
+    explicit_team_id = get_explicit_self_team_id()
+    if explicit_team_id is not None:
+        # Operator override: pin the flag-definitions team explicitly. The browser token resolves
+        # through the same override in resolve_self_flags_team(), so both stay on this team.
+        return HyperCacheFlagProvider.for_static_team(explicit_team_id)
     if settings.SELF_CAPTURE and not settings.E2E_TESTING:
         # Local/self-hosted: read flag definitions from the dogfood team
         # (project.teams.first()), resolved lazily once teams/migrations exist.
         # Intentionally the FIRST team, not self-capture's current_team — see
         # resolve_dogfood_flags_team().
         return HyperCacheFlagProvider.for_dynamic_resolution(get_dogfood_flags_team_id)
-    # Cloud (SELF_CAPTURE off) or E2E: the canonical PostHog-internal team is 2.
+    if get_instance_region() == "EU":
+        # EU has no rows for PostHog's own team — reads go to the sentinel-keyed
+        # mirror that cross_region_flag_sync writes (see the key's definition).
+        return HyperCacheFlagProvider.for_static_team(EU_CROSS_REGION_MIRROR_CACHE_KEY)
+    # Cloud (SELF_CAPTURE off) or E2E, non-EU: the canonical PostHog-internal team is 2.
     return HyperCacheFlagProvider.for_static_team(2)
 
 
@@ -842,6 +998,58 @@ def invalidate_default_event_info_cache(team_id: int) -> None:
 
 def get_default_event_name(team: "Team") -> str | None:
     return get_default_event_info(team)["default_event_name"]
+
+
+HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS = 24 * 60 * 60
+HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS = 30 * 60
+HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS = 60
+YOUNG_PROJECT_AGE = datetime.timedelta(days=7)
+
+
+def _has_person_email_cache_key(project_id: int) -> str:
+    return f"has_person_email:project:{project_id}"
+
+
+def _has_person_email_ttl(team: "Team", has_person_email: bool) -> int:
+    if has_person_email:
+        return HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS
+    # Most writes bypass the invalidation signal (raw-SQL ingestion via
+    # property-defs-rs, bulk_create/queryset.update, renames, the EE subclass), so
+    # these TTLs are the real freshness bound — for a project still setting up, the
+    # only thing standing between "started sending email" and the flag flipping.
+    if timezone.now() - team.project.created_at < YOUNG_PROJECT_AGE:
+        return HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS
+    return HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS
+
+
+@tracer.start_as_current_span("template.has_person_email")
+def get_has_person_email(team: "Team") -> bool:
+    from posthog.models import PropertyDefinition
+
+    from products.event_definitions.backend.models.property_definition import PERSON_EMAIL_PROPERTY_NAME
+
+    cache_key = _has_person_email_cache_key(team.project_id)
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    has_person_email = (
+        PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        )
+        .filter(
+            effective_project_id=team.project_id, type=PropertyDefinition.Type.PERSON, name=PERSON_EMAIL_PROPERTY_NAME
+        )
+        .exists()
+    )
+
+    safe_cache_set(cache_key, has_person_email, timeout=_has_person_email_ttl(team, has_person_email))
+
+    return has_person_email
+
+
+def invalidate_has_person_email_cache(project_id: int) -> None:
+    safe_cache_delete(_has_person_email_cache_key(project_id))
 
 
 @tracer.start_as_current_span("template.frontend_apps")
@@ -940,6 +1148,53 @@ def get_ip_address(request: HttpRequest) -> str:
     return ip
 
 
+def sanitize_ip_address(ip: Any) -> Optional[str]:
+    """Return the value only if it is a valid IP address string, otherwise None.
+
+    Use this before persisting an externally supplied IP so a malformed or non-string
+    value can't reach an IP database column and fail the write.
+    """
+    if not isinstance(ip, str):
+        return None
+    return _normalize_ip(ip)
+
+
+def _normalize_ip(ip: str) -> Optional[str]:
+    """Strip an optional port and validate; returns None if the result isn't a valid IP."""
+    if ip.startswith("["):
+        # IPv6 with brackets, possibly with port: [2001:db8::1]:8080 -> 2001:db8::1
+        bracket_end = ip.find("]")
+        if bracket_end != -1:
+            ip = ip[1:bracket_end]
+    elif ip.count(":") == 1:
+        # IPv4 with port: 192.168.1.1:8080 -> 192.168.1.1
+        ip = ip.split(":")[0]
+    return ip if _is_valid_ip_address(ip) else None
+
+
+def get_trusted_client_ip(request: HttpRequest) -> Optional[str]:
+    """Client IP validated against the trusted-proxy chain (settings.TRUSTED_PROXIES / TRUST_ALL_PROXIES).
+
+    Unlike get_ip_address, which trusts the left-most X-Forwarded-For value, this accepts the
+    forwarded client IP only when every proxy hop is a trusted proxy — otherwise it returns None.
+    Use it for security decisions so a spoofed X-Forwarded-For header can't dictate the result.
+    """
+    client_ip = request.META.get("REMOTE_ADDR")
+    if getattr(settings, "USE_X_FORWARDED_HOST", False):
+        forwarded_for = [ip.strip() for ip in (request.headers.get("x-forwarded-for") or "").split(",") if ip.strip()]
+        if forwarded_for:
+            closest_proxy = client_ip
+            client_ip = forwarded_for.pop(0)
+            if settings.TRUST_ALL_PROXIES:
+                return _normalize_ip(client_ip)
+            trusted = [p.strip() for p in (settings.TRUSTED_PROXIES or "").split(",") if p.strip()]
+            for proxy in [closest_proxy, *forwarded_for]:
+                normalized = _normalize_ip(proxy) if proxy else None
+                if normalized is None or normalized not in trusted:
+                    return None
+    return _normalize_ip(client_ip) if client_ip else None
+
+
 def get_short_user_agent(request: HttpRequest) -> str:
     """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
     user_agent_str = request.headers.get("user-agent")
@@ -982,6 +1237,7 @@ def get_compare_period_dates(
     date_from_delta_mapping: Optional[dict[str, int]],
     date_to_delta_mapping: Optional[dict[str, int]],
     interval: str,
+    exclude_incomplete_periods: bool = False,
 ) -> tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
@@ -1007,6 +1263,9 @@ def get_compare_period_dates(
             and date_from_delta_mapping.get("days", None)
             and date_from_delta_mapping["days"] % 7 == 0
             and not date_to_delta_mapping
+            # With excludeIncompletePeriods the ongoing day is clipped out of the range, so -7d
+            # covers exactly 7 complete days and the extra day would misalign the previous period.
+            and not exclude_incomplete_periods
         ):
             # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
             # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges
@@ -1023,8 +1282,13 @@ def get_compare_period_dates(
     return new_date_from, new_date_to
 
 
+def generate_cache_key_prefix(team_pk: int) -> str:
+    """The query cache is a single keyspace shared by every team, so each key carries its own team."""
+    return f"cache_{team_pk}_"
+
+
 def generate_cache_key(team_pk: int, stringified: str) -> str:
-    return f"cache_{team_pk}_{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
+    return f"{generate_cache_key_prefix(team_pk)}{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
 
 
 def get_celery_heartbeat() -> Union[str, int]:
@@ -1415,6 +1679,14 @@ def get_safe_cache(cache_key: str):
     return None
 
 
+def ensure_utc(value: dt.datetime) -> dt.datetime:
+    """Treat a tz-naive datetime as UTC, so it can be compared against tz-aware values.
+
+    ClickHouse and some third-party APIs hand back naive datetimes that are UTC by contract.
+    """
+    return value if value.tzinfo else value.replace(tzinfo=dt.UTC)
+
+
 def safe_cache_set(cache_key: str, value: Any, timeout: int | None = None) -> None:
     """Best-effort cache write. Logs a warning on failure so Redis blips
     are visible during incidents without breaking the calling request."""
@@ -1539,15 +1811,24 @@ def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
-def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
+def filters_override_requested_by_client(
+    request: Request, dashboard: Optional["Dashboard"], is_shared: bool = False
+) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     dashboard_filters = dashboard.filters if dashboard else {}
     raw_override = request.query_params.get("filters_override")
 
-    # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(
-        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    # Security: never honor client-supplied overrides for shared/embedded access. The
+    # successful_authenticator check catches token-authenticated refreshes; is_shared also covers
+    # the path-based /shared/<token> page load, where no authenticator runs and the check is blind.
+    if (
+        not raw_override
+        or is_shared
+        or isinstance(
+            request.successful_authenticator,
+            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+        )
     ):
         return dashboard_filters
 
@@ -1560,21 +1841,30 @@ def filters_override_requested_by_client(request: Request, dashboard: Optional["
 
 
 def variables_override_requested_by_client(
-    request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
+    request: Optional[Request],
+    dashboard: Optional["Dashboard"],
+    variables: list["InsightVariableDefinition"],
+    is_shared: bool = False,
 ) -> Optional[dict[str, dict]]:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
-    from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
+    from products.product_analytics.backend.facade.api import map_stale_to_latest
 
     dashboard_variables = (dashboard and dashboard.variables) or {}
     raw_override = request.query_params.get("variables_override") if request else None
 
-    # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or (
-        request
-        and isinstance(
-            request.successful_authenticator,
-            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+    # Security: never honor client-supplied overrides for shared/embedded access. The
+    # successful_authenticator check catches token-authenticated refreshes; is_shared also covers
+    # the path-based /shared/<token> page load, where no authenticator runs and the check is blind.
+    if (
+        not raw_override
+        or is_shared
+        or (
+            request
+            and isinstance(
+                request.successful_authenticator,
+                (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+            )
         )
     ):
         return map_stale_to_latest(dashboard_variables, variables)
@@ -1587,15 +1877,24 @@ def variables_override_requested_by_client(
     return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
 
 
-def tile_filters_override_requested_by_client(request: Request, tile: Optional["DashboardTile"]) -> dict:
+def tile_filters_override_requested_by_client(
+    request: Request, tile: Optional["DashboardTile"], is_shared: bool = False
+) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
     tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
     raw_override = request.query_params.get("tile_filters_override")
 
-    # Security: Don't allow overrides when accessing via sharing tokens
-    if not raw_override or isinstance(
-        request.successful_authenticator, (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication)
+    # Security: never honor client-supplied overrides for shared/embedded access. The
+    # successful_authenticator check catches token-authenticated refreshes; is_shared also covers
+    # the path-based /shared/<token> page load, where no authenticator runs and the check is blind.
+    if (
+        not raw_override
+        or is_shared
+        or isinstance(
+            request.successful_authenticator,
+            (SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication),
+        )
     ):
         return tile_filters
 

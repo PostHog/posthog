@@ -16,6 +16,18 @@ export const FEATURE_SUPPORT: Record<Feature, PlatformSupportConfig> = {
                 </>
             ),
         },
+        ios: {
+            version: '3.50.0',
+            note: (
+                <>
+                    <Link to="https://posthog.com/docs/error-tracking/installation/ios#set-up-exception-autocapture">
+                        Exception autocapture is supported on iOS
+                    </Link>{' '}
+                    and can be controlled remotely using this toggle when running SDK version 3.50.0 or higher. To
+                    capture crashes on the first app launch, also enable it in your SDK config.
+                </>
+            ),
+        },
         flutter: {
             note: (
                 <>

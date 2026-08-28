@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 
-import { IconEndpoints, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
+import { IconEndpoints, IconPlus } from '@posthog/icons'
 
+import { IconInsightRetention, IconInsightTrends } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -22,12 +23,18 @@ import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLog
 const UNSUPPORTED_INSIGHT_TYPES = new Set([
     InsightType.FUNNELS,
     InsightType.PATHS,
+    InsightType.JOURNEYS,
     InsightType.STICKINESS,
     InsightType.JSON,
     InsightType.HOG,
 ])
 
-const UNSUPPORTED_QUERY_KINDS = new Set([NodeKind.FunnelsQuery, NodeKind.PathsQuery, NodeKind.StickinessQuery])
+const UNSUPPORTED_QUERY_KINDS = new Set([
+    NodeKind.FunnelsQuery,
+    NodeKind.PathsQuery,
+    NodeKind.PathsV2Query,
+    NodeKind.StickinessQuery,
+])
 
 function isInsightSupported(insight: QueryBasedInsightModel): boolean {
     const query = insight.query
@@ -39,8 +46,8 @@ function isInsightSupported(insight: QueryBasedInsightModel): boolean {
 }
 
 const QUICK_CREATE_TYPES = [
-    { type: InsightType.TRENDS, icon: IconTrends, label: 'Trend' },
-    { type: InsightType.RETENTION, icon: IconRetention, label: 'Retention' },
+    { type: InsightType.TRENDS, icon: IconInsightTrends, label: 'Trend' },
+    { type: InsightType.RETENTION, icon: IconInsightRetention, label: 'Retention' },
 ]
 
 export function InsightPickerEndpointModal(): JSX.Element {

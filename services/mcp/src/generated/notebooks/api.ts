@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -15,7 +15,7 @@ export const NotebooksListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -50,7 +50,7 @@ export const NotebooksCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -58,6 +58,8 @@ export const notebooksCreateBodyTitleMax = 256
 
 export const notebooksCreateBodyVersionMin = -2147483648
 export const notebooksCreateBodyVersionMax = 2147483647
+
+export const notebooksCreateBodyVariablesItemNameMax = 200
 
 export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
@@ -72,6 +74,34 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
             'Version number for optimistic concurrency control. Must match the current version when updating content.'
         ),
     deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
+    variables: zod
+        .array(
+            zod
+                .object({
+                    name: zod
+                        .string()
+                        .max(notebooksCreateBodyVariablesItemNameMax)
+                        .describe(
+                            'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
+                        ),
+                    type: zod
+                        .string()
+                        .describe(
+                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                        ),
+                    value: zod
+                        .unknown()
+                        .optional()
+                        .describe(
+                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                        ),
+                })
+                .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
+        )
+        .optional()
+        .describe(
+            'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
+        ),
 })
 
 /**
@@ -81,7 +111,7 @@ export const NotebooksRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
 })
@@ -93,7 +123,7 @@ export const NotebooksPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
 })
@@ -102,6 +132,8 @@ export const notebooksPartialUpdateBodyTitleMax = 256
 
 export const notebooksPartialUpdateBodyVersionMin = -2147483648
 export const notebooksPartialUpdateBodyVersionMax = 2147483647
+
+export const notebooksPartialUpdateBodyVariablesItemNameMax = 200
 
 export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
@@ -116,6 +148,34 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Version number for optimistic concurrency control. Must match the current version when updating content.'
         ),
     deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
+    variables: zod
+        .array(
+            zod
+                .object({
+                    name: zod
+                        .string()
+                        .max(notebooksPartialUpdateBodyVariablesItemNameMax)
+                        .describe(
+                            'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
+                        ),
+                    type: zod
+                        .string()
+                        .describe(
+                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                        ),
+                    value: zod
+                        .unknown()
+                        .optional()
+                        .describe(
+                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                        ),
+                })
+                .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
+        )
+        .optional()
+        .describe(
+            'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
+        ),
 })
 
 /**
@@ -125,7 +185,84 @@ export const NotebooksDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+/**
+ * Set the notebook's kernel compute configuration. Applies at sandbox provision time: a currently running kernel keeps its resources until restarted.
+ */
+export const NotebooksKernelConfigCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+export const NotebooksKernelConfigCreateBody = /* @__PURE__ */ zod.object({
+    cpu_cores: zod
+        .number()
+        .optional()
+        .describe("CPU cores for the notebook's sandbox kernel; must be a supported option."),
+    memory_gb: zod
+        .number()
+        .optional()
+        .describe("Memory in GB for the notebook's sandbox kernel; must be a supported option."),
+    idle_timeout_seconds: zod
+        .number()
+        .optional()
+        .describe('Seconds of inactivity before the sandbox kernel shuts down.'),
+})
+
+/**
+ * Live-checked kernel runtime state for this notebook, its compute configuration, and the catalog of dataframes/tables a cell can currently reference (with column schemas).
+ */
+export const NotebooksKernelStatusRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+/**
+ * Read a run's durable state: its status, and — once done or interrupted — the result envelope (columns, first rows, stdout/stderr, media, error). Poll until terminal. Flag-gated (revamped-py-notebooks).
+ */
+export const NotebooksSqlV2RunsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    run_id: zod.string().describe('ID of the run, as returned by the run dispatch endpoint.'),
+    short_id: zod.string(),
+})
+
+/**
+ * Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome unchanged. Flag-gated (revamped-py-notebooks).
+ */
+export const NotebooksSqlV2RunsInterruptCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    run_id: zod.string().describe('ID of the run, as returned by the run dispatch endpoint.'),
+    short_id: zod.string(),
+})
+
+/**
+ * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
+ */
+export const NotebooksSqlV2StateRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
 })

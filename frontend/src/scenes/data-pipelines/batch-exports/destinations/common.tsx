@@ -1,11 +1,11 @@
-import { type ReactNode } from 'react'
-
 import { LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
+import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 
 import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
+import type { IntegrationKind } from '~/types'
 
 // Bucket naming rules (supports both S3 and GCS):
 // S3: https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
@@ -260,6 +260,17 @@ export function MaxFileSizeField(): JSX.Element {
     )
 }
 
+// Included in every destination's event table preview except HTTP, which posts capture-format
+// payloads and does not export the column.
+export const PERSON_PROPERTIES_EVENT_FIELD: Record<string, DatabaseSchemaField> = {
+    person_properties: {
+        name: 'person_properties',
+        hogql_value: "nullIf(person_properties, '')",
+        type: 'string',
+        schema_valid: true,
+    },
+}
+
 // Event table preview columns shared by every S3-family destination (S3, AwsS3, S3Compatible).
 export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaField> = {
     person_id: {
@@ -268,12 +279,7 @@ export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaFi
         type: 'string',
         schema_valid: true,
     },
-    person_properties: {
-        name: 'person_properties',
-        hogql_value: "nullIf(person_properties, '')",
-        type: 'string',
-        schema_valid: true,
-    },
+    ...PERSON_PROPERTIES_EVENT_FIELD,
     created_at: {
         name: 'created_at',
         hogql_value: 'created_at',
@@ -282,37 +288,40 @@ export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaFi
     },
 }
 
-// Shared form fields for the S3-family destinations (S3 legacy, AwsS3, S3Compatible). Per-destination
-// definitions toggle the AWS-only (encryption/KMS) and S3-compatible-only (endpoint/virtual-style)
-// blocks and supply the region option set; everything else is identical.
+// Shared form fields for the AwsS3 and S3Compatible destinations. Per-destination definitions toggle
+// the AWS-only (encryption/KMS) and S3-compatible-only (virtual-style) blocks and supply the region
+// option set; everything else is identical.
+//
+// Credentials, and the endpoint URL for S3-compatible providers, live in the linked Integration, so
+// this form only picks the integration.
 export function S3FamilyFields({
     isNew,
     formValues,
     regionOptions,
-    awsBranded,
     allowCustomRegion = false,
     showEncryption,
-    showEndpointUrl,
-    endpointUrlRequired = false,
     showVirtualStyleAddressing,
-    endpointHelpText,
+    integrationKind,
 }: {
     isNew: boolean
     formValues: Record<string, any>
     regionOptions: { value: string; label: string }[]
-    // Prefix the credential labels with "AWS" — only true for AWS S3, not the S3-compatible catch-all.
-    awsBranded: boolean
     // Let users type a region not in the preset list. True for the S3-compatible catch-all, where we
     // can't enumerate every provider's regions; false for AWS S3, whose regions are a closed set.
     allowCustomRegion?: boolean
     showEncryption: boolean
-    showEndpointUrl: boolean
-    endpointUrlRequired?: boolean
     showVirtualStyleAddressing: boolean
-    endpointHelpText?: ReactNode
+    // This destination authenticates via an Integration of this kind.
+    integrationKind: IntegrationKind
 }): JSX.Element {
     return (
         <>
+            <LemonField name="integration_id" label="Integration">
+                {({ value, onChange }) => (
+                    <IntegrationChoice integration={integrationKind} value={value} onChange={onChange} />
+                )}
+            </LemonField>
+
             <div className="flex gap-4">
                 <LemonField name="bucket_name" label="Bucket" className="flex-1">
                     <LemonInput placeholder="e.g. my-bucket" />
@@ -373,32 +382,8 @@ export function S3FamilyFields({
                         />
                     </LemonField>
                 )}
-            </div>
 
-            <div className="flex gap-4">
-                <LemonField
-                    name="aws_access_key_id"
-                    label={awsBranded ? 'AWS Access Key ID' : 'Access Key ID'}
-                    className="flex-1"
-                >
-                    <LemonInput
-                        placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'Leave unchanged'}
-                        autoComplete="off"
-                    />
-                </LemonField>
-
-                <LemonField
-                    name="aws_secret_access_key"
-                    label={awsBranded ? 'AWS Secret Access Key' : 'Secret Access Key'}
-                    className="flex-1"
-                >
-                    <LemonInput
-                        placeholder={isNew ? 'e.g. secret-key' : 'Leave unchanged'}
-                        type="password"
-                        autoComplete="new-password"
-                    />
-                </LemonField>
-
+                {/* The KMS key is config, not a credential, and only applies to aws:kms encryption. */}
                 {showEncryption && formValues.encryption == 'aws:kms' && (
                     <LemonField name="kms_key_id" label="AWS KMS Key ID" className="flex-1">
                         <LemonInput
@@ -407,26 +392,6 @@ export function S3FamilyFields({
                     </LemonField>
                 )}
             </div>
-
-            {showEndpointUrl && (
-                <LemonField
-                    name="endpoint_url"
-                    label="Endpoint URL"
-                    showOptional={!endpointUrlRequired}
-                    info={
-                        endpointHelpText ?? (
-                            <>
-                                The endpoint URL corresponding to your provider (e.g. Cloudflare R2, DigitalOcean
-                                Spaces, Supabase, etc.). Works with any S3-compatible storage.
-                            </>
-                        )
-                    }
-                >
-                    <LemonInput
-                        placeholder={isNew ? 'e.g. https://<account-id>.r2.cloudflarestorage.com' : 'Leave unchanged'}
-                    />
-                </LemonField>
-            )}
 
             {showVirtualStyleAddressing && (
                 <LemonField

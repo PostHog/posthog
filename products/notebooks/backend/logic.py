@@ -6,6 +6,7 @@ facade, which maps them to framework-free contracts. Nothing outside the product
 should import this module — cross-product callers go through ``facade.api``.
 """
 
+from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 
@@ -15,9 +16,10 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
-from posthog.rbac.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from .models import Notebook, ResourceNotebook
+from .sql_v2_state import validate_cell_count
 
 
 def _base_queryset(team_id: int, *, include_deleted: bool = False) -> Any:
@@ -66,6 +68,10 @@ async def aupdate_notebook_content(
     notebook = await aget_notebook(team_id, short_id, include_deleted=True)
     if notebook is None:
         return None
+    # Enforced here rather than only at the HTTP layer: this writer bypasses the serializer
+    # entirely (it is a queryset update, so no save() hook or signal fires either), and it is
+    # how Max saves a notebook. A ceiling only the API respects is not a ceiling.
+    validate_cell_count(notebook.content, content)
     await Notebook.objects.filter(pk=notebook.pk).aupdate(
         content=content,
         title=title,
@@ -86,7 +92,13 @@ async def aupsert_notebook(
     last_modified_by_id: int | None,
     title: str,
     content: dict[str, Any],
+    text_content: str | None = None,
 ) -> tuple[Notebook, bool]:
+    # Checked before the upsert, not after: aget_or_create would otherwise have already
+    # written the over-limit row by the time the ceiling rejected it. Like the rest of this
+    # writer, the read and the write are not atomic — the path has no version CAS at all.
+    existing = await aget_notebook(team_id, short_id, include_deleted=True)
+    validate_cell_count(existing.content if existing is not None else None, content)
     notebook, created = await Notebook.objects.aget_or_create(
         team_id=team_id,
         short_id=short_id,
@@ -95,6 +107,7 @@ async def aupsert_notebook(
             "last_modified_by_id": last_modified_by_id,
             "title": title,
             "content": content,
+            "text_content": text_content,
         },
     )
     if not created:
@@ -102,7 +115,11 @@ async def aupsert_notebook(
         notebook.title = title
         notebook.version += 1
         notebook.last_modified_by_id = last_modified_by_id
-        await notebook.asave(update_fields=["content", "title", "version", "last_modified_by", "last_modified_at"])
+        update_fields = ["content", "title", "version", "last_modified_by", "last_modified_at"]
+        if text_content is not None:
+            notebook.text_content = text_content
+            update_fields.append("text_content")
+        await notebook.asave(update_fields=update_fields)
     return notebook, created
 
 
@@ -237,3 +254,43 @@ def delete_account_notebook(account_id: str | UUID, short_id: str) -> bool:
         return False
     notebook.delete()
     return True
+
+
+def list_team_account_notes(
+    team_id: int,
+    *,
+    account_ids: Iterable[UUID | str] | None = None,
+    account_id: UUID | str | None = None,
+    created_by_ids: Iterable[int] | None = None,
+    search: str | None = None,
+    offset: int = 0,
+    limit: int = 100,
+) -> tuple[list[ResourceNotebook], int]:
+    """Team-wide account notes: internal notebooks linked to any account, newest-modified first.
+
+    ``account_ids`` restricts to the given accounts (callers pass the caller-accessible set —
+    a lazy ``values_list`` queryset compiles to a SQL subquery). ``account_id`` narrows to a
+    single account, ``created_by_ids`` to notes authored by the given users. ``search`` is
+    full-text over notebook title/content plus substring over the linked account's name.
+    Returns ``(page, total_count)``.
+    """
+    queryset = ResourceNotebook.objects.filter(
+        account__isnull=False,
+        notebook__team_id=team_id,
+        notebook__deleted=False,
+        notebook__visibility=Notebook.Visibility.INTERNAL,
+    ).select_related("notebook", "notebook__created_by", "account")
+    if account_ids is not None:
+        queryset = queryset.filter(account_id__in=account_ids)
+    if account_id is not None:
+        queryset = queryset.filter(account_id=account_id)
+    if created_by_ids is not None:
+        queryset = queryset.filter(notebook__created_by_id__in=created_by_ids)
+    if search:
+        queryset = queryset.filter(
+            Q(notebook__title__search=search)
+            | Q(notebook__text_content__search=search)
+            | Q(account__name__icontains=search)
+        )
+    queryset = queryset.order_by("-notebook__last_modified_at")
+    return list(queryset[offset : offset + limit]), queryset.count()

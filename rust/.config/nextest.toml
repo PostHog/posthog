@@ -1,0 +1,50 @@
+# The k3s integration tests each boot a privileged single-node Kubernetes
+# cluster in docker. Their #[serial] attributes only lock within a process,
+# and nextest runs one process per test, so without this group the clusters
+# boot concurrently and starve each other (and the runner) — the K8s-aware
+# assignment paths then stall on a slow API server and time out. max-threads
+# serializes them across processes; threads-required keeps the rest of the
+# suite from saturating the runner while a cluster is up.
+[test-groups]
+k3s = { max-threads = 1 }
+# The two-partition epoch-fenced double zombie is the stateright suite's long
+# pole — 13M states, several times anything else in it. Its checker explores
+# multi-threaded, so it gets the whole thread budget to itself instead of
+# contending with the rest of the suite mid-explore.
+stateright-heavy = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'binary(k3s_integration)'
+test-group = 'k3s'
+threads-required = 4
+
+[[profile.default.overrides]]
+filter = 'package(personhog-stateright) & test(epoch_fenced_two_partitions_double_zombie_is_safe)'
+test-group = 'stateright-heavy'
+threads-required = "num-cpus"
+
+# CI profile: emits JUnit XML (target/nextest/ci/junit.xml) so test results can be
+# uploaded to Trunk for flaky-test detection.
+[profile.ci]
+# Run the whole suite even after a failure, so the JUnit output captures every
+# failing/flaky test for Trunk instead of stopping at the first one.
+fail-fast = false
+# One retry, CI only: timing-sensitive integration tests flake under runner
+# contention, and in the merge queue a single flake evicts a PR and restarts
+# CI for every entry behind it. A retried pass is reported as flaky in the
+# JUnit upload, so Trunk still tracks each occurrence; a real regression
+# fails both attempts. Queue-protection measure, not a fix — see
+# https://github.com/PostHog/posthog/issues/84781 for the deflake follow-up.
+retries = 1
+
+[profile.ci.junit]
+path = "junit.xml"
+
+# Same reservation under the CI profile. Its sibling
+# `two_partitions_double_zombie_loses_acked_writes` used to be reserved too,
+# but it only asserts a counterexample exists and now stops at one, which
+# leaves it a few seconds long — reserving the machine for it just serialized
+# it against the rest of the suite for nothing.
+[[profile.ci.overrides]]
+filter = 'package(personhog-stateright) and test(epoch_fenced_two_partitions_double_zombie_is_safe)'
+threads-required = "num-cpus"

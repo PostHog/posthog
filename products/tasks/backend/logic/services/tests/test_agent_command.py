@@ -10,6 +10,7 @@ from products.tasks.backend.logic.services.agent_command import (
     REFRESH_TIMEOUT_SECONDS,
     CommandResult,
     _build_request_args,
+    sandbox_transport_token,
     send_agent_command,
     send_cancel,
     send_refresh_session,
@@ -224,6 +225,46 @@ class TestSendAgentCommand:
         assert result.status_code == 504
         assert result.retryable
 
+    @pytest.mark.parametrize(
+        "exception,expected_status,expected_turn_in_flight",
+        [
+            # turn_in_flight means "request delivered, sandbox still
+            # processing" — callers (send_followup_to_sandbox) treat it as a
+            # still-running turn, so a ConnectTimeout (never delivered) must
+            # never set it.
+            (requests.ReadTimeout("read timed out"), 504, True),
+            (requests.ConnectTimeout("connect timed out"), 502, False),
+        ],
+        ids=["read_timeout_maps_to_504_in_flight", "connect_timeout_maps_to_502"],
+    )
+    @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.requests.post")
+    def test_timeout_kind_disambiguates_delivery(
+        self, mock_post, mock_validate, exception, expected_status, expected_turn_in_flight
+    ):
+        mock_post.side_effect = exception
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc")
+        result = send_agent_command(task_run, "cancel")
+        assert not result.success
+        assert result.status_code == expected_status
+        assert result.turn_in_flight is expected_turn_in_flight
+
+    @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.requests.post")
+    def test_response_504_is_not_turn_in_flight(self, mock_post, mock_validate):
+        # A 504 HTTP *response* (e.g. Modal tunnel gateway timeout) leaves
+        # delivery unknown — it must never be conflated with the read-timeout
+        # "delivered, still running" case.
+        mock_resp = MagicMock()
+        mock_resp.status_code = 504
+        mock_post.return_value = mock_resp
+
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc")
+        result = send_agent_command(task_run, "cancel")
+        assert not result.success
+        assert result.status_code == 504
+        assert result.turn_in_flight is False
+
     @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.logic.services.agent_command.requests.post")
     def test_5xx_is_retryable(self, mock_post, mock_validate):
@@ -280,6 +321,44 @@ class TestSendAgentCommand:
         assert "content filtering" in (result.error or "")
         assert not result.retryable
 
+    @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.requests.post")
+    def test_content_block_stream_error_is_retryable(self, mock_post, mock_validate):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": -32603, "message": "Internal error: API Error: Content block not found"},
+        }
+        mock_post.return_value = mock_resp
+
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc")
+        result = send_agent_command(task_run, "user_message", params={"content": "hi"})
+
+        assert not result.success
+        assert result.retryable
+
+    @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.requests.post")
+    @pytest.mark.parametrize("message", [None, {}, []])
+    def test_malformed_jsonrpc_error_message_is_normalized(self, mock_post, mock_validate, message):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": -32603, "message": message},
+        }
+        mock_post.return_value = mock_resp
+
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc")
+        result = send_agent_command(task_run, "user_message", params={"content": "hi"})
+
+        assert not result.success
+        assert result.error == "Unknown agent error"
+        assert not result.retryable
+
 
 class TestSendUserMessage:
     @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
@@ -312,6 +391,21 @@ class TestSendUserMessage:
             timeout=15,
         )
         assert result.success
+
+    @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
+    def test_sends_steer_flag(self, mock_send):
+        mock_send.return_value = CommandResult(success=True, status_code=200)
+        task_run = MagicMock()
+
+        send_user_message(task_run, "change direction", steer=True)
+
+        mock_send.assert_called_once_with(
+            task_run,
+            method="user_message",
+            params={"content": "change direction", "steer": True},
+            auth_token=None,
+            timeout=15,
+        )
 
 
 class TestSendCancel:
@@ -352,3 +446,126 @@ class TestSendRefreshSession:
         )
         assert result.success
         assert REFRESH_SESSION_METHOD == "_posthog/refresh_session"
+
+
+_HOGLAND_URL = "https://hogland.prod-us.posthog.dev"
+_HOGLAND_SANDBOX_URL = f"{_HOGLAND_URL}/v1/hogboxes/hb-1/proxy/8080"
+
+
+class TestSandboxTransportToken:
+    @override_settings(HOGLAND_API_TOKEN="hog-tok", HOGLAND_API_URL=_HOGLAND_URL)
+    def test_hogland_runs_use_the_backend_bearer_as_a_query_param(self):
+        token, param = sandbox_transport_token(
+            {"sandbox_backend": "hogland", "sandbox_connect_token": "stale"}, _HOGLAND_SANDBOX_URL
+        )
+        assert (token, param) == ("hog-tok", "token")
+
+    @override_settings(HOGLAND_API_TOKEN="hog-tok", HOGLAND_API_URL=_HOGLAND_URL)
+    def test_hogland_bearer_is_withheld_when_the_url_is_not_the_hogland_host(self):
+        # A forged sandbox_backend must not send the account bearer to an
+        # arbitrary host — the URL host, not the state flag, authorizes it.
+        token, param = sandbox_transport_token(
+            {"sandbox_backend": "hogland", "sandbox_connect_token": "modal-tok"},
+            "https://attacker.example/steal",
+        )
+        assert (token, param) == ("modal-tok", "_modal_connect_token")
+
+    @override_settings(HOGLAND_API_TOKEN="hog-tok", HOGLAND_API_URL=_HOGLAND_URL)
+    @pytest.mark.parametrize(
+        "sandbox_url",
+        [
+            "https://hogland.prod-us.posthog.dev:9999/v1/hogboxes/hb-1/proxy/8080",  # wrong port
+            "http://hogland.prod-us.posthog.dev/v1/hogboxes/hb-1/proxy/8080",  # wrong scheme
+            "hogland.prod-us.posthog.dev/v1/hogboxes/hb-1/proxy/8080",  # scheme-less -> hostname None
+        ],
+        ids=["wrong_port", "wrong_scheme", "scheme_less"],
+    )
+    def test_hogland_bearer_is_withheld_on_origin_mismatch(self, sandbox_url):
+        token, param = sandbox_transport_token(
+            {"sandbox_backend": "hogland", "sandbox_connect_token": "m"}, sandbox_url
+        )
+        assert (token, param) == ("m", "_modal_connect_token")
+
+    @override_settings(DEBUG=True)
+    @pytest.mark.parametrize(
+        "hogland_api_url,sandbox_url,expects_bearer",
+        [
+            # Local dev (SANDBOX_PROVIDER=hogland, DEBUG) reaches a loopback host over
+            # http and must keep the bearer.
+            ("http://localhost:8010", "http://localhost:8010/v1/hogboxes/hb-1/proxy/8080", True),
+            ("http://127.0.0.1:8010", "http://127.0.0.1:8010/v1/hogboxes/hb-1/proxy/8080", True),
+            # A non-loopback http origin must never receive the bearer, even in DEBUG.
+            ("http://evil.example.com", "http://evil.example.com/v1/hogboxes/hb-1/proxy/8080", False),
+        ],
+        ids=["loopback_localhost", "loopback_127", "remote_http"],
+    )
+    def test_loopback_http_keeps_the_bearer_only_in_debug(self, hogland_api_url, sandbox_url, expects_bearer):
+        with override_settings(HOGLAND_API_TOKEN="hog-tok", HOGLAND_API_URL=hogland_api_url):
+            token, param = sandbox_transport_token(
+                {"sandbox_backend": "hogland", "sandbox_connect_token": "m"}, sandbox_url
+            )
+        if expects_bearer:
+            assert (token, param) == ("hog-tok", "token")
+        else:
+            assert (token, param) == ("m", "_modal_connect_token")
+
+    @override_settings(DEBUG=False)
+    @pytest.mark.parametrize(
+        "hogland_api_url,sandbox_url",
+        [
+            ("http://localhost:8010", "http://localhost:8010/v1/hogboxes/hb-1/proxy/8080"),
+            ("http://127.0.0.1:8010", "http://127.0.0.1:8010/v1/hogboxes/hb-1/proxy/8080"),
+        ],
+        ids=["loopback_localhost", "loopback_127"],
+    )
+    def test_loopback_http_withholds_the_bearer_outside_debug(self, hogland_api_url, sandbox_url):
+        # pytest.ini forces DEBUG=1, so the DEBUG=True case above cannot prove the gate.
+        # Flip DEBUG off and the loopback-http exception must close: even a loopback origin
+        # falls back to the modal token rather than the account-wide bearer.
+        with override_settings(HOGLAND_API_TOKEN="hog-tok", HOGLAND_API_URL=hogland_api_url):
+            token, param = sandbox_transport_token(
+                {"sandbox_backend": "hogland", "sandbox_connect_token": "m"}, sandbox_url
+            )
+        assert (token, param) == ("m", "_modal_connect_token")
+
+    def test_hogland_runs_read_the_rotating_token_file_fresh_per_request(self, tmp_path):
+        token_path = tmp_path / "token"
+        token_path.write_text("rotated-1\n")
+        state = {"sandbox_backend": "hogland"}
+        with override_settings(
+            HOGLAND_API_TOKEN="static-tok", HOGLAND_API_TOKEN_FILE=str(token_path), HOGLAND_API_URL=_HOGLAND_URL
+        ):
+            first = sandbox_transport_token(state, _HOGLAND_SANDBOX_URL)
+            token_path.write_text("rotated-2\n")
+            second = sandbox_transport_token(state, _HOGLAND_SANDBOX_URL)
+        assert first == ("rotated-1", "token")
+        assert second == ("rotated-2", "token")
+
+    @pytest.mark.parametrize(
+        "state",
+        [
+            None,
+            {},
+            {"sandbox_connect_token": "modal-tok"},
+            {"sandbox_backend": "modal", "sandbox_connect_token": "modal-tok"},
+        ],
+        ids=["no_state", "empty_state", "implicit_modal", "explicit_modal"],
+    )
+    def test_modal_runs_keep_the_persisted_connect_token(self, state):
+        token, param = sandbox_transport_token(state)
+        assert param == "_modal_connect_token"
+        assert token == (state or {}).get("sandbox_connect_token")
+
+
+class TestBuildRequestArgsHoglandParam:
+    def test_jwt_plus_hogland_token_travels_in_the_token_query_param(self):
+        headers, query_params = _build_request_args("hog-tok", "jwt-tok", token_param="token")
+        assert headers["Authorization"] == "Bearer jwt-tok"
+        assert query_params == {"token": "hog-tok"}
+
+    def test_hogland_token_never_lands_in_the_authorization_header_without_a_jwt(self):
+        # The hogland proxy strips an Authorization header it consumed, so a
+        # header-borne token would leave the agent-server no auth context at all.
+        headers, query_params = _build_request_args("hog-tok", None, token_param="token")
+        assert "Authorization" not in headers
+        assert query_params == {"token": "hog-tok"}

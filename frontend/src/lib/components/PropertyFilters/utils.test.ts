@@ -3,25 +3,35 @@ import {
     convertPropertiesToPropertyGroup,
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
+    formatPropertyLabel,
+    isAnyPropertyfilter,
     isGroupCardFilterKey,
     isValidPropertyFilter,
     normalizePropertyFilterValue,
     propertyFilterTypeToTaxonomicFilterType,
+    resolvePropertyDefinitionId,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 
+import type { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 
 import {
+    ActionType,
     AnyPropertyFilter,
+    BehavioralEventType,
+    BehavioralPropertyFilter,
     CohortPropertyFilter,
     ElementPropertyFilter,
     EmptyPropertyFilter,
     FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyDefinitionType,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyOperator,
     SessionPropertyFilter,
+    TimeUnitType,
 } from '../../../types'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
@@ -58,6 +68,90 @@ describe('isValidPropertyFilter()', () => {
         expect(isValidPropertyFilter({ bla: 'true' } as any)).toEqual(false)
         expect(isValidPropertyFilter({ key: undefined } as any)).toEqual(false)
         expect(isValidPropertyFilter({ key: 'cohort', value: 123 } as any)).toEqual(true)
+    })
+})
+
+describe('formatPropertyLabel() for behavioral filters', () => {
+    const base: BehavioralPropertyFilter = {
+        type: PropertyFilterType.Behavioral,
+        value: BehavioralEventType.PerformEvent,
+        key: 'signed_up',
+        event_type: 'events',
+        time_value: 30,
+        time_interval: TimeUnitType.Day,
+    }
+
+    // pluralize() glues the count to its unit with a non-breaking space
+    // Every row spells out actionsById: a shorter row makes jest-each hand the callback a `done`
+    const noActions: Partial<Record<string | number, ActionType>> = {}
+
+    test.each<[string, Partial<BehavioralPropertyFilter>, string, Partial<Record<string | number, ActionType>>]>([
+        ['performed', {}, 'Performed signed_up in the last 30\u00a0days', noActions],
+        ['did not perform', { negation: true }, 'Did not perform signed_up in the last 30\u00a0days', noActions],
+        [
+            'count',
+            {
+                value: BehavioralEventType.PerformMultipleEvents,
+                operator: PropertyOperator.GreaterThanOrEqual,
+                operator_value: 3,
+            },
+            'Performed signed_up at least 3\u00a0times in the last 30\u00a0days',
+            noActions,
+        ],
+        [
+            'single unit',
+            { time_value: 1, time_interval: TimeUnitType.Week },
+            'Performed signed_up in the last 1\u00a0week',
+            noActions,
+        ],
+        [
+            'explicit date',
+            { explicit_datetime: '-14d', time_value: undefined },
+            'Performed signed_up since -14d',
+            noActions,
+        ],
+        [
+            'core event uses its readable label',
+            { key: '$pageview' },
+            'Performed Pageview in the last 30\u00a0days',
+            noActions,
+        ],
+        [
+            'action resolves to its name',
+            { key: '42', event_type: 'actions' },
+            'Performed Completed checkout in the last 30\u00a0days',
+            { 42: { id: 42, name: 'Completed checkout' } as ActionType },
+        ],
+        [
+            'unresolved action falls back to its id',
+            { key: '42', event_type: 'actions' },
+            'Performed action 42 in the last 30\u00a0days',
+            noActions,
+        ],
+        [
+            'API-created negated filter includes its nested event filters',
+            {
+                negation: true,
+                event_filters: [
+                    { type: PropertyFilterType.Event, key: 'source', operator: PropertyOperator.Exact, value: ['web'] },
+                ],
+            },
+            'Did not perform signed_up where Source = web in the last 30\u00a0days',
+            noActions,
+        ],
+        [
+            'multiple nested event filters join with and',
+            {
+                event_filters: [
+                    { type: PropertyFilterType.Event, key: 'source', operator: PropertyOperator.Exact, value: ['web'] },
+                    { type: PropertyFilterType.Person, key: 'email', operator: PropertyOperator.IsSet, value: null },
+                ],
+            },
+            'Performed signed_up where Source = web and Email address ✓ is set in the last 30\u00a0days',
+            noActions,
+        ],
+    ])('%s', (_name, overrides, expected, actionsById) => {
+        expect(formatPropertyLabel({ ...base, ...overrides }, {}, undefined, actionsById)).toEqual(expected)
     })
 })
 
@@ -260,6 +354,20 @@ describe('normalizePropertyFilterValue()', () => {
     })
 })
 
+describe('isAnyPropertyfilter()', () => {
+    // A taxonomic-backed attribute filter that isn't recognized here resolves to no
+    // activeTaxonomicGroup, so its value picker loses `valuesEndpoint` and falls back to a
+    // bogus `api/<type>/values` URL that returns nothing. Guards that regression for each
+    // attribute family (metric_attribute broke exactly this way).
+    it.each([PropertyFilterType.MetricAttribute, PropertyFilterType.LogAttribute, PropertyFilterType.SpanAttribute])(
+        'recognizes %s as a property filter',
+        (type) => {
+            const filter = { type, key: 'env', operator: PropertyOperator.Exact, value: ['prod'] } as AnyPropertyFilter
+            expect(isAnyPropertyfilter(filter)).toBe(true)
+        }
+    )
+})
+
 describe('type mapping round-trip', () => {
     it.each([
         [PropertyFilterType.Event, TaxonomicFilterGroupType.EventProperties],
@@ -280,6 +388,14 @@ describe('type mapping round-trip', () => {
 
         const backToPropertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicType)
         expect(backToPropertyType).toEqual(propertyType)
+    })
+
+    it('MCPProperties maps one-way to the Event property filter type', () => {
+        // The rebuild menu commits with the tab's own group type, so without this
+        // mapping an MCP-tab selection would produce a filter with no type.
+        expect(taxonomicFilterTypeToPropertyFilterType(TaxonomicFilterGroupType.MCPProperties)).toEqual(
+            PropertyFilterType.Event
+        )
     })
 
     it('Group type round-trips with group_type_index preserved', () => {
@@ -449,5 +565,45 @@ describe('createDefaultPropertyFilter()', () => {
             noopDescribeProperty
         )
         expect(result).toEqual(expect.objectContaining({ key: 'user.email', value: null }))
+    })
+})
+
+describe('resolvePropertyDefinitionId()', () => {
+    const modelWith = (
+        byKey: Record<string, PropertyDefinition>
+    ): propertyDefinitionsModelType['values']['getPropertyDefinition'] =>
+        ((name, type) =>
+            byKey[`${type}/${name}`] ?? null) as propertyDefinitionsModelType['values']['getPropertyDefinition']
+
+    it('returns the id already on the definition without consulting the model', () => {
+        const getPropertyDefinition = jest.fn()
+        expect(
+            resolvePropertyDefinitionId(
+                { id: 'abc', name: '$browser' },
+                TaxonomicFilterGroupType.EventProperties,
+                getPropertyDefinition as unknown as propertyDefinitionsModelType['values']['getPropertyDefinition']
+            )
+        ).toBe('abc')
+        expect(getPropertyDefinition).not.toHaveBeenCalled()
+    })
+
+    // Recovers a name-only pinned/default property's id from the model, keyed by the
+    // group type mapped through to a PropertyDefinitionType — the /properties/undefined regression.
+    it.each([
+        [TaxonomicFilterGroupType.EventProperties, PropertyDefinitionType.Event, '$current_url', 'event-url-id'],
+        [TaxonomicFilterGroupType.PersonProperties, PropertyDefinitionType.Person, 'email', 'person-email-id'],
+    ])('recovers a name-only %s id from the model', (groupType, defType, name, id) => {
+        const get = modelWith({ [`${defType}/${name}`]: { id, name } as PropertyDefinition })
+        expect(resolvePropertyDefinitionId({ name } as PropertyDefinition, groupType, get)).toBe(id)
+    })
+
+    it('returns undefined when the model has no matching definition', () => {
+        expect(
+            resolvePropertyDefinitionId(
+                { name: 'never-loaded' } as PropertyDefinition,
+                TaxonomicFilterGroupType.EventProperties,
+                () => null
+            )
+        ).toBeUndefined()
     })
 })

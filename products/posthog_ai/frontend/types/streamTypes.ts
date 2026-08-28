@@ -2,7 +2,7 @@
  * Thread shapes for the sandbox agent runtime (`agent_runtime === 'sandbox'`).
  *
  * The sandbox path consumes the products/tasks SSE endpoint directly (the same endpoint
- * PostHog Code uses). `runStreamLogic` folds the raw wire frames (typed in
+ * PostHog Desktop uses). `runStreamLogic` folds the raw wire frames (typed in
  * `./wireTypes`) into `ToolInvocation` / `ThreadItem` stream state.
  */
 
@@ -17,6 +17,28 @@ export interface ProgressStep {
     label: string
     status: ProgressStatus
     detail?: string
+}
+
+/**
+ * The kinds of alert the `RunAlertActivity` card renders. `reconnecting` is the live-connection retry
+ * banner (attempt counter + backoff); `connection_failed` is its terminal state (retries exhausted or a
+ * non-retryable open); `agent_error` / `agent_crash` are genuine agent-emitted failures rendered inline.
+ */
+export type RunAlertKind = 'reconnecting' | 'connection_failed' | 'agent_error' | 'agent_crash'
+
+/**
+ * View-model for the live connection banner, derived by `runStreamLogic.runConnectionState` and consumed
+ * by `RunAlertActivity`. Kept a pure type here (Tier 3) so the headless selector never imports the
+ * component. `null` from the selector means "connection healthy — render nothing".
+ */
+export interface RunConnectionState {
+    kind: RunAlertKind
+    /** `reconnecting`: current 1-based reconnect attempt. */
+    attempt?: number
+    /** `reconnecting`: max attempts before the connection is given up. */
+    maxAttempts?: number
+    /** The failed kinds: the error/crash detail to surface. */
+    message?: string
 }
 
 /**
@@ -49,6 +71,46 @@ export interface ToolInvocation {
     meta?: unknown
 }
 
+/**
+ * A tool-call lifecycle event published on the global `toolStreamEventsLogic` bus so a consumer can
+ * react to the agent invoking a specific (resolved) tool — e.g. a scene that refreshes when the agent
+ * creates a dashboard. Carries plain data only; the resolved name is computed in `runStreamLogic`.
+ */
+export type ToolStreamPhase = 'started' | 'updated' | 'completed' | 'failed'
+
+export interface ToolStreamEvent {
+    /** The `runStreamLogic` key the event was emitted from (conversation id or run/task id). */
+    streamKey: string
+    toolCallId: string
+    /** Resolved registry key (inner PostHog MCP tool, e.g. 'create_dashboard') via `resolveToolCall`. */
+    toolName: string
+    /** The raw ACP tool name before resolution. */
+    rawToolName: string
+    phase: ToolStreamPhase
+    invocation: ToolInvocation
+    source: 'live' | 'replay' | 'client'
+}
+
+/** The terminal run statuses a run can settle into (the subset of `RunStatus` that ends the stream). */
+export type RunTerminalStatus = 'completed' | 'failed' | 'cancelled'
+
+/**
+ * A run-lifecycle event published on the `toolStreamEventsLogic` bus when a run reaches a terminal
+ * status. Emitted once per run for live terminals only (suppressed on history replay), so a consumer
+ * like `useMcpToolApplyBack` can flush a buffered reaction when the foreground run finishes.
+ */
+export interface RunLifecycleEvent {
+    /** The `runStreamLogic` key the run streamed under (conversation id or run/task id). */
+    streamKey: string
+    status: RunTerminalStatus
+}
+
+/** A live agent turn finished, while its persistent run may remain active for follow-up messages. */
+export interface TurnCompleteEvent {
+    /** The `runStreamLogic` key the turn streamed under (conversation id or run/task id). */
+    streamKey: string
+}
+
 export type ThreadItemType =
     | 'human_message'
     | 'assistant_message'
@@ -58,6 +120,7 @@ export type ThreadItemType =
     | 'error'
     | 'status'
     | 'compact_boundary'
+    | 'conversation_cleared'
     | 'task_notification'
     | 'progress'
     | 'debug'
@@ -78,7 +141,7 @@ export interface ThreadItem {
     complete?: boolean
     /** For `tool_invocation` items — the keyed tool call id (look up in `toolInvocations`). */
     toolCallId?: string
-    /** For `error` items. */
+    /** For `error` items, and for `status` items whose status is a `*_failed` phase. */
     errorMessage?: string
     /**
      * For `error` items — distinguishes a friendlier agent-crash affordance (`crash`) from a
@@ -101,7 +164,10 @@ export interface ThreadItem {
     progressGroup?: string
     /** For `progress` items — ordered setup/runtime progress rows. */
     progressSteps?: ProgressStep[]
-    /** For `debug` items — the `_posthog/console` level (debug/info/warn/error). */
+    /**
+     * For `debug` items — the `_posthog/console` level (debug/info/warn/error), or `context` for the
+     * copyable rows carrying a send's attached trusted/untrusted context blocks.
+     */
     debugLevel?: string
 }
 

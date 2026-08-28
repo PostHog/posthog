@@ -18,6 +18,9 @@ _COMMON_COLUMNS = {
     "created_by": "Reference to the user who created the object.",
     "last_edited_by": "Reference to the user who last edited the object.",
     "archived": "Whether the object has been archived (moved to trash).",
+    # API version 2026-03-11 renamed `archived` to `in_trash`; describe both so every version's
+    # response is covered (unused keys simply fall through).
+    "in_trash": "Whether the object is in the trash (the 2026-03-11 rename of `archived`).",
     "parent": "Reference to the parent object that contains this one.",
 }
 

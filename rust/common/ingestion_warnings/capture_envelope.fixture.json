@@ -1,0 +1,15 @@
+{
+  "_comment": "Cross-language pin for the capture-produced ingestion warning envelope. Asserted against real capture output by rust/capture/tests/ingestion_warnings_integration.rs, and replayed as consumer input by nodejs/tests/ingestion/pipelines/clientwarnings/consumer-e2e.test.ts. Editing this by hand without changing both sides is the bug it exists to catch. Only the inner event's stable fields are pinned: uuid, timestamps, and the token vary per run, and distinctId/eventUuid are absent by construction because the fixture's batch drops two events under one type (see emit_validation_drop_warnings).",
+  "event": "$$client_ingestion_warning",
+  "properties": {
+    "$$client_ingestion_warning_type": "missing_event_name",
+    "$$client_ingestion_warning_source": "capture",
+    "$$client_ingestion_warning_details": {
+      "count": 2,
+      "lib": "posthog-rs",
+      "libVersion": "1.0.0",
+      "path": "/i/v1/analytics/events",
+      "pipelineStep": "capture_validation"
+    }
+  }
+}

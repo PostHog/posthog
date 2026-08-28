@@ -32,10 +32,19 @@ export type EmojiPickerPanelProps = {
     /** Called with the selected emoji character */
     onEmojiSelect: (emoji: string) => void
     className?: string
+    /** Seed the search box with an initial query (uncontrolled — the user can edit it afterwards) */
+    initialSearch?: string
+    /** Focus the search box on mount, e.g. when opened from a `:` type-ahead */
+    autoFocusSearch?: boolean
 }
 
 /** Frimousse emoji grid + search (no trigger); use inside a Popover or other container */
-export function EmojiPickerPanel({ onEmojiSelect, className }: EmojiPickerPanelProps): JSX.Element {
+export function EmojiPickerPanel({
+    onEmojiSelect,
+    className,
+    initialSearch,
+    autoFocusSearch,
+}: EmojiPickerPanelProps): JSX.Element {
     return (
         <EmojiPicker.Root
             className={clsx('isolate flex h-[368px] w-fit flex-col bg-bg-light', className)}
@@ -43,7 +52,11 @@ export function EmojiPickerPanel({ onEmojiSelect, className }: EmojiPickerPanelP
                 onEmojiSelect(emoji)
             }}
         >
-            <EmojiPicker.Search className="z-10 mx-2 mt-2 appearance-none rounded bg-fill-input px-2.5 py-2 text-sm border" />
+            <EmojiPicker.Search
+                className="z-10 mx-2 mt-2 appearance-none rounded bg-fill-input px-2.5 py-2 text-sm border"
+                defaultValue={initialSearch}
+                autoFocus={autoFocusSearch}
+            />
             <EmojiPicker.Viewport className="relative flex-1 outline-hidden">
                 <EmojiPicker.Loading className="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
                     Loading…

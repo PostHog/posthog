@@ -16,7 +16,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType, ExporterFormat } from '~/types'
 
-import { buildBillingCsv, currencyFormatter } from './billing-utils'
+import { buildBillingCsv, currencyFormatter, getSpendTypeOptions } from './billing-utils'
 import { BillingDataTable } from './BillingDataTable'
 import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
 import { BillingEmptyState } from './BillingEmptyState'
@@ -24,12 +24,11 @@ import { BillingLineGraph } from './BillingLineGraph'
 import { billingLogic } from './billingLogic'
 import { BillingNoAccess } from './BillingNoAccess'
 import { billingSpendLogic } from './billingSpendLogic'
-import { USAGE_TYPES } from './constants'
 
 export function BillingSpendView(): JSX.Element {
-    const { minimumBillingAccessLevel } = useValues(billingLogic)
+    const { minimumUsageSpendReadAccessLevel } = useValues(billingLogic)
     const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: minimumBillingAccessLevel,
+        minimumAccessLevel: minimumUsageSpendReadAccessLevel,
         scope: RestrictionScope.Organization,
     })
     const logic = billingSpendLogic({ syncWithUrl: true })
@@ -104,7 +103,7 @@ export function BillingSpendView(): JSX.Element {
                             value={filters.usage_types || []}
                             onChange={(value: string[]) => setFilters({ usage_types: value })}
                             placeholder="All products"
-                            options={USAGE_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))}
+                            options={getSpendTypeOptions()}
                             allowCustomValues={false}
                         />
                     </div>

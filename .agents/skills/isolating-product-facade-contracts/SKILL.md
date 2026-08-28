@@ -5,6 +5,8 @@ description: Plan and execute product isolation migrations to a facade plus cont
 
 # Isolating a product with facade and contracts
 
+Before you choose a product to isolate, check [things already tried](../../../docs/internal/ci-things-already-tried.md). It records which product was the first candidate, and why the field test moved to another one.
+
 Use this skill to migrate an existing product to the isolated architecture used by Visual review.
 Optimize for short calendar exposure, not small diffs: authoring is cheap and the verification
 chain catches mechanical breakage, while human review latency and a fast-moving master are the
@@ -31,7 +33,7 @@ Use Visual review as the concrete reference implementation:
 - [products/visual_review/backend/facade/api.py](../../../products/visual_review/backend/facade/api.py)
 - [products/visual_review/backend/presentation/views.py](../../../products/visual_review/backend/presentation/views.py)
 - [products/visual_review/backend/presentation/serializers.py](../../../products/visual_review/backend/presentation/serializers.py)
-- [products/visual_review/backend/logic.py](../../../products/visual_review/backend/logic.py)
+- [products/visual_review/backend/logic/](../../../products/visual_review/backend/logic/)
 - [products/visual_review/backend/tests/test_api.py](../../../products/visual_review/backend/tests/test_api.py)
 - [products/visual_review/backend/tests/test_presentation.py](../../../products/visual_review/backend/tests/test_presentation.py)
 
@@ -74,8 +76,12 @@ source of truth for the rest of the flow:
   slicing by owning team.
 - **Strict-lint preflight** — `product:lint` switches from lenient to strict the moment
   `facade/contracts.py` exists; the scan runs the structural checks in forced-strict
-  mode so those demands (root `tsconfig.json`, `tasks.py` at `tasks/tasks.py`, only
-  canonical `backend/` subdirectories) surface up front instead of mid-migration.
+  mode so those demands (root `tsconfig.json`, `tasks.py` at `tasks/tasks.py`, required
+  root files in place) surface up front instead of mid-migration. Strict lint checks
+  the required root files only. It does not restrict internal directory names: the
+  enforced shape is the import chain — `routes.py` imports only `presentation/`, and
+  `presentation/` imports only `facade/` — so a product may add other internal
+  packages (`services/`, `reviewer/`, …) as long as they stay behind the facade.
 - **Thin/thick signal per view module** — the future `ignore_imports` allowlist size.
 - **Blind spots** — the scan reads `backend.*` imports only. A coupling count of
   zero is necessary, not sufficient: it can't see product-root packages core
@@ -129,13 +135,21 @@ least leave a string to grep for.
 
 ## Clearing coupling the scan won't show
 
-`product:isolate:scan` walks the import graph of `backend.*`. Three kinds of
+`product:isolate:scan` walks the import graph of `backend.*`. Four kinds of
 coupling escape it — none is a dead end, each has a defined move. After the
 backend sweep, `git grep "products.<name>"` (not just `.backend`) and read the
 scan's string-reference section to find them.
 
-**Test-infrastructure coupling.** Core tests reach into the product's test
-helpers, which no facade re-export naturally covers:
+**Test-infrastructure coupling.** Tests are in tach's interface graph but not
+in its dependency graph (`hogli lint:tach` runs the two passes CI runs). A test
+may import any product's public surface without a `depends_on` entry, and a
+test that imports another product's internals fails CI the same way production
+code does. Such a test gets one of the moves below. When the product cannot
+offer the move yet, a legacy-leak `[[interfaces]]` block that names the debt and
+the exit demotes the product until the block is drained; the block is never a
+facade module that hands the internals out under a sanctioned name. Core tests
+reach into the product's test helpers, which no facade re-export naturally
+covers:
 
 - _Monkeypatch targets_ — a core test base patches a product module attribute
   (e.g. `posthog/test/base.py` patches `execute_hogql_query` on each runner
@@ -148,6 +162,19 @@ helpers, which no facade re-export naturally covers:
   it down into core and have both sides import it downward; if the core test is
   really exercising the **product's** behavior, relocate the test into the
   product. Either way the cross-boundary test import disappears.
+- _Fixtures that need product rows_ — a core test seeds a product model
+  (`InsightViewed`, `Account`) to set up its scenario. Seed through a
+  facade write function, with a normal import. If none exists yet, add
+  one; that is the same move a production caller makes. A helper that
+  only fixtures need goes in a `facade/testing.py` submodule: the tach
+  interface already exposes `backend.facade.*`, and any other exposed
+  module counts as a legacy leak and blocks the isolated tests. Never
+  `apps.get_model("<label>", "<Model>")` at module scope: it is the same
+  dependency with the import edge removed.
+  tach, mypy, and LSP stop seeing it, and snob (the PR test selector) does
+  not select the test when the model changes, so the break lands on master.
+  A `TYPE_CHECKING` import next to it does not restore the edge; tach
+  ignores type-only imports, and so does snob.
 
 **Surfaces outside `backend/`.** A product can expose non-Django surfaces at its
 root — Dagster assets under `products/<name>/dags/`, for instance — that core
@@ -163,14 +190,60 @@ defer the expensive ones (nested-serializer or transactional viewsets) as named
 `ignore_imports` for the presentation wave. Providing the facade function while
 deferring its caller is a legitimate intermediate state, not a half-migration.
 
+**Product-owned HogQL system tables.** When core mounts a product's federated
+system tables (`schema/system.py`, `lazy_join_registry.py`), answer two independent questions:
+
+- _Can the reference be a normal facade import?_ Yes — table defs and lazy-join
+  functions are plain module-level objects; move them into the product
+  (e.g. `facade/hogql.py`) and reroute core's import, like any other wiring.
+- _Do the objects enter the **static** pickled catalog?_ Core builds the
+  catalog once and reloads it per request through a restricted unpickler
+  (`build_database_root_node` in `posthog/hogql/database/database.py`).
+  Any product-defined **class** in the catalog tree (a `PostgresTable`/`LazyTable`
+  subclass) needs its module added to `_CATALOG_PICKLE_MODULES` — allowlisted
+  individually, not by prefix. A missing entry fails the core catalog tests
+  with a message naming the module. Warehouse-style per-team tables are built
+  at request time and never enter the static catalog, which is why most
+  products never hit this.
+
 The web_analytics migration is the worked example of all three: its preagg test
 base moved down to core, its timezone integration test moved into the product,
 its Dagster assets gained a `facade/dags.py`, and its filter-preset reads landed
 in `facade/api.py` with the viewset deferred.
 
+## Model classes a consumer already holds
+
+Some products still hand out model classes under the watched-models allowance
+(`MODEL_CROSSINGS`). That allowance only says the class may leave the product; it
+says nothing about what the consumer does with it. Two rules cover that:
+
+- **Default-deny.** A crossing class may appear in consumer code only in a shape
+  the check calls instance-free: an annotation, `X.DoesNotExist`, a nested class
+  attribute (`X.Status`), `X._meta`, a manager chain ending in
+  `values`/`values_list`/`count`/`exists`/`aggregate`, or a chain
+  embedded in `Exists(...)`/`Subquery(...)`. Anything else is disallowed.
+- **Move, don't permit.** Code that queries, serializes or writes a model belongs
+  in that model's product. The remedy for a disallowed use is a move; the facade
+  function is what the move leaves behind, and the consumer keeps orchestration
+  and ids.
+
+`apps.get_model('label', 'Class')` is counted too, and for **every** product model,
+not only the allowance ones. It leaves no import edge, so tach cannot refuse it.
+Test modules stay out of the scan, which is a blind spot, not permission: a core
+test fixture that reaches a model this way is uncounted and unselected (see
+"Test-infrastructure coupling" above). Migrations stay out too: the historical
+registry is the only way a migration can reach a model. Production code may not
+add a call.
+
+`hogli product:crossings <product>` lists a product's crossing classes with every
+consumer use bucketed by kind, disallowed first. Disallowed uses are frozen in
+`products/model_crossing_uses_baseline.txt` and guarded by a repo-invariant test;
+counts may only go down, and `hogli product:crossings --all --write-baseline`
+records the decrease. See `products/architecture.md` § Wiring couplings.
+
 ## Guardrails
 
-- Keep facades thin; put business rules in `logic.py`.
+- Keep facades thin; put business rules behind the facade, in `logic/` by default. Other internal packages (`services/`, `reviewer/`, …) are fine as long as they stay behind the facade.
 - Transaction boundaries belong in the facade (or logic), not in views.
 - Never return ORM models across product boundaries.
 - Keep contracts pure (no Django/DRF imports).
@@ -211,9 +284,9 @@ in `facade/api.py` with the viewset deferred.
    - The rewrite is mechanical (import swap + call mapping) and fully checked by the
      verification chain; batching it only stretches the window in which master drifts
      under the branch.
-   - Core test fixtures that need product models: use `apps.get_model("<app_label>",
-"Model")` at runtime plus a `TYPE_CHECKING` import for annotations — tach ignores
-     type-only imports.
+   - Core test fixtures that need product rows go through the facade's write
+     function or a product testing door, with a normal import — not
+     `apps.get_model` (see "Test-infrastructure coupling" above for why).
    - Compatibility shims exist to bridge between serial PRs — the one-pass shape rarely
      needs them. If one is unavoidable, it dies in the final cleanup PR, not "later".
    - Exception: callers with subtle behavior (transaction boundaries, write-path
@@ -277,14 +350,49 @@ in `facade/api.py` with the viewset deferred.
    4. **Narrowed `turbo.json` inputs** — restrict `backend:contract-check`
       inputs to `backend/facade/**` and `backend/presentation/**` so the
       Django suite is only re-run on facade/presentation changes (see
-      `products/visual_review/turbo.json`). Widen the inputs when core
-      depends on the product **outside the import graph**: add
-      `backend/models.py` if hogql system tables expose the product's
-      tables or core config references its dotted paths (the scan's
-      string-reference section surfaces the latter). tach/import-linter
-      only police the import channel; a mechanical check for these
-      non-import channels is a known gap, noted and deferred.
-   - Verify with `tach check --dependencies --interfaces`, `lint-imports`
+      `products/visual_review/turbo.json`). The inputs must also watch the
+      whole model surface — `backend/models.py` or `backend/models/**`,
+      plus `backend/migrations/**` (required even before the first
+      migration lands): a model is reachable without an import
+      (`apps.get_model` strings, migrations, admin, hogql system tables,
+      dotted-string config), so tach/import-linter cannot prove nothing
+      outside observes it. `hogli product:lint` blocks a narrowing that
+      omits any of it, and `product:bootstrap` scaffolds the inputs
+      already covering it.
+   - **Permanent-interface exception (irreducible import coupling).** Some
+     import coupling genuinely cannot be drained: ClickHouse DDL modules
+     (`backend.sql`, `backend.embedding`, …) are imported by core's
+     `posthog/clickhouse/schema.py` registry, `conftest.py`, and **frozen**
+     ClickHouse migrations that hardcode the import path forever. You cannot
+     reroute a frozen migration or move the module. For this, mark the
+     tach `[[interfaces]]` block that exposes those modules with a
+     `# isolation:permanent-interface` comment on the line(s) directly above
+     it. The marker tells `hogli product:lint` the block is a declared,
+     irreducible exposure — **not** a legacy leak — so it stops withholding
+     `backend:contract-check`. Soundness is preserved by pairing it with
+     turbo.json: every permanently-exposed module **must** appear in the
+     contract-check `inputs` (e.g. `backend/sql.py`), so a change to it still
+     re-runs the full suite. `IsolationChainCheck` enforces that pairing and
+     fails if a marked module is missing from the inputs. Use this only for
+     coupling that is both non-behavioral-over-HTTP and impossible to reroute
+     (frozen-migration / schema-registry DDL) — not as an escape hatch for
+     model/logic imports you simply haven't migrated yet. That restriction is
+     structural, not stylistic: the marker is only sound when every
+     frozen-pinned module contains **only DDL**. `error_tracking` is the worked
+     example (`sql` / `embedding` / `indexed_embedding` are pure-DDL modules).
+     `cohorts` matches too — migration 0010 pins
+     `products.cohorts.backend.models.sql`, a DDL-only submodule, so the marker
+     applies to exactly that submodule (not `backend.models.*`).
+     `event_definitions` does **not**: migration 0120 pins
+     `products.event_definitions.backend.models.property_definition`, a module
+     that defines the `PropertyDefinition` model class alongside its DDL
+     constant, so marking it permanent would expose model access — precisely
+     the escape hatch this exception forbids. Products with that shape need the
+     DDL extracted into a dedicated module first, with the frozen import path
+     preserved by a re-export shim in the original module; the shim's residual
+     exposure (the frozen migration still imports the model module) must be
+     documented honestly in the block comment, not papered over by the marker.
+   - Verify with `hogli lint:tach`, `lint-imports`
      (import-linter contract for presentation → facade), and `hogli product:lint <name>`.
    - Use `hogli product:maturity <name>` for a detailed breakdown of remaining
      isolation work scored across models, facade, presentation, boundaries, codegen.
@@ -416,7 +524,7 @@ Treat migration as complete only when:
 - The product is listed in the shared `[[interfaces]]` block in `tach.toml`
   exposing `backend.facade.*` and `backend.presentation.views.*` — no legacy
   leak block remains.
-- `tach check --dependencies --interfaces` passes with no violations for this product.
+- `hogli lint:tach` passes with no violations for this product.
 - `lint-imports` passes **with no `ignore_imports` entries left for this product** in the
   `pyproject.toml` TODO section — entries are tracked architectural debt from deferred
   view modules; the presentation wave deletes them.

@@ -1,17 +1,47 @@
+import tempfile
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
+from deltalake import DeltaTable, write_deltalake
 from parameterized import parameterized
+from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
+    SCD2_VALID_TO_COLUMN,
+    TOAST_OMITTED_COLUMN,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import LOAD_POSITION_CONFIG_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
+    _enrich_cdc_rows,
     _get_write_type,
+    _mark_job_completed,
     _promote_staged_cursor,
+    _read_existing_rows_by_first_pk,
+    _resolve_cdc_positions,
+    _run_post_load_for_already_processed_batch,
+    _trigger_post_import_workflow,
+    process_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
+
+
+@pytest.fixture(autouse=True)
+def _no_close_old_connections():
+    # These are pure unit tests, but close_old_connections() touches the Django
+    # connection, which pytest-django blocks for unmarked tests once a django_db
+    # test has run in the same session — an order-dependent failure.
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.close_old_connections"
+    ):
+        yield
 
 
 class TestGetWriteType:
@@ -143,20 +173,857 @@ class TestPromoteStagedCursor:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataSchema.objects"
     )
-    def test_does_not_raise_on_promotion_failure(self, mock_objects: MagicMock) -> None:
+    def test_promotion_failure_propagates(self, mock_objects: MagicMock) -> None:
+        # If the failure is swallowed, the job completes with a stale cursor and
+        # the next run re-extracts the same window — duplicate rows for append syncs.
         schema = MagicMock()
         schema.promote_staged_incremental_values.side_effect = RuntimeError("db error")
         mock_objects.get.return_value = schema
 
         signal = self._make_signal()
-        _promote_staged_cursor(signal)
+        with pytest.raises(RuntimeError):
+            _promote_staged_cursor(signal)
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataSchema.objects"
     )
-    def test_does_not_raise_when_schema_missing(self, mock_objects: MagicMock) -> None:
+    def test_missing_schema_propagates(self, mock_objects: MagicMock) -> None:
+        # A deleted schema is permanent; the consumer's non-retryable patterns
+        # fail the run fast instead of completing a job for a schema that's gone.
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         mock_objects.get.side_effect = ExternalDataSchema.DoesNotExist()
         signal = self._make_signal()
-        _promote_staged_cursor(signal)
+        with pytest.raises(ExternalDataSchema.DoesNotExist):
+            _promote_staged_cursor(signal)
+
+
+class _LeaseLost(Exception):
+    pass
+
+
+def _message(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "team_id": 1,
+        "job_id": "job-1",
+        "schema_id": "schema-1",
+        "source_id": "source-1",
+        "resource_name": "res",
+        "run_uuid": "run-1",
+        "batch_index": 1,
+        "s3_path": "s3://bucket/path",
+        "row_count": 1,
+        "byte_size": 1,
+        "is_final_batch": False,
+        "total_batches": None,
+        "total_rows": None,
+        "sync_type": "incremental",
+        "data_folder": None,
+        "schema_path": None,
+        "primary_keys": ["id"],
+    }
+    base.update(overrides)
+    return base
+
+
+_PROCESSOR = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor"
+
+
+class TestProcessMessageOwnershipGate:
+    # If the check is dropped or moved after the side effect, a taken-over loader
+    # would still commit to Delta or mark the job COMPLETED.
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.Scd2DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    @patch(f"{_PROCESSOR}.close_old_connections")
+    def test_lost_ownership_blocks_delta_write(
+        self,
+        _close: MagicMock,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_scd2_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        _already: MagicMock,
+        _read: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        helper = mock_helper_cls.return_value
+        helper.get_delta_table = AsyncMock(return_value=None)
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        def verify_ownership() -> None:
+            raise _LeaseLost()
+
+        with pytest.raises(_LeaseLost):
+            process_message(_message(), verify_ownership=verify_ownership)
+
+        mock_writer_cls.return_value.write.assert_not_called()
+        mock_scd2_cls.return_value.write.assert_not_called()
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    @patch(f"{_PROCESSOR}.close_old_connections")
+    def test_lost_ownership_blocks_final_batch_completion(
+        self,
+        _close: MagicMock,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        _helper_cls: MagicMock,
+        _already: MagicMock,
+        mock_post_load: MagicMock,
+        mock_mark_completed: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        def verify_ownership() -> None:
+            raise _LeaseLost()
+
+        with pytest.raises(_LeaseLost):
+            process_message(_message(is_final_batch=True), verify_ownership=verify_ownership)
+
+        mock_post_load.assert_not_called()
+        mock_mark_completed.assert_not_called()
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    @patch(f"{_PROCESSOR}.close_old_connections")
+    def test_ownership_lost_during_post_load_blocks_completion(
+        self,
+        _close: MagicMock,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        _helper_cls: MagicMock,
+        _already: MagicMock,
+        mock_post_load: MagicMock,
+        mock_mark_completed: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        # Post-load can run minutes; without the re-check a lease lost mid-post-load
+        # still promotes the cursor and marks the job COMPLETED under a new owner.
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        calls = {"count": 0}
+
+        def verify_ownership() -> None:
+            calls["count"] += 1
+            if calls["count"] > 1:
+                raise _LeaseLost()
+
+        with pytest.raises(_LeaseLost):
+            process_message(_message(is_final_batch=True), verify_ownership=verify_ownership)
+
+        mock_post_load.assert_called_once()
+        mock_mark_completed.assert_not_called()
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch")
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    @patch(f"{_PROCESSOR}.close_old_connections")
+    def test_ownership_loss_is_not_counted_as_load_failure(
+        self,
+        _close: MagicMock,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        _helper_cls: MagicMock,
+        _already: MagicMock,
+        _post_load: MagicMock,
+        mock_analytics: MagicMock,
+    ) -> None:
+        # Fencing abandons are benign; counting them as load failures pollutes the metric.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+            OwnershipLostError,
+        )
+
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        def verify_ownership() -> None:
+            raise OwnershipLostError("group lease lost")
+
+        with pytest.raises(OwnershipLostError):
+            process_message(_message(is_final_batch=True), verify_ownership=verify_ownership)
+
+        mock_analytics.capture.assert_not_called()
+
+
+class TestMarkJobCompleted:
+    def _make_signal(self, **overrides: Any) -> MagicMock:
+        signal = MagicMock()
+        signal.schema_id = overrides.get("schema_id", "schema-1")
+        signal.team_id = overrides.get("team_id", 1)
+        signal.run_uuid = overrides.get("run_uuid", "run-abc-a1")
+        signal.job_id = overrides.get("job_id", "job-1")
+        return signal
+
+    @parameterized.expand(
+        [
+            # If the job was cancelled (absorbing Failed) after the final batch passed
+            # should_process_batch, the Completed write is rejected and the staged
+            # incremental cursor must NOT be promoted.
+            ("completed_write_lands", "Completed", True),
+            ("completed_write_absorbed_by_failed", "Failed", False),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.transaction")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.release_v3_pipeline_lock"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataJob.objects"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.finish_row_tracking",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataSchema.objects"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.update_external_job_status"
+    )
+    def test_promotes_cursor_only_when_completed_write_lands(
+        self,
+        _case: str,
+        resulting_status: str,
+        expect_promotion: bool,
+        mock_update: MagicMock,
+        mock_schema_objects: MagicMock,
+        mock_finish_row_tracking: AsyncMock,
+        mock_job_objects: MagicMock,
+        mock_release: MagicMock,
+        mock_transaction: MagicMock,
+    ) -> None:
+        model = MagicMock()
+        model.status = resulting_status
+        mock_update.return_value = model
+
+        schema = MagicMock()
+        mock_schema_objects.get.return_value = schema
+        job = MagicMock()
+        job.workflow_run_id = "wf-run-1"
+        mock_job_objects.only.return_value.get.return_value = job
+
+        _mark_job_completed(self._make_signal())
+
+        if expect_promotion:
+            schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1")
+        else:
+            schema.promote_staged_incremental_values.assert_not_called()
+            mock_finish_row_tracking.assert_not_awaited()
+        # The pipeline lock must be released either way, or the next sync is blocked.
+        mock_release.assert_called_once_with(team_id=1, schema_id="schema-1", token="wf-run-1")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.transaction")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.release_v3_pipeline_lock"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.finish_row_tracking",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataSchema.objects"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.update_external_job_status"
+    )
+    def test_promotion_failure_does_not_finalize_job(
+        self,
+        mock_update: MagicMock,
+        mock_schema_objects: MagicMock,
+        mock_finish_row_tracking: AsyncMock,
+        mock_release: MagicMock,
+        mock_transaction: MagicMock,
+    ) -> None:
+        # Promotion raising must propagate and skip finalization so the batch retries; otherwise the
+        # job stays Completed with a stale cursor and a later append sync re-extracts the same window.
+        model = MagicMock()
+        model.status = "Completed"
+        mock_update.return_value = model
+
+        schema = MagicMock()
+        schema.promote_staged_incremental_values.side_effect = RuntimeError("db error")
+        mock_schema_objects.get.return_value = schema
+
+        with pytest.raises(RuntimeError, match="db error"):
+            _mark_job_completed(self._make_signal())
+
+        mock_finish_row_tracking.assert_not_awaited()
+        mock_release.assert_not_called()
+
+
+class TestRedeliveredFinalBatchPostLoad:
+    @parameterized.expand([("companion", "scd2_append"), ("consolidated", "incremental_merge"), ("snapshot", None)])
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    def test_forwards_the_batch_write_mode(
+        self,
+        _case: str,
+        cdc_write_mode: str | None,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        _read: MagicMock,
+        mock_post_load: AsyncMock,
+    ) -> None:
+        # Post-load derives the whole CDC branch from the write mode: whether this is a companion
+        # write (register the _cdc table, leave schema.table alone) or a snapshot to seed the
+        # companion from. Dropping it here let a redelivered streaming batch re-seed the companion,
+        # wiping its SCD2 history, and point schema.table at the companion's folder.
+        delta_table = MagicMock(schema=MagicMock(return_value=pa.schema([_COL_ID])))
+        mock_job_model.objects.prefetch_related.return_value.aget = AsyncMock(return_value=MagicMock())
+        mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=delta_table)
+
+        signal = MagicMock()
+        signal.cdc_write_mode = cdc_write_mode
+
+        _run_post_load_for_already_processed_batch(signal)
+
+        assert mock_post_load.await_args is not None
+        assert mock_post_load.await_args.kwargs["cdc_write_mode"] == cdc_write_mode
+
+
+class TestPostImportTrigger:
+    """The V3 hand-off to `data-import-post-import`: without it the load-dependent
+    post-import steps (signals, enrichment, statistics, table size, DuckLake copy)
+    never run for V3 syncs."""
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
+    @patch(f"{_PROCESSOR}._trigger_ducklake_register_data_imports")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    def test_final_batch_triggers_post_import_once(
+        self,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
+        _already: MagicMock,
+        _read: MagicMock,
+        _post_load: AsyncMock,
+        mock_mark_completed: MagicMock,
+        _ducklake: MagicMock,
+        mock_trigger: MagicMock,
+        _mark_processed: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        delta_table = MagicMock()
+        delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        delta_table.file_uris.return_value = []
+        helper = mock_helper_cls.return_value
+        helper.get_delta_table = AsyncMock(return_value=None)
+        mock_writer_cls.return_value.write = AsyncMock(return_value=delta_table)
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        process_message(_message(is_final_batch=True))
+
+        mock_mark_completed.assert_called_once()
+        mock_trigger.assert_called_once()
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch", return_value=None)
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    def test_redelivered_final_batch_triggers_post_import(
+        self,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        _helper_cls: MagicMock,
+        _already: MagicMock,
+        _post_load: MagicMock,
+        _mark_completed: MagicMock,
+        mock_trigger: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        # A writer crash between the final batch's Delta commit and the trigger means the
+        # redelivery is the only chance to hand off — the trigger must fire on this path too.
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        process_message(_message(is_final_batch=True))
+
+        mock_trigger.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("cdc_sync_type", "cdc", None),
+            ("scd2_companion_write", "incremental", "scd2_append"),
+        ]
+    )
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_cdc_finals_do_not_trigger_post_import(
+        self, _case: str, sync_type: str, cdc_write_mode: str | None, mock_connect: AsyncMock
+    ) -> None:
+        # CDC finals land once per flush tick; triggering per tick would spam the fan-out.
+        signal = MagicMock()
+        signal.sync_type = sync_type
+        signal.cdc_write_mode = cdc_write_mode
+
+        _trigger_post_import_workflow(signal)
+
+        mock_connect.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # Any start failure (e.g. no Temporal env vars on the load deployment) must
+            # not fail the load; it is logged and captured.
+            ("start_failure_is_captured", RuntimeError("no temporal"), True),
+            # An id collision means a register is already in flight for this schema.
+            ("already_started_is_benign", WorkflowAlreadyStartedError("wf-id", "wf-type"), False),
+        ]
+    )
+    @patch(f"{_PROCESSOR}.capture_exception")
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_trigger_failures_never_fail_the_load(
+        self,
+        _case: str,
+        error: Exception,
+        expect_captured: bool,
+        mock_connect: AsyncMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        client = MagicMock()
+        client.start_workflow = AsyncMock(side_effect=error)
+        mock_connect.return_value = client
+
+        signal = MagicMock()
+        signal.sync_type = "incremental"
+        signal.cdc_write_mode = None
+        signal.team_id = 1
+        signal.job_id = "job-1"
+        signal.schema_id = "schema-1"
+        signal.source_id = "source-1"
+
+        _trigger_post_import_workflow(signal)
+
+        assert mock_capture.called is expect_captured
+
+    def _signal(self) -> MagicMock:
+        signal = MagicMock()
+        signal.sync_type = "incremental"
+        signal.cdc_write_mode = None
+        signal.team_id = 1
+        signal.job_id = "job-1"
+        signal.schema_id = "schema-1"
+        signal.source_id = "source-1"
+        return signal
+
+    @patch(f"{_PROCESSOR}.capture_exception")
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_transient_rpc_timeout_is_retried_and_recovers(
+        self,
+        mock_connect: AsyncMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        # This start runs as a bare client RPC outside a Temporal workflow, so it gets
+        # none of the server-side retry a `workflow.start_child_workflow` command would
+        # have — a single transient timeout must not drop the trigger permanently.
+        client = MagicMock()
+        client.start_workflow = AsyncMock(
+            side_effect=[RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b""), None]
+        )
+        mock_connect.return_value = client
+
+        _trigger_post_import_workflow(self._signal())
+
+        assert client.start_workflow.call_count == 2
+        mock_capture.assert_not_called()
+
+    @patch(f"{_PROCESSOR}.capture_exception")
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_persistent_rpc_timeout_is_captured_after_retries_exhausted(
+        self,
+        mock_connect: AsyncMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        client = MagicMock()
+        client.start_workflow = AsyncMock(side_effect=RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b""))
+        mock_connect.return_value = client
+
+        _trigger_post_import_workflow(self._signal())
+
+        assert client.start_workflow.call_count == 3
+        mock_capture.assert_called_once()
+        # tenacity defaults to wrapping the last attempt in a RetryError once retries are
+        # exhausted; `reraise=True` must be set so the underlying RPCError reaches capture
+        # instead, keeping the error-tracking issue actionable.
+        captured_exception = mock_capture.call_args[0][0]
+        assert isinstance(captured_exception, RPCError)
+
+
+# Regression guard for #70476: pyarrow 21+ string_view broke delta pushdown on string PKs.
+class TestEnrichCdcRows:
+    """Cross-batch CDC enrichment against a real local Delta table."""
+
+    @staticmethod
+    def _batch(rows: list[dict[str, Any]]) -> pa.Table:
+        return pa.table(
+            {
+                "id": pa.array([r["id"] for r in rows], pa.int64()),
+                "name": pa.array([r.get("name") for r in rows], pa.string()),
+                "big": pa.array([r.get("big") for r in rows], pa.string()),
+                CDC_OP_COLUMN: pa.array([r["op"] for r in rows], pa.string()),
+                TOAST_OMITTED_COLUMN: pa.array([r.get("omitted") for r in rows], pa.list_(pa.string())),
+            }
+        )
+
+    def _stamped(self, ids: list[int], ops: list[str], seqs: list[int]) -> pa.Table:
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_PROVENANCE
+
+        table = pa.table(
+            {
+                "id": pa.array(ids, pa.int64()),
+                "name": pa.array([f"n{i}" for i in ids], pa.string()),
+                CDC_OP_COLUMN: pa.array(ops, pa.string()),
+            }
+        )
+        return table.append_column(
+            pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array(seqs, pa.int64())
+        )
+
+    def _resolve(self, table: pa.Table, *, watermark: int | None, cdc_write_mode: str = "incremental_merge"):
+        config = {LOAD_POSITION_CONFIG_KEY: {"users": watermark}} if watermark is not None else {}
+        return _resolve_cdc_positions(
+            table,
+            sync_type_config=config,
+            resource_name="users",
+            primary_keys=["id"],
+            cdc_write_mode=cdc_write_mode,
+            team_id="2",
+        )
+
+    def test_resolution_drops_applied_rows_and_returns_the_new_position(self):
+        table = self._stamped([1, 2, 3], ["I", "I", "I"], [10, 20, 30])
+        result, position = self._resolve(table, watermark=20)
+
+        # Strictly-below only: 20 stays, because a split transaction shares its commit position.
+        assert result.column("id").to_pylist() == [2, 3]
+        assert position == 30
+
+    def test_resolution_is_skipped_without_an_engine_stamped_position(self):
+        # A source column named _ph_cdc_seq must not drive the guard.
+        table = self._stamped([1, 2], ["I", "I"], [10, 20]).drop_columns([CDC_SEQ_COLUMN])
+        table = table.append_column(pa.field(CDC_SEQ_COLUMN, pa.int64()), pa.array([10, 20], pa.int64()))
+        result, position = self._resolve(table, watermark=99)
+
+        assert result is table
+        assert position is None
+
+    def test_resolution_keeps_every_row_on_the_first_batch_ever(self):
+        # No recorded position yet: nothing is provably applied, so nothing may be dropped.
+        table = self._stamped([1, 2], ["I", "I"], [10, 20])
+        result, position = self._resolve(table, watermark=None)
+
+        assert result.column("id").to_pylist() == [1, 2]
+        assert position == 20
+
+    def test_resolution_reads_the_position_for_its_own_lane_only(self):
+        # Consolidated and companion tables advance independently; one must not gate the other.
+        table = self._stamped([1, 2], ["I", "I"], [10, 20])
+        result, _ = _resolve_cdc_positions(
+            table,
+            sync_type_config={LOAD_POSITION_CONFIG_KEY: {"users_cdc": 99}},
+            resource_name="users",
+            primary_keys=["id"],
+            cdc_write_mode="incremental_merge",
+            team_id="2",
+        )
+
+        assert result.num_rows == 2
+
+    def test_resolution_does_not_dedupe_the_history_lane(self):
+        table = self._stamped([1, 1], ["I", "U"], [10, 20])
+        result, _ = self._resolve(table, watermark=None, cdc_write_mode="scd2_append")
+
+        assert result.num_rows == 2
+
+    def _write_existing(self, path: str) -> None:
+        write_deltalake(
+            path,
+            pa.table(
+                {
+                    "id": pa.array([1], pa.int64()),
+                    "name": pa.array(["one"], pa.string()),
+                    "big": pa.array(["toasted-1"], pa.string()),
+                }
+            ),
+            mode="overwrite",
+        )
+
+    def test_verification_stays_quiet_when_enrichment_filled_the_delete(self):
+        with tempfile.TemporaryDirectory() as path:
+            self._write_existing(path)
+
+            with patch(f"{_PROCESSOR}.CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL") as violations:
+                _enrich_cdc_rows(
+                    self._batch([{"id": 1, "op": "D"}]),
+                    primary_keys=["id"],
+                    cdc_write_mode="incremental_merge",
+                    existing_delta_table=DeltaTable(path),
+                    batch_index=0,
+                    verify_deletes=True,
+                    team_id="2",
+                )
+
+            violations.labels.assert_not_called()
+
+    def test_verification_reports_a_delete_that_would_null_target_data(self):
+        with tempfile.TemporaryDirectory() as path:
+            self._write_existing(path)
+
+            # Enrichment silently doing nothing is the failure this lane exists to catch: under
+            # deltalite the upsert replaces the whole row, so those nulls would land in the table.
+            with (
+                patch(f"{_PROCESSOR}.enrich_delete_rows", side_effect=lambda table, *_a, **_kw: table),
+                patch(f"{_PROCESSOR}.CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL") as violations,
+            ):
+                _enrich_cdc_rows(
+                    self._batch([{"id": 1, "op": "D"}]),
+                    primary_keys=["id"],
+                    cdc_write_mode="incremental_merge",
+                    existing_delta_table=DeltaTable(path),
+                    batch_index=0,
+                    verify_deletes=True,
+                    team_id="2",
+                )
+
+            violations.labels.assert_called_once_with(team_id="2")
+            violations.labels.return_value.inc.assert_called_once_with(1)
+
+    def test_verification_is_skipped_when_the_flag_is_off(self):
+        with tempfile.TemporaryDirectory() as path:
+            self._write_existing(path)
+
+            with (
+                patch(f"{_PROCESSOR}.enrich_delete_rows", side_effect=lambda table, *_a, **_kw: table),
+                patch(f"{_PROCESSOR}.verify_delete_enrichment") as verify,
+            ):
+                _enrich_cdc_rows(
+                    self._batch([{"id": 1, "op": "D"}]),
+                    primary_keys=["id"],
+                    cdc_write_mode="incremental_merge",
+                    existing_delta_table=DeltaTable(path),
+                    batch_index=0,
+                )
+
+            verify.assert_not_called()
+
+    def test_fills_toast_and_delete_rows_from_delta_state_and_drops_marker(self):
+        with tempfile.TemporaryDirectory() as path:
+            write_deltalake(
+                path,
+                pa.table(
+                    {
+                        "id": pa.array([1, 2], pa.int64()),
+                        "name": pa.array(["one", "two"], pa.string()),
+                        "big": pa.array(["toasted-1", "toasted-2"], pa.string()),
+                    }
+                ),
+                mode="overwrite",
+            )
+
+            batch = self._batch(
+                [
+                    {"id": 1, "op": "U", "name": "renamed", "omitted": ["big"]},
+                    {"id": 2, "op": "D"},
+                ]
+            )
+            result = _enrich_cdc_rows(
+                batch,
+                primary_keys=["id"],
+                cdc_write_mode="incremental_merge",
+                existing_delta_table=DeltaTable(path),
+                batch_index=0,
+            )
+
+            # The unchanged-TOAST column keeps its persisted value instead of
+            # merging NULL over it; the DELETE row is enriched as before.
+            assert result.column("big").to_pylist() == ["toasted-1", "toasted-2"]
+            assert result.column("name").to_pylist() == ["renamed", "two"]
+            assert TOAST_OMITTED_COLUMN not in result.column_names
+
+    def test_scd2_fill_uses_current_row_not_history(self):
+        with tempfile.TemporaryDirectory() as path:
+            ts = pa.timestamp("us", tz="UTC")
+            write_deltalake(
+                path,
+                pa.table(
+                    {
+                        "id": pa.array([1, 1], pa.int64()),
+                        "name": pa.array(["v1", "v2"], pa.string()),
+                        "big": pa.array(["old-toast", "current-toast"], pa.string()),
+                        SCD2_VALID_TO_COLUMN: pa.array([1_000_000, None], ts),
+                    }
+                ),
+                mode="overwrite",
+            )
+
+            batch = self._batch([{"id": 1, "op": "U", "name": "v3", "omitted": ["big"]}])
+            result = _enrich_cdc_rows(
+                batch,
+                primary_keys=["id"],
+                cdc_write_mode="scd2_append",
+                existing_delta_table=DeltaTable(path),
+                batch_index=0,
+            )
+
+            assert result.column("big").to_pylist() == ["current-toast"]
+
+    def test_composite_pk_delete_enrichment_with_no_matching_existing_row(self):
+        # Existing row shares the first PK component ("id") with the incoming DELETE
+        # but not the full composite key, so `match_indices` narrows to empty. This
+        # used to crash with ArrowNotImplementedError: `Table.take([])` infers a
+        # null-typed indices array, and pyarrow has no take kernel for (string, null).
+        with tempfile.TemporaryDirectory() as path:
+            write_deltalake(
+                path,
+                pa.table(
+                    {
+                        "id": pa.array([1], pa.int64()),
+                        "tenant": pa.array(["a"], pa.string()),
+                        "name": pa.array(["existing"], pa.string()),
+                    }
+                ),
+                mode="overwrite",
+            )
+
+            batch = pa.table(
+                {
+                    "id": pa.array([1], pa.int64()),
+                    "tenant": pa.array(["z"], pa.string()),
+                    "name": pa.array([None], pa.string()),
+                    CDC_OP_COLUMN: pa.array(["D"], pa.string()),
+                    TOAST_OMITTED_COLUMN: pa.array([None], pa.list_(pa.string())),
+                }
+            )
+            result = _enrich_cdc_rows(
+                batch,
+                primary_keys=["id", "tenant"],
+                cdc_write_mode="incremental_merge",
+                existing_delta_table=DeltaTable(path),
+                batch_index=0,
+            )
+
+            assert TOAST_OMITTED_COLUMN not in result.column_names
+            assert result.column("name").to_pylist() == [None]
+
+    def test_composite_pk_delete_enrichment_when_existing_table_lacks_a_pk_column(self):
+        # The existing Delta table predates a composite key gaining a second PK
+        # column ("tenant"), so it can't be exactly matched. Same bug as above but
+        # via the `else` branch, which also called `.take([])` unconditionally.
+        with tempfile.TemporaryDirectory() as path:
+            write_deltalake(
+                path,
+                pa.table(
+                    {
+                        "id": pa.array([1], pa.int64()),
+                        "name": pa.array(["existing"], pa.string()),
+                    }
+                ),
+                mode="overwrite",
+            )
+
+            batch = pa.table(
+                {
+                    "id": pa.array([1], pa.int64()),
+                    "tenant": pa.array(["z"], pa.string()),
+                    "name": pa.array([None], pa.string()),
+                    CDC_OP_COLUMN: pa.array(["D"], pa.string()),
+                    TOAST_OMITTED_COLUMN: pa.array([None], pa.list_(pa.string())),
+                }
+            )
+            result = _enrich_cdc_rows(
+                batch,
+                primary_keys=["id", "tenant"],
+                cdc_write_mode="incremental_merge",
+                existing_delta_table=DeltaTable(path),
+                batch_index=0,
+            )
+
+            assert TOAST_OMITTED_COLUMN not in result.column_names
+            assert result.column("name").to_pylist() == [None]
+
+    def test_marker_dropped_when_enrichment_cannot_run(self):
+        # First-ever CDC batch: no existing Delta table to fill from. The value is
+        # unknowable (stays null) but the transport marker must never reach the write.
+        batch = self._batch([{"id": 1, "op": "U", "name": "renamed", "omitted": ["big"]}])
+        result = _enrich_cdc_rows(
+            batch,
+            primary_keys=["id"],
+            cdc_write_mode="incremental_merge",
+            existing_delta_table=None,
+            batch_index=0,
+        )
+
+        assert TOAST_OMITTED_COLUMN not in result.column_names
+        assert result.column("big").to_pylist() == [None]
+
+
+class TestReadExistingRowsByFirstPk:
+    @staticmethod
+    def _string_view_table(path: str) -> DeltaTable:
+        sv = pa.string_view()
+        write_deltalake(
+            path,
+            pa.table({"id": pa.array(["a", "b", "c"], sv), "val": pa.array([1, 2, 3], pa.int64())}),
+            mode="overwrite",
+        )
+        # Second file so file pruning is exercised.
+        write_deltalake(
+            path,
+            pa.table({"id": pa.array(["d", "e", "f"], sv), "val": pa.array([4, 5, 6], pa.int64())}),
+            mode="append",
+        )
+        return DeltaTable(path)
+
+    @parameterized.expand(
+        [
+            ("subset_across_files", ["a", "e"], ["a", "e"]),
+            ("single", ["c"], ["c"]),
+            ("superset_with_miss", ["b", "zzz"], ["b"]),
+            ("no_match", ["nope"], []),
+        ]
+    )
+    def test_returns_matching_rows_on_string_view_pk(
+        self, _name: str, components: list[str], expected_ids: list[str]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as path:
+            delta_table = self._string_view_table(path)
+
+            result = _read_existing_rows_by_first_pk(delta_table, "id", components)
+
+            assert set(result.column("id").to_pylist()) == set(expected_ids)

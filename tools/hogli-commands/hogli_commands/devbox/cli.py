@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from hogli import telemetry
 from hogli.manifest import get_manifest
 
 from . import mutagen
@@ -28,6 +29,7 @@ from .coder import (
     DEFAULT_REGION,
     DEFAULT_TEMPLATE,
     DOTFILES_URI_PARAMETER,
+    EXPECTED_TAILNET,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     GIT_SIGNING_KEY_SECRET,
@@ -40,7 +42,6 @@ from .coder import (
     coder_installed,
     coder_reachable,
     coder_ssh_alias_configured,
-    create_clone_image,
     create_task,
     create_workspace,
     delete_user_secret,
@@ -58,8 +59,10 @@ from .coder import (
     get_default_git_identity,
     get_shared_users,
     get_sharing_status,
+    get_source_instance_id,
     get_username,
     get_workspace,
+    get_workspace_disk_size,
     get_workspace_name,
     get_workspace_region,
     get_workspace_status,
@@ -84,7 +87,7 @@ from .coder import (
     ssh_replace,
     start_workspace,
     stop_workspace,
-    tailscale_connected,
+    tailscale_state,
     unshare_workspace,
     update_workspace,
     update_workspace_parameters,
@@ -111,7 +114,9 @@ _POSTHOG_COMMIT_SIGNING_HANDBOOK_URL = "https://posthog.com/handbook/engineering
 # fails at the reachability check.
 _TAILNET_POLICY_URL = "https://github.com/PostHog/posthog-cloud-infra/blob/main/tailnet-policy.hujson"
 _TAILNET_ACCESS_PREREQ = (
-    "Devbox access needs your email in `group:engineering` in "
+    f"Devbox access needs you on the `{EXPECTED_TAILNET}` tailnet (not dev / "
+    "prod-us / prod-eu / internal — those are for CI runners and subnet "
+    "routers), with your email in `group:engineering` in "
     "posthog-cloud-infra/tailnet-policy.hujson.\n"
     f"    Not granted yet? Add yourself via PR: {_TAILNET_POLICY_URL}"
 )
@@ -732,13 +737,22 @@ def devbox_doctor() -> None:
     click.echo(f"  Coder URL: {get_coder_url()}")
     click.echo()
 
-    _doctor_check("Tailscale connected", tailscale_connected())
+    connected, tailnet = tailscale_state()
+    _doctor_check("Tailscale connected", connected)
+
+    # Being on a per-environment tailnet looks identical to "connected" but
+    # routes nowhere near a devbox, and nothing prompts you about it after the
+    # first sign-in — so name the active tailnet on its own line.
+    _doctor_check(f"Tailnet: {tailnet or 'unknown'} (need {EXPECTED_TAILNET})", tailnet == EXPECTED_TAILNET)
 
     reachable = coder_reachable()
     _doctor_check("Coder control plane reachable", reachable)
 
     if not reachable:
         diagnosis = _diagnose_unreachable_coder()
+        # doctor exits 0 while reporting a broken tailnet, so a failure count
+        # off this property has to filter on command or exit_code.
+        telemetry.add_command_properties(devbox_failure_cause=diagnosis.code)
         click.echo()
         click.echo(click.style(f"  Cause: {diagnosis.cause}", fg="yellow"))
         click.echo(f"  Next:  {diagnosis.next_step}")
@@ -1309,7 +1323,7 @@ def _maybe_hint_region_mismatch(name: str) -> None:
 @workspace_argument
 @click.option(
     "--disk",
-    type=click.Choice(["60", "80", "100"]),
+    type=click.Choice(["100", "200"]),
     default="100",
     help="Disk size in GiB (default: 100)",
 )
@@ -1433,9 +1447,9 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
     if template != DEFAULT_TEMPLATE:
         _fail(f"Clone supports the '{DEFAULT_TEMPLATE}' template only (this devbox uses '{template}').")
 
+    # The clone lands in the source's region -- a per-clone AMI is region-scoped,
+    # so the template images and boots within that same region.
     region = region_from_workspace_name(source_name)
-    if region != DEFAULT_REGION:
-        _fail("Clone is us-east-1 only for now (an AMI is region-scoped). EU clone is not wired yet.")
 
     status = get_workspace_status(ws)
     if status != "running":
@@ -1458,10 +1472,23 @@ def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool
             click.echo("Cancelled.")
             return
 
-    click.echo("Capturing a clone image from the source devbox (this takes a few minutes)...")
-    ami = create_clone_image(source_name, owner=owner, source_label=source_name)
-    click.echo(f"Captured {ami}. Creating '{target_name}'...")
-    clone_workspace(source_name, target_name, base_ami=ami, template=template, verbose=verbose)
+    disk_size = get_workspace_disk_size(ws)
+    if disk_size is None:
+        _fail("Could not determine the source devbox's disk size. Rebuild it on the latest template and retry.")
+
+    source_instance_id = get_source_instance_id(source_name)
+    click.echo(
+        f"Cloning '{source_name}' ({source_instance_id}) -> '{target_name}'. "
+        "The template captures its disk into a private image (a few minutes) and boots the clone from it."
+    )
+    clone_workspace(
+        target_name,
+        source_instance_id=source_instance_id,
+        disk_size=disk_size,
+        region=region,
+        template=template,
+        verbose=verbose,
+    )
     click.echo("Cloned.")
     _print_connection_info(target_name)
 
@@ -1904,6 +1931,7 @@ def _rm_dir(label: str, path: Path) -> None:
 
 
 @click.command(name="devbox:cleanup:disk", help="Free disk space by cleaning caches and build artifacts")
+@workspace_argument
 @click.option("--docker", "prune_docker", is_flag=True, help="Also prune stopped Docker containers")
 @click.option(
     "--cargo",
@@ -1911,14 +1939,37 @@ def _rm_dir(label: str, path: Path) -> None:
     is_flag=True,
     help="Also remove Cargo build artifacts (forces full Rust recompile on next build)",
 )
-def devbox_cleanup_disk(prune_docker: bool, prune_cargo: bool) -> None:
+def devbox_cleanup_disk(workspace: str | None, prune_docker: bool, prune_cargo: bool) -> None:
     """Free disk space by removing caches and build artifacts that are safe to delete.
 
     The default run is safe: it only removes orphaned packages, download caches,
     and old Nix generations — none of which force a full rebuild on next use.
     Use --cargo to also remove Cargo build artifacts (forces full Rust recompile).
     Use --docker to also prune stopped containers.
+
+    Runs locally by default. Pass a WORKSPACE (or --name/-n) to run it remotely
+    on that devbox over ssh instead.
     """
+    if workspace:
+        ensure_runtime_ready()
+        # Cleanup is destructive (removes caches and build artifacts), so refuse
+        # to run it against someone else's shared `@user[/label]` devbox.
+        if workspace.startswith("@"):
+            _fail("devbox:cleanup:disk only runs against your own devboxes, not a shared '@user' workspace.")
+        name, workspaces = resolve_workspace_name(workspace)
+        _get_workspace_or_fail(name, workspaces)
+        if not coder_ssh_alias_configured(name):
+            _fail(
+                "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
+            )
+        remote_cmd = ["hogli", "devbox:cleanup:disk"]
+        if prune_docker:
+            remote_cmd.append("--docker")
+        if prune_cargo:
+            remote_cmd.append("--cargo")
+        exec_replace(name, remote_cmd)
+        return  # unreachable; exec_replace replaces the process
+
     home = Path.home()
     # Watch distinct filesystems: home covers uv/sccache/cargo; /nix covers Nix store
     # (may be a separate volume); / covers Docker storage and anything else.

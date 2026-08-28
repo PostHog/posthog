@@ -1,4 +1,5 @@
 from products.error_tracking.backend.presentation.views.assignment_rules import ErrorTrackingAssignmentRuleViewSet
+from products.error_tracking.backend.presentation.views.bypass_rules import ErrorTrackingBypassRuleViewSet
 from products.error_tracking.backend.presentation.views.external_references import ErrorTrackingExternalReferenceViewSet
 from products.error_tracking.backend.presentation.views.fingerprints import ErrorTrackingFingerprintViewSet
 from products.error_tracking.backend.presentation.views.git_provider_file_link_resolver import (
@@ -10,6 +11,7 @@ from products.error_tracking.backend.presentation.views.query import ErrorTracki
 from products.error_tracking.backend.presentation.views.recommendations import ErrorTrackingRecommendationViewSet
 from products.error_tracking.backend.presentation.views.releases import ErrorTrackingReleaseViewSet
 from products.error_tracking.backend.presentation.views.settings import ErrorTrackingSettingsViewSet
+from products.error_tracking.backend.presentation.views.severity_rules import ErrorTrackingSeverityRuleViewSet
 from products.error_tracking.backend.presentation.views.spike_detection_config import (
     ErrorTrackingSpikeDetectionConfigViewSet,
 )
@@ -29,9 +31,11 @@ __all__ = [
     "ErrorTrackingGroupingRuleViewSet",
     "ErrorTrackingReleaseViewSet",
     "ErrorTrackingSettingsViewSet",
+    "ErrorTrackingSeverityRuleViewSet",
     "ErrorTrackingSpikeDetectionConfigViewSet",
     "ErrorTrackingSpikeEventViewSet",
     "ErrorTrackingSuppressionRuleViewSet",
     "ErrorTrackingAssignmentRuleViewSet",
+    "ErrorTrackingBypassRuleViewSet",
     "GitProviderFileLinksViewSet",
 ]

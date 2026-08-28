@@ -1,7 +1,7 @@
 """Canonical, documentation-sourced descriptions for Pipedrive endpoints and columns.
 
 Sourced from the official Pipedrive API reference (https://developers.pipedrive.com/docs/api/v1).
-Keyed by the endpoint names in `settings.py` `PIPEDRIVE_ENDPOINTS`, which match the
+Keyed by the endpoint names in `settings.py` (`ENDPOINTS`), which match the
 `ExternalDataSchema.name` of a synced Pipedrive table. Columns absent here fall back to LLM
 enrichment.
 """

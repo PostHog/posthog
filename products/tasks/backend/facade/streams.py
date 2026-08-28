@@ -16,6 +16,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamError,
     get_task_run_stream_key,
+    reset_task_run_stream,
 )
 from products.tasks.backend.redis import run_uses_dedicated_stream
 
@@ -28,5 +29,6 @@ __all__ = [
     "TaskRunStreamError",
     "get_task_run_stream_key",
     "handle_task_run_event_ingest",
+    "reset_task_run_stream",
     "run_uses_dedicated_stream",
 ]

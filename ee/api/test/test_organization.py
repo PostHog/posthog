@@ -11,9 +11,10 @@ from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.tasks import sync_all_organization_available_product_features
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):
@@ -60,7 +61,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             response.json().items(),
         )
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     @patch("posthoganalytics.capture")
     def test_delete_second_managed_organization(self, mock_capture, mock_delete_task):
         organization, _, team = Organization.objects.bootstrap(self.user, name="X")
@@ -84,7 +85,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             properties=organization_props,
             groups={"instance": ANY, "organization": str(organization.id)},
         )
-        mock_delete_task.delay.assert_called_once_with(
+        mock_delete_task.assert_called_once_with(
             team_ids=[team.id],
             organization_id=str(organization.id),
             user_id=self.user.id,
@@ -92,7 +93,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             project_names=[team.name],
         )
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     @patch("posthoganalytics.capture")
     def test_delete_last_organization(self, mock_capture, mock_delete_task):
         org_id = self.organization.id
@@ -159,7 +160,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.assertEqual(response.status_code, 403, potential_err_message)
             self.assertTrue(self.organization.name, self.CONFIG_ORGANIZATION_NAME)
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_owning(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -335,7 +336,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
     def test_organization_api_includes_default_role_id(self):
         """Test that the organization API includes the default_role_id field"""
-        from ee.models import Role
+        from products.access_control.backend.models.role import Role
 
         # Create a role and set it as default
         role = Role.objects.create(name="Default Role", organization=self.organization)
@@ -351,7 +352,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
     def test_set_default_role_via_api(self):
         """Test that the default role can be set via the organization API"""
-        from ee.models import Role
+        from products.access_control.backend.models.role import Role
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -369,7 +370,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
     def test_clear_default_role_via_api(self):
         """Test that the default role can be cleared via the organization API"""
-        from ee.models import Role
+        from products.access_control.backend.models.role import Role
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -389,7 +390,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
     def test_role_serializer_includes_is_default_field(self):
         """Test that the role serializer includes is_default field"""
-        from ee.models import Role
+        from products.access_control.backend.models.role import Role
 
         # Create a role and set it as default
         role = Role.objects.create(name="Default Role", organization=self.organization)

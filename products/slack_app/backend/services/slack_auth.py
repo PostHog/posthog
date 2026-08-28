@@ -247,7 +247,7 @@ def check_integrations_auth_and_filter(
     mentions racing here just overwrite each other with the same verdict.
 
     Empty return when every candidate is broken/unknown is intentional and
-    upstream code already handles it: ``_resolve_region_or_terminal_route``
+    upstream code already handles it: ``resolve_region_or_terminal_route``
     routes events to ``ROUTE_NO_INTEGRATION`` when no candidates are present,
     matching the behavior we'd see if the DB had no rows for this workspace.
 

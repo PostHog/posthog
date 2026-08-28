@@ -21,7 +21,6 @@ import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { urlForSubscriptions } from 'lib/components/Subscriptions/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
@@ -48,6 +47,8 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat, SidePanelTab } from '~/types'
+
+import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
@@ -147,13 +148,15 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                     <IconNotebook />
                                     Notebook from dashboard
                                 </SceneMenuBarItem>
-                                <SceneMenuBarItem
-                                    onClick={() => push(urlForSubscriptions({ dashboardId: dashboard.id }))}
-                                    data-attr={`${RESOURCE_TYPE}-menubar-subscribe`}
-                                >
-                                    <IconBell />
-                                    Subscription
-                                </SceneMenuBarItem>
+                                {tiles.length > 0 && (
+                                    <SceneMenuBarItem
+                                        onClick={() => push(urlForSubscriptions({ dashboardId: dashboard.id }))}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-subscribe`}
+                                    >
+                                        <IconBell />
+                                        Subscription
+                                    </SceneMenuBarItem>
+                                )}
                             </SceneMenuBarSubMenu>
                             <SceneMenuBarSeparator />
                         </>
@@ -275,7 +278,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                         <IconCopy />
                         Duplicate
                     </SceneMenuBarItem>
-                    {canEditDashboard && hasDashboardColors && (
+                    {canEditDashboard && hasDashboardColors && tiles.length > 0 && (
                         <SceneMenuBarItem
                             opensFloatingUi
                             onClick={() => showInsightColorsModal(dashboard.id)}

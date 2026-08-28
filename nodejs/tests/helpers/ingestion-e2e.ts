@@ -24,7 +24,12 @@ import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-import { IngestionConsumerConfig, getDefaultIngestionConsumerConfig } from '~/ingestion/config'
+import {
+    IngestionConsumerConfig,
+    IngestionOutputsConfig,
+    getDefaultIngestionConsumerConfig,
+    getDefaultIngestionOutputsConfig,
+} from '~/ingestion/config'
 import {
     ErrorTrackingConsumerConfig,
     getDefaultErrorTrackingConsumerConfig,
@@ -46,7 +51,7 @@ import { PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, Redi
 import { Clickhouse } from './clickhouse'
 import { waitForExpect } from './expectations'
 import { ensureKafkaTopics } from './kafka'
-import { createUserTeamAndOrganization } from './sql'
+import { createUserTeamAndOrganization, uniqueTestId } from './sql'
 
 export const DEFAULT_TEAM: Team = {
     id: 2,
@@ -62,6 +67,7 @@ export const DEFAULT_TEAM: Team = {
     heatmaps_opt_in: null,
     ingested_event: true,
     person_display_name_properties: null,
+    minimal_flag_called_events: false,
     test_account_filters: null,
     cookieless_server_hash_mode: null,
     timezone: 'UTC',
@@ -309,6 +315,21 @@ export async function fetchEvents(clickhouse: Clickhouse, teamId: number) {
     return queryResult.map(parseRawClickHouseEvent)
 }
 
+export async function fetchFlagEvaluations(clickhouse: Clickhouse, teamId: number) {
+    return (await retryClickHouseOperation(
+        () =>
+            clickhouse.query(`
+                SELECT *
+                FROM flag_evaluations
+                WHERE team_id = ${teamId}
+                ORDER BY timestamp ASC
+            `),
+        'fetchFlagEvaluations query',
+        3,
+        true
+    )) as any[]
+}
+
 export async function fetchIngestionWarnings(clickhouse: Clickhouse, teamId: number) {
     const queryResult = (await retryClickHouseOperation(
         () =>
@@ -333,6 +354,7 @@ export interface IngesterLike {
 /** The full config an ingestion test sees — PluginsServerConfig plus every ingestion domain's config. */
 export type IngestionTestConfig = PluginsServerConfig &
     IngestionConsumerConfig &
+    IngestionOutputsConfig &
     ErrorTrackingConsumerConfig &
     MetricsIngestionConsumerConfig &
     SessionRecordingConfig &
@@ -388,6 +410,7 @@ export async function createIngestionTestInfra(
     const serverConfig: IngestionTestConfig = {
         ...defaultConfig,
         ...getDefaultIngestionConsumerConfig(),
+        ...getDefaultIngestionOutputsConfig(),
         ...getDefaultErrorTrackingConsumerConfig(),
         ...getDefaultMetricsIngestionConsumerConfig(),
         ...getDefaultSessionRecordingConfig(),
@@ -417,6 +440,7 @@ export async function createIngestionTestInfra(
     const postgresGroupRepository = new PostgresGroupRepository(postgres)
     const postgresPersonRepository = new PostgresPersonRepository(postgres, {
         calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+        personMergeTombstoneTeamAllowlist: serverConfig.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
     })
     const personRepository = buildPersonRepository(
         personhogClient,
@@ -488,7 +512,7 @@ export function createTestWithTeamIngester<T extends IngesterLike>(
 
             const kafkaProducer = await KafkaProducerWrapper.create(serverConfig.KAFKA_CLIENT_RACK)
 
-            const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
+            const teamId = uniqueTestId()
             const userId = teamId
             const organizationId = new UUIDT().toString()
 

@@ -4,6 +4,18 @@ import { Badge, Card, CardContent, CardHeader, CardTitle, CardDescription } from
 
 import { PropertyFilterList, type PropertyFilter } from './PropertyFilterList'
 
+// Matches SUPER_CONDITION_INDEX in rust/feature-flags/src/api/types.rs: the early-access
+// enrollment super condition has no position among the zero-based release conditions.
+export const SUPER_CONDITION_INDEX = -1
+// Matches HOLDOUT_CONDITION_INDEX in rust/feature-flags/src/api/types.rs: the holdout has no
+// position among the zero-based release conditions either.
+export const HOLDOUT_CONDITION_INDEX = -2
+
+const SYNTHETIC_CONDITION_LABELS: Record<number, string> = {
+    [SUPER_CONDITION_INDEX]: 'Early access enrollment',
+    [HOLDOUT_CONDITION_INDEX]: 'Holdout',
+}
+
 export interface ConditionAnalysis {
     index: number
     matched: boolean
@@ -46,6 +58,22 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
         return String(flag.result)
     }
 
+    const matchedConditionLabel = (): string => {
+        // Reuse the same signal and label map the condition list below uses (a matched entry at
+        // the sentinel index) instead of re-deriving "was this enrollment/holdout" from flag.reason.
+        const matchedCondition = flag.conditions.find((condition) => condition.matched)
+        const syntheticLabel = matchedCondition && SYNTHETIC_CONDITION_LABELS[matchedCondition.index]
+        if (syntheticLabel) {
+            return syntheticLabel
+        }
+        // Falls back to flag.reason if the backend hasn't started emitting the synthetic holdout
+        // entry yet (the Rust service and this frontend deploy independently).
+        if (flag.reason === 'holdout_condition_value') {
+            return 'Holdout'
+        }
+        return `#${flag.condition_index! + 1}`
+    }
+
     return (
         <div className="p-4">
             <div className="flex flex-col gap-2">
@@ -76,10 +104,10 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                             <span className="font-medium">Reason: </span>
                             <span className="text-secondary">{flag.reason}</span>
                         </div>
-                        {flag.condition_index !== null && (
+                        {(flag.condition_index !== null || flag.reason === 'holdout_condition_value') && (
                             <div className="text-sm">
                                 <span className="font-medium">Matched condition: </span>
-                                <span className="text-secondary">#{flag.condition_index + 1}</span>
+                                <span className="text-secondary">{matchedConditionLabel()}</span>
                             </div>
                         )}
                         {flag.payload != null && (
@@ -124,15 +152,23 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                         </CardHeader>
                         <CardContent>
                             <div className="flex flex-col gap-1">
-                                {flag.conditions.map((condition, index) => (
-                                    <Card key={index}>
+                                {flag.conditions.map((condition) => (
+                                    <Card key={condition.index}>
                                         <CardContent>
                                             <div className="flex items-center gap-2">
-                                                <span className="text-sm font-medium">Condition #{index + 1}:</span>
+                                                <span className="text-sm font-medium">
+                                                    {`${
+                                                        SYNTHETIC_CONDITION_LABELS[condition.index] ??
+                                                        `Condition #${condition.index + 1}`
+                                                    }:`}
+                                                </span>
                                                 <Badge variant={condition.matched ? 'success' : 'destructive'}>
                                                     {condition.matched ? 'Matched' : 'No match'}
                                                 </Badge>
-                                                <Badge>{condition.rollout_percentage}% rollout</Badge>
+                                                {/* synthetic (enrollment/holdout) entries have no release rollout */}
+                                                {condition.index >= 0 && (
+                                                    <Badge>{condition.rollout_percentage}% rollout</Badge>
+                                                )}
                                                 {condition.variant && <Badge variant="info">{condition.variant}</Badge>}
                                             </div>
                                             {(condition.explanation || condition.reason) && (

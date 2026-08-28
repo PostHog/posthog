@@ -81,6 +81,8 @@ CREATE OR REPLACE TABLE metric_series1
     `series_fingerprint` UInt64 CODEC(DoubleDelta),
     `metric_type` LowCardinality(String),
     `unit` LowCardinality(String),
+    `aggregation_temporality` LowCardinality(String),
+    `is_monotonic` Bool DEFAULT false,
     `service_name` LowCardinality(String),
     `resource_attributes` Map(LowCardinality(String), String),
     `attributes` Map(LowCardinality(String), String),
@@ -91,6 +93,7 @@ CREATE OR REPLACE TABLE metric_series1
 )
 ENGINE = ReplacingMergeTree(last_seen)
 ORDER BY (team_id, metric_name, series_fingerprint)
+TTL toDateTime(last_seen) + INTERVAL 90 DAY DELETE
 SETTINGS index_granularity = 8192;
 
 create or replace TABLE metric_series AS metric_series1 ENGINE = Distributed('posthog', 'default', 'metric_series1');
@@ -102,6 +105,9 @@ CREATE OR REPLACE TABLE metric_samples1
     `series_fingerprint` UInt64 CODEC(DoubleDelta),
     `timestamp` DateTime64(6) CODEC(DoubleDelta),
     `value` Float64 CODEC(Gorilla),
+    `count` UInt64 DEFAULT 1,
+    `histogram_bounds` Array(Float64),
+    `histogram_counts` Array(UInt64),
     `trace_id` String,
     `span_id` String,
     `trace_flags` Int32,
@@ -240,7 +246,8 @@ CREATE OR REPLACE TABLE kafka_metrics_avro
     `is_monotonic` Nullable(UInt8),
     `resource_attributes` Map(String, String),
     `instrumentation_scope` Nullable(String),
-    `attributes` Map(String, String)
+    `attributes` Map(String, String),
+    `series_fingerprint` Nullable(Int64)
 )
 ENGINE = Kafka('kafka:9092', 'clickhouse_metrics', 'clickhouse-metrics-avro', 'Avro')
 SETTINGS
@@ -280,41 +287,52 @@ AS SELECT
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id
 FROM kafka_metrics_avro settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
 
--- Two MVs on the existing kafka_metrics_avro: every clickhouse_metrics point
--- fans into metric_series (labels, deduped) and metric_samples (the tiny row),
--- alongside kafka_metrics_avro_mv -> metrics1. The series_fingerprint is computed
--- identically in both (over the JSON-decoded label maps) so the query-time join
--- matches; keep it in sync with SERIES_FINGERPRINT_SQL in metric_events.py.
+-- Two MVs on the existing kafka_metrics_avro: every clickhouse_metrics point fans
+-- into metric_series (labels, deduped) and metric_samples (the tiny row), alongside
+-- kafka_metrics_avro_mv -> metrics1. series_fingerprint is assigned ONCE at ingest
+-- (capture-logs) and shipped in the Avro payload; both MVs read it verbatim — they do
+-- NOT recompute it. ClickHouse never computes the identity (no cityHash64 over the
+-- maps), so the two tables cannot disagree and the hash cannot collapse. The Avro
+-- `long` carries the u64 bits as signed; reinterpretAsUInt64 restores them.
+-- Rows with a NULL series_fingerprint (a producer that predates the ingest change, or
+-- a rollback) are dropped, not coerced to 0: coalescing to a shared id would collapse
+-- every such series onto one ReplacingMergeTree row with arbitrary labels — silent join
+-- corruption. Dropped rows are recoverable by replaying the topic once ingest is live.
 drop table if exists kafka_metrics_avro_to_metric_series;
 CREATE MATERIALIZED VIEW kafka_metrics_avro_to_metric_series TO metric_series1
 AS SELECT
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id,
     ifNull(metric_name, '') as metric_name,
-    cityHash64(ifNull(metric_name, ''), ifNull(service_name, ''),
-               mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)),
-               mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))) as series_fingerprint,
+    reinterpretAsUInt64(assumeNotNull(series_fingerprint)) as series_fingerprint,
     ifNull(metric_type, '') as metric_type,
     ifNull(unit, '') as unit,
+    ifNull(aggregation_temporality, '') as aggregation_temporality,
+    ifNull(is_monotonic, 0) as is_monotonic,
     ifNull(service_name, '') as service_name,
     mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
     mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)) AS attributes,
     timestamp as last_seen
-FROM kafka_metrics_avro settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
+FROM kafka_metrics_avro
+WHERE kafka_metrics_avro.series_fingerprint IS NOT NULL
+settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
 
 drop table if exists kafka_metrics_avro_to_metric_samples;
 CREATE MATERIALIZED VIEW kafka_metrics_avro_to_metric_samples TO metric_samples1
 AS SELECT
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id,
     ifNull(metric_name, '') as metric_name,
-    cityHash64(ifNull(metric_name, ''), ifNull(service_name, ''),
-               mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)),
-               mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))) as series_fingerprint,
+    reinterpretAsUInt64(assumeNotNull(series_fingerprint)) as series_fingerprint,
     timestamp,
     ifNull(value, 0) as value,
+    toUInt64(ifNull(count, 1)) as count,
+    histogram_bounds,
+    arrayMap(x -> toUInt64(x), histogram_counts) as histogram_counts,
     trace_id,
     span_id,
     ifNull(trace_flags, 0) as trace_flags
-FROM kafka_metrics_avro settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
+FROM kafka_metrics_avro
+WHERE kafka_metrics_avro.series_fingerprint IS NOT NULL
+settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
 
 -- Kafka consumer lag tracking
 create or replace table metrics_kafka_metrics

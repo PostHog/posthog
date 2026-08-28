@@ -3,13 +3,10 @@ from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GreenhouseSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.greenhouse import (
-    GreenhouseResumeConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.greenhouse import (
+    GreenhouseSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source import GreenhouseSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {
     "candidates",
@@ -28,10 +25,7 @@ class TestGreenhouseSource:
     def setup_method(self) -> None:
         self.source = GreenhouseSource()
         self.team_id = 123
-        self.config = GreenhouseSourceConfig(api_key="test_api_key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.GREENHOUSE
+        self.config = GreenhouseSourceConfig(api_key="test_api_key", client_id="cid", client_secret="csecret")
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -41,14 +35,14 @@ class TestGreenhouseSource:
         assert config.releaseStatus == "alpha"
         assert not config.unreleasedSource
         assert config.iconPath == "/static/services/greenhouse.png"
-        assert len(config.fields) == 1
 
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
+        fields = {field.name: field for field in config.fields if isinstance(field, SourceFieldInputConfig)}
+        assert set(fields) == {"client_id", "client_secret", "api_key"}
+        # No field is required at the form level: v3 takes the OAuth client pair and v1 the API key,
+        # so `validate_credentials` enforces whichever the resolved version needs.
+        assert not any(field.required for field in fields.values())
+        assert {name for name, field in fields.items() if field.secret} == {"client_secret", "api_key"}
+        assert fields["client_secret"].type == SourceFieldInputConfigType.PASSWORD
 
     @pytest.mark.parametrize(
         "expected_key",
@@ -74,39 +68,6 @@ class TestGreenhouseSource:
     def test_non_retryable_errors_does_not_match_other_vendors(self, other_vendor_error: str) -> None:
         assert not any(key in other_vendor_error for key in self.source.get_non_retryable_errors())
 
-    def test_get_schemas_returns_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
-    def test_get_schemas_incremental_split(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        appendable = {schema.name for schema in schemas if schema.supports_append}
-
-        assert incremental == INCREMENTAL_ENDPOINTS
-        assert appendable == INCREMENTAL_ENDPOINTS
-
-    @pytest.mark.parametrize("endpoint", sorted(FULL_REFRESH_ENDPOINTS))
-    def test_reference_endpoints_are_full_refresh(self, endpoint: str) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=[endpoint])
-        assert len(schemas) == 1
-        assert schemas[0].supports_incremental is False
-        assert schemas[0].incremental_fields == []
-
-    def test_candidates_advertises_created_and_updated_cursors(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["candidates"])
-        fields = {field["field"] for field in schemas[0].incremental_fields}
-        assert fields == {"created_at", "updated_at"}
-
-    def test_applications_advertises_last_activity_cursor(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["applications"])
-        fields = {field["field"] for field in schemas[0].incremental_fields}
-        assert fields == {"created_at", "last_activity_at"}
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source.validate_greenhouse_credentials"
     )
@@ -117,7 +78,9 @@ class TestGreenhouseSource:
 
         assert is_valid is True
         assert error is None
-        mock_validate.assert_called_once_with("test_api_key", accept_forbidden=True)
+        mock_validate.assert_called_once_with(
+            "v3", api_key="test_api_key", client_id="cid", client_secret="csecret", accept_forbidden=True
+        )
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source.validate_greenhouse_credentials"
@@ -127,11 +90,57 @@ class TestGreenhouseSource:
 
         self.source.validate_credentials(self.config, self.team_id, schema_name="candidates")
 
-        mock_validate.assert_called_once_with("test_api_key", path="/candidates", accept_forbidden=False)
+        mock_validate.assert_called_once_with(
+            "v3",
+            api_key="test_api_key",
+            client_id="cid",
+            client_secret="csecret",
+            path="/candidates",
+            accept_forbidden=False,
+        )
 
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert manager._data_class is GreenhouseResumeConfig
+    @pytest.mark.parametrize(
+        "pinned_version, expected_version, expected_path",
+        [
+            (None, "v3", "/interviews"),
+            ("v3", "v3", "/interviews"),
+            # A v1-pinned source must be probed on v1, not on the (newer) default.
+            ("v1", "v1", "/scheduled_interviews"),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source.validate_greenhouse_credentials"
+    )
+    def test_validate_credentials_probes_the_pinned_version(
+        self,
+        mock_validate: mock.MagicMock,
+        pinned_version: str | None,
+        expected_version: str,
+        expected_path: str,
+    ) -> None:
+        mock_validate.return_value = (True, None)
+
+        self.source.validate_credentials(
+            self.config, self.team_id, schema_name="scheduled_interviews", api_version=pinned_version
+        )
+
+        assert mock_validate.call_args.args[0] == expected_version
+        assert mock_validate.call_args.kwargs["path"] == expected_path
+
+    @pytest.mark.parametrize("pinned_version, expected_version", [(None, "v3"), ("v3", "v3"), ("v1", "v1")])
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source.greenhouse_source")
+    def test_source_for_pipeline_passes_the_resolved_version(
+        self, mock_greenhouse_source: mock.MagicMock, pinned_version: str | None, expected_version: str
+    ) -> None:
+        inputs = mock.MagicMock()
+        inputs.schema_name = "candidates"
+        inputs.api_version = pinned_version
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        kwargs = mock_greenhouse_source.call_args.kwargs
+        assert kwargs["api_version"] == expected_version
+        assert (kwargs["client_id"], kwargs["client_secret"]) == ("cid", "csecret")
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source.greenhouse_source")
     def test_source_for_pipeline_passes_incremental_inputs(self, mock_greenhouse_source: mock.MagicMock) -> None:

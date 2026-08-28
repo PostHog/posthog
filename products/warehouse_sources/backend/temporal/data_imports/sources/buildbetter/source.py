@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.buildbetter import (
     BuildBetterResumeConfig,
     buildbetter_source,
@@ -28,14 +24,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BuildBetterSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildbetter import (
+    BuildBetterSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.buildbetter.app/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -53,7 +58,15 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
             "401 Client Error": "BuildBetter authentication failed. Please check your API key.",
             "403 Client Error": "BuildBetter access forbidden. Please check your API key permissions.",
             "Authentication hook unauthorized this request": "BuildBetter authentication failed. Please check your API key.",
+            "webhook authentication request failed": "BuildBetter authentication failed. Please check your API key.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `execute`'s own tenacity retry already retries a 5xx or 429 (raised as
+        # BuildBetterRetryableError) up to 5 attempts; once that budget exhausts, Temporal retries
+        # the whole activity from the saved pagination checkpoint, so the failure is transient and
+        # self-recovering rather than tracked-exception-worthy.
+        return {"BuildBetter: server error", "BuildBetter: rate limited"}
 
     def get_schemas(
         self,
@@ -62,23 +75,16 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in list(ENDPOINTS)
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: BuildBetterSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BuildBetterSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_buildbetter_credentials(config.api_key)
 

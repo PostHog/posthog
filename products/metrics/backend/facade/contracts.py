@@ -22,11 +22,19 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
-from .enums import AttributeScope, FilterOp, MetricAggregation
+from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+
+# Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
+# must check the same flag, or one of them becomes a bypass.
+METRICS_FEATURE_FLAG = "metrics"
+
+# Extra gate for the error-spike overlay PoC, layered on top of METRICS_FEATURE_FLAG.
+# Staff-only while it is a proof of concept.
+METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +68,8 @@ class MetricQueryClause:
     group_by: tuple[MetricGroupBy, ...] = ()
     # Required for QUANTILE / HISTOGRAM_QUANTILE; ignored otherwise.
     quantile: float | None = None
+    # Constrains rows to one metric type; None keeps all types (legacy).
+    metric_type: MetricType | None = None
 
     def __post_init__(self) -> None:
         if self.aggregation.needs_quantile:
@@ -102,10 +112,12 @@ class MetricQueryRequest:
 
 @dataclass(frozen=True, slots=True)
 class MetricPoint:
-    """One bucketed datapoint. `time` is the bucket start, ISO 8601."""
+    """One bucketed datapoint. `time` is the bucket start, ISO 8601.
+    `value` is None when the bucket's aggregate isn't representable (e.g.
+    a float overflow to inf) — consumers render a gap."""
 
     time: str
-    value: float
+    value: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,9 +182,239 @@ class MetricEventSample:
     metric_name: str
     metric_type: str  # OTel type: gauge | sum | histogram | summary | exponential_histogram
     value: float
+    # Observations behind this point: 1 for gauges/counters, the distribution
+    # count for histograms/summaries (value is then the sum; avg = value/count).
+    count: int
     unit: str
+    aggregation_temporality: str  # "delta" | "cumulative" | "" (gauges)
+    is_monotonic: bool
     service_name: str
     trace_id: str
     span_id: str
     attributes: dict[str, str]
     resource_attributes: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class MetricErrorSpike:
+    """An Error Tracking issue spike detected in a time window.
+
+    PoC for the metrics chart's error-spike overlay: team-wide, not yet
+    scoped to a specific metric's service (Error Tracking issues carry no
+    service attribution today; scoping needs a service attribute on spikes
+    or a trace_id join against $exception events).
+
+    Deliberately narrower than error_tracking's own ErrorTrackingSpikeEvent
+    contract (fewer fields, string timestamps instead of datetime) since the
+    chart overlay only needs enough to render and link a marker. Keep it
+    narrow rather than reusing that contract directly, so metrics isn't
+    coupled to error_tracking's internal shape.
+    """
+
+    detected_at: str  # ISO 8601
+    issue_id: str
+    issue_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class CompanionMetric:
+    """A metric to check alongside the primary one to confirm or rule out a
+    cause. `role` is a short hint ('traffic', 'saturation', 'processing') shown
+    in the narrative. `aggregation`/`quantile` default by the metric's OTel type.
+    """
+
+    metric_name: str
+    role: str
+    aggregation: str | None = None
+    quantile: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompanionVerdict:
+    """How a companion metric behaved over the same window as the symptom — the
+    basis for 'it wasn't a traffic surge' / 'processing kept up' reasoning.
+    """
+
+    metric_name: str
+    role: str
+    aggregation: str
+    direction: str  # "up" | "down" | "flat"
+    change_ratio: float
+    # True when the companion moved materially in the symptom window (so it
+    # plausibly relates to the cause); False rules it out.
+    moved_with_symptom: bool
+    # Quantile the companion was aggregated at (histogram_quantile only); carried
+    # so a re-runnable chart spec can reproduce the same aggregation.
+    quantile: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InvestigationChartSpec:
+    """A metric query plus the frozen window to render it over. Re-runnable —
+    the report re-runs the same query over the same window for live data —
+    never baked, the opposite of snapshotting datapoints into constants.
+    """
+
+    title: str
+    metric_name: str
+    aggregation: str
+    anomaly_from: str  # ISO 8601
+    anomaly_to: str
+    filters: tuple[MetricFilter, ...] = ()
+    quantile: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TraceExemplar:
+    """A pointer from a metric sample into a concrete trace at the anomaly, for
+    the metric->trace pivot. Trace/span ids are hex, matching the tracing
+    product's contract, so they can be passed straight to a trace URL.
+    """
+
+    trace_id: str
+    span_id: str
+    timestamp: str  # ISO 8601
+    value: float
+
+
+@dataclass(frozen=True, slots=True)
+class InvestigationEvidence:
+    """Cross-signal pointers gathered around onset: trace exemplars to pivot
+    into, and a ready-to-run log filter for the implicated service/window.
+    `log_filter` is None when no service could be implicated.
+    """
+
+    service_name: str | None
+    trace_exemplars: tuple[TraceExemplar, ...] = ()
+    log_filter: dict[str, str] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InvestigationResult:
+    """The structured outcome of investigating a metric symptom. Produced once
+    by `investigate()` and consumed three ways: the agent narrates it, the
+    in-app explorer renders it interactively, and the incident report
+    serializes it. This shared shape is the seam between investigate and
+    display.
+    """
+
+    metric_name: str
+    symptom: MetricAnomalyReport
+    blast_radius: str  # "localized" | "shared" | "unknown"
+    companions: tuple[CompanionVerdict, ...]
+    chart_specs: tuple[InvestigationChartSpec, ...]
+    evidence: InvestigationEvidence
+    confidence: str  # "high" | "medium" | "low"
+    narrative: str
+
+
+@dataclass(frozen=True, slots=True)
+class IncidentContext:
+    """Structured context from a fired alert (or a manual "this looks wrong"),
+    so an investigation never has to parse a timestamp out of prose. `fired_at`
+    must be timezone-aware and is normalized to UTC at construction; the
+    anomaly window is derived as [fired_at - lookback, fired_at + leadout],
+    and `service_name` scopes the investigation to the implicated service.
+    """
+
+    metric_name: str
+    fired_at: dt.datetime
+    lookback: dt.timedelta = dt.timedelta(minutes=15)
+    leadout: dt.timedelta = dt.timedelta(minutes=15)
+    service_name: str | None = None
+    companions: tuple[CompanionMetric, ...] = ()
+
+    def __post_init__(self) -> None:
+        # A naive datetime would be taken as UTC by the window math and
+        # silently mis-bucket a local-time fire; fail fast at construction.
+        # Aware non-UTC instants are fine — normalize them so downstream
+        # window math always operates on UTC.
+        if self.fired_at.tzinfo is None:
+            raise ValueError("fired_at must be timezone-aware")
+        object.__setattr__(self, "fired_at", self.fired_at.astimezone(dt.UTC))
+
+
+@dataclass(frozen=True, slots=True)
+class MetricsServiceOverview:
+    """One service's ingestion rollup inside the overview window."""
+
+    service_name: str
+    metric_names: int
+    series: int
+    last_seen: str  # ISO 8601
+
+
+@dataclass(frozen=True, slots=True)
+class MetricsOverview:
+    """The landing-page answer to "is anything ingesting": how fresh the
+    newest datapoint is, plus window-scoped inventory counts per service.
+
+    `last_seen` deliberately ignores the window — when ingestion stops, the
+    window-scoped numbers go to zero but the status strip still needs to say
+    how long ago the last datapoint arrived. None means never ingested (or
+    everything aged past the series table's retention).
+    """
+
+    last_seen: str | None  # ISO 8601
+    metric_names: int
+    series: int
+    lookback_seconds: int
+    services: tuple[MetricsServiceOverview, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MetricSampleView:
+    """One raw reading, as it sits in storage before any reduction."""
+
+    time: str
+    value: float
+
+
+@dataclass(frozen=True, slots=True)
+class MetricSeriesBreakdown:
+    """One physical series inside a bucket, and the value it contributed.
+
+    `samples` is trimmed for display; `sample_count` always reports how many
+    the series really sent, so a trimmed list can't be mistaken for a quiet one.
+    """
+
+    service_name: str
+    labels: dict[str, str]
+    resource_labels: dict[str, str]
+    samples: tuple[MetricSampleView, ...]
+    sample_count: int
+    samples_truncated: bool
+    # None when the aggregation has no per-series step, as percentiles do not:
+    # they read the pooled readings, so no single number is this series'
+    # contribution.
+    value: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class MetricBucketDecomposition:
+    """One chart point taken apart into the series and samples behind it.
+
+    `reference_value` is recomputed from the raw samples independently of the
+    query builders; `actual_value` is what the product would plot. `agrees`
+    compares them, and is the part worth reading first — a mismatch means one
+    of the two reductions is wrong, and the breakdown shows where they parted.
+    """
+
+    metric_name: str
+    metric_type: str
+    temporality: str
+    aggregation: str
+    bucket_start: str
+    interval: str
+    temporal_reducer: str
+    spatial_reducer: str
+    series: tuple[MetricSeriesBreakdown, ...]
+    series_count: int
+    sample_count: int
+    series_truncated: bool
+    rows_truncated: bool
+    reference_value: float | None
+    actual_value: float | None
+    # None when the raw read was truncated: the reference then covers only part
+    # of the bucket, so comparing it to the chart proves nothing either way.
+    agrees: bool | None

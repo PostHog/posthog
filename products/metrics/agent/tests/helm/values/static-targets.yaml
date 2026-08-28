@@ -1,0 +1,9 @@
+scrape:
+    annotationDiscovery: false
+    staticTargets:
+        - static-svc:9090
+        - static-worker:9091
+    extraScrapeConfigs: |
+        - job_name: extra-job
+          static_configs:
+              - targets: ['extra:8080']

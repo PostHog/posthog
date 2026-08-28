@@ -1,13 +1,17 @@
 """Tests for TikTok Ads utility functions."""
 
+import json
 from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Any, cast
 
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
+from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.settings import (
     TIKTOK_ADS_CONFIG,
@@ -18,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
     TikTokAdsPaginator,
     TikTokDateRangeManager,
     TikTokReportResource,
+    list_advertisers,
 )
 
 
@@ -25,7 +30,6 @@ class TestFlattenFunctions:
     """Test suite for TikTok report flattening functions."""
 
     def test_flatten_tiktok_report_record_nested_structure(self):
-        """Test flattening nested TikTok report structure with dimensions and metrics."""
         nested_record = {
             "dimensions": {"campaign_id": "123456789", "stat_time_day": "2025-09-27", "adgroup_id": "987654321"},
             "metrics": {"clicks": "947", "impressions": "23241", "spend": "125.50", "cpm": "5.40", "ctr": "4.08"},
@@ -63,7 +67,6 @@ class TestFlattenFunctions:
         assert result == expected
 
     def test_flatten_tiktok_report_record_missing_dimensions(self):
-        """Test flattening record with metrics but no dimensions."""
         record_with_metrics_only = {"metrics": {"clicks": "100", "impressions": "1000"}}
 
         result = TikTokReportResource.transform_analytics_reports([record_with_metrics_only])[0]
@@ -73,7 +76,6 @@ class TestFlattenFunctions:
         assert result == expected
 
     def test_flatten_tiktok_report_record_missing_metrics(self):
-        """Test flattening record with dimensions but no metrics."""
         record_with_dimensions_only = {"dimensions": {"campaign_id": "123", "stat_time_day": "2025-09-27"}}
 
         result = TikTokReportResource.transform_analytics_reports([record_with_dimensions_only])[0]
@@ -83,14 +85,12 @@ class TestFlattenFunctions:
         assert result == expected
 
     def test_flatten_tiktok_report_record_empty_nested_objects(self):
-        """Test flattening record with empty dimensions and metrics."""
         record_with_empty_nested: dict[str, dict] = {"dimensions": {}, "metrics": {}}
 
         result = TikTokReportResource.transform_analytics_reports([record_with_empty_nested])[0]
         assert result == {}
 
     def test_flatten_tiktok_report_record_non_dict_input(self):
-        """Test flattening with non-dictionary input."""
         # Test inputs that cause TypeError (int, None)
         error_inputs: list[object] = [123, None]
         for input_value in error_inputs:
@@ -104,7 +104,6 @@ class TestFlattenFunctions:
             assert result == [input_value]
 
     def test_flatten_tiktok_reports_batch_processing(self):
-        """Test batch flattening of multiple TikTok reports."""
         reports: list[dict[str, Any]] = [
             {
                 "dimensions": {"campaign_id": "123", "stat_time_day": "2025-09-27"},
@@ -128,7 +127,6 @@ class TestFlattenFunctions:
         assert result == expected
 
     def test_flatten_tiktok_reports_empty_list(self):
-        """Test batch flattening with empty list."""
         result = TikTokReportResource.transform_analytics_reports([])
         assert result == []
 
@@ -137,7 +135,6 @@ class TestSecondaryGoalNormalization:
     """Test suite for secondary goal field normalization."""
 
     def test_normalize_secondary_goal_fields_with_dash_values(self):
-        """Test normalization of secondary goal fields with '-' placeholder values."""
         report = {
             "campaign_id": "123",
             "secondary_goal_result": "-",
@@ -159,7 +156,6 @@ class TestSecondaryGoalNormalization:
         assert report == expected
 
     def test_normalize_secondary_goal_fields_with_valid_values(self):
-        """Test normalization of secondary goal fields with valid values."""
         report = {
             "campaign_id": "123",
             "secondary_goal_result": "50",
@@ -176,7 +172,6 @@ class TestSecondaryGoalNormalization:
         assert report["secondary_goal_result_rate"] == "0.05"
 
     def test_normalize_secondary_goal_fields_missing_fields(self):
-        """Test normalization when secondary goal fields are missing."""
         report = {
             "campaign_id": "123",
             "clicks": "100",
@@ -190,7 +185,6 @@ class TestSecondaryGoalNormalization:
         assert "secondary_goal_result_rate" not in report
 
     def test_normalize_secondary_goal_fields_mixed_values(self):
-        """Test normalization with mix of dash and valid values."""
         report = {
             "campaign_id": "123",
             "secondary_goal_result": "-",
@@ -217,7 +211,6 @@ class TestAccountReportsTransformation:
     """Test suite for account reports transformation."""
 
     def test_transform_account_reports_with_timestamp(self):
-        """Test account reports transformation with Unix timestamp."""
         reports = [
             {
                 "advertiser_id": "123456",
@@ -235,7 +228,6 @@ class TestAccountReportsTransformation:
         assert result[0]["create_time"].tzinfo is not None  # Should be timezone-aware
 
     def test_transform_account_reports_with_float_timestamp(self):
-        """Test account reports transformation with float Unix timestamp."""
         reports = [
             {
                 "advertiser_id": "123456",
@@ -262,7 +254,6 @@ class TestAccountReportsTransformation:
         assert result[0]["create_time"] == "2023-09-13T12:00:00Z"  # Should remain unchanged
 
     def test_transform_account_reports_without_timestamp(self):
-        """Test account reports transformation without create_time field."""
         reports = [
             {
                 "advertiser_id": "123456",
@@ -278,7 +269,6 @@ class TestAccountReportsTransformation:
         assert "create_time" not in result[0]
 
     def test_transform_account_reports_empty_list(self):
-        """Test account reports transformation with empty list."""
         result = TikTokReportResource.transform_account_reports([])
         assert result == []
 
@@ -287,7 +277,6 @@ class TestEntityNormalization:
     """Test suite for entity report normalization methods."""
 
     def test_normalize_entity_status_without_status_fields(self):
-        """Test entity status normalization when no status fields exist."""
         report = {
             "campaign_id": "123",
             "campaign_name": "Test Campaign",
@@ -298,7 +287,6 @@ class TestEntityNormalization:
         assert report["current_status"] == "ACTIVE"
 
     def test_normalize_entity_status_with_existing_current_status(self):
-        """Test entity status normalization when current_status already exists."""
         report = {
             "campaign_id": "123",
             "current_status": "PAUSED",
@@ -309,7 +297,6 @@ class TestEntityNormalization:
         assert report["current_status"] == "PAUSED"  # Should remain unchanged
 
     def test_normalize_entity_status_with_status_field(self):
-        """Test entity status normalization when status field exists."""
         report = {
             "campaign_id": "123",
             "status": "ENABLE",
@@ -321,7 +308,6 @@ class TestEntityNormalization:
         assert report["current_status"] == "ACTIVE"
 
     def test_normalize_timestamps_with_modify_time(self):
-        """Test timestamp normalization when modify_time exists."""
         report = {
             "campaign_id": "123",
             "create_time": "2023-09-01 10:00:00",
@@ -333,7 +319,6 @@ class TestEntityNormalization:
         assert report["modify_time"] == "2023-09-27 15:30:00"  # Should remain unchanged
 
     def test_normalize_timestamps_without_modify_time(self):
-        """Test timestamp normalization when modify_time is missing but create_time exists."""
         report = {
             "campaign_id": "123",
             "create_time": "2023-09-01 10:00:00",
@@ -344,7 +329,6 @@ class TestEntityNormalization:
         assert report["modify_time"] == "2023-09-01 10:00:00"  # Should use create_time
 
     def test_normalize_timestamps_without_create_time(self):
-        """Test timestamp normalization when create_time is missing."""
         report = {
             "campaign_id": "123",
         }
@@ -376,7 +360,6 @@ class TestEntityNormalization:
         assert report["is_comment_disable"] is False  # 1 means enabled, so False
 
     def test_convert_comment_settings_missing_field(self):
-        """Test comment settings conversion when field is missing."""
         report = {
             "ad_id": "123",
         }
@@ -390,7 +373,6 @@ class TestStreamTransformations:
     """Test suite for stream transformations routing."""
 
     def test_apply_stream_transformations_report_endpoint(self):
-        """Test stream transformations for report endpoint."""
         reports = [
             {
                 "dimensions": {"campaign_id": "123"},
@@ -404,7 +386,6 @@ class TestStreamTransformations:
         assert result == expected
 
     def test_apply_stream_transformations_entity_endpoint(self):
-        """Test stream transformations for entity endpoint."""
         reports = [
             {
                 "campaign_id": "123",
@@ -420,7 +401,6 @@ class TestStreamTransformations:
         assert result[0]["current_status"] == "ACTIVE"  # Should be added by entity transformation
 
     def test_apply_stream_transformations_account_endpoint(self):
-        """Test stream transformations for account endpoint."""
         reports = [
             {
                 "advertiser_id": "123456",
@@ -434,8 +414,16 @@ class TestStreamTransformations:
         assert result[0]["advertiser_id"] == "123456"
         assert isinstance(result[0]["create_time"], datetime)
 
+    def test_apply_stream_transformations_asset_endpoint(self):
+        # Creative assets have no operational status. Routing them through the entity
+        # transformation would invent a `current_status` column TikTok never returned.
+        reports = [{"video_id": "v1", "create_time": "2026-01-01 00:00:00"}]
+
+        result = TikTokReportResource.apply_stream_transformations(EndpointType.ASSET, reports)
+
+        assert result == reports
+
     def test_apply_stream_transformations_unknown_endpoint(self):
-        """Test stream transformations for unknown endpoint type."""
         reports = [{"data": "test"}]
 
         # Create a mock EndpointType enum value that's not handled
@@ -470,7 +458,6 @@ class TestDateRangeFunctions:
         ]
     )
     def test_get_incremental_date_range_scenarios(self, name, should_use_incremental, last_value, expected_max_days):
-        """Test various incremental date range calculation scenarios."""
         start_date, end_date = TikTokDateRangeManager.get_incremental_range(should_use_incremental, last_value)
 
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
@@ -484,7 +471,6 @@ class TestDateRangeFunctions:
         assert days_diff <= expected_max_days + 1
 
     def test_get_incremental_date_range_invalid_date_string(self):
-        """Test date range calculation with invalid date string."""
         start_date, end_date = TikTokDateRangeManager.get_incremental_range(True, "invalid_date_string")
 
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
@@ -553,7 +539,6 @@ class TestDateRangeFunctions:
         ]
     )
     def test_generate_date_chunks_scenarios(self, name, start_date, end_date, chunk_days, expected_chunks):
-        """Test date chunk generation for various scenarios."""
         chunks = TikTokDateRangeManager.generate_chunks(start_date, end_date, chunk_days)
 
         assert len(chunks) == expected_chunks
@@ -574,13 +559,11 @@ class TestDateRangeFunctions:
                 assert (next_chunk_start - chunk_end_dt).days == 1
 
     def test_generate_date_chunks_invalid_date_format(self):
-        """Test date chunk generation with invalid date format."""
         valid_end_date = datetime.now().strftime("%Y-%m-%d")
         with pytest.raises(ValueError):
             TikTokDateRangeManager.generate_chunks("invalid-date", valid_end_date, 30)
 
     def test_generate_date_chunks_end_before_start(self):
-        """Test date chunk generation when end date is before start date."""
         start_date = datetime.now().strftime("%Y-%m-%d")
         end_date = (datetime.now() - timedelta(days=15)).strftime("%Y-%m-%d")
         chunks = TikTokDateRangeManager.generate_chunks(start_date, end_date, 30)
@@ -601,7 +584,6 @@ class TestTikTokAdsPaginator:
         return mock_response
 
     def test_paginator_initialization(self):
-        """Test paginator initial state."""
         assert self.paginator.current_page == 1
         assert self.paginator.has_next_page is False
         assert self.paginator.total_pages == 0
@@ -609,7 +591,6 @@ class TestTikTokAdsPaginator:
         assert self.paginator.page_size == 0
 
     def test_update_state_first_page_with_more(self):
-        """Test paginator update from first page response with more pages."""
         response_data = {"data": {"page_info": {"page": 1, "page_size": 100, "total_page": 3, "total_number": 250}}}
         mock_response = self._create_mock_response(response_data)
 
@@ -622,7 +603,6 @@ class TestTikTokAdsPaginator:
         assert self.paginator.page_size == 100
 
     def test_update_state_last_page(self):
-        """Test paginator update from last page response."""
         response_data = {"data": {"page_info": {"page": 3, "page_size": 100, "total_page": 3, "total_number": 250}}}
         mock_response = self._create_mock_response(response_data)
 
@@ -633,7 +613,6 @@ class TestTikTokAdsPaginator:
         assert self.paginator.total_pages == 3
 
     def test_update_state_single_page(self):
-        """Test paginator update from single page response."""
         response_data = {"data": {"page_info": {"page": 1, "page_size": 50, "total_page": 1, "total_number": 50}}}
         mock_response = self._create_mock_response(response_data)
 
@@ -643,7 +622,6 @@ class TestTikTokAdsPaginator:
         assert self.paginator.current_page == 1
 
     def test_update_state_missing_page_info(self):
-        """Test paginator update with missing page_info."""
         response_data: dict[str, dict] = {"data": {}}
         mock_response = self._create_mock_response(response_data)
 
@@ -652,7 +630,6 @@ class TestTikTokAdsPaginator:
         assert self.paginator.has_next_page is False
 
     def test_update_state_missing_data(self):
-        """Test paginator update with missing data key."""
         response_data: dict[str, Any] = {}
         mock_response = self._create_mock_response(response_data)
 
@@ -661,7 +638,6 @@ class TestTikTokAdsPaginator:
         assert self.paginator.has_next_page is False
 
     def test_update_state_exception_handling(self):
-        """Test paginator handles malformed response gracefully."""
         malformed_responses = [
             {"data": "not_a_dict"},
             {"data": {"page_info": "not_a_dict"}},
@@ -741,7 +717,6 @@ class TestTikTokAdsPaginator:
         ]
     )
     def test_update_state_api_error_codes(self, name, api_code, message, should_be_retryable):
-        """Test paginator handling of various TikTok API error codes."""
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
@@ -770,7 +745,6 @@ class TestTikTokAdsAPIError:
     """Test suite for TikTokAdsAPIError exception class."""
 
     def test_tiktok_ads_api_error_basic_creation(self):
-        """Test basic TikTokAdsAPIError creation."""
         error = TikTokAdsAPIError("Test error message")
 
         assert str(error) == "Test error message"
@@ -778,7 +752,6 @@ class TestTikTokAdsAPIError:
         assert error.response is None
 
     def test_tiktok_ads_api_error_with_api_code(self):
-        """Test TikTokAdsAPIError with API code."""
         error = TikTokAdsAPIError("QPS limit reached", api_code=40100)
 
         assert str(error) == "QPS limit reached"
@@ -786,7 +759,6 @@ class TestTikTokAdsAPIError:
         assert error.response is None
 
     def test_tiktok_ads_api_error_with_response(self):
-        """Test TikTokAdsAPIError with response object."""
         mock_response = Mock()
         mock_response.status_code = 200
 
@@ -808,10 +780,135 @@ class TestHelperFunctions:
             ("campaigns", EndpointType.ENTITY),
             ("ad_groups", EndpointType.ENTITY),
             ("ads", EndpointType.ENTITY),
+            ("campaign_demographic_report", EndpointType.REPORT),
+            ("ad_group_country_report", EndpointType.REPORT),
+            ("ad_platform_report", EndpointType.REPORT),
+            ("creative_videos", EndpointType.ASSET),
+            ("creative_images", EndpointType.ASSET),
         ]
     )
     def test_is_report_endpoint(self, endpoint_name, expected_endpoint_type):
-        """Test identification of report endpoints."""
         config = TIKTOK_ADS_CONFIG.get(endpoint_name)
         assert config is not None, f"Endpoint {endpoint_name} not found in config"
         assert config.endpoint_type == expected_endpoint_type
+
+
+# Metrics TikTok only accepts on a BASIC report. Requesting any of them alongside an
+# audience dimension is rejected outright, which would take the whole breakdown table down.
+_BASIC_ONLY_METRICS = {
+    "app_promotion_type",
+    "billing_event",
+    "campaign_budget",
+    "campaign_dedicate_type",
+    "currency",
+    "gross_impressions",
+    "split_test",
+}
+
+AUDIENCE_REPORT_ENDPOINTS = [
+    ("campaign_demographic_report", ["campaign_id", "stat_time_day", "gender", "age"], "AUCTION_CAMPAIGN"),
+    ("campaign_country_report", ["campaign_id", "stat_time_day", "country_code"], "AUCTION_CAMPAIGN"),
+    ("campaign_platform_report", ["campaign_id", "stat_time_day", "platform"], "AUCTION_CAMPAIGN"),
+    ("ad_group_demographic_report", ["adgroup_id", "stat_time_day", "gender", "age"], "AUCTION_ADGROUP"),
+    ("ad_group_country_report", ["adgroup_id", "stat_time_day", "country_code"], "AUCTION_ADGROUP"),
+    ("ad_group_platform_report", ["adgroup_id", "stat_time_day", "platform"], "AUCTION_ADGROUP"),
+    ("ad_demographic_report", ["ad_id", "stat_time_day", "gender", "age"], "AUCTION_AD"),
+    ("ad_country_report", ["ad_id", "stat_time_day", "country_code"], "AUCTION_AD"),
+    ("ad_platform_report", ["ad_id", "stat_time_day", "platform"], "AUCTION_AD"),
+]
+
+
+def _endpoint_params(endpoint_name: str) -> dict[str, Any]:
+    endpoint = cast(dict[str, Any], TIKTOK_ADS_CONFIG[endpoint_name].resource["endpoint"])
+    return cast(dict[str, Any], endpoint["params"])
+
+
+class TestAudienceReportEndpoints:
+    @parameterized.expand(AUDIENCE_REPORT_ENDPOINTS)
+    def test_breakdown_dimensions_are_part_of_the_primary_key(self, endpoint_name, dimensions, data_level):
+        # TikTok returns one row per (entity, day, breakdown value). Dropping a breakdown
+        # from the key would collapse every value of it onto one row and make each merge
+        # multi-match, so the key has to carry the full dimension list.
+        params = _endpoint_params(endpoint_name)
+
+        assert TIKTOK_ADS_CONFIG[endpoint_name].resource["primary_key"] == dimensions
+        assert json.loads(params["dimensions"]) == dimensions
+        assert params["data_level"] == data_level
+
+    @parameterized.expand(AUDIENCE_REPORT_ENDPOINTS)
+    def test_requests_the_audience_report_with_audience_safe_metrics(self, endpoint_name, dimensions, data_level):
+        # Reusing the BASIC metric list here is the easy mistake, and TikTok rejects the
+        # whole request rather than dropping the unsupported metrics.
+        params = _endpoint_params(endpoint_name)
+        metrics = set(json.loads(params["metrics"]))
+
+        assert params["report_type"] == "AUDIENCE"
+        assert metrics & _BASIC_ONLY_METRICS == set()
+        assert metrics & set(dimensions) == set()
+
+
+class TestListAdvertisers:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils"
+
+    @staticmethod
+    def _session_returning(body: dict) -> Mock:
+        response = Mock()
+        response.json.return_value = body
+        session = Mock()
+        session.get.return_value = response
+        return session
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_returns_advertiser_list_on_success(self):
+        session = self._session_returning(
+            {"code": 0, "data": {"list": [{"advertiser_id": "1", "advertiser_name": "Acme"}]}}
+        )
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            result = list_advertisers("token")
+
+        assert result == [{"advertiser_id": "1", "advertiser_name": "Acme"}]
+        # app_id + secret go as query params alongside the user's Access-Token header
+        assert session.get.call_args.kwargs["params"] == {"app_id": "app", "secret": "secret"}
+        # A timeout must be set — this call runs in the oauth_accounts web worker and a hung
+        # TikTok connection would otherwise pin the worker indefinitely.
+        assert session.get.call_args.kwargs["timeout"] == 10
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_non_zero_code_raises_with_api_code(self):
+        session = self._session_returning({"code": 40105, "message": "Access token is invalid"})
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(TikTokAdsAPIError) as excinfo:
+                list_advertisers("token")
+
+        assert excinfo.value.api_code == 40105
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_body_without_code_raises_with_none_api_code(self):
+        # A malformed body must not be mistaken for one of the known code sets.
+        session = self._session_returning({"unexpected": "shape"})
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(TikTokAdsAPIError) as excinfo:
+                list_advertisers("token")
+
+        assert excinfo.value.api_code is None
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_non_json_body_raises_tiktok_error_not_json_decode_error(self):
+        # A proxy answering HTML would otherwise surface as an opaque JSONDecodeError.
+        response = Mock()
+        response.json.side_effect = ValueError("Expecting value")
+        session = Mock()
+        session.get.return_value = response
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(TikTokAdsAPIError):
+                list_advertisers("token")
+
+    @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
+    def test_http_error_status_is_raised(self):
+        response = Mock()
+        response.raise_for_status.side_effect = HTTPError("502 Bad Gateway", response=response)
+        session = Mock()
+        session.get.return_value = response
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(HTTPError):
+                list_advertisers("token")

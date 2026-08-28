@@ -2,22 +2,30 @@
 
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
+// The `cohort-core`-owned metric names this binary emits: its metric-surface manifest.
+pub use cohort_core::metrics::{
+    COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_COHORT_PARSE_ERRORS,
+    FILTER_CATALOG_INVALID_SHAPE_HASH, FILTER_CATALOG_SKIPPED_LEAVES, FILTER_CATALOG_TZ_FALLBACK,
+    STAGE1_GLOBALS_PARSE_ERROR, STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION,
+};
+
 /// Teams with ≥1 realtime cohort in the current catalog snapshot (gauge).
 pub const FILTER_CATALOG_TEAMS: &str = "filter_catalog_teams";
 /// Distinct `conditionHash`es across all teams in the current snapshot (gauge).
 pub const FILTER_CATALOG_UNIQUE_CONDITIONS: &str = "filter_catalog_unique_conditions";
-/// Leaves dropped during parse, labelled by `reason` (counter).
-pub const FILTER_CATALOG_SKIPPED_LEAVES: &str = "filter_catalog_skipped_leaves_total";
-/// Cohorts skipped because their filter tree failed to parse (counter).
-pub const FILTER_CATALOG_COHORT_PARSE_ERRORS: &str = "filter_catalog_cohort_parse_errors_total";
-/// Teams whose timezone did not parse as an IANA zone and fell back to UTC (counter).
-pub const FILTER_CATALOG_TZ_FALLBACK: &str = "filter_catalog_tz_fallback_total";
-
-/// Cohorts classified by composition eligibility at freeze, labelled by `class` (counter).
-pub const COHORT_ELIGIBILITY_TOTAL: &str = "cohort_eligibility_total";
-/// Cohorts excluded because they sit in a cohort-reference cycle (counter).
-pub const COHORT_IN_CYCLE_TOTAL: &str = "cohort_in_cycle_total";
-
+/// Unix timestamp of the last *successful* catalog refresh (gauge, seconds). Stamped inside
+/// `CatalogHandle::refresh`, so the boot load and the periodic loop both advance it. **Alert on
+/// staleness** via `time() - gauge`: a failed refresh keeps serving the previous snapshot silently,
+/// so cohort edits go invisible with nothing else moving. A gauge written only on success would go
+/// flat rather than climb, and the refresh loop is a detached task — a per-tick age gauge would
+/// freeze if it died. A timestamp keeps aging either way. Absent until the first successful refresh;
+/// the pipeline fails closed until then and the pod is not Ready, so the alert must be a plain
+/// threshold, never `absent()`.
+pub const FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS: &str =
+    "filter_catalog_last_success_timestamp_seconds";
+/// Catalog refresh attempts, labelled by `result` (`success`|`error`) (counter). The `error` series
+/// gives the failure rate; the `success` series proves the loop is still ticking at all.
+pub const FILTER_CATALOG_REFRESH_TOTAL: &str = "filter_catalog_refresh_total";
 /// Cascade depths reached, from the `depth` field on cascade messages (histogram). Cohort ids are
 /// logged, not labelled, to keep cardinality bounded.
 pub const CASCADE_DEPTH_OBSERVED: &str = "cascade_depth_observed";
@@ -62,7 +70,7 @@ pub const DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL: &str = "durable_restore_partiti
 /// from the committed offset (counter).
 pub const DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL: &str =
     "durable_restore_partitions_wiped_stale_total";
-/// `cf_stage1` keys re-seeded into a worker's `EvictionQueue` on spawn during a durable restart,
+/// `cf_behavioral` keys re-seeded into a worker's `EvictionQueue` on spawn during a durable restart,
 /// labelled by `partition` (counter). Re-fires a dormant person's `Left`.
 pub const EVICTION_QUEUE_REBUILT_KEYS_TOTAL: &str = "eviction_queue_rebuilt_keys_total";
 /// Owned partitions that had at least one `cf_pending_transfers` entry re-produced by the eager boot
@@ -118,16 +126,104 @@ pub const STORE_WRITE_BATCH_TOTAL: &str = "store_write_batch_total";
 pub const STORE_WRITE_DURATION_SECONDS: &str = "store_write_duration_seconds";
 /// RocksDB operations that returned an error, labelled by `op` (counter).
 pub const STORE_ERRORS_TOTAL: &str = "store_errors_total";
-/// Malformed inputs the `cf_person_index` merge operator skipped, labelled by `kind` (counter).
-pub const STORE_MERGE_MALFORMED_TOTAL: &str = "store_merge_malformed_total";
+/// Stores destroyed and recreated at open because the on-disk schema version did not match, under the
+/// `COHORT_WIPE_ON_SCHEMA_MISMATCH` opt-in (counter). Non-zero means a store layout revision wiped
+/// durable state; expected only on a deliberate schema migration.
+pub const STORE_SCHEMA_MISMATCH_WIPES_TOTAL: &str = "store_schema_mismatch_wipes_total";
 
-/// Cohort bytecode invoked a symbol with no registered native (counter). The function name is
-/// logged, not labelled, to keep cardinality bounded.
-pub const STAGE1_HOGVM_UNKNOWN_FUNCTION: &str = "stage1_hogvm_unknown_function_total";
-/// Any other VM/program failure during cohort evaluation, coerced to `false` (counter).
-pub const STAGE1_HOGVM_ERROR: &str = "stage1_hogvm_error_total";
-/// `properties`/`person_properties` JSON parse failure, labelled by `field` (counter).
-pub const STAGE1_GLOBALS_PARSE_ERROR: &str = "stage1_globals_parse_error_total";
+/// Time an offloaded store op waited to acquire its read-lane permit on the async side, before it
+/// was ever spawned, labelled by `op` (histogram, seconds). Recorded only when the lane is bounded.
+pub const STORE_OFFLOAD_PERMIT_WAIT_DURATION_SECONDS: &str =
+    "store_offload_permit_wait_duration_seconds";
+/// Time from `spawn_blocking` to the offloaded closure actually starting, labelled by `op`
+/// (histogram, seconds) — the blocking-pool queue wait plus spawn overhead.
+pub const STORE_OFFLOAD_QUEUE_WAIT_DURATION_SECONDS: &str =
+    "store_offload_queue_wait_duration_seconds";
+/// Execution time of the offloaded op inside the blocking closure, labelled by `op` (histogram,
+/// seconds) — excludes permit and queue waits, so it is the pure on-thread store cost.
+pub const STORE_OFFLOAD_EXEC_DURATION_SECONDS: &str = "store_offload_exec_duration_seconds";
+/// Store ops currently executing inside a blocking closure, labelled by `lane`
+/// (`event`|`maintenance`|`write`|`section`) (gauge). Maintained inside the closure so it stays
+/// correct even if the caller future is dropped mid-flight.
+pub const STORE_OFFLOAD_INFLIGHT: &str = "store_offload_inflight";
+
+/// Latency of a RocksDB read, labelled by `op` (histogram, seconds). `op=get` is sampled 1-in-N
+/// (`StoreConfig::read_sample_ratio`) — use [`STORE_READS_TOTAL`] for exact volume. `op=multi_get`
+/// records once per batch.
+pub const STORE_READ_DURATION_SECONDS: &str = "store_read_duration_seconds";
+/// Logical RocksDB reads issued, labelled by `op` (counter). A `multi_get` counts once per key.
+pub const STORE_READS_TOTAL: &str = "store_reads_total";
+
+/// Block-cache hits across all block types (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_HITS_TOTAL: &str = "store_block_cache_hits_total";
+/// Block-cache misses across all block types (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_MISSES_TOTAL: &str = "store_block_cache_misses_total";
+/// Data-block cache hits (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_DATA_HITS_TOTAL: &str = "store_block_cache_data_hits_total";
+/// Data-block cache misses (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_DATA_MISSES_TOTAL: &str = "store_block_cache_data_misses_total";
+/// Index-block cache hits (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_INDEX_HITS_TOTAL: &str = "store_block_cache_index_hits_total";
+/// Index-block cache misses (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_INDEX_MISSES_TOTAL: &str = "store_block_cache_index_misses_total";
+/// Filter-block (bloom) cache hits (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_FILTER_HITS_TOTAL: &str = "store_block_cache_filter_hits_total";
+/// Filter-block (bloom) cache misses (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_FILTER_MISSES_TOTAL: &str = "store_block_cache_filter_misses_total";
+/// Point lookups the bloom filter let skip a data-block read (counter, cumulative since store open).
+pub const STORE_BLOOM_FILTER_USEFUL_TOTAL: &str = "store_bloom_filter_useful_total";
+
+/// Bytes the shared block cache currently holds (gauge).
+pub const STORE_BLOCK_CACHE_USAGE_BYTES: &str = "store_block_cache_usage_bytes";
+/// On-disk SST bytes, labelled by `cf` (gauge).
+pub const STORE_SST_BYTES: &str = "store_sst_bytes";
+/// Estimated live (non-tombstone) data bytes, labelled by `cf` (gauge).
+pub const STORE_LIVE_DATA_BYTES: &str = "store_live_data_bytes";
+/// Estimated key count, labelled by `cf` (gauge).
+pub const STORE_ESTIMATE_NUM_KEYS: &str = "store_estimate_num_keys";
+
+/// Size of the filesystem holding the store (gauge, bytes).
+pub const STORE_DISK_TOTAL_BYTES: &str = "store_disk_total_bytes";
+/// Bytes on the store filesystem available to unprivileged writes (`f_bavail`) (gauge).
+pub const STORE_DISK_AVAILABLE_BYTES: &str = "store_disk_available_bytes";
+/// Used share of the store filesystem, 0–100 (gauge). `f_bavail`-based like df, so it reads a
+/// few points above kubelet's used/capacity ratio on filesystems with a root reserve.
+/// **Alert on a sustained high level** — RocksDB compaction needs headroom well before disk-full.
+pub const STORE_DISK_UTILIZATION_PCT: &str = "store_disk_utilization_pct";
+/// Failed store-filesystem samples, including ticks skipped because the previous sample is still
+/// running (counter). While failing, the seed disk gate reads no fresh sample and never pauses
+/// (fail-open), so a persistently non-zero rate means the gate is dark.
+pub const STORE_DISK_SAMPLE_ERRORS_TOTAL: &str = "store_disk_sample_errors_total";
+
+/// Fraction of wall-clock worker-time spent executing tasks (gauge, 0.0–1.0).
+pub const TOKIO_RUNTIME_BUSY_RATIO: &str = "tokio_runtime_busy_ratio";
+/// Tasks spawned but not yet completed on the runtime (gauge).
+pub const TOKIO_RUNTIME_ALIVE_TASKS: &str = "tokio_runtime_alive_tasks";
+/// Tasks pending in the runtime's global injection queue (gauge).
+pub const TOKIO_RUNTIME_GLOBAL_QUEUE_DEPTH: &str = "tokio_runtime_global_queue_depth";
+/// Configured Tokio worker threads (gauge).
+pub const TOKIO_RUNTIME_NUM_WORKERS: &str = "tokio_runtime_num_workers";
+/// Per-worker busy time over the sample interval, labelled by `worker` (gauge, seconds).
+pub const TOKIO_WORKER_BUSY_DURATION_DELTA: &str = "tokio_worker_busy_duration_delta_secs";
+/// Per-worker park-count delta over the sample interval, labelled by `worker` (gauge).
+pub const TOKIO_WORKER_PARK_DELTA: &str = "tokio_worker_park_delta";
+/// Per-worker poll-count delta over the sample interval, labelled by `worker` (gauge).
+pub const TOKIO_WORKER_POLL_DELTA: &str = "tokio_worker_poll_delta";
+/// Per-worker steal-count delta over the sample interval, labelled by `worker` (gauge).
+pub const TOKIO_WORKER_STEAL_DELTA: &str = "tokio_worker_steal_delta";
+/// Per-worker local-queue overflow-to-global delta over the sample interval, labelled by `worker`
+/// (gauge).
+pub const TOKIO_WORKER_OVERFLOW_DELTA: &str = "tokio_worker_overflow_delta";
+/// Per-worker local run-queue depth, labelled by `worker` (gauge).
+pub const TOKIO_WORKER_LOCAL_QUEUE_DEPTH: &str = "tokio_worker_local_queue_depth";
+/// Per-worker mean poll duration, labelled by `worker` (gauge, microseconds).
+pub const TOKIO_WORKER_MEAN_POLL_TIME_US: &str = "tokio_worker_mean_poll_time_us";
+/// Threads in the blocking pool (gauge).
+pub const TOKIO_BLOCKING_THREADS: &str = "tokio_blocking_threads";
+/// Idle threads in the blocking pool (gauge).
+pub const TOKIO_IDLE_BLOCKING_THREADS: &str = "tokio_idle_blocking_threads";
+/// Tasks waiting for a blocking thread (gauge).
+pub const TOKIO_BLOCKING_QUEUE_DEPTH: &str = "tokio_blocking_queue_depth";
 
 /// Partitions with a live worker channel registered on the router (gauge).
 pub const PARTITIONS_ACTIVE: &str = "partitions_active";
@@ -135,6 +231,20 @@ pub const PARTITIONS_ACTIVE: &str = "partitions_active";
 pub const PARTITION_ROUTE_DROPPED_TOTAL: &str = "partition_route_dropped_total";
 /// Sub-batches queued in a partition worker's channel, labelled by `partition` (gauge).
 pub const PARTITION_CHANNEL_DEPTH: &str = "partition_channel_depth";
+/// Events held back because a partition worker's channel was full, labelled by `partition` (counter).
+/// Backpressure, not loss: the partition is paused and its events redispatch once the channel drains.
+/// Re-counted on every retry of a still-full holdover, so it is a pressure rate, not a distinct-event
+/// count.
+pub const PARTITION_CHANNEL_FULL_TOTAL: &str = "partition_channel_full_total";
+/// Un-drained events in a partition worker's channel (plus the batch it is processing), labelled by
+/// `partition` (gauge). A value pinned near `PARTITION_INTAKE_MAX_EVENTS` that never drains flags a
+/// stuck worker.
+pub const PARTITION_INTAKE_EVENTS: &str = "partition_intake_events";
+/// Partitions currently paused on the events consumer to shed downstream backpressure (gauge).
+pub const PARTITIONS_PAUSED: &str = "partitions_paused";
+/// Events currently held across all paused partitions, awaiting redispatch (gauge). Bounded — a
+/// paused partition stops fetching — so a climbing value flags a stuck worker.
+pub const PENDING_HELD_EVENTS: &str = "pending_held_events";
 
 /// Non-empty rebalance callbacks, labelled by `event_type` (`assign`|`revoke`) (counter).
 pub const REBALANCES_TOTAL: &str = "rebalances_total";
@@ -157,24 +267,37 @@ pub const STAGE1_EVENTS_PROCESSED: &str = "stage1_events_processed_total";
 pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
 /// HogVM evaluations, labelled by `kind` — one per unique conditionHash per event (counter).
 pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";
+/// Condition evaluations skipped because the result was already known, labelled by `reason`
+/// (`event_name_gate`) (counter).
+pub const STAGE1_CONDITIONS_SKIPPED: &str = "stage1_conditions_skipped_total";
+/// Person side of an event resolved against the durable [`crate::stage1::PersonRecord`], labelled by
+/// `result` (`fresh`|`stale_props`|`stale_catalog`|`stale_both`|`absent`|`corrupt`|`argmax_stale`|
+/// `replay`) (counter). One increment per event that touches the person side. `absent`/`corrupt` come
+/// from the prior-record classification (an evaluation from nothing), not the freshness axis, so they
+/// are not folded into `stale_both`.
+pub const STAGE1_PERSON_RECORD_TOTAL: &str = "stage1_person_record_total";
+/// Encoded byte size of a [`crate::stage1::PersonRecord`] at each write (histogram). Watches record
+/// growth on hot persons; the TTL backstop bounds it.
+pub const STAGE1_PERSON_RECORD_SIZE_BYTES: &str = "stage1_person_record_size_bytes";
+/// Behavioral applies staged per event — the write fan-out of the behavioral side (histogram).
+pub const STAGE1_BEHAVIORAL_APPLIES: &str = "stage1_behavioral_applies";
 /// Leaf membership flips emitted, labelled by `kind` (counter).
 pub const STAGE1_TRANSITIONS: &str = "stage1_transitions_total";
-/// `cf_stage1` records written, labelled by `variant` (counter).
+/// `cf_behavioral` records written, labelled by `variant` (counter).
 pub const STAGE1_STATE_WRITES: &str = "stage1_state_writes_total";
-/// First-time `cf_person_index` appends, one per newly-seen `(person, leaf_state_key)` (counter).
-pub const STAGE1_PERSON_INDEX_APPENDS: &str = "stage1_person_index_appends_total";
 /// Applies skipped because the source `(partition, offset)` was already folded in, labelled by
 /// `variant` (counter).
 pub const STAGE1_REPLAY_SKIPPED: &str = "stage1_replay_skipped_total";
-/// Person-property applies dropped by the event-time argMax tiebreaker (counter).
-pub const STAGE1_ARGMAX_STALE: &str = "stage1_argmax_stale_total";
 /// Applies skipped because the leaf's resolved variant is unsupported, labelled by `variant`
 /// (counter). A defensive guard against a stale catalog.
 pub const STAGE1_UNSUPPORTED_VARIANT_SKIPPED: &str = "stage1_unsupported_variant_skipped_total";
-/// Stored `cf_stage1` values that failed to decode; the key is skipped, not panicked (counter).
+/// Stored `cf_behavioral` values that failed to decode; the key is skipped, not panicked (counter).
 pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
 /// End-to-end per-event processing latency in the worker (histogram, seconds).
 pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
+/// Keys in the event's single batched Stage-1 pre-read — the reads-per-event distribution
+/// (histogram).
+pub const STAGE1_SNAPSHOT_KEYS: &str = "stage1_snapshot_keys";
 
 /// Envelopes consumed and successfully deserialized from `cohort_stream_events` (counter).
 pub const COHORT_STREAM_EVENTS_CONSUMED: &str = "cohort_stream_events_consumed_total";
@@ -248,8 +371,8 @@ pub const OUTPUT_TRANSITIONS_UNMAPPED: &str = "output_transitions_unmapped_total
 /// Produce failures to `cohort_membership_changed_shadow` (counter).
 pub const OUTPUT_PRODUCE_ERRORS: &str = "output_produce_errors_total";
 
-/// Sweep cycles that fired, labelled by `loop` (`eviction`|`redrive`|`merge_gc`|`checkpoint`)
-/// (counter).
+/// Sweep cycles that fired, labelled by `loop`
+/// (`eviction`|`redrive`|`merge_gc`|`checkpoint`|`store_stats`) (counter).
 pub const SWEEP_CYCLES_TOTAL: &str = "sweep_cycles_total";
 /// Wall-clock duration of one sweep cycle, labelled by `loop` (histogram, seconds).
 pub const SWEEP_CYCLE_DURATION_SECONDS: &str = "sweep_cycle_duration_seconds";
@@ -306,6 +429,10 @@ pub const MERGE_HELD_OFFSET_GAUGE: &str = "merge_held_offset";
 pub const MERGE_DRAIN_DURATION_SECONDS: &str = "merge_drain_duration_seconds";
 /// Latency of one transfer apply (histogram, seconds).
 pub const MERGE_APPLY_DURATION_SECONDS: &str = "merge_apply_duration_seconds";
+/// Behavioral rows enumerated for P_old on one merge drain — the drain-scan cost distribution
+/// (histogram). Recorded once per non-replay drain. The drain enumerates P_old's leaves with a prefix
+/// scan, so this is the visibility into how many rows that scan touches.
+pub const MERGE_DRAIN_LEAVES_SCANNED: &str = "merge_drain_leaves_scanned";
 
 /// Merge-CF keys scanned by the GC sweep, labelled by `cf` (counter).
 pub const MERGE_GC_KEYS_SCANNED_TOTAL: &str = "merge_gc_keys_scanned_total";
@@ -325,10 +452,129 @@ pub const STAGE2_ORPHAN_GC_SKIPPED_TOTAL: &str = "stage2_orphan_gc_skipped_total
 /// `cf_stage2` keys the orphan GC could not classify and left in place (counter): a key the decoder
 /// rejected, or an id that overflows `i32`.
 pub const STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL: &str = "stage2_orphan_gc_undecodable_keys_total";
+/// `cf_stage2` keys a cohort-prefix scan could not decode and skipped (counter).
+pub const STAGE2_SCAN_UNDECODABLE_KEYS_TOTAL: &str = "stage2_scan_undecodable_keys_total";
 
 /// Keys the sweep popped but did not evict, labelled by `reason` (counter). Conservation:
 /// `popped == evicted + dropped`.
 pub const SWEEP_KEYS_DROPPED_TOTAL: &str = "sweep_keys_dropped_total";
+
+/// Seed payloads consumed and decoded — tiles and ordered skips both (counter).
+pub const COHORT_STREAM_SEEDS_CONSUMED: &str = "cohort_stream_seeds_consumed_total";
+/// Seed payloads that were empty or failed to decode (counter).
+pub const COHORT_STREAM_SEED_DESERIALIZE_ERRORS: &str =
+    "cohort_stream_seed_deserialize_errors_total";
+/// Decoded seed payloads accumulated per consume → dispatch cycle (histogram).
+pub const COHORT_STREAM_SEEDS_CONSUME_BATCH_SIZE: &str = "cohort_stream_seeds_consume_batch_size";
+/// Seed messages dropped because the partition is no longer owned or shutdown is draining (counter).
+pub const COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED: &str =
+    "cohort_stream_seeds_skipped_not_owned_total";
+/// Tile applies that advanced a leaf's state, labelled by `variant` (counter).
+pub const SEED_TILES_APPLIED_TOTAL: &str = "cohort_seed_tiles_applied_total";
+/// Tile applies that left the leaf byte-identical (the idempotency path), labelled by `variant`
+/// (counter).
+pub const SEED_TILES_UNCHANGED_TOTAL: &str = "cohort_seed_tiles_unchanged_total";
+/// Tile leaf-applies dropped without a write, labelled by `reason` (counter).
+pub const SEED_TILES_DROPPED_TOTAL: &str = "cohort_seed_tiles_dropped_total";
+/// Consume-side skips marked in order, labelled by `reason` (counter).
+pub const SEED_TILES_SKIPPED_TOTAL: &str = "cohort_seed_tiles_skipped_total";
+/// Tiles re-produced to a merge survivor's partition, counted post-ack (counter).
+pub const SEED_REKEYED_TOTAL: &str = "cohort_seed_rekeyed_total";
+/// Failed tile re-key produces; the seed offset is held (counter).
+pub const SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str = "cohort_seed_rekey_produce_failure_total";
+/// Hop-capped tile redirects applied inline (counter). Non-zero means a corrupt tombstone cycle.
+pub const SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_seed_rekey_hop_capped_total";
+
+/// Person seeds that wrote a record, labelled by `verdict`
+/// (`fresh`|`seed_newer`|`catalog_uncovered`) (counter).
+pub const PERSON_SEEDS_APPLIED_TOTAL: &str = "cohort_person_seeds_applied_total";
+/// Person seeds whose merge left the record unchanged (counter). The steady state of a re-run
+/// chunk.
+pub const PERSON_SEEDS_UNCHANGED_TOTAL: &str = "cohort_person_seeds_unchanged_total";
+/// Person seeds skipped and committed, labelled by `reason`
+/// (`apply_disabled`|`stale_vs_live`) (counter).
+pub const PERSON_SEEDS_SKIPPED_TOTAL: &str = "cohort_person_seeds_skipped_total";
+/// Person seeds dropped without a write, labelled by `reason`
+/// (`team_absent`|`no_effective_hashes`) (counter).
+pub const PERSON_SEEDS_DROPPED_TOTAL: &str = "cohort_person_seeds_dropped_total";
+/// Person seeds whose stored record existed but did not decode (counter). The apply then rebuilds
+/// from an absent baseline, dropping whatever the unreadable row held outside the seed's evaluated
+/// set. **Any non-zero value is a real record-codec failure, not a dormant person** — the event
+/// path's `stage1_person_record_total{result="corrupt"}` is the same signal for live traffic.
+pub const PERSON_SEED_PRIOR_CORRUPT_TOTAL: &str = "cohort_person_seed_prior_corrupt_total";
+/// Hashes dropped from a person seed's effective set, labelled by `reason`
+/// (`unknown_hash`|`variant_mismatch`) (counter). **Sustained non-zero means the run's pinned
+/// conditions have drifted from the live catalog.**
+pub const PERSON_SEED_HASHES_DROPPED_TOTAL: &str = "cohort_person_seed_hashes_dropped_total";
+/// Person seeds re-produced to a merge survivor's partition, counted post-ack (counter).
+pub const PERSON_SEED_REKEYED_TOTAL: &str = "cohort_person_seeds_rekeyed_total";
+/// Hop-capped person-seed redirects applied inline (counter). Non-zero means a corrupt tombstone
+/// cycle.
+pub const PERSON_SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_person_seeds_rekey_hop_capped_total";
+/// Failed person-seed re-key produces; the seed offset is held (counter).
+pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
+    "cohort_person_seeds_rekey_produce_failure_total";
+/// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
+/// **Alert on a sustained non-zero level.**
+pub const SEED_HELD_OFFSET_GAUGE: &str = "seed_held_offset";
+/// Seed partitions currently held for any cause (gauge) — sustained non-zero means tiles are not
+/// landing. [`SEED_PAUSED_PARTITIONS`] carries the per-cause breakdown.
+pub const SEED_FENCED_PARTITIONS: &str = "cohort_seed_fenced_partitions";
+/// How far the watermark trails `s_chunk + margin` per fenced partition (gauge, ms).
+pub const SEED_FENCE_DEFICIT_MS: &str = "cohort_seed_fence_deficit_ms";
+/// Age of each owned partition's live watermark, labelled by `partition` (gauge, ms).
+pub const LIVE_WATERMARK_AGE_MS: &str = "cohort_live_watermark_age_ms";
+/// Seed partitions currently paused, labelled by `cause`
+/// (`fence`|`channel_full`|`live_lag`|`disk_pressure`) (gauge). A partition holding several
+/// causes counts under each.
+pub const SEED_PAUSED_PARTITIONS: &str = "cohort_seed_paused_partitions";
+/// Continuous pause age per paused seed partition, labelled by `partition` (gauge, ms). Cause
+/// churn does not reset it. **Alert well below the seed topic's retention** — sustained live load
+/// can defer seeding indefinitely without any lag alarm firing.
+pub const SEED_PAUSE_AGE_MS: &str = "cohort_seed_pause_age_ms";
+/// Owned partitions with no live watermark at all (gauge). Fence-fail-closed with an unknown
+/// deficit, so otherwise indistinguishable from a merely trailing watermark on the deficit gauge.
+pub const SEED_NO_WATERMARK_PARTITIONS: &str = "cohort_seed_no_watermark_partitions";
+/// Broker-timestamp age of the oldest held seed per held partition, labelled by `partition`
+/// (gauge, ms). During a long pause this — not the pause age — is the distance to the seed
+/// topic's retention cliff. A missing broker timestamp reads 0.
+pub const SEED_OLDEST_HELD_AGE_MS: &str = "cohort_seed_oldest_held_age_ms";
+/// Wall-clock duration of one idle-probe pass across all owned partitions (histogram, seconds).
+/// Quiet partitions' watermarks advance only per pass, so a slow pass delays fence opens and
+/// live-lag releases alike.
+pub const SEED_IDLE_PROBE_DURATION_SECONDS: &str = "cohort_seed_idle_probe_duration_seconds";
+/// Unix timestamp of the last completed idle-probe pass (gauge, seconds). **Alert on
+/// staleness** — quiet partitions' fences and the live-lag gate both stall when the probe stops.
+pub const SEED_IDLE_PROBE_LAST_PASS_TIMESTAMP_SECONDS: &str =
+    "cohort_seed_idle_probe_last_pass_timestamp_seconds";
+/// Reconcile jobs admitted to partition-local queues, labelled by `kind` — the tile's shape-hash
+/// kind, `behavioral` or `person_property` (counter).
+pub const RECONCILE_JOBS_ENQUEUED_TOTAL: &str = "cohort_reconcile_jobs_enqueued_total";
+/// Reconcile jobs that emitted their completion marker and released their seed floor, labelled by
+/// `kind` (counter). Balances against the enqueued/discarded/superseded series per kind, which is
+/// how a run left short a marker becomes visible.
+pub const RECONCILE_JOBS_COMPLETED_TOTAL: &str = "cohort_reconcile_jobs_completed_total";
+/// Queued jobs replaced by a higher Kafka offset for the same team, cohort, and `kind` (counter).
+pub const RECONCILE_JOBS_SUPERSEDED_TOTAL: &str = "cohort_reconcile_jobs_superseded_total";
+/// Reconcile jobs invalidated by a drain-time guard, labelled by bounded `reason` and `kind`
+/// (counter).
+pub const RECONCILE_JOBS_DISCARDED_TOTAL: &str = "cohort_reconcile_jobs_discarded_total";
+/// Stage 2 rows read by reconcile and durably settled, counted once per committed page (counter). A
+/// page that fails its produce or commit and retries is not double-counted.
+pub const RECONCILE_ROWS_SCANNED_TOTAL: &str = "cohort_reconcile_rows_scanned_total";
+/// Snapshot membership rows acknowledged by Kafka and durably settled, labelled by `status`, counted
+/// once per committed page (counter).
+pub const RECONCILE_ROWS_EMITTED_TOTAL: &str = "cohort_reconcile_rows_emitted_total";
+/// Stale Stage 2 bits durably fixed, labelled by `direction` (counter).
+pub const RECONCILE_BITS_FIXED_TOTAL: &str = "cohort_reconcile_bits_fixed_total";
+/// Reconcile completion markers acknowledged by Kafka, labelled by `kind` (counter).
+pub const RECONCILE_MARKERS_EMITTED_TOTAL: &str = "cohort_reconcile_markers_emitted_total";
+/// Failed completion-marker produces, labelled by `kind` (counter). A permanently failing produce —
+/// a missing or mis-provisioned marker topic — otherwise only shows up as a seed offset that never
+/// advances.
+pub const RECONCILE_MARKER_PRODUCE_ERRORS: &str = "cohort_reconcile_marker_produce_errors_total";
+/// Partition-local reconcile queue depth, labelled by `partition` (gauge).
+pub const RECONCILE_QUEUE_DEPTH: &str = "cohort_reconcile_queue_depth";
 
 /// Install the global Prometheus recorder. Call once at startup.
 ///
@@ -343,6 +589,22 @@ pub fn install_recorder() -> PrometheusHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filter_catalog_metric_names_are_stable() {
+        // The staleness alert is written against these literals, so a rename here silently disarms
+        // the only signal that says the catalog stopped tracking cohort edits.
+        assert_eq!(FILTER_CATALOG_TEAMS, "filter_catalog_teams");
+        assert_eq!(
+            FILTER_CATALOG_UNIQUE_CONDITIONS,
+            "filter_catalog_unique_conditions",
+        );
+        assert_eq!(
+            FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS,
+            "filter_catalog_last_success_timestamp_seconds",
+        );
+        assert_eq!(FILTER_CATALOG_REFRESH_TOTAL, "filter_catalog_refresh_total");
+    }
 
     #[test]
     fn cascade_metric_names_are_stable() {
@@ -410,6 +672,118 @@ mod tests {
     }
 
     #[test]
+    fn store_and_tokio_observability_metric_names_are_stable() {
+        // These names are a dashboard contract; a rename must be deliberate, not accidental. Every
+        // new store/tokio constant is pinned so a rename cannot silently break a panel.
+        assert_eq!(STORE_READ_DURATION_SECONDS, "store_read_duration_seconds");
+        assert_eq!(STORE_READS_TOTAL, "store_reads_total");
+        assert_eq!(
+            STORE_OFFLOAD_PERMIT_WAIT_DURATION_SECONDS,
+            "store_offload_permit_wait_duration_seconds",
+        );
+        assert_eq!(
+            STORE_OFFLOAD_QUEUE_WAIT_DURATION_SECONDS,
+            "store_offload_queue_wait_duration_seconds",
+        );
+        assert_eq!(
+            STORE_OFFLOAD_EXEC_DURATION_SECONDS,
+            "store_offload_exec_duration_seconds",
+        );
+        assert_eq!(STORE_OFFLOAD_INFLIGHT, "store_offload_inflight");
+        assert_eq!(STORE_BLOCK_CACHE_HITS_TOTAL, "store_block_cache_hits_total");
+        assert_eq!(
+            STORE_BLOCK_CACHE_MISSES_TOTAL,
+            "store_block_cache_misses_total"
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_DATA_HITS_TOTAL,
+            "store_block_cache_data_hits_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_DATA_MISSES_TOTAL,
+            "store_block_cache_data_misses_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_INDEX_HITS_TOTAL,
+            "store_block_cache_index_hits_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_INDEX_MISSES_TOTAL,
+            "store_block_cache_index_misses_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_FILTER_HITS_TOTAL,
+            "store_block_cache_filter_hits_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_FILTER_MISSES_TOTAL,
+            "store_block_cache_filter_misses_total",
+        );
+        assert_eq!(
+            STORE_BLOOM_FILTER_USEFUL_TOTAL,
+            "store_bloom_filter_useful_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_USAGE_BYTES,
+            "store_block_cache_usage_bytes"
+        );
+        assert_eq!(STORE_SST_BYTES, "store_sst_bytes");
+        assert_eq!(STORE_LIVE_DATA_BYTES, "store_live_data_bytes");
+        assert_eq!(STORE_ESTIMATE_NUM_KEYS, "store_estimate_num_keys");
+        assert_eq!(STORE_DISK_TOTAL_BYTES, "store_disk_total_bytes");
+        assert_eq!(STORE_DISK_AVAILABLE_BYTES, "store_disk_available_bytes");
+        assert_eq!(STORE_DISK_UTILIZATION_PCT, "store_disk_utilization_pct");
+        assert_eq!(
+            STORE_DISK_SAMPLE_ERRORS_TOTAL,
+            "store_disk_sample_errors_total"
+        );
+        assert_eq!(TOKIO_RUNTIME_BUSY_RATIO, "tokio_runtime_busy_ratio");
+        assert_eq!(TOKIO_RUNTIME_ALIVE_TASKS, "tokio_runtime_alive_tasks");
+        assert_eq!(
+            TOKIO_RUNTIME_GLOBAL_QUEUE_DEPTH,
+            "tokio_runtime_global_queue_depth",
+        );
+        assert_eq!(TOKIO_RUNTIME_NUM_WORKERS, "tokio_runtime_num_workers");
+        assert_eq!(
+            TOKIO_WORKER_BUSY_DURATION_DELTA,
+            "tokio_worker_busy_duration_delta_secs",
+        );
+        assert_eq!(TOKIO_WORKER_PARK_DELTA, "tokio_worker_park_delta");
+        assert_eq!(TOKIO_WORKER_POLL_DELTA, "tokio_worker_poll_delta");
+        assert_eq!(TOKIO_WORKER_STEAL_DELTA, "tokio_worker_steal_delta");
+        assert_eq!(TOKIO_WORKER_OVERFLOW_DELTA, "tokio_worker_overflow_delta");
+        assert_eq!(
+            TOKIO_WORKER_LOCAL_QUEUE_DEPTH,
+            "tokio_worker_local_queue_depth",
+        );
+        assert_eq!(
+            TOKIO_WORKER_MEAN_POLL_TIME_US,
+            "tokio_worker_mean_poll_time_us",
+        );
+        assert_eq!(TOKIO_BLOCKING_THREADS, "tokio_blocking_threads");
+        assert_eq!(TOKIO_IDLE_BLOCKING_THREADS, "tokio_idle_blocking_threads");
+        assert_eq!(TOKIO_BLOCKING_QUEUE_DEPTH, "tokio_blocking_queue_depth");
+    }
+
+    #[test]
+    fn partition_backpressure_metric_names_are_stable() {
+        assert_eq!(PARTITION_CHANNEL_FULL_TOTAL, "partition_channel_full_total");
+        assert_eq!(PARTITION_INTAKE_EVENTS, "partition_intake_events");
+        assert_eq!(PARTITIONS_PAUSED, "partitions_paused");
+        assert_eq!(PENDING_HELD_EVENTS, "pending_held_events");
+    }
+
+    #[test]
+    fn person_record_metric_names_are_stable() {
+        assert_eq!(STAGE1_PERSON_RECORD_TOTAL, "stage1_person_record_total");
+        assert_eq!(
+            STAGE1_PERSON_RECORD_SIZE_BYTES,
+            "stage1_person_record_size_bytes",
+        );
+        assert_eq!(STAGE1_BEHAVIORAL_APPLIES, "stage1_behavioral_applies");
+    }
+
+    #[test]
     fn stage2_orphan_gc_metric_names_are_stable() {
         assert_eq!(
             STAGE2_ORPHAN_GC_KEYS_SCANNED_TOTAL,
@@ -426,6 +800,168 @@ mod tests {
         assert_eq!(
             STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL,
             "stage2_orphan_gc_undecodable_keys_total",
+        );
+        assert_eq!(
+            STAGE2_SCAN_UNDECODABLE_KEYS_TOTAL,
+            "stage2_scan_undecodable_keys_total",
+        );
+    }
+
+    #[test]
+    fn seed_metric_names_are_stable() {
+        assert_eq!(
+            COHORT_STREAM_SEEDS_CONSUMED,
+            "cohort_stream_seeds_consumed_total"
+        );
+        assert_eq!(
+            COHORT_STREAM_SEED_DESERIALIZE_ERRORS,
+            "cohort_stream_seed_deserialize_errors_total",
+        );
+        assert_eq!(
+            COHORT_STREAM_SEEDS_CONSUME_BATCH_SIZE,
+            "cohort_stream_seeds_consume_batch_size",
+        );
+        assert_eq!(
+            COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED,
+            "cohort_stream_seeds_skipped_not_owned_total",
+        );
+        assert_eq!(SEED_TILES_APPLIED_TOTAL, "cohort_seed_tiles_applied_total");
+        assert_eq!(
+            SEED_TILES_UNCHANGED_TOTAL,
+            "cohort_seed_tiles_unchanged_total"
+        );
+        assert_eq!(SEED_TILES_DROPPED_TOTAL, "cohort_seed_tiles_dropped_total");
+        assert_eq!(SEED_TILES_SKIPPED_TOTAL, "cohort_seed_tiles_skipped_total");
+        assert_eq!(SEED_REKEYED_TOTAL, "cohort_seed_rekeyed_total");
+        assert_eq!(
+            SEED_REKEY_PRODUCE_FAILURE_TOTAL,
+            "cohort_seed_rekey_produce_failure_total",
+        );
+        assert_eq!(
+            SEED_REKEY_HOP_CAPPED_TOTAL,
+            "cohort_seed_rekey_hop_capped_total"
+        );
+        assert_eq!(
+            PERSON_SEEDS_APPLIED_TOTAL,
+            "cohort_person_seeds_applied_total"
+        );
+        assert_eq!(
+            PERSON_SEEDS_UNCHANGED_TOTAL,
+            "cohort_person_seeds_unchanged_total"
+        );
+        assert_eq!(
+            PERSON_SEEDS_SKIPPED_TOTAL,
+            "cohort_person_seeds_skipped_total"
+        );
+        assert_eq!(
+            PERSON_SEEDS_DROPPED_TOTAL,
+            "cohort_person_seeds_dropped_total"
+        );
+        assert_eq!(
+            PERSON_SEED_PRIOR_CORRUPT_TOTAL,
+            "cohort_person_seed_prior_corrupt_total",
+        );
+        assert_eq!(
+            PERSON_SEED_HASHES_DROPPED_TOTAL,
+            "cohort_person_seed_hashes_dropped_total",
+        );
+        assert_eq!(
+            PERSON_SEED_REKEYED_TOTAL,
+            "cohort_person_seeds_rekeyed_total"
+        );
+        assert_eq!(
+            PERSON_SEED_REKEY_HOP_CAPPED_TOTAL,
+            "cohort_person_seeds_rekey_hop_capped_total",
+        );
+        assert_eq!(
+            PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL,
+            "cohort_person_seeds_rekey_produce_failure_total",
+        );
+        // The held-offset gauge deliberately mirrors merge_held_offset/cascade_held_offset.
+        assert_eq!(SEED_HELD_OFFSET_GAUGE, "seed_held_offset");
+        assert_eq!(SEED_FENCED_PARTITIONS, "cohort_seed_fenced_partitions");
+        assert_eq!(SEED_FENCE_DEFICIT_MS, "cohort_seed_fence_deficit_ms");
+        assert_eq!(SEED_PAUSED_PARTITIONS, "cohort_seed_paused_partitions");
+        assert_eq!(SEED_PAUSE_AGE_MS, "cohort_seed_pause_age_ms");
+        assert_eq!(
+            SEED_NO_WATERMARK_PARTITIONS,
+            "cohort_seed_no_watermark_partitions"
+        );
+        assert_eq!(SEED_OLDEST_HELD_AGE_MS, "cohort_seed_oldest_held_age_ms");
+        assert_eq!(
+            SEED_IDLE_PROBE_DURATION_SECONDS,
+            "cohort_seed_idle_probe_duration_seconds"
+        );
+        assert_eq!(
+            SEED_IDLE_PROBE_LAST_PASS_TIMESTAMP_SECONDS,
+            "cohort_seed_idle_probe_last_pass_timestamp_seconds"
+        );
+        assert_eq!(
+            RECONCILE_JOBS_ENQUEUED_TOTAL,
+            "cohort_reconcile_jobs_enqueued_total"
+        );
+        assert_eq!(
+            RECONCILE_JOBS_SUPERSEDED_TOTAL,
+            "cohort_reconcile_jobs_superseded_total"
+        );
+        assert_eq!(LIVE_WATERMARK_AGE_MS, "cohort_live_watermark_age_ms");
+    }
+
+    #[test]
+    fn reconcile_metric_names_are_stable() {
+        assert_eq!(
+            RECONCILE_JOBS_ENQUEUED_TOTAL,
+            "cohort_reconcile_jobs_enqueued_total",
+        );
+        assert_eq!(
+            RECONCILE_JOBS_COMPLETED_TOTAL,
+            "cohort_reconcile_jobs_completed_total",
+        );
+        assert_eq!(
+            RECONCILE_JOBS_SUPERSEDED_TOTAL,
+            "cohort_reconcile_jobs_superseded_total",
+        );
+        assert_eq!(
+            RECONCILE_JOBS_DISCARDED_TOTAL,
+            "cohort_reconcile_jobs_discarded_total",
+        );
+        assert_eq!(
+            RECONCILE_ROWS_SCANNED_TOTAL,
+            "cohort_reconcile_rows_scanned_total",
+        );
+        assert_eq!(
+            RECONCILE_ROWS_EMITTED_TOTAL,
+            "cohort_reconcile_rows_emitted_total",
+        );
+        assert_eq!(
+            RECONCILE_BITS_FIXED_TOTAL,
+            "cohort_reconcile_bits_fixed_total",
+        );
+        assert_eq!(
+            RECONCILE_MARKERS_EMITTED_TOTAL,
+            "cohort_reconcile_markers_emitted_total",
+        );
+        assert_eq!(
+            RECONCILE_MARKER_PRODUCE_ERRORS,
+            "cohort_reconcile_marker_produce_errors_total",
+        );
+        assert_eq!(RECONCILE_QUEUE_DEPTH, "cohort_reconcile_queue_depth");
+    }
+
+    #[test]
+    fn schema_guard_and_drain_scan_metric_names_are_stable() {
+        assert_eq!(
+            STORE_SCHEMA_MISMATCH_WIPES_TOTAL,
+            "store_schema_mismatch_wipes_total",
+        );
+        assert_eq!(MERGE_DRAIN_LEAVES_SCANNED, "merge_drain_leaves_scanned");
+    }
+
+    #[test]
+    fn catalog_metric_name_is_stable() {
+        assert_eq!(
+            FILTER_CATALOG_INVALID_SHAPE_HASH,
+            "filter_catalog_invalid_shape_hash_total",
         );
     }
 }

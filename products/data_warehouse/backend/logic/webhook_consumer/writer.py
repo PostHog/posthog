@@ -8,10 +8,7 @@ import structlog
 import pyarrow.parquet as pq
 
 from products.data_warehouse.backend.s3 import get_s3_client
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import (
-    ensure_bucket,
-    strip_s3_protocol,
-)
+from products.warehouse_sources.backend.facade.pipelines import ensure_bucket, strip_s3_protocol
 
 logger = structlog.get_logger(__name__)
 

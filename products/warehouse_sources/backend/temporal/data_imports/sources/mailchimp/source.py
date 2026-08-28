@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailchimpSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailchimp import (
+    MailchimpSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp import (
     MailchimpResumeConfig,
     mailchimp_source,
@@ -35,6 +34,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailchimpSource(ResumableSource[MailchimpSourceConfig, MailchimpResumeConfig]):
+    supported_versions = ("3.0",)
+    default_version = "3.0"
+    api_docs_url = "https://mailchimp.com/developer/marketing/api/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -85,6 +88,15 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
             "Invalid Mailchimp API key format": "Invalid API key format. Expected format: key-dc (e.g., abc123-us6)",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_mailchimp_session`'s `DEFAULT_RETRY` already retries 429/5xx responses in-process
+        # (Retry-After-aware backoff) before `raise_for_status()` can raise here. A response that
+        # still exhausts that budget is a transient Mailchimp/edge blip, not a bug — Temporal's
+        # activity retry recovers once it clears, so keep it out of error tracking as noise.
+        # `requests.Response.raise_for_status` derives these prefixes from the status code alone,
+        # not the vendor's reason text, so they're stable to match on.
+        return {"429 Client Error", "Server Error"}
+
     def get_schemas(
         self,
         config: MailchimpSourceConfig,
@@ -92,6 +104,7 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -108,7 +121,11 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
         return schemas
 
     def validate_credentials(
-        self, config: MailchimpSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MailchimpSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_mailchimp_credentials(config.api_key)
 

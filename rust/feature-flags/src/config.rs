@@ -1,3 +1,4 @@
+use crate::cohorts::cohort_models::MembershipStampPolicy;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use common_cookieless::CookielessConfig;
 use common_types::TeamId;
@@ -138,7 +139,7 @@ impl FromStr for TeamIdCollection {
         let s = s.trim();
         if s.eq_ignore_ascii_case("all") || s == "*" {
             Ok(TeamIdCollection::All)
-        } else if s.eq_ignore_ascii_case("none") {
+        } else if s.is_empty() || s.eq_ignore_ascii_case("none") {
             Ok(TeamIdCollection::None)
         } else {
             let mut team_ids = Vec::new();
@@ -392,8 +393,27 @@ pub struct Config {
     // if the behavioral cohorts DB is configured and cohorts with CohortType::Realtime
     // exist. Set to "all", specific team IDs, or ranges to enable realtime cohort
     // membership lookups on the hot path for those teams.
+    //
+    // Routing also requires `condition_type`, which was never backfilled, so every team listed
+    // here needs `python manage.py resave_cohorts --team-id <id>` first. Without it behavioral
+    // cohorts read as condition_type = NULL and fall back to dynamic evaluation, which resolves
+    // every person as a non-member rather than just evaluating slower.
+    //
+    // A team listed here must also be in Django's REALTIME_COHORT_TEAM_ALLOWLIST: the stamps
+    // this predicate trusts are only invalidated on edit for allowlisted teams, so without it
+    // an edited cohort keeps routing to a membership table computed for its old definition.
     #[envconfig(from = "REALTIME_COHORT_EVALUATION_TEAM_IDS", default = "none")]
     pub realtime_cohort_evaluation_team_ids: TeamIdCollection,
+
+    // Which cohort stamps the routing predicate accepts as proof the PG `cohort_membership`
+    // table is populated (see `MembershipStampPolicy`). "any_backfill_stamp" also accepts the
+    // overloaded `last_backfill_person_properties_at`; "events_or_calculation_stamp" does not,
+    // and is what Django's BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED gate waits on.
+    #[envconfig(
+        from = "REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY",
+        default = "any_backfill_stamp"
+    )]
+    pub realtime_cohort_membership_stamp_policy: MembershipStampPolicy,
 
     // Cache TTL for realtime cohort membership lookups (seconds).
     #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_TTL_SECONDS", default = "60")]
@@ -403,6 +423,16 @@ pub struct Config {
     // Each entry represents one (team_id, person_uuid) pair with a map of cohort memberships.
     #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES", default = "500000")]
     pub cohort_membership_cache_max_entries: u64,
+
+    // Upper bound on a single realtime cohort membership lookup (pool acquire + query).
+    // Keeps an unreachable behavioral cohorts DB from stalling flag requests for the
+    // pool's full 2s acquire timeout; on timeout the lookup degrades to non-membership.
+    // The default matches the pool's 1s statement timeout: a tighter client-side bound
+    // would discard answers the DB would still deliver, flipping flags for the person,
+    // so this bound only adds cover where statement_timeout cannot reach (pool acquire
+    // stalls, network black holes).
+    #[envconfig(from = "REALTIME_COHORT_LOOKUP_TIMEOUT_MS", default = "1000")]
+    pub realtime_cohort_lookup_timeout_ms: u64,
 
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
@@ -451,6 +481,13 @@ pub struct Config {
     // true = Mode 3: read and write dedicated Redis only (cutover complete)
     #[envconfig(default = "false")]
     pub flags_redis_enabled: FlexBool,
+
+    // Kill-switch for the flag-definitions self-heal path. When enabled, a
+    // /flags/definitions cache miss enqueues a (debounced) rebuild request that a
+    // Celery worker drains and rebuilds. Default on; set to "false" to instantly
+    // stop enqueuing if it ever misbehaves in prod.
+    #[envconfig(from = "FLAG_DEFINITIONS_SELF_HEAL_ENABLED", default = "true")]
+    pub flag_definitions_self_heal_enabled: FlexBool,
 
     // S3 configuration for HyperCache fallback
     #[envconfig(default = "posthog")]
@@ -608,9 +645,6 @@ pub struct Config {
     // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
-
-    #[envconfig(from = "COOKIELESS_FORCE_STATELESS", default = "false")]
-    pub cookieless_force_stateless: bool,
 
     #[envconfig(from = "COOKIELESS_IDENTIFIES_TTL_SECONDS", default = "345600")]
     pub cookieless_identifies_ttl_seconds: u64,
@@ -839,6 +873,12 @@ pub struct Config {
     #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "30")]
     pub team_negative_cache_ttl_seconds: u64,
 
+    // Write an S3 hit back into Redis so the next reader for that key is served by Redis
+    // instead of paying another S3 read. Applies to the team metadata and remote config
+    // hypercaches, which have no in-process cache in front of them. 0 disables.
+    #[envconfig(from = "HYPERCACHE_READ_REPAIR_TTL_SECONDS", default = "600")]
+    pub hypercache_read_repair_ttl_seconds: u64,
+
     // TTL for the Redis-backed per-token auth cache (positive hits).
     // Starts at 5 minutes as a conservative default; increase once invalidation
     // signals are proven reliable in production.
@@ -881,6 +921,19 @@ pub struct Config {
     // comfortably within the pod's `terminationGracePeriodSeconds`.
     #[envconfig(from = "FLAGS_BILLING_SHUTDOWN_FLUSH_TIMEOUT_MS", default = "15000")]
     pub billing_shutdown_flush_timeout_ms: u64,
+
+    // Usage-ingestion mirror. Empty address or empty teams disables it, so it
+    // rolls out per team independently of the Redis billing keyspace. These carry
+    // the names every usage producer reads, because each producer is its own
+    // deployment and sets them in its own config.
+    #[envconfig(from = "USAGE_INGESTION_ADDR", default = "")]
+    pub usage_ingestion_addr: String,
+    #[envconfig(from = "USAGE_INGESTION_TLS", default = "false")]
+    pub usage_ingestion_tls: bool,
+    #[envconfig(from = "USAGE_INGESTION_REPORT_TEAMS", default = "")]
+    pub usage_ingestion_teams: TeamIdCollection,
+    #[envconfig(from = "USAGE_INGESTION_TIMEOUT_MS", default = "5000")]
+    pub usage_ingestion_timeout_ms: u64,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -1014,6 +1067,7 @@ impl Config {
             flags_redis_url: "".to_string(),
             flags_redis_reader_url: "".to_string(),
             flags_redis_enabled: FlexBool(false),
+            flag_definitions_self_heal_enabled: FlexBool(false),
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
@@ -1028,8 +1082,10 @@ impl Config {
             flags_secret_keys: String::new(),
             secret_key: "test-secret-key-at-least-32-bytes-long".to_string(),
             realtime_cohort_evaluation_team_ids: TeamIdCollection::None,
+            realtime_cohort_membership_stamp_policy: MembershipStampPolicy::default(),
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
+            realtime_cohort_lookup_timeout_ms: 1000,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,
@@ -1059,7 +1115,6 @@ impl Config {
             group_type_cache_ttl_seconds: 300,
             group_type_cache_max_entries: 50_000,
             cookieless_disabled: false,
-            cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 345600,
             cookieless_salt_ttl_seconds: 345600,
             cookieless_redis_host: "localhost".to_string(),
@@ -1106,6 +1161,7 @@ impl Config {
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
             team_negative_cache_ttl_seconds: 30,
+            hypercache_read_repair_ttl_seconds: 600,
             skip_pg_team_fallback: FlexBool(false),
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
@@ -1116,6 +1172,10 @@ impl Config {
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
             billing_shutdown_flush_timeout_ms: 15_000,
+            usage_ingestion_addr: "".to_string(),
+            usage_ingestion_tls: false,
+            usage_ingestion_teams: TeamIdCollection::None,
+            usage_ingestion_timeout_ms: 5_000,
         }
     }
 
@@ -1177,7 +1237,6 @@ impl Config {
     pub fn get_cookieless_config(&self) -> CookielessConfig {
         CookielessConfig {
             disabled: self.cookieless_disabled,
-            force_stateless_mode: self.cookieless_force_stateless,
             identifies_ttl_seconds: self.cookieless_identifies_ttl_seconds,
             salt_ttl_seconds: self.cookieless_salt_ttl_seconds,
         }
@@ -1191,6 +1250,7 @@ impl Config {
             shutdown_flush_timeout: std::time::Duration::from_millis(
                 self.billing_shutdown_flush_timeout_ms,
             ),
+            jitter_override: None,
         }
     }
 
@@ -1345,6 +1405,12 @@ mod tests {
     #[test]
     fn test_team_ids_to_track_none() {
         let team_ids: TeamIdCollection = "none".parse().unwrap();
+        assert_eq!(team_ids, TeamIdCollection::None);
+    }
+
+    #[test]
+    fn test_team_ids_to_track_empty() {
+        let team_ids: TeamIdCollection = "".parse().unwrap();
         assert_eq!(team_ids, TeamIdCollection::None);
     }
 
@@ -1676,6 +1742,7 @@ mod service_mode_tests {
         assert_eq!(bcfg.max_pending_entries, 99);
         assert_eq!(bcfg.per_flush_batch_size, 7);
         assert_eq!(bcfg.shutdown_flush_timeout, Duration::from_millis(5_000));
+        assert_eq!(bcfg.jitter_override, None);
     }
 }
 

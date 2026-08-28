@@ -4,8 +4,12 @@ use anyhow::{anyhow, Result};
 use tracing::info;
 
 use crate::{
-    api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
-    debug_symbols::{discover, report_problems},
+    api::{
+        self,
+        releases::ReleaseBuilder,
+        symbol_sets::{dedup_uploads_by_chunk_id, SymbolSetUpload, MAX_FILE_SIZE},
+    },
+    debug_symbols::{discover, package_dsym_bundles, report_problems},
     sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
     utils::git::get_git_info,
 };
@@ -13,8 +17,10 @@ use crate::{
 #[derive(clap::Args, Clone)]
 pub struct Args {
     /// The directory to scan for native debug symbol files (e.g. target/release).
-    /// ELF executables, shared libraries, and `objcopy --only-keep-debug`
-    /// companions with debug info are uploaded; everything else is skipped.
+    /// ELF and Mach-O executables, shared libraries, and `objcopy
+    /// --only-keep-debug` companions with debug info are uploaded, as are Apple
+    /// `.dSYM` bundles (macOS only — needs `dwarfdump` from Xcode); everything
+    /// else is skipped.
     #[arg(short, long)]
     pub directory: PathBuf,
 
@@ -39,7 +45,7 @@ pub fn upload(args: &Args) -> Result<()> {
         conflict,
         include_source,
     } = args;
-    let release_args = release;
+    let release_args = release.resolve_info_plist()?;
 
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
@@ -56,9 +62,41 @@ pub fn upload(args: &Args) -> Result<()> {
     let report = discover(&directory)?;
     report_problems(&report, &directory)?;
 
-    info!("Found {} debug symbol file(s)", report.files.len());
+    info!(
+        "Found {} native debug file(s) and {} dSYM bundle(s)",
+        report.files.len(),
+        report.dsym_bundles.len()
+    );
 
-    // Set up release info: explicit flags win, git info is metadata/fallback
+    // Package everything first, with no release id yet, so we only create a
+    // release once we know there's something to upload. dSYM packaging
+    // logs-and-skips failures (e.g. a missing dwarfdump), so a dSYM-only
+    // directory can yield zero uploads — creating the release up front would
+    // leave a release record behind with no symbols attached to it.
+    let mut native_uploads = Vec::with_capacity(report.files.len());
+    for file in report.files {
+        info!(
+            "Processing {} (debug id {})",
+            file.path.display(),
+            file.debug_id
+        );
+        native_uploads.push(file.into_upload(None, *include_source)?);
+    }
+
+    // A failed or oversized dSYM leaves a matching standalone Mach-O as the
+    // fallback. Successfully packaged, uploadable dSYMs take priority.
+    let dsym_uploads = package_dsym_bundles(&report.dsym_bundles, *include_source);
+    let mut uploads = merge_uploads_prefer_dsym(dsym_uploads, native_uploads, MAX_FILE_SIZE);
+
+    if uploads.is_empty() {
+        anyhow::bail!(
+            "No debug symbols could be packaged for upload from {}",
+            directory.display()
+        );
+    }
+
+    // Now that there's something to upload, set up the release (explicit flags
+    // win, git info is metadata/fallback) and stamp it on every set.
     let mut release_builder = ReleaseBuilder::default();
     if let Ok(Some(git_info)) = get_git_info(Some(directory.clone())) {
         release_builder.with_git(git_info);
@@ -74,30 +112,88 @@ pub fn upload(args: &Args) -> Result<()> {
         .can_create()
         .then(|| release_builder.fetch_or_create())
         .transpose()?;
-    let release_id = created_release.map(|r| r.id.to_string());
-
-    let mut uploads: Vec<SymbolSetUpload> = Vec::new();
-    for file in report.files {
-        info!(
-            "Processing {} (debug id {})",
-            file.path.display(),
-            file.debug_id
-        );
-        uploads.push(file.into_upload(release_id.clone(), *include_source)?);
+    if let Some(release) = created_release {
+        let release_id = release.id.to_string();
+        for upload in &mut uploads {
+            upload.release_id = Some(release_id.clone());
+        }
     }
 
     info!("Uploading {} debug symbol file(s)...", uploads.len());
     // --include-source implies force unless the user explicitly asked to keep
     // existing symbol sets with --skip-on-conflict.
     let effective_force = conflict.force || (*include_source && !conflict.skip_on_conflict);
-    api::symbol_sets::upload_with_retry(
+    let (_summary, upload_result) = api::symbol_sets::upload_with_retry(
         uploads,
         10,
         release_args.skip_release_on_fail,
         effective_force,
         conflict.skip_on_conflict,
-    )?;
+    );
+    upload_result?;
     info!("Debug symbol upload complete");
 
     Ok(())
+}
+
+/// Merge packaged native symbols, preferring an uploadable dSYM when both
+/// inputs carry the same uppercase Mach-O UUID. Oversized dSYMs come last so a
+/// matching native upload wins, but remain available when there is no fallback
+/// and the upload layer can preserve its existing warning behavior. ELF ids
+/// remain lowercase and cannot collide.
+fn merge_uploads_prefer_dsym(
+    dsym_uploads: Vec<SymbolSetUpload>,
+    native_uploads: Vec<SymbolSetUpload>,
+    max_file_size: usize,
+) -> Vec<SymbolSetUpload> {
+    let (mut preferred_dsyms, oversized_dsyms): (Vec<_>, Vec<_>) = dsym_uploads
+        .into_iter()
+        .partition(|upload| upload.data.len() <= max_file_size);
+    preferred_dsyms.extend(native_uploads);
+    preferred_dsyms.extend(oversized_dsyms);
+    // Casing must never be normalized here: the SDK matches chunk_ids case-sensitively, per
+    // format, and lowercase ELF ids never collide with uppercase Mach-O ones.
+    dedup_uploads_by_chunk_id(preferred_dsyms)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_uploads_prefers_dsym_over_matching_macho() {
+        let uuid = "77C2F55F-C959-487A-9601-6A715A9BB5DE";
+        let upload = |chunk_id: &str, data: &[u8]| SymbolSetUpload {
+            chunk_id: chunk_id.to_string(),
+            release_id: None,
+            data: data.to_vec(),
+            content_hash: None,
+        };
+
+        let uploads = merge_uploads_prefer_dsym(
+            vec![upload(uuid, b"dsym")],
+            vec![upload(uuid, b"macho")],
+            10,
+        );
+
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].data, b"dsym");
+    }
+
+    #[test]
+    fn merge_uploads_uses_macho_when_matching_dsym_is_oversized() {
+        let uuid = "77C2F55F-C959-487A-9601-6A715A9BB5DE";
+        let upload = |data: &[u8]| SymbolSetUpload {
+            chunk_id: uuid.to_string(),
+            release_id: None,
+            data: data.to_vec(),
+            content_hash: None,
+        };
+
+        let uploads =
+            merge_uploads_prefer_dsym(vec![upload(b"oversized-dsym")], vec![upload(b"macho")], 5);
+
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].data, b"macho");
+    }
 }

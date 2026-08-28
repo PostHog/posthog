@@ -8,7 +8,13 @@ from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, rsa
 from paramiko import DSSKey, ECDSAKey, Ed25519Key, PKey, RSAKey
 from sshtunnel import SSHTunnelForwarder
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import config
+
+# Substrings that mark a private-key parse failure as a wrong/missing passphrase rather than a
+# format problem, so both the parser and the validator give the same passphrase-specific guidance.
+_PASSPHRASE_ERROR_TERMS = ("checksum", "decrypt", "password", "passphrase")
 
 
 # Taken from https://stackoverflow.com/questions/60660919/paramiko-ssh-client-is-unable-to-unpack-ed25519-key
@@ -22,7 +28,12 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
             password=password,
         )
         file_obj.seek(0)
-    except ValueError:
+    except ValueError as ssh_error:
+        # A wrong passphrase on an OpenSSH key surfaces as a checksum/decrypt failure. Falling
+        # through to the PEM loader masks it with a misleading "no BEGIN/END" error, so re-raise
+        # the original — the caller uses it to point the user at the passphrase.
+        if any(term in str(ssh_error).lower() for term in _PASSPHRASE_ERROR_TERMS):
+            raise
         key = crypto_serialization.load_pem_private_key(  # type: ignore
             file_bytes,
             password=password if passphrase is not None else None,
@@ -78,7 +89,7 @@ class SSHTunnelConfig(config.Config):
     require_tls: SSHTunnelRequireTlsConfig = config.value(default_factory=SSHTunnelRequireTlsConfig)
 
 
-@dataclasses.dataclass
+@frozen
 class SSHTunnel:
     enabled: bool
 
@@ -86,9 +97,9 @@ class SSHTunnel:
     port: int | str
     auth_type: Literal["password", "keypair"]
     username: str | None
-    password: str | None
-    private_key: str | None
-    passphrase: str | None
+    password: str | None = dataclasses.field(repr=False)
+    private_key: str | None = dataclasses.field(repr=False)
+    passphrase: str | None = dataclasses.field(repr=False)
 
     @classmethod
     def from_config(cls: type[typing.Self], config: SSHTunnelConfig) -> typing.Self:
@@ -140,22 +151,50 @@ class SSHTunnel:
 
             try:
                 self.parse_private_key()
-            except:
-                # TODO: More helpful error messages
-                return False, "Private key could not be parsed"
+            except Exception as e:
+                # A wrong/missing passphrase and an unsupported key format both land here but need
+                # different fixes, so point the user at the likely cause. cryptography's message
+                # mentions the password/checksum only for passphrase mismatches.
+                detail = str(e).lower()
+                if any(term in detail for term in _PASSPHRASE_ERROR_TERMS):
+                    return False, (
+                        "Private key could not be parsed. Check the passphrase: an encrypted key needs the "
+                        "correct passphrase, and an unencrypted key needs the passphrase field left blank."
+                    )
+                return False, (
+                    "Private key could not be parsed. Paste the full key in OpenSSH or PEM format "
+                    "(RSA, Ed25519, ECDSA, or DSA), including the BEGIN and END lines."
+                )
 
             return True, ""
 
         return False, ""  # type: ignore
 
     def has_valid_port(self) -> tuple[bool, str]:
-        port = int(self.port)
+        try:
+            port = int(self.port)
+        except (TypeError, ValueError):
+            return False, "Port must be a number between 1 and 65535"
+
+        # Out-of-range ports otherwise slip through to sshtunnel, which asserts `0 <= port <= 65535`
+        # and raises a bare AssertionError ("PORT < 0 (...)") that surfaces as error-tracking noise.
+        if port < 1 or port > 65535:
+            return False, "Port must be between 1 and 65535"
+
         if port == 80 or port == 443:
             return False, f"Port {port} is not allowed"
 
         return True, ""
 
-    def get_tunnel(self, remote_host: str, remote_port: int) -> SSHTunnelForwarder:
+    def get_tunnel(self, remote_host: str, remote_port: int, *, ssh_host: str) -> SSHTunnelForwarder:
+        """Open a forwarder to `ssh_host`, which is the address `self.host` resolved to.
+
+        `ssh_host` is required rather than defaulted to `self.host` so that a caller cannot
+        skip the SSRF check by omitting it: see `resolve_safe_host` for why the checked address
+        and the connected address have to be the same one. Passing an IP does not weaken the
+        SSH connection, because `ssh_host_key` is left unset and paramiko therefore verifies no
+        host key against the name either way.
+        """
         if not self.is_auth_valid()[0]:
             raise Exception("SSHTunnel auth is not valid")
 
@@ -164,7 +203,7 @@ class SSHTunnel:
 
         if self.auth_type == "password":
             return SSHTunnelForwarder(
-                (self.host, int(self.port)),
+                (ssh_host, int(self.port)),
                 ssh_username=self.username,
                 ssh_password=self.password,
                 remote_bind_address=(remote_host, remote_port),
@@ -172,7 +211,7 @@ class SSHTunnel:
             )
         else:
             return SSHTunnelForwarder(
-                (self.host, int(self.port)),
+                (ssh_host, int(self.port)),
                 ssh_username=self.username,
                 ssh_pkey=self.parse_private_key(),
                 ssh_private_key_password=self.passphrase,

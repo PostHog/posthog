@@ -81,3 +81,9 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(PAGERDUTY_ENDPOINTS.keys())
+
+# Per-endpoint incremental fields for build_endpoint_schemas; only `incidents` exposes a
+# server-side `since` filter with a controllable sort, so only it is incremental-capable.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    name: cfg.incremental_fields for name, cfg in PAGERDUTY_ENDPOINTS.items()
+}

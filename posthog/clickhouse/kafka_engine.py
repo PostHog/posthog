@@ -8,6 +8,7 @@ from django.conf import settings
 # Once we make all envs match, we can remove the _US check
 _US = settings.CLOUD_DEPLOYMENT == "US"
 CONSUMER_GROUP_EVENTS_JSON = "clickhouse_events_json" if _US else "group1"
+CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON = "clickhouse_events_json_native_json"
 # DEPRECATED: see posthog/models/app_metrics/sql.py for context. Kept only for the
 # deprecated `kafka_app_metrics` table DDL.
 CONSUMER_GROUP_APP_METRICS = "clickhouse_app_metrics" if _US else "group1"
@@ -26,8 +27,10 @@ CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES = (
 )
 CONSUMER_GROUP_DISTINCT_ID_USAGE = "clickhouse_distinct_id_usage"
 CONSUMER_GROUP_TOPHOG = "clickhouse_tophog"
+CONSUMER_GROUP_BILLING_USAGE_RECORDS = "clickhouse_billing_usage_records"
 CONSUMER_GROUP_AI_EVENTS = "clickhouse_ai_events" if _US else "group1"
 CONSUMER_GROUP_PROPERTY_VALUES = "clickhouse_property_values"
+CONSUMER_GROUP_FLAG_EVALUATIONS = "clickhouse_flag_evaluations"
 
 # WarpStream consumer groups (separate from MSK so both can coexist)
 CONSUMER_GROUP_LOG_ENTRIES_WS = "clickhouse_log_entries_ws"
@@ -43,6 +46,8 @@ CONSUMER_GROUP_PERSON_DISTINCT_ID_OVERRIDES_WS = "clickhouse_person_distinct_id_
 CONSUMER_GROUP_AI_EVENTS_WS = "clickhouse_ai_events_ws"
 CONSUMER_GROUP_HEATMAPS_WS = "clickhouse_heatmaps_ws"
 CONSUMER_GROUP_INGESTION_WARNINGS_WS = "clickhouse_ingestion_warnings_ws"
+# v2 reads the same topic as v1 via its own consumer group, so it gets the full stream independently.
+CONSUMER_GROUP_INGESTION_WARNINGS_V2 = "clickhouse_ingestion_warnings_v2"
 CONSUMER_GROUP_SESSION_REPLAY_EVENTS_WS = "clickhouse_session_replay_events_ws"
 CONSUMER_GROUP_SESSION_REPLAY_FEATURES_WS = "clickhouse_session_replay_features_ws"
 CONSUMER_GROUP_COHORT_MEMBERSHIP_WS = "clickhouse_cohort_membership_ws"

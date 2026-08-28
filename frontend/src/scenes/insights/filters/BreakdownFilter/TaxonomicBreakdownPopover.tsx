@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -7,6 +7,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { isInsightVizNode, isRetentionQuery } from '~/queries/utils'
 
@@ -29,6 +30,8 @@ export const TaxonomicBreakdownPopover = ({
     breakdownType,
     breakdownValue,
 }: TaxonomicBreakdownPopoverProps): JSX.Element => {
+    // allEventNames resolves action series through actionsModel, which the shared insight logic does not mount
+    useMountedLogic(actionsModel)
     const { insightProps } = useValues(insightLogic)
     const { allEventNames, query, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { databaseLoading } = useValues(databaseTableListLogic)
@@ -45,6 +48,7 @@ export const TaxonomicBreakdownPopover = ({
         taxonomicGroupTypes = [TaxonomicFilterGroupType.CohortsWithAllUsers]
     } else if (isRetentionQuery(query) || (isInsightVizNode(query) && isRetentionQuery(query.source))) {
         taxonomicGroupTypes = [
+            TaxonomicFilterGroupType.MCPProperties,
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.PersonProperties,
             TaxonomicFilterGroupType.EventFeatureFlags,
@@ -55,6 +59,9 @@ export const TaxonomicBreakdownPopover = ({
         ]
     } else {
         taxonomicGroupTypes = [
+            // Only materializes when the insight has $mcp_* series in scope, so breakdowns
+            // by e.g. tool name or error state lead with the known MCP schema.
+            TaxonomicFilterGroupType.MCPProperties,
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.PersonProperties,
             TaxonomicFilterGroupType.EventFeatureFlags,

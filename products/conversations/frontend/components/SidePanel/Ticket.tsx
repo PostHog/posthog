@@ -7,14 +7,35 @@ import { MessageInput } from '../Chat/MessageInput'
 import { MessageList } from '../Chat/MessageList'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 
-export function Ticket(): JSX.Element {
+interface TicketProps {
+    /** Hidden in master-detail layouts where the list stays visible alongside the thread */
+    showBackButton?: boolean
+    /** Lets master-detail layouts show the back button only at widths where the panes stack */
+    backButtonClassName?: string
+    messagesMinHeight?: string
+    messagesMaxHeight?: string
+}
+
+export function Ticket({
+    showBackButton = true,
+    backButtonClassName,
+    messagesMinHeight = '300px',
+    messagesMaxHeight = '400px',
+}: TicketProps): JSX.Element {
     const { messages, messagesLoading, messageSending, currentTicket } = useValues(sidepanelTicketsLogic)
     const { sendMessage, setView } = useActions(sidepanelTicketsLogic)
 
     return (
         <div className="flex flex-col h-full bg-surface-primary border rounded-lg p-2">
             <div className="flex items-center gap-2">
-                <LemonButton icon={<IconArrowLeft />} size="small" onClick={() => setView('list')} />
+                {showBackButton && (
+                    <LemonButton
+                        icon={<IconArrowLeft />}
+                        size="small"
+                        className={backButtonClassName}
+                        onClick={() => setView('list')}
+                    />
+                )}
                 {currentTicket?.ticket_number && (
                     <span className="text-xs font-mono text-muted-alt">#{currentTicket.ticket_number}</span>
                 )}
@@ -36,8 +57,8 @@ export function Ticket(): JSX.Element {
                 messages={messages}
                 messagesLoading={messagesLoading}
                 emptyMessage="No messages yet."
-                minHeight="300px"
-                maxHeight="400px"
+                minHeight={messagesMinHeight}
+                maxHeight={messagesMaxHeight}
                 className="mb-3"
                 isCustomerView
             />

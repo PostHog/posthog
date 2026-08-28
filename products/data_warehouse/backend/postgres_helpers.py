@@ -27,16 +27,14 @@ from products.warehouse_sources.backend.facade.models import (
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import normalize_namespace
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
+from products.warehouse_sources.backend.facade.source_management import (
+    SourceSchema,
     extract_available_column_names,
-    sql_schema_metadata as _sql_schema_metadata,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     filter_columns_by_enabled_columns as _filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    normalize_namespace,
     prune_enabled_columns,
+    sql_schema_metadata as _sql_schema_metadata,
 )
 
 if TYPE_CHECKING:
@@ -231,16 +229,16 @@ def reconcile_postgres_schemas(
 
         # Drop dead columns so next sync doesn't emit `SELECT … missing_col`.
         available_names = extract_available_column_names(schema_metadata)
-        pruned_enabled_columns, removed_columns = prune_enabled_columns(matched.enabled_columns, available_names)
-        if removed_columns:
+        pruned = prune_enabled_columns(matched.enabled_columns, available_names)
+        if pruned.removed:
             log.info(
                 "postgres.reconcile_schemas.pruned_enabled_columns",
                 source_id=str(source.id),
                 schema_id=str(matched.id),
                 schema_name=matched.name,
-                removed_columns=removed_columns,
+                removed_columns=pruned.removed,
             )
-            matched.enabled_columns = pruned_enabled_columns
+            matched.enabled_columns = pruned.kept
             update_fields.append("enabled_columns")
         matched.save(update_fields=update_fields)
 

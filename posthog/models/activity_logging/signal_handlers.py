@@ -1,5 +1,5 @@
+import sys
 import time
-import inspect
 import dataclasses
 from collections.abc import Callable
 from datetime import timedelta
@@ -20,7 +20,6 @@ from prometheus_client import Counter
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
-from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated
 from posthog.models import Organization, PersonalAPIKey, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import (
@@ -31,9 +30,10 @@ from posthog.models.activity_logging.activity_log import (
     LogActivityEntry,
     bulk_log_activity,
     changes_between,
+    field_name_overrides,
     log_activity,
 )
-from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+from posthog.models.activity_logging.model_activity import get_current_trigger, get_current_user, get_was_impersonated
 from posthog.models.activity_logging.personal_api_key_utils import (
     log_personal_api_key_activity,
     log_personal_api_key_scope_change,
@@ -41,6 +41,7 @@ from posthog.models.activity_logging.personal_api_key_utils import (
 from posthog.models.activity_logging.project_secret_api_key_utils import log_project_secret_api_key_activity
 from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
 from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -48,6 +49,7 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
+from posthog.session.models import Session
 from posthog.utils import get_ip_address, get_short_user_agent
 
 from products.experiments.backend.models.experiment import (
@@ -94,18 +96,22 @@ def _detect_impersonation_for_login(user, request):
         hasattr(request, "session") and request.session and la_settings.USER_SESSION_FLAG in request.session
     )
 
-    for frame in inspect.stack():
-        if "loginas" in frame.filename:
+    # Walk raw frames instead of inspect.stack(): the latter resolves source context for
+    # every frame (linecache + sys.modules scans), which costs ~200ms per login.
+    frame = sys._getframe().f_back
+    while frame is not None:
+        if "loginas" in frame.f_code.co_filename:
             try:
-                if "original_user_pk" in frame.frame.f_locals:
+                if "original_user_pk" in frame.f_locals:
                     User = get_user_model()
-                    original_user_pk = frame.frame.f_locals["original_user_pk"]
+                    original_user_pk = frame.f_locals["original_user_pk"]
                     admin_user = User.objects.get(pk=original_user_pk)
                     return True, admin_user, str(user.id), "impersonation"
             except Exception:
                 pass
 
             return True, user, str(user.id), "impersonation"
+        frame = frame.f_back
 
     if has_impersonation_session:
         try:
@@ -134,38 +140,61 @@ def _determine_login_method(request, was_impersonated):
     return login_method
 
 
+def log_login_activity(
+    user,
+    request: HttpRequest,
+    *,
+    login_method: str,
+    reauth: bool,
+    was_impersonated: bool = False,
+    log_user=None,
+    item_id: str | None = None,
+) -> None:
+    """Write the `logged_in` audit entry.
+
+    Also called directly for an SSO step-up re-auth, which keeps its session and so never fires
+    `user_logged_in` (see `posthog.api.authentication.social_reauth`).
+    """
+    organization_id = user.current_organization_id
+
+    if organization_id is None:
+        logger.info("Skipping login activity log - user has no organization", user_id=user.id)
+        return
+
+    log_activity(
+        organization_id=organization_id,
+        team_id=None,
+        user=log_user or user,
+        item_id=item_id or str(user.id),
+        scope="User",
+        activity="logged_in",
+        detail=Detail(
+            name=user.email,
+            changes=[],
+            context=UserLoginContext(
+                login_method=login_method,
+                ip_address=get_ip_address(request),
+                user_agent=get_short_user_agent(request),
+                reauth=reauth,
+            ),
+        ),
+        was_impersonated=was_impersonated,
+    )
+
+
 @receiver(user_logged_in)
 def log_user_login_activity(sender, user, request: HttpRequest, **kwargs):  # noqa: ARG001
     try:
         was_impersonated, log_user, item_id, _ = _detect_impersonation_for_login(user, request)
-        ip_address = get_ip_address(request)
-        user_agent = get_short_user_agent(request)
-        reauth = request.session.get("reauth") == "true"
 
-        organization_id = user.current_organization_id
-
-        if organization_id is None:
-            logger.info("Skipping login activity log - user has no organization", user_id=user.id)
-            return
-
-        log_activity(
-            organization_id=organization_id,
-            team_id=None,
-            user=log_user,
-            item_id=item_id,
-            scope="User",
-            activity="logged_in",
-            detail=Detail(
-                name=user.email,
-                changes=[],
-                context=UserLoginContext(
-                    login_method=_determine_login_method(request, was_impersonated),
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                    reauth=reauth,
-                ),
-            ),
+        log_login_activity(
+            user,
+            request,
+            login_method=_determine_login_method(request, was_impersonated),
+            reauth=request.session.get("reauth") == "true",
             was_impersonated=was_impersonated,
+            log_user=log_user,
+            item_id=item_id,
         )
     except Exception as e:
         logger.exception("Failed to log user login activity", user_id=user.id, error=e)
@@ -323,6 +352,50 @@ def handle_organization_domain_change(
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class IdentityProviderConfigContext(ActivityContextBase):
+    organization_id: str
+    organization_name: str
+
+
+@mutable_receiver(model_activity_signal, sender=IdentityProviderConfig)
+def handle_identity_provider_config_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    config_instance = after_update or before_update
+
+    if not config_instance:
+        return
+
+    context = IdentityProviderConfigContext(
+        organization_id=str(config_instance.organization_id),
+        organization_name=config_instance.organization.name,
+    )
+
+    config_name = config_instance.name or str(config_instance.id)
+    if activity == "created":
+        detail_name = f"Identity provider config {config_name} added to {config_instance.organization.name}"
+    elif activity == "deleted":
+        detail_name = f"Identity provider config {config_name} removed from {config_instance.organization.name}"
+    else:
+        detail_name = f"Identity provider config {config_name} updated in {config_instance.organization.name}"
+
+    log_activity(
+        organization_id=config_instance.organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=config_instance.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            context=context,
+        ),
+    )
+
+
 @mutable_receiver(model_activity_signal, sender=ExperimentSavedMetric)
 def handle_experiment_saved_metric_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
@@ -422,16 +495,19 @@ def handle_oauth_application_scopes_change(
     else:
         if before_update is None or after_update is None:
             return
-        # `scopes` is an ordered ArrayField but semantically a set (a permission ceiling),
-        # so a pure reorder is not an auditable change.
-        if set(before_update.scopes or []) == set(after_update.scopes or []):
-            return
-        # Only the scope ceiling is audited for OAuth apps; other fields changed in the
-        # same save are deliberately left out of the entry.
+        # Only the scope ceiling and the provisioning config (capabilities and rate-limit
+        # overrides) are audited for OAuth apps; other fields changed in the same save are
+        # deliberately left out of the entry. `scopes` is an ordered ArrayField but
+        # semantically a set (a permission ceiling), so a pure reorder is not auditable.
+        scopes_changed = set(before_update.scopes or []) != set(after_update.scopes or [])
+        # Changes carry the display name, not the column name.
+        provisioning_field = field_name_overrides.get("OAuthApplication", {}).get(
+            "_provisioning_config", "_provisioning_config"
+        )
         changes = [
             change
             for change in changes_between(scope, previous=before_update, current=after_update)
-            if change.field == "scopes"
+            if (change.field == "scopes" and scopes_changed) or change.field == provisioning_field
         ]
         if not changes:
             return
@@ -579,20 +655,22 @@ def handle_tagged_item_change(
     if not tagged_item or not tagged_item.tag:
         return
 
-    related_object_type, related_object_id, related_object_name = get_tagged_item_related_object_info(tagged_item)
+    related_object = get_tagged_item_related_object_info(tagged_item)
 
     context = TaggedItemContext(
         tag_name=tagged_item.tag.name,
         tag_id=str(tagged_item.tag.id),
         team_id=tagged_item.tag.team_id,
-        related_object_type=related_object_type,
-        related_object_id=related_object_id,
-        related_object_name=related_object_name,
+        related_object_type=related_object.type,
+        related_object_id=related_object.id,
+        related_object_name=related_object.name,
     )
 
     team = tagged_item.tag.team
     organization_id = team.organization_id if team else None
     team_id = tagged_item.tag.team_id
+    # Set by ActivityTriggerContext when the change comes from an automated source (e.g. a workflow)
+    trigger = get_current_trigger()
 
     log_activity(
         organization_id=organization_id,
@@ -606,24 +684,25 @@ def handle_tagged_item_change(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=tagged_item.tag.name,
             context=context,
+            trigger=trigger,
         ),
     )
 
     # Mirror the tag change onto the related object's own activity stream
     # (e.g. so a tag added to a Ticket shows up on that ticket's timeline).
-    related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object_type or "")
-    if related_logger and related_object_id:
+    related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object.type or "")
+    if related_logger and related_object.id:
         tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
         log_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
             was_impersonated=was_impersonated,
-            item_id=related_object_id,
+            item_id=related_object.id,
             scope=related_logger.scope,
             activity="updated",
             detail=Detail(
-                name=related_logger.resolve_name(tagged_item, related_object_name),
+                name=related_logger.resolve_name(tagged_item, related_object.name),
                 changes=[
                     Change(
                         type=related_logger.scope,
@@ -633,6 +712,7 @@ def handle_tagged_item_change(
                         before=tagged_item.tag.name if activity == "deleted" else None,
                     )
                 ],
+                trigger=trigger,
             ),
         )
 
@@ -839,8 +919,27 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
     request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
 
+    # Every (re)auth refreshes the step-up window and drops any pending step-up requirement, so a
+    # fresh password/2FA/SSO login satisfies TimeSensitiveActionPermission.
+    request.session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time()
+    request.session.pop(settings.SESSION_STEP_UP_REQUIRED_KEY, None)
+
+    # Defensive risk-baseline reset: login() rotates the session key, so the new row's risk columns
+    # are already NULL and this is normally a no-op. It guarantees a clean baseline after a high-tier
+    # logout→re-login so the next request re-establishes from the real location instead of oscillating.
+    # Only the security baseline is cleared (not last_activity, which is display-only).
+    if request.session.session_key:
+        Session.objects.filter(session_key=request.session.session_key).update(
+            latitude=None, longitude=None, country_code=None, ua_signature=None, baseline_at=None
+        )
+
     # Cache device info on signup to skip login notification for this device
     if user.last_login is None:
+        # Deferred: importing posthog.geoip loads the MaxMind DB into memory at import time,
+        # which lands on the django.setup() path via this app's ready() and blows the startup
+        # import budget. Keep it at call time so only the signup path pays for it.
+        from posthog.geoip import get_geoip_properties  # noqa: PLC0415
+
         short_user_agent = get_short_user_agent(request)
         ip_address = get_ip_address(request)
         country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")

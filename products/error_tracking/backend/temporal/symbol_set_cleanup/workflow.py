@@ -1,4 +1,5 @@
 import json
+import asyncio
 from datetime import timedelta
 
 from temporalio import common, workflow
@@ -8,14 +9,70 @@ from posthog.temporal.common.base import PostHogWorkflow
 with workflow.unsafe.imports_passed_through():
     from products.error_tracking.backend.temporal.symbol_set_cleanup.activities import cleanup_symbol_sets_activity
     from products.error_tracking.backend.temporal.symbol_set_cleanup.types import (
+        SYMBOL_SET_CLEANUP_BUCKET_COUNT,
         SymbolSetCleanupInputs,
         SymbolSetCleanupResult,
     )
 
 WORKFLOW_NAME = "error-tracking-symbol-set-cleanup"
+PARALLEL_CLEANUP_PATCH_ID = "error-tracking-parallel-symbol-set-cleanup"
+BUCKETED_CLEANUP_PATCH_ID = "error-tracking-bucketed-symbol-set-cleanup"
 
 ACTIVITY_RETRY_POLICY = common.RetryPolicy(maximum_attempts=1)
 ACTIVITY_START_TO_CLOSE_TIMEOUT = timedelta(hours=2)
+BUCKET_ROTATION_INTERVAL = timedelta(minutes=30)
+
+
+def _legacy_activity_inputs(inputs: SymbolSetCleanupInputs) -> list[SymbolSetCleanupInputs]:
+    if inputs.dry_run or inputs.total_per_run <= 0:
+        return [inputs]
+
+    parallelism = max(1, min(inputs.parallelism, inputs.total_per_run))
+    per_activity_limit, remainder = divmod(inputs.total_per_run, parallelism)
+    return [
+        SymbolSetCleanupInputs(
+            days_old=inputs.days_old,
+            delete_unused=inputs.delete_unused,
+            total_per_run=per_activity_limit + (1 if index < remainder else 0),
+            batch_size=inputs.batch_size,
+            parallelism=1,
+            dry_run=False,
+        )
+        for index in range(parallelism)
+    ]
+
+
+def _bucketed_activity_inputs(inputs: SymbolSetCleanupInputs, bucket_offset: int) -> list[SymbolSetCleanupInputs]:
+    if inputs.dry_run or inputs.total_per_run <= 0:
+        return [inputs]
+
+    parallelism = max(1, min(inputs.parallelism, inputs.total_per_run))
+    per_activity_limit, remainder = divmod(inputs.total_per_run, parallelism)
+    return [
+        SymbolSetCleanupInputs(
+            days_old=inputs.days_old,
+            delete_unused=inputs.delete_unused,
+            total_per_run=per_activity_limit + (1 if index < remainder else 0),
+            batch_size=inputs.batch_size,
+            parallelism=1,
+            dry_run=False,
+            bucket_worker_index=index,
+            bucket_worker_count=parallelism,
+            bucket_offset=bucket_offset,
+        )
+        for index in range(parallelism)
+    ]
+
+
+def _combine_results(results: list[SymbolSetCleanupResult]) -> SymbolSetCleanupResult:
+    eligible_counts = [result.eligible_count for result in results if result.eligible_count is not None]
+    return SymbolSetCleanupResult(
+        objects_processed=sum(result.objects_processed for result in results),
+        objects_deleted=sum(result.objects_deleted for result in results),
+        objects_failed=sum(result.objects_failed for result in results),
+        storage_objects_failed=sum(result.storage_objects_failed for result in results),
+        eligible_count=sum(eligible_counts) if eligible_counts else None,
+    )
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -32,9 +89,32 @@ class ErrorTrackingSymbolSetCleanupWorkflow(PostHogWorkflow):
         if inputs is None:
             inputs = SymbolSetCleanupInputs()
 
-        return await workflow.execute_activity(
-            cleanup_symbol_sets_activity,
-            inputs,
-            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
-            retry_policy=ACTIVITY_RETRY_POLICY,
+        if not workflow.patched(PARALLEL_CLEANUP_PATCH_ID):
+            return await workflow.execute_activity(
+                cleanup_symbol_sets_activity,
+                inputs,
+                start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+                retry_policy=ACTIVITY_RETRY_POLICY,
+            )
+
+        if workflow.patched(BUCKETED_CLEANUP_PATCH_ID):
+            bucket_offset = (
+                int(workflow.now().timestamp() / BUCKET_ROTATION_INTERVAL.total_seconds())
+                % SYMBOL_SET_CLEANUP_BUCKET_COUNT
+            )
+            activity_inputs = _bucketed_activity_inputs(inputs, bucket_offset)
+        else:
+            activity_inputs = _legacy_activity_inputs(inputs)
+
+        results = await asyncio.gather(
+            *[
+                workflow.execute_activity(
+                    cleanup_symbol_sets_activity,
+                    activity_input,
+                    start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+                    retry_policy=ACTIVITY_RETRY_POLICY,
+                )
+                for activity_input in activity_inputs
+            ]
         )
+        return _combine_results(results)

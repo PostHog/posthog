@@ -9,19 +9,22 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.schema import AlertState
 
+from posthog.slo.context import JsonValue
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.alerts.activities import (
     cleanup_alert_checks,
     evaluate_alert,
     notify_alert,
     prepare_alert,
+    record_failed_evaluation,
     retrieve_due_alerts,
     run_investigation_safety_net,
 )
 from posthog.temporal.alerts.retry_policy import (
-    ALERT_EVALUATE_RETRY_POLICY,
     ALERT_NOTIFY_RETRY_POLICY,
     ALERT_PREPARE_RETRY_POLICY,
+    AlertTimeouts,
+    alert_timeouts,
 )
 from posthog.temporal.alerts.types import (
     CheckAlertWorkflowInputs,
@@ -29,21 +32,15 @@ from posthog.temporal.alerts.types import (
     NotifyAlertActivityInputs,
     PrepareAction,
     PrepareAlertActivityInputs,
+    RecordFailedEvaluationActivityInputs,
 )
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from django.conf import settings
 
     from posthog.temporal.ai.anomaly_investigation import AnomalyInvestigationWorkflowInputs
-
-# Each activity's retry budget must exhaust inside the child workflow's execution
-# timeout: a server-side workflow timeout skips workflow code entirely, so the SLO
-# completion would never be emitted and the alert's next_check_at would never advance.
-# Compound worst cases (e.g. a slow prepare pushing evaluate past the envelope) can
-# still hit the server-side timeout; the cap guarantees no single activity does.
-CHECK_ALERT_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
-ALERT_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT = dt.timedelta(minutes=12)
 
 
 @temporalio.workflow.defn(name="schedule-due-alert-checks")
@@ -70,6 +67,11 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
         # rejects the duplicate start.
         tasks = []
         for alert in alerts:
+            slo_properties: dict[str, JsonValue] = {
+                "alert_type": "insight",
+                "calculation_interval": alert.calculation_interval,
+                "insight_id": alert.insight_id,
+            }
             task = temporalio.workflow.execute_child_workflow(
                 CheckAlertWorkflow.run,
                 CheckAlertWorkflowInputs(
@@ -84,19 +86,13 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                         team_id=alert.team_id,
                         resource_id=alert.alert_id,
                         distinct_id=alert.distinct_id,
-                        start_properties={
-                            "calculation_interval": alert.calculation_interval,
-                            "insight_id": alert.insight_id,
-                        },
-                        completion_properties={
-                            "calculation_interval": alert.calculation_interval,
-                            "insight_id": alert.insight_id,
-                        },
+                        start_properties=slo_properties.copy(),
+                        completion_properties=slo_properties.copy(),
                     ),
                 ),
                 id=f"check-alert-{alert.alert_id}",
                 parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=CHECK_ALERT_EXECUTION_TIMEOUT,
+                execution_timeout=alert_timeouts(alert.calculation_interval).workflow_execution,
             )
             tasks.append(task)
 
@@ -138,6 +134,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
         new_state: AlertState | None = None
         skip_reason: str | None = None
         caught_error: BaseException | None = None
+        timeouts = alert_timeouts(inputs.calculation_interval)
 
         try:
             # Phase 1 — prepare: load alert, validate config, check should-skip
@@ -145,7 +142,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 prepare_alert,
                 PrepareAlertActivityInputs(alert_id=inputs.alert_id),
                 start_to_close_timeout=dt.timedelta(minutes=2),
-                schedule_to_close_timeout=ALERT_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=timeouts.activity_schedule_to_close,
                 retry_policy=ALERT_PREPARE_RETRY_POLICY,
             )
 
@@ -154,14 +151,32 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 return
 
             # Phase 2 — evaluate: CH query + state machine + persist AlertCheck
-            evaluation = await temporalio.workflow.execute_activity(
-                evaluate_alert,
-                EvaluateAlertActivityInputs(alert_id=inputs.alert_id),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                schedule_to_close_timeout=ALERT_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT,
-                heartbeat_timeout=dt.timedelta(minutes=2),
-                retry_policy=ALERT_EVALUATE_RETRY_POLICY,
-            )
+            try:
+                evaluation = await temporalio.workflow.execute_activity(
+                    evaluate_alert,
+                    EvaluateAlertActivityInputs(alert_id=inputs.alert_id),
+                    start_to_close_timeout=timeouts.evaluate_start_to_close,
+                    schedule_to_close_timeout=timeouts.activity_schedule_to_close,
+                    heartbeat_timeout=timeouts.heartbeat_timeout,
+                    retry_policy=timeouts.evaluate_retry_policy,
+                )
+            except Exception as evaluation_error:
+                # Transient ClickHouse errors re-raise so the retry policy can get past a busy
+                # cluster. Once those run out no AlertCheck exists and next_check_at is still in the
+                # past, so record the failure to stop the sweep restarting the chain forever. Set
+                # the state first so the SLO completion event still attributes this as errored.
+                # (No workflow.patched guard needed: this only runs on the path that fails the
+                # workflow, so no open execution has already replayed past it.)
+                new_state = AlertState.ERRORED
+                try:
+                    await self._record_failed_evaluation(inputs, timeouts, evaluation_error)
+                except Exception:
+                    # A failure while recording must not replace the original evaluation error: the
+                    # bare raise below still re-raises evaluation_error, not this one.
+                    temporalio.workflow.logger.warning(
+                        "alerts.record_failed_evaluation_failed", extra={"alert_id": inputs.alert_id}
+                    )
+                raise
             new_state = evaluation.new_state
 
             # Phase 3 — notify (optional)
@@ -176,8 +191,8 @@ class CheckAlertWorkflow(PostHogWorkflow):
                         alert_check_id=evaluation.alert_check_id,
                         breaches=evaluation.breaches,
                     ),
-                    start_to_close_timeout=dt.timedelta(minutes=5),
-                    schedule_to_close_timeout=ALERT_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT,
+                    start_to_close_timeout=timeouts.notify_start_to_close,
+                    schedule_to_close_timeout=timeouts.activity_schedule_to_close,
                     retry_policy=ALERT_NOTIFY_RETRY_POLICY,
                 )
 
@@ -216,6 +231,38 @@ class CheckAlertWorkflow(PostHogWorkflow):
         # Re-raise after cleanup completes. Same Temporal SDK quirk as ProcessSubscriptionWorkflow
         if caught_error:
             raise caught_error
+
+    async def _record_failed_evaluation(
+        self,
+        inputs: CheckAlertWorkflowInputs,
+        timeouts: AlertTimeouts,
+        evaluation_error: BaseException,
+    ) -> None:
+        """Write the errored AlertCheck the failed evaluation never got to write, then notify."""
+        # Unwrap Temporal's ActivityError plumbing to the underlying reason the owner sees in the
+        # error email, and bound it so a large trace can't blow the payload limit or the DB row.
+        cause = unwrap_temporal_cause(evaluation_error)
+        message = cause.message if cause is not None else str(evaluation_error)
+        message = truncate_for_temporal_payload(message, MAX_ERROR_MESSAGE_CHARS)
+        recorded = await temporalio.workflow.execute_activity(
+            record_failed_evaluation,
+            RecordFailedEvaluationActivityInputs(alert_id=inputs.alert_id, error_message=message),
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=ALERT_PREPARE_RETRY_POLICY,
+        )
+        if not recorded.should_notify or not recorded.alert_check_id:
+            return
+
+        await temporalio.workflow.execute_activity(
+            notify_alert,
+            NotifyAlertActivityInputs(
+                alert_id=inputs.alert_id,
+                alert_check_id=recorded.alert_check_id,
+                breaches=None,
+            ),
+            start_to_close_timeout=timeouts.notify_start_to_close,
+            retry_policy=ALERT_NOTIFY_RETRY_POLICY,
+        )
 
 
 @temporalio.workflow.defn(name="run-investigation-safety-net")

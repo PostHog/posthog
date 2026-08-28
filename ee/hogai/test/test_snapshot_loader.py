@@ -98,6 +98,7 @@ class TestSnapshotLoader(BaseTest):
             "dataset": [],
             "experiment_id": "test_experiment_id",
             "dataset_id": "test_dataset_id",
+            "dataset_revision": None,
             "dataset_name": "test_dataset_name",
             "dataset_inputs": [],
         }

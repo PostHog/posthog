@@ -21,6 +21,7 @@ import {
     TemporalService,
     TemporalServiceConfig,
     isEvaluationWorkflowRuntime,
+    resolveSettleConfig,
 } from '~/ai-observability/services/temporal.service'
 import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '~/ai-observability/types'
 import { execHog } from '~/cdp/utils/hog-exec'
@@ -49,7 +50,7 @@ const evaluationSchedulerEventsProcessed = new Counter({
 const evaluationMatchesCounter = new Counter({
     name: 'evaluation_matches',
     help: 'Number of evaluation matches by outcome',
-    labelNames: ['outcome', 'type'], // matched, filtered, sampling_excluded, error × evaluation/tagger
+    labelNames: ['outcome', 'type'], // matched, filtered, sampling_excluded, error × evaluation/tagger; no_ai_session_id on evaluation only
 })
 
 const evaluationSchedulerMessagesReceived = new Counter({
@@ -119,6 +120,35 @@ export function groupEventsByTeam(events: RawKafkaEvent[]): Map<number, RawKafka
         grouped.set(event.team_id, teamEvents)
     }
     return grouped
+}
+
+/**
+ * Pull the evaluation-unit linkage out of an event's properties. Ids are user-controlled and can
+ * be ingested as numbers (e.g. a buggy `trace_id: 0`), so values are string-coerced; empty or
+ * missing ids resolve to null.
+ *
+ * `sessionId` ($session_id) is PostHog's product-analytics session and only ever travels through
+ * to the emitted evaluation event. `aiSessionId` ($ai_session_id) is the AI-observability session
+ * and is the unit a session-target evaluation runs on. They are different id spaces.
+ */
+export function extractEvaluationContext(event: RawKafkaEvent): {
+    traceId: string | null
+    sessionId: string | null
+    aiSessionId: string | null
+} {
+    let properties: Record<string, unknown> = {}
+    try {
+        properties = parseJSON(event.properties || '{}')
+    } catch {
+        return { traceId: null, sessionId: null, aiSessionId: null }
+    }
+    const coerce = (value: unknown): string | null =>
+        value === null || value === undefined || value === '' ? null : String(value)
+    return {
+        traceId: coerce(properties['$ai_trace_id']),
+        sessionId: coerce(properties['$session_id']),
+        aiSessionId: coerce(properties['$ai_session_id']),
+    }
 }
 
 export function checkRolloutPercentage(eventId: string, rolloutPercentage: number): boolean {
@@ -205,7 +235,16 @@ export type EvaluationMatchResult =
     | { matched: false; reason: 'no_conditions' | 'disabled' | 'filtered' | 'sampling_excluded' }
 
 export class EvaluationMatcher {
-    async shouldTriggerEvaluation(event: RawKafkaEvent, evaluation: Matchable): Promise<EvaluationMatchResult> {
+    /**
+     * `samplingKey` defaults to the event uuid (independent coin flip per generation). Trace-
+     * target evals pass the trace id instead so the whole trace is atomically in or out of the
+     * sample, no matter which of its generations is seen first.
+     */
+    async shouldTriggerEvaluation(
+        event: RawKafkaEvent,
+        evaluation: Matchable,
+        samplingKey?: string
+    ): Promise<EvaluationMatchResult> {
         if (!evaluation.enabled) {
             return { matched: false, reason: 'disabled' }
         }
@@ -222,7 +261,7 @@ export class EvaluationMatcher {
                 continue
             }
 
-            const inSample = checkRolloutPercentage(event.uuid, condition.rollout_percentage)
+            const inSample = checkRolloutPercentage(samplingKey ?? event.uuid, condition.rollout_percentage)
 
             if (!inSample) {
                 continue
@@ -409,7 +448,26 @@ async function processEventEvaluationMatch(
 ): Promise<void> {
     evaluationSchedulerEventsProcessed.labels({ status: 'received', type: 'evaluation' }).inc()
 
-    const result = await matcher.shouldTriggerEvaluation(event, evaluationDefinition)
+    const target = evaluationDefinition.target
+    const isAggregateTarget = target === 'trace' || target === 'session'
+    let context: ReturnType<typeof extractEvaluationContext> | null = null
+    if (isAggregateTarget) {
+        context = extractEvaluationContext(event)
+        if (!context.traceId) {
+            evaluationMatchesCounter.labels({ outcome: 'no_trace_id', type: 'evaluation' }).inc()
+            return
+        }
+        if (target === 'session' && !context.aiSessionId) {
+            // Expected for any producer that doesn't set $ai_session_id (most of them). This
+            // counter is the coverage signal for whether session evals can fire at all.
+            evaluationMatchesCounter.labels({ outcome: 'no_ai_session_id', type: 'evaluation' }).inc()
+            return
+        }
+    }
+
+    // Sample per unit so a whole trace, or a whole session, is atomically in or out.
+    const samplingKey = target === 'session' ? context?.aiSessionId : context?.traceId
+    const result = await matcher.shouldTriggerEvaluation(event, evaluationDefinition, samplingKey ?? undefined)
 
     if (!result.matched) {
         evaluationMatchesCounter.labels({ outcome: result.reason, type: 'evaluation' }).inc()
@@ -425,17 +483,33 @@ async function processEventEvaluationMatch(
     logger.debug('Evaluation matched, enqueueing evaluation run', {
         evaluationId: evaluationDefinition.id,
         eventUuid: event.uuid,
+        traceId: context?.traceId,
+        aiSessionId: context?.aiSessionId,
         conditionId: result.conditionId,
     })
 
     evaluationMatchesCounter.labels({ outcome: 'matched', type: 'evaluation' }).inc()
 
-    const evaluationRuntime = evaluationDefinition.evaluation_type
-    if (!isEvaluationWorkflowRuntime(evaluationRuntime)) {
-        throw new Error(`Unsupported evaluation runtime: ${evaluationRuntime}`)
-    }
+    if (isAggregateTarget && context?.traceId) {
+        // No isEvaluationWorkflowRuntime guard here: the aggregate workflow validates evaluation_type
+        // server-side and rejects unsupported types as a non-retryable ApplicationError.
+        await temporalService.startAggregateEvaluationWorkflow({
+            evaluationId: evaluationDefinition.id,
+            event,
+            target,
+            traceId: context.traceId,
+            sessionId: context.sessionId,
+            aiSessionId: context.aiSessionId,
+            settle: resolveSettleConfig(evaluationDefinition.target_config, target),
+        })
+    } else {
+        const evaluationRuntime = evaluationDefinition.evaluation_type
+        if (!isEvaluationWorkflowRuntime(evaluationRuntime)) {
+            throw new Error(`Unsupported evaluation runtime: ${evaluationRuntime}`)
+        }
 
-    await temporalService.startEvaluationRunWorkflow(evaluationDefinition.id, event, evaluationRuntime)
+        await temporalService.startEvaluationRunWorkflow(evaluationDefinition.id, event, evaluationRuntime)
+    }
     evaluationSchedulerEventsProcessed.labels({ status: 'success', type: 'evaluation' }).inc()
 }
 

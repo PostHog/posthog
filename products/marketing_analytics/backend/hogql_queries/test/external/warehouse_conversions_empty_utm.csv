@@ -1,0 +1,3 @@
+user_id,event_timestamp,campaign_name,source_name,revenue
+dw_user_1,2023-01-10 10:00:00,,,100
+dw_user_2,2023-01-12 11:00:00,summer_sale,google,250

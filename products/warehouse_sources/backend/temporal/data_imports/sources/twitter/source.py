@@ -8,7 +8,9 @@ from posthog.schema import (
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TwitterSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twitter import (
+    TwitterSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -24,6 +26,8 @@ class TwitterSource(SimpleSource[TwitterSourceConfig]):
             name=SchemaExternalDataSourceType.TWITTER,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Twitter",
+            # Twitter was rebranded to X; match the terms users now search by.
+            keywords=["x", "x.com"],
             iconPath="/static/services/twitter.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,

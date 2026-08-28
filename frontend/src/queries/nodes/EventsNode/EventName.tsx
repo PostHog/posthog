@@ -16,7 +16,7 @@ export function EventName({ query, setQuery }: EventNameProps): JSX.Element {
             disabled={!setQuery}
             onChange={(value) => setQuery?.({ ...query, event: value })}
             allEventsOption="clear"
-            groupTypes={[TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events]}
+            groupTypes={[TaxonomicFilterGroupType.Events]}
         />
     )
 }

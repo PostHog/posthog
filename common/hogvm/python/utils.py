@@ -2,10 +2,22 @@ from typing import Any
 
 import re2
 
+from common.hogvm.python.objects import is_hog_date, is_hog_datetime
+from common.hogvm.python.stl.date import date_string_to_seconds, to_hog_datetime
+
 _CASE_INSENSITIVE_OPTS = re2.Options()
 _CASE_INSENSITIVE_OPTS.case_sensitive = False
 
 COST_PER_UNIT = 8
+
+
+def _temporal_seconds(value: Any) -> float | None:
+    """Epoch seconds for a Hog datetime/date value, else None. A bare HogDate is UTC midnight."""
+    if is_hog_datetime(value):
+        return value["dt"]
+    if is_hog_date(value):
+        return to_hog_datetime(value)["dt"]
+    return None
 
 
 class HogVMException(Exception):
@@ -46,7 +58,35 @@ class HogVMMemoryExceededException(HogVMException):
         super().__init__(f"Memory limit of {memory_limit} bytes exceeded. Attempted to use {attempted_memory} bytes")
 
 
-def like(string, pattern, case_insensitive: bool = False):
+def _require_string(value: Any, name: str, function_name: str) -> str:
+    if not isinstance(value, str):
+        raise HogVMException(f"Function {function_name} requires {name} to be a string, got {type(value).__name__}")
+    return value
+
+
+def _format_regex_error(error: Exception) -> str:
+    if error.args and isinstance(error.args[0], bytes):
+        return error.args[0].decode("utf-8", errors="replace")
+    return str(error)
+
+
+def _compile_regex(pattern: str, case_insensitive: bool = False) -> Any:
+    try:
+        return re2.compile(pattern, options=_CASE_INSENSITIVE_OPTS) if case_insensitive else re2.compile(pattern)
+    except re2.error as e:
+        raise HogVMException(f"Invalid regex pattern: {_format_regex_error(e)}") from e
+
+
+def regex_match(string: Any, pattern: Any, case_insensitive: bool = False) -> bool:
+    if not string or not pattern:
+        return False
+
+    string = _require_string(string, "input", "match")
+    pattern = _require_string(pattern, "pattern", "match")
+    return _compile_regex(pattern, case_insensitive).search(string) is not None
+
+
+def like(string: Any, pattern: Any, case_insensitive: bool = False) -> bool:
     pattern = re2.escape(pattern).replace("%", ".*").replace("_", ".")
     re_pattern = re2.compile(pattern, options=_CASE_INSENSITIVE_OPTS) if case_insensitive else re2.compile(pattern)
     return re_pattern.search(string) is not None
@@ -90,6 +130,8 @@ def set_nested_value(obj, chain, value) -> Any:
             raise HogVMException(f"Invalid index: {chain[-1]}")
         if chain[-1] <= 0:
             raise HogVMException(f"Hog arrays start from index 1")
+        if chain[-1] > len(obj):
+            raise HogVMException(f"Index {chain[-1]} out of range for array of length {len(obj)}")
         obj[chain[-1] - 1] = value
     else:
         raise HogVMException(f'Can not set property "{chain[-1]}" on object of type "{type(obj).__name__}"')
@@ -119,6 +161,25 @@ def calculate_cost(object, marked: set | None = None) -> int:
 
 
 def unify_comparison_types(left, right):
+    # Two temporal values order by epoch seconds (matching ClickHouse and the TS/Rust VMs). Without
+    # this a HogDateTime/HogDate dict falls through unchanged and ordering operators end up comparing
+    # dicts, which Python can't order.
+    left_seconds = _temporal_seconds(left)
+    right_seconds = _temporal_seconds(right)
+    if left_seconds is not None and right_seconds is not None:
+        return left_seconds, right_seconds
+    # A bare-field SQL comparison like `timestamp > toDateTime(...)` puts a plain date-like string
+    # against a HogDateTime/HogDate object. Parse the string the same way `toDateTime` would rather
+    # than falling through to the string/number branches below, which leave it unordered.
+    if left_seconds is not None and isinstance(right, str):
+        right_seconds_from_string = date_string_to_seconds(right)
+        if right_seconds_from_string is not None:
+            return left_seconds, right_seconds_from_string
+    if right_seconds is not None and isinstance(left, str):
+        left_seconds_from_string = date_string_to_seconds(left)
+        if left_seconds_from_string is not None:
+            return left_seconds_from_string, right_seconds
+
     # Handle boolean cases FIRST since bool is a subclass of int in Python
     if isinstance(left, bool) and isinstance(right, str):
         # Convert string to boolean: 'true'/'false' strings, or truthy/falsy

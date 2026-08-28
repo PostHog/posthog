@@ -65,6 +65,20 @@ export function formatPercentageDiff(current: number, previous: number): string 
     return diff >= 0 ? `(+${(diff * 100).toFixed(1)}%)` : `(-${(-diff * 100).toFixed(1)}%)`
 }
 
+const MAX_SIGNIFICANT_DECIMAL_PLACES = 10
+
+/** Fraction digits needed to keep two significant digits — `minimum` for anything at or above 0.1,
+ *  one more for every extra leading zero below that, capped so float residue doesn't render as a wall
+ *  of digits. A flat two decimals renders a series of small values as a run of identical "0.01" / "0"
+ *  labels. `minimum` is nullable because callers pass the schema's nullable config field through. */
+export function significantDecimalPlaces(value: number, minimum?: number | null): number {
+    const floor = validateFractionDigits(minimum ?? DEFAULT_DECIMAL_PLACES, DEFAULT_DECIMAL_PLACES)
+    if (!isFinite(value) || value === 0) {
+        return floor
+    }
+    return Math.min(Math.max(floor, 1 - Math.floor(Math.log10(Math.abs(value)))), MAX_SIGNIFICANT_DECIMAL_PLACES)
+}
+
 /** Format number with comma as the thousands separator. */
 export function humanFriendlyNumber(
     d: number,

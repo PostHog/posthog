@@ -34,6 +34,13 @@ def devbox_config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return config_path
 
 
+@pytest.fixture
+def recorded_properties(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    recorded: dict[str, object] = {}
+    monkeypatch.setattr(coder.telemetry, "add_command_properties", lambda **props: recorded.update(props))
+    return recorded
+
+
 class TestDevboxConfig:
     """Test persisted devbox preferences."""
 
@@ -351,7 +358,9 @@ class TestTailscaleRoutesAccepted:
         )
         assert coder._tailscale_routes_accepted() is False
 
-    def test_ensure_noop_when_already_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_ensure_noop_when_already_accepted(
+        self, monkeypatch: pytest.MonkeyPatch, recorded_properties: dict[str, object]
+    ) -> None:
         monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: True)
         calls: list[list[str]] = []
 
@@ -364,8 +373,11 @@ class TestTailscaleRoutesAccepted:
         coder.ensure_tailscale_routes_accepted()
 
         assert calls == []
+        assert recorded_properties == {}
 
-    def test_ensure_invokes_tailscale_set_accept_routes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_ensure_invokes_tailscale_set_accept_routes(
+        self, monkeypatch: pytest.MonkeyPatch, recorded_properties: dict[str, object]
+    ) -> None:
         monkeypatch.setattr(coder, "_tailscale_routes_accepted", lambda: False)
         monkeypatch.setattr(coder, "_resolve_tailscale", lambda: coder._MACOS_TAILSCALE_CLI)
         monkeypatch.setattr(coder.sys, "platform", "darwin")
@@ -380,6 +392,7 @@ class TestTailscaleRoutesAccepted:
         coder.ensure_tailscale_routes_accepted()
 
         assert captured == [[coder._MACOS_TAILSCALE_CLI, "set", "--accept-routes"]]
+        assert recorded_properties == {"devbox_routes_were_off": True}
 
 
 class TestCoderConfig:
@@ -558,6 +571,7 @@ class TestCoderReachable:
         self,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
+        recorded_properties: dict[str, object],
     ) -> None:
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder, "coder_reachable", lambda: False)
@@ -565,6 +579,7 @@ class TestCoderReachable:
             coder,
             "_diagnose_unreachable_coder",
             lambda: coder.CoderReachabilityDiagnosis(
+                code="stubbed_code",
                 cause="stubbed cause.",
                 next_step="stubbed step.",
                 facts=["fact: one"],
@@ -579,6 +594,7 @@ class TestCoderReachable:
         assert "stubbed cause." in out
         assert "stubbed step." in out
         assert "fact: one" in out
+        assert recorded_properties == {"devbox_failure_cause": "stubbed_code"}
 
 
 class TestDiagnoseUnreachableCoder:
@@ -587,6 +603,32 @@ class TestDiagnoseUnreachableCoder:
     @pytest.fixture(autouse=True)
     def _stub_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+
+    def test_wrong_tailnet_dominates_every_other_cause(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A per-env tailnet fails DNS/TCP too, so its fixes would be red herrings."""
+        monkeypatch.setattr(coder, "_tailscale_status", lambda: {"CurrentTailnet": {"Name": "dev"}})
+
+        def must_not_run(*args: object, **kwargs: object) -> object:
+            raise AssertionError("probes should be skipped when the tailnet is wrong")
+
+        monkeypatch.setattr(coder, "_resolve_host_ip", must_not_run)
+        monkeypatch.setattr(coder, "_tcp_reachable", must_not_run)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "wrong_tailnet"
+        assert "'dev'" in diagnosis.cause
+        assert coder.EXPECTED_TAILNET in diagnosis.next_step
+        assert "switch" in diagnosis.next_step
+        assert "Tailscale tailnet: dev" in diagnosis.facts
+
+    def test_unknown_tailnet_name_does_not_claim_wrong_tailnet(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Only accuse the tailnet when we actually read a name — else keep probing."""
+        monkeypatch.setattr(coder, "_tailscale_status", lambda: {"BackendState": "Running"})
+        monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: None)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "dns_lookup_failed"
+        assert "Tailscale tailnet: <unknown>" in diagnosis.facts
 
     def test_dns_failure_dominates_other_causes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "_tailscale_status", lambda: {"CurrentTailnet": {"Name": "posthog.com"}})
@@ -598,8 +640,12 @@ class TestDiagnoseUnreachableCoder:
         monkeypatch.setattr(coder, "_tcp_reachable", must_not_run)
 
         diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "dns_lookup_failed"
         assert "DNS lookup" in diagnosis.cause
         assert "MagicDNS" in diagnosis.next_step
+        # Exit nodes route all traffic through infra and mask the real DNS cause.
+        assert "exit node" in diagnosis.next_step.lower()
+        assert "1.1.1.1" in diagnosis.next_step
         assert "Tailscale tailnet: posthog.com" in diagnosis.facts
 
     def test_tcp_open_signals_tls_or_clock(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -608,19 +654,22 @@ class TestDiagnoseUnreachableCoder:
         monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: True)
 
         diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "https_probe_failed"
         assert "HTTPS probe" in diagnosis.cause
         assert "clock" in diagnosis.next_step.lower()
 
-    def test_no_subnet_routers_points_to_wrong_tailnet(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_subnet_routers_points_at_tailnet_or_grant(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On the right tailnet with no routes, the missing ACL grant is the suspect."""
         monkeypatch.setattr(
             coder,
             "_tailscale_status",
-            lambda: {"CurrentTailnet": {"Name": "personal.tailnet"}, "Peer": {"k": {"PrimaryRoutes": None}}},
+            lambda: {"CurrentTailnet": {"Name": "posthog.com"}, "Peer": {"k": {"PrimaryRoutes": None}}},
         )
         monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: "10.0.0.1")
         monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: False)
 
         diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "no_subnet_routes_advertised"
         assert "No peer" in diagnosis.cause
         assert "Team DevEx" in diagnosis.next_step
 
@@ -639,6 +688,7 @@ class TestDiagnoseUnreachableCoder:
         monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: False)
 
         diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "subnet_router_offline"
         assert "subnet-router-us" in diagnosis.cause
         assert "Wait a minute" in diagnosis.next_step
 
@@ -657,6 +707,7 @@ class TestDiagnoseUnreachableCoder:
         monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: False)
 
         diagnosis = coder._diagnose_unreachable_coder()
+        assert diagnosis.code == "tcp_blocked"
         assert "blocked" in diagnosis.cause.lower()
         assert "ACL" in diagnosis.next_step or "VPN" in diagnosis.next_step.upper()
 
@@ -1550,6 +1601,23 @@ class TestDevboxCommands:
             "preset": coder.DEFAULT_PRESET,
             "start_app": "None",
         }
+
+    def test_devbox_start_forwards_larger_disk_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Guards that --disk 200 is an accepted choice and reaches create_workspace;
+        # regresses if the choice list drifts from the Coder template's disk_size options.
+        captured: dict[str, str | None] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start", "--disk", "200"])
+
+        assert result.exit_code == 0, result.output
+        assert captured["disk_size"] == "200"
 
     def test_devbox_start_with_name_creates_labeled_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, str | None] = {}

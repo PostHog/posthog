@@ -1,0 +1,44 @@
+{% if history.error %}
+<div style="padding: 8px; border-left: 3px solid #dc3545;">
+    <strong>{{ history.headline }}</strong>
+    <p style="margin: 4px 0 0;">Reload the page. If it keeps failing, read the organization's activity log directly.</p>
+    <p style="margin: 4px 0 0;">Error: {{ history.error }}</p>
+</div>
+{% else %}
+{% if history.warning %}
+<div style="margin-bottom: 12px; padding: 8px; border-left: 3px solid #dc3545;">
+    {{ history.warning }}
+</div>
+{% endif %}
+<strong>{{ history.headline }}</strong>
+
+{% if history.changes %}
+{% if history.truncated %}
+<p>Showing the most recent {{ history.changes|length }} changes only. There are more in the activity log.</p>
+{% endif %}
+<table style="border-collapse: collapse; width: 100%; margin-top: 12px;">
+    <thead>
+        <tr>
+            <th style="padding: 6px; text-align: left;">When</th>
+            <th style="padding: 6px; text-align: left;">Change</th>
+            <th style="padding: 6px; text-align: left;">Origin</th>
+            <th style="padding: 6px; text-align: left;">Actor</th>
+            <th style="padding: 6px; text-align: left;">Client</th>
+            <th style="padding: 6px; text-align: left;">IP</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for change in history.changes %}
+        <tr style="border-top: 1px solid;">
+            <td style="padding: 6px; white-space: nowrap;">{{ change.changed_at_display }}</td>
+            <td style="padding: 6px;">{{ change.transition_display }}</td>
+            <td style="padding: 6px;">{{ change.origin }}</td>
+            <td style="padding: 6px;">{{ change.actor }}</td>
+            <td style="padding: 6px;">{{ change.client|default_if_none:"-" }}</td>
+            <td style="padding: 6px;">{{ change.ip_address|default_if_none:"-" }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endif %}

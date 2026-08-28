@@ -1,0 +1,33 @@
+rules:
+    - id: orm-field-injection
+      languages: [python]
+      severity: ERROR
+      message: |
+          ORM field injection risk: a variable is interpolated into a dict key
+          passed to .filter()/.exclude()/Q(). If the variable is user-controlled,
+          an attacker can use Django's __ notation to traverse FK relationships
+          and exfiltrate sensitive fields (e.g. user__password, team__api_token).
+
+          Fix: validate the variable against an allowlist of permitted field names
+          before using it in the ORM lookup. Anchoring the path on a JSONField is not
+          enough on its own: Django still resolves the last segment as a lookup, so a
+          path like detail__<var> or detail__key__<var> lets the caller pick the
+          operation (e.g. regex, which runs an attacker-supplied Postgres regular
+          expression over every row). Validate every segment, including the last.
+
+          Suppress with: # nosemgrep: orm-field-injection <reason>
+      patterns:
+          - pattern-either:
+                - pattern: '$QS.filter(**{f"...{$VAR}...": ...})'
+                - pattern: '$QS.exclude(**{f"...{$VAR}...": ...})'
+                - pattern: 'Q(**{f"...{$VAR}...": ...})'
+      metadata:
+          category: security
+          subcategory: [vuln]
+          cwe: 'CWE-943: Improper Neutralization of Special Elements in Data Query Logic'
+          confidence: MEDIUM
+      paths:
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/.semgrep/**'

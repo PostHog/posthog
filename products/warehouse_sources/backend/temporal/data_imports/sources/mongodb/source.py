@@ -11,17 +11,17 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
+    MongoDBSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
+    MONGO_DOCUMENT_MISSING_ID_ERROR,
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
@@ -35,6 +35,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 _MONGO_UNREACHABLE_MESSAGE = (
     "Could not reach your MongoDB cluster. Check that the cluster is running and that PostHog's "
     "IP addresses are allowlisted in your database's network access settings."
+)
+
+# `_parse_connection_string` raises a ValueError when the string isn't a usable MongoDB URI: a
+# wrong or missing scheme, or a host/port that urlparse rejects. The raw reason gives the user
+# little to act on, so point at the expected scheme and format instead.
+_MONGO_INVALID_CONNECTION_STRING_MESSAGE = (
+    # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+    "PostHog couldn't read your MongoDB connection string. It must start with mongodb:// or "
+    "mongodb+srv:// and follow the standard format, for example "
+    "mongodb+srv://user:password@cluster.mongodb.net/database. Check the connection string and try again."
 )
 
 _MONGO_UNESCAPED_CREDENTIALS_MESSAGE = (
@@ -68,6 +78,16 @@ _MONGO_CONNECT_FAILED_MESSAGE = (
     "Could not connect to your MongoDB database. Check your connection string and credentials, then try again."
 )
 
+# Connection succeeded but nothing importable came back. This is usually a wrong-database or
+# permission problem rather than a genuinely empty database: a connection string ending in /admin
+# or /test lands on an empty system database, and a user without read access sees no collections.
+_MONGO_NO_COLLECTIONS_MESSAGE = (
+    "PostHog connected to MongoDB but found no collections in the selected database. Check that "
+    "your connection string points at the database that holds your data (a string ending in /admin "
+    "or /test connects to an empty system database) or set the Database name field, and make sure "
+    "your user has read access to that database's collections."
+)
+
 # Substrings pymongo embeds in ServerSelectionTimeoutError when the OS can't resolve the host.
 _DNS_RESOLUTION_FAILURE_MARKERS = (
     "No address associated with hostname",
@@ -75,6 +95,12 @@ _DNS_RESOLUTION_FAILURE_MARKERS = (
     "Name or service not known",
     "Temporary failure in name resolution",
 )
+
+# For a `mongodb+srv://` URI, pymongo resolves the SRV record via dnspython inside the
+# MongoClient constructor and wraps any dnspython exception as ConfigurationError. dnspython's
+# NXDOMAIN carries this fixed prefix when the SRV record's DNS name doesn't exist at all —
+# a deleted, renamed, or mistyped cluster hostname — distinct from a timed-out lookup.
+_SRV_DNS_NAME_NOT_FOUND_MARKER = "The DNS query name does not exist"
 
 
 @SourceRegistry.register
@@ -115,6 +141,10 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # reach the user — match the stable 'not authorized' fragment. Granting permission is a
             # config change the user must make, so this never recovers on retry.
             "not authorized": _MONGO_NOT_AUTHORIZED_MESSAGE,
+            # A view whose pipeline drops `_id` yields documents the importer can't key on. mongo.py
+            # raises MONGO_DOCUMENT_MISSING_ID_ERROR for this instead of a bare KeyError. Every retry
+            # reads the same `_id`-less documents, so it never recovers. Match our own stable phrase.
+            "one of its documents has no _id field": MONGO_DOCUMENT_MISSING_ID_ERROR,
             "SSL handshake failed": None,
             # Atlas SQL / Data Federation endpoints live under *.query.mongodb.net and are served by
             # a query proxy the standard MongoDB driver can't drive: the handshake is closed, the
@@ -139,6 +169,23 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             "Topology Description:": _MONGO_UNREACHABLE_MESSAGE,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # For a `mongodb+srv://` URI, pymongo resolves the SRV record via dnspython inside the
+        # MongoClient constructor, before any of our own connectivity handling runs. dnspython
+        # already retries across nameservers for the whole resolution lifetime before giving up
+        # with a ConfigurationError wrapping its LifetimeTimeout — a momentary DNS blip on the
+        # resolver PostHog's worker queries, unrelated to the user's cluster hostname — so Temporal
+        # retrying the whole activity is self-recovering. Match dnspython's fixed message prefix,
+        # not the variable timeout duration or nameserver address it's followed by.
+        #
+        # pymongo also raises a bare AutoReconnect("<address>: connection pool paused ...") when a
+        # connection checkout finds the pool not yet READY after an earlier network blip — the
+        # pool's background monitor clears this on its own once it reconnects, so it's distinct
+        # from the persistent "Topology Description:" server-selection failures above. Match the
+        # fixed "connection pool paused" phrase pymongo always uses for this state, not the
+        # surrounding host/timeout values.
+        return {"The resolution lifetime expired", "connection pool paused"}
+
     def get_schemas(
         self,
         config: MongoDBSourceConfig,
@@ -146,6 +193,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
 
@@ -184,14 +232,18 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         ]
 
     def validate_credentials(
-        self, config: MongoDBSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MongoDBSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
+        from pymongo.errors import ConfigurationError, OperationFailure, ServerSelectionTimeoutError
 
         try:
             connection_params = _parse_connection_string(config.connection_string, config.database_name)
-        except:
-            return False, "Invalid connection string"
+        except Exception:
+            return False, _MONGO_INVALID_CONNECTION_STRING_MESSAGE
 
         if not connection_params.get("database"):
             return False, DATABASE_NAME_REQUIRED_ERROR
@@ -209,33 +261,54 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         try:
             collection_names = get_collection_names(config, team_id=team_id)
             if len(collection_names) == 0:
-                return False, "No collections found in database"
+                return False, _MONGO_NO_COLLECTIONS_MESSAGE
         except OperationFailure as e:
             # pymongo's OperationFailure stringifies the full server response — clusterTime,
             # signature hashes, BSON ids — so str(e) must never be surfaced. Map the stable error
             # markers to a clean message; an authorization failure ("not authorized") means the
             # credentials are valid but lack read access, which is distinct from a bad password.
-            capture_exception(e)
-            if "not authorized" in str(e):
+            # Both are user-side credential/permission problems we already surface an actionable
+            # message for and classify as non-retryable — never a PostHog bug — so don't report
+            # them to error tracking as non-actionable noise.
+            message = str(e)
+            if "not authorized" in message:
                 return False, _MONGO_NOT_AUTHORIZED_MESSAGE
-            return False, _MONGO_AUTHENTICATION_FAILED_MESSAGE
+            if any(marker in message for marker in ("AuthenticationFailed", "Authentication failed", "bad auth")):
+                return False, _MONGO_AUTHENTICATION_FAILED_MESSAGE
+            # Any other OperationFailure on listCollections is unexpected (server bug, unsupported
+            # option, ...) — capture it so the signal isn't lost, and surface a generic message
+            # rather than mislabelling it as an authentication problem.
+            capture_exception(e)
+            return False, _MONGO_CONNECT_FAILED_MESSAGE
         except ServerSelectionTimeoutError as e:
             # pymongo dumps a verbose topology description into str(e); surface a concise,
             # actionable message instead. A DNS failure means the host doesn't resolve at all,
-            # which is distinct from an allowlist/reachability problem.
-            capture_exception(e)
+            # which is distinct from an allowlist/reachability problem. Server selection only times
+            # out on an upstream connectivity problem the user must fix (cluster paused, IP not
+            # allowlisted, host unresolved, TLS handshake rejected) — never our bug — and we already
+            # return an actionable message for it, so don't report it as error-tracking noise.
             message = str(e)
             if any(marker in message for marker in _DNS_RESOLUTION_FAILURE_MARKERS):
                 return False, _MONGO_HOST_UNRESOLVED_MESSAGE
             return False, _MONGO_UNREACHABLE_MESSAGE
-        except Exception as e:
-            # pymongo raises InvalidURI with the RFC-3986 hint before any network call when the
-            # credentials contain unescaped reserved characters. This is a malformed connection
-            # string the user must fix — already surfaced with an actionable message — so don't
-            # report it to error tracking as a bug. Any other exception is unexpected: capture it
-            # and fall back to a generic message so internal exception text never reaches the user.
-            if "must be escaped according to RFC 3986" in str(e):
+        except ConfigurationError as e:
+            # InvalidURI (raised with the RFC-3986 hint before any network call when
+            # credentials contain unescaped reserved characters) is itself a ConfigurationError
+            # subclass, so it lands here too. An SRV DNS name that doesn't exist is the same
+            # user-side problem as the non-SRV host-not-found case above. Both are malformed-
+            # input problems the user must fix — already surfaced with an actionable message —
+            # so don't report them to error tracking as noise. Any other ConfigurationError is
+            # unexpected, so capture it and fall back to a generic message.
+            message = str(e)
+            if _SRV_DNS_NAME_NOT_FOUND_MARKER in message:
+                return False, _MONGO_HOST_UNRESOLVED_MESSAGE
+            if "must be escaped according to RFC 3986" in message:
                 return False, _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
+            capture_exception(e)
+            return False, _MONGO_CONNECT_FAILED_MESSAGE
+        except Exception as e:
+            # Any other exception is unexpected: capture it and fall back to a generic message
+            # so internal exception text never reaches the user.
             capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
 
@@ -272,7 +345,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                     SourceFieldInputConfig(
                         name="connection_string",
                         label="Connection String",
-                        type=SourceFieldInputConfigType.TEXT,
+                        # The connection string is this source's only credential, so `password` keeps
+                        # it editable on update for rotation.
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="mongodb://username:password@host:port/database?authSource=admin&tls=true",
                         secret=True,

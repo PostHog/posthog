@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "HogQLLexer.h"
 #include "HogQLParser.h"
@@ -25,6 +26,95 @@
   }
 
 using namespace std;
+
+// NESTING DEPTH GUARD
+
+// Cap on parser recursion depth, mirroring the Rust backend's `MAX_RECURSION_DEPTH` and
+// ClickHouse's `max_parser_depth`. One level per open bracket or per prefix operator, so
+// this maps directly onto the descent depth ANTLR would reach — 1000 is absurdly deep for
+// any real query yet safely below the point where the parser gets into trouble.
+static constexpr size_t MAX_PARSER_DEPTH = 1000;
+
+// Reject pathologically deep nesting BEFORE handing the stream to ANTLR. HogQL's grammar
+// recurses on bracket nesting — parentheses (`(((…`), arrays/subqueries (`[[[…`), Hog blocks
+// (`{{{…`) — and on runs of prefix operators, each recursing on its operand: `NOT NOT … 1`
+// (`ColumnExprNot`) and `- - - … 1` (`ColumnExprNegate`). ANTLR's generated parser recurses
+// on both with no built-in cap, and — worse for brackets — its ALL(*) prediction explores
+// the ambiguous `(` alternatives before any rule-entry hook fires, so deeply nested input
+// either exhausts the native stack (an uncatchable SIGSEGV) or drives prediction into
+// effectively unbounded work. A parse-tree listener can't help: the bracket runaway happens
+// in prediction, before the parse tree exists. Lexing, by contrast, is iterative, so a
+// linear pre-scan of the already-lexed token stream is crash-safe and surfaces a clean
+// SyntaxError.
+//
+// `depth` tracks live recursion: each open bracket is +1 until its close, and a prefix
+// operator is +1 while its operand is still being parsed. Consecutive prefixes accumulate
+// in `prefix_run`. A prefix's operand can itself be a bracketed group, and the prefix
+// frames stay live for that whole group — so at a bracket open we fold the pending
+// `prefix_run` into the bracket's contribution and push it, unwinding the whole lot at the
+// matching close. This catches the combined `999 NOT + 999 (` case (~2000 real frames)
+// that a separate bracket/prefix count would miss, while a prefix run ending on a plain
+// atom (`NOT a`) is transient and dropped — so scattered `NOT a AND NOT b` never
+// accumulates and there are no false positives on real queries.
+//
+// Not covered: recursive *statement* productions (`if (1) if (1) … return 1`, which nest
+// `ifStmt → statement → ifStmt`) have no delimiter token, so a token scan can't bound them
+// without either parsing or false-positiving on legitimate sequential statements. Client
+// selection of this backend as primary is gated at the API layer (see
+// `sanitize_client_parser_mode` in parser.py), so the only untrusted reach into cpp is the
+// rust-wheel-missing fallback; this scan is a best-effort defense for that path, not a
+// complete recursion guard.
+void guardNestingDepth(antlr4::CommonTokenStream* stream) {
+  stream->fill();
+  size_t depth = 0;
+  size_t prefix_run = 0;
+  vector<size_t> bracket_contributions;  // per open bracket: amount to unwind on its close
+  for (antlr4::Token* token : stream->getTokens()) {
+    // Whitespace and comments sit on the hidden channel (see `WHITESPACE -> channel(HIDDEN)`
+    // in the lexer grammar). The parser skips them, so we must too — otherwise a hidden token
+    // between operators resets `prefix_run` and a spaced `- - - … 1` chain slips past the cap.
+    if (token->getChannel() != antlr4::Token::DEFAULT_CHANNEL) {
+      continue;
+    }
+    size_t type = token->getType();
+    switch (type) {
+      case HogQLParser::NOT:
+      case HogQLParser::DASH:
+        ++prefix_run;
+        break;
+      case HogQLParser::LPAREN:
+      case HogQLParser::LBRACKET:
+      case HogQLParser::LBRACE: {
+        // The bracket begins the operand of any pending prefixes, so those prefix frames
+        // stay live for the whole group. Fold them in with the bracket and remember the
+        // total so the matching close unwinds exactly this much.
+        size_t contribution = 1 + prefix_run;
+        depth += contribution;
+        bracket_contributions.push_back(contribution);
+        prefix_run = 0;
+        break;
+      }
+      case HogQLParser::RPAREN:
+      case HogQLParser::RBRACKET:
+      case HogQLParser::RBRACE:
+        prefix_run = 0;
+        if (!bracket_contributions.empty()) {
+          depth -= bracket_contributions.back();
+          bracket_contributions.pop_back();
+        }
+        break;
+      default:
+        // Plain atom: any pending prefixes had an atomic operand, a transient frame — drop it.
+        prefix_run = 0;
+        break;
+    }
+    if (depth + prefix_run > MAX_PARSER_DEPTH) {
+      // Point at the token that tripped the cap so downstream tooling highlights where
+      // nesting ran away, matching the real-position errors the Rust guard reports.
+      throw SyntaxError("input too deeply nested", token->getStartIndex(), token->getStartIndex());
+    }
+  }
+}
 
 // JSON UTILS
 
@@ -382,8 +472,14 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     }
     // `columnExpr` matches `name := value` as a NamedArgument; a directly named-arg-shaped
     // statement is a variable assignment. Checked on the parse tree, so parens are not
-    // unwrapped: `(x := 1)` stays an expression statement.
-    auto* named_arg = dynamic_cast<HogQLParser::ColumnExprNamedArgContext*>(ctx->expression(0)->columnExpr());
+    // unwrapped: `(x := 1)` stays an expression statement. The NamedArgument lives in the
+    // `columnExprValue` tier, reached through the outer `columnExpr`'s passthrough alt, so
+    // unwrap that first.
+    auto* passthrough =
+        dynamic_cast<HogQLParser::ColumnExprValuePassthroughContext*>(ctx->expression(0)->columnExpr());
+    auto* named_arg = passthrough ? dynamic_cast<HogQLParser::ColumnExprNamedArgContext*>(
+                                        passthrough->columnExprValue())
+                                  : nullptr;
     if (named_arg) {
       json["node"] = "VariableAssignment";
       if (!is_internal) addPositionInfo(json, ctx);
@@ -1609,7 +1705,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     left_json["value"] = 0;
 
     json["left"] = std::move(left_json);
-    json["right"] = visitAsJSON(ctx->columnExpr());
+    json["right"] = visitAsJSON(ctx->columnExprValue());
     json["op"] = "-";
     return json;
   }
@@ -1667,7 +1763,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "ArithmeticOperation";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["left"] = visitAsJSON(ctx->columnExpr(0));
+    json["left"] = visitAsJSON(ctx->columnExprValue(0));
     json["right"] = visitAsJSON(ctx->right);
     json["op"] = op;
     return json;
@@ -1874,13 +1970,13 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
-  VISIT(ColumnExprIgnoreNulls) { return visitAsJSON(ctx->columnExpr()); }
+  VISIT(ColumnExprIgnoreNulls) { return visitAsJSON(ctx->columnExprValue()); }
 
   VISIT(ColumnExprIsNull) {
     Json json = Json::object();
     json["node"] = "CompareOperation";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["left"] = visitAsJSON(ctx->columnExpr());
+    json["left"] = visitAsJSON(ctx->columnExprValue());
     // Create null constant for right side
     Json null_constant = Json::object();
     null_constant["node"] = "Constant";
@@ -1895,8 +1991,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "IsDistinctFrom";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["left"] = visitAsJSON(ctx->columnExpr(0));
-    json["right"] = visitAsJSON(ctx->columnExpr(1));
+    json["left"] = visitAsJSON(ctx->columnExprValue(0));
+    json["right"] = visitAsJSON(ctx->columnExprValue(1));
     json["negated"] = ctx->NOT() != nullptr;
     return json;
   }
@@ -1906,8 +2002,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "IsDistinctFrom";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["left"] = visitAsJSON(ctx->columnExpr(0));
-    json["right"] = visitAsJSON(ctx->columnExpr(1));
+    json["left"] = visitAsJSON(ctx->columnExprValue(0));
+    json["right"] = visitAsJSON(ctx->columnExprValue(1));
     json["negated"] = true;
     return json;
   }
@@ -1946,8 +2042,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "ArrayAccess";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["array"] = visitAsJSON(ctx->columnExpr(0));
-    json["property"] = visitAsJSON(ctx->columnExpr(1));
+    json["array"] = visitAsJSON(ctx->columnExprValue());
+    json["property"] = visitAsJSON(ctx->columnExpr());
     return json;
   }
 
@@ -1955,20 +2051,20 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "ArraySlice";
     if (!is_internal) addPositionInfo(json, ctx);
+    json["array"] = visitAsJSON(ctx->columnExprValue());
     auto exprs = ctx->columnExpr();
-    json["array"] = visitAsJSON(exprs[0]);
 
     Json start_json = Json();
     Json end_json = Json();
-    if (exprs.size() > 1) {
+    if (exprs.size() > 0) {
       auto colon_index = ctx->COLON()->getSymbol()->getTokenIndex();
-      if (exprs[1]->getStart()->getTokenIndex() < colon_index) {
-        start_json = visitAsJSON(exprs[1]);
-        if (exprs.size() > 2) {
-          end_json = visitAsJSON(exprs[2]);
+      if (exprs[0]->getStart()->getTokenIndex() < colon_index) {
+        start_json = visitAsJSON(exprs[0]);
+        if (exprs.size() > 1) {
+          end_json = visitAsJSON(exprs[1]);
         }
       } else {
-        end_json = visitAsJSON(exprs[1]);
+        end_json = visitAsJSON(exprs[0]);
       }
     }
 
@@ -1985,8 +2081,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "ArrayAccess";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["array"] = visitAsJSON(ctx->columnExpr(0));
-    json["property"] = visitAsJSON(ctx->columnExpr(1));
+    json["array"] = visitAsJSON(ctx->columnExprValue());
+    json["property"] = visitAsJSON(ctx->columnExpr());
     json["nullish"] = true;
     return json;
   }
@@ -2001,7 +2097,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "ArrayAccess";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["array"] = visitAsJSON(ctx->columnExpr());
+    json["array"] = visitAsJSON(ctx->columnExprValue());
     json["property"] = std::move(property);
     return json;
   }
@@ -2014,7 +2110,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     property_json["node"] = "Constant";
     property_json["value"] = identifier;
 
-    Json object_json = visitAsJSON(ctx->columnExpr());
+    Json object_json = visitAsJSON(ctx->columnExprValue());
 
     Json json = Json::object();
     json["node"] = "ArrayAccess";
@@ -2029,7 +2125,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "TypeCast";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = visitAsJSON(ctx->columnExpr());
+    json["expr"] = visitAsJSON(ctx->columnExprValue());
     json["type_name"] = visitAsJSON(ctx->columnTypeCastExpr());
     return json;
   }
@@ -2049,17 +2145,43 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(ColumnExprBetween) {
+    // A lambda or named argument makes no sense as a BETWEEN bound (bounds
+    // must be comparable values), yet as the LOW bound the grammar admits
+    // them with an ambiguous body extent: the construct's trailing
+    // `columnExpr` competes with the bound separator `AND`, and ALL(*)
+    // resolves the split adaptively — a resolution a deterministic parser
+    // cannot reproduce. Reject the shape outright (through NOT / unary
+    // minus wrappers); parenthesizing the bound still works.
+    HogQLParser::ColumnExprValueContext* low_ctx = ctx->columnExprValue(1);
+    while (true) {
+      if (auto* not_ctx = dynamic_cast<HogQLParser::ColumnExprNotContext*>(low_ctx)) {
+        low_ctx = not_ctx->columnExprValue();
+      } else if (auto* neg_ctx = dynamic_cast<HogQLParser::ColumnExprNegateContext*>(low_ctx)) {
+        low_ctx = neg_ctx->columnExprValue();
+      } else {
+        break;
+      }
+    }
+    if (dynamic_cast<HogQLParser::ColumnExprLambdaContext*>(low_ctx) ||
+        dynamic_cast<HogQLParser::ColumnExprColonLambdaContext*>(low_ctx) ||
+        dynamic_cast<HogQLParser::ColumnExprNamedArgContext*>(low_ctx)) {
+      throw SyntaxError(
+          "A lambda or named argument is not a valid BETWEEN bound", low_ctx->getStart()->getStartIndex(),
+          low_ctx->getStop()->getStopIndex() + 1);
+    }
     Json json = Json::object();
     json["node"] = "BetweenExpr";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = visitAsJSON(ctx->columnExpr(0));
-    json["low"] = visitAsJSON(ctx->columnExpr(1));
-    json["high"] = visitAsJSON(ctx->columnExpr(2));
+    json["expr"] = visitAsJSON(ctx->columnExprValue(0));
+    json["low"] = visitAsJSON(ctx->columnExprValue(1));
+    json["high"] = visitAsJSON(ctx->columnExprValue(2));
     json["negated"] = ctx->NOT() != nullptr;
     return json;
   }
 
   VISIT(ColumnExprParens) { return visit(ctx->columnExpr()); }
+
+  VISIT(ColumnExprValuePassthrough) { return visit(ctx->columnExprValue()); }
 
   VISIT_UNSUPPORTED(ColumnExprTimestamp)
 
@@ -2118,7 +2240,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   VISIT(ColumnExprTupleAccess) {
     string index_str = ctx->DECIMAL_LITERAL()->getText();
     int64_t index_value = stoll(index_str);
-    Json tuple_json = visitAsJSON(ctx->columnExpr());
+    Json tuple_json = visitAsJSON(ctx->columnExprValue());
 
     Json json = Json::object();
     json["node"] = "TupleAccess";
@@ -2131,7 +2253,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   VISIT(ColumnExprNullTupleAccess) {
     string index_str = ctx->DECIMAL_LITERAL()->getText();
     int64_t index_value = stoll(index_str);
-    Json tuple_json = visitAsJSON(ctx->columnExpr());
+    Json tuple_json = visitAsJSON(ctx->columnExprValue());
 
     Json json = Json::object();
     json["node"] = "TupleAccess";
@@ -2147,57 +2269,29 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     size_t columns_size = column_expr_ctx.size();
     vector<Json> columns = visitAsVectorOfJSON(column_expr_ctx);
 
+    if (!ctx->elseExpr) {
+      Json null_default = Json::object();
+      null_default["node"] = "Constant";
+      null_default["value"] = nullptr;
+      columns.push_back(std::move(null_default));
+      columns_size++;
+    }
+
     Json json = Json::object();
     json["node"] = "Call";
     if (!is_internal) addPositionInfo(json, ctx);
 
     if (ctx->caseExpr) {
-      // CASE expr WHEN ... THEN ... ELSE ... END
-      // Transform to: transform(expr, [conditions], [results], else_result)
-      json["name"] = "transform";
-
-      Json args = Json::array();
-
-      // arg_0: the case expression
-      args.pushBack(columns[0]);
-
-      // arg_1: Array of conditions (odd indices from 1 to columns_size-2)
-      Json conditions_array = Json::object();
-      conditions_array["node"] = "Array";
-      Json conditions_exprs = Json::array();
-      for (size_t index = 1; index < columns_size - 1; index++) {
-        if ((index - 1) % 2 == 0) {
-          conditions_exprs.pushBack(columns[index]);
-        }
-      }
-      conditions_array["exprs"] = std::move(conditions_exprs);
-      args.pushBack(std::move(conditions_array));
-
-      // arg_2: Array of results (even indices from 1 to columns_size-2)
-      Json results_array = Json::object();
-      results_array["node"] = "Array";
-      Json results_exprs = Json::array();
-      for (size_t index = 1; index < columns_size - 1; index++) {
-        if ((index - 1) % 2 == 1) {
-          results_exprs.pushBack(columns[index]);
-        }
-      }
-      results_array["exprs"] = std::move(results_exprs);
-      args.pushBack(std::move(results_array));
-
-      // arg_3: else result (last element)
-      args.pushBack(columns[columns_size - 1]);
-
-      json["args"] = args;
+      json["name"] = "_caseWithExpression";
     } else {
-      // CASE WHEN ... THEN ... ELSE ... END
       json["name"] = columns_size == 3 ? "if" : "multiIf";
-      Json args = Json::array();
-      for (const auto& col : columns) {
-        args.pushBack(col);
-      }
-      json["args"] = std::move(args);
     }
+
+    Json args = Json::array();
+    for (auto& column : columns) {
+      args.pushBack(std::move(column));
+    }
+    json["args"] = std::move(args);
 
     return json;
   }
@@ -2205,7 +2299,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   VISIT_UNSUPPORTED(ColumnExprDate)
 
   VISIT(ColumnExprNot) {
-    Json expr_json = visitAsJSON(ctx->columnExpr());
+    Json expr_json = visitAsJSON(ctx->columnExprValue());
     Json json = Json::object();
     json["node"] = "Not";
     if (!is_internal) addPositionInfo(json, ctx);
@@ -3126,8 +3220,8 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   VISIT_UNSUPPORTED(EnumValue)
 
   VISIT(ColumnExprNullish) {
-    Json value_json = visitAsJSON(ctx->columnExpr(0));
-    Json fallback_json = visitAsJSON(ctx->columnExpr(1));
+    Json value_json = visitAsJSON(ctx->columnExprValue(0));
+    Json fallback_json = visitAsJSON(ctx->columnExprValue(1));
 
     Json json = Json::object();
     json["node"] = "Call";
@@ -3144,14 +3238,14 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     Json json = Json::object();
     json["node"] = "ExprCall";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = visitAsJSON(ctx->columnExpr());
+    json["expr"] = visitAsJSON(ctx->columnExprValue());
     json["args"] = visitAsJSONOrEmptyArray(ctx->columnExprList());
     return json;
   }
 
   VISIT(ColumnExprCallSelect) {
-    // 1) Parse the "function expression" from columnExpr().
-    Json expr_json = visitAsJSON(ctx->columnExpr());
+    // 1) Parse the "function expression" from columnExprValue().
+    Json expr_json = visitAsJSON(ctx->columnExprValue());
 
     // 2) Check if `expr` is a Field node with a chain of length == 1.
     //    If so, interpret that chain[0] as the function name, and the SELECT as the function argument.

@@ -11,15 +11,24 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
-    MetricsHasMetricsRetrieve200,
+    MetricsAttributeValuesRetrieveParams,
+    MetricsAttributesRetrieveParams,
+    MetricsErrorSpikesRetrieveParams,
     MetricsValuesRetrieveParams,
+    _HasMetricsResponseApi,
     _MetricAnomalyReportApi,
     _MetricAnomalyRequestApi,
+    _MetricAttributeKeysResponseApi,
+    _MetricAttributeValuesResponseApi,
+    _MetricErrorSpikesResponseApi,
+    _MetricExplainRequestApi,
+    _MetricExplainResponseApi,
     _MetricNamesResponseApi,
     _MetricQueryRequestApi,
     _MetricQueryResponseApi,
     _MetricSamplesRequestApi,
     _MetricSamplesResponseApi,
+    _MetricsOverviewResponseApi,
 } from './api.schemas'
 
 export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
@@ -64,6 +73,72 @@ export const eventFilterMetricsTotalsRetrieve = async (
     })
 }
 
+export const getMetricsAttributeValuesRetrieveUrl = (
+    projectId: string,
+    params: MetricsAttributeValuesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/attribute_values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/attribute_values/`
+}
+
+/**
+ * Observed values for one metric attribute key, most frequent first.
+ * Backs the filter bar's value autocomplete.
+ */
+export const metricsAttributeValuesRetrieve = async (
+    projectId: string,
+    params: MetricsAttributeValuesRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricAttributeValuesResponseApi> => {
+    return apiMutator<_MetricAttributeValuesResponseApi>(getMetricsAttributeValuesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsAttributesRetrieveUrl = (projectId: string, params?: MetricsAttributesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/attributes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/attributes/`
+}
+
+/**
+ * Distinct attribute keys seen on the team's metrics (datapoint and
+ * resource attributes merged), most frequent first. Backs the filter
+ * bar's key autocomplete.
+ */
+export const metricsAttributesRetrieve = async (
+    projectId: string,
+    params?: MetricsAttributesRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricAttributeKeysResponseApi> => {
+    return apiMutator<_MetricAttributeKeysResponseApi>(getMetricsAttributesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getMetricsCharacterizeCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/metrics/characterize/`
 }
@@ -85,6 +160,60 @@ export const metricsCharacterizeCreate = async (
     })
 }
 
+export const getMetricsErrorSpikesRetrieveUrl = (projectId: string, params: MetricsErrorSpikesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/error_spikes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/error_spikes/`
+}
+
+/**
+ * Error Tracking issue spikes detected in a time window — backs the
+ * metrics chart's error-spike overlay (PoC). Team-wide: not yet scoped
+ * to the metric's own service.
+ */
+export const metricsErrorSpikesRetrieve = async (
+    projectId: string,
+    params: MetricsErrorSpikesRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricErrorSpikesResponseApi> => {
+    return apiMutator<_MetricErrorSpikesResponseApi>(getMetricsErrorSpikesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsExplainCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/explain/`
+}
+
+/**
+ * Take one chart point apart into the series and samples behind it,
+ * and recompute it independently so the plotted number can be checked
+ * rather than trusted.
+ */
+export const metricsExplainCreate = async (
+    projectId: string,
+    _metricExplainRequestApi: _MetricExplainRequestApi,
+    options?: RequestInit
+): Promise<_MetricExplainResponseApi> => {
+    return apiMutator<_MetricExplainResponseApi>(getMetricsExplainCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricExplainRequestApi),
+    })
+}
+
 export const getMetricsHasMetricsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/metrics/has_metrics/`
 }
@@ -92,8 +221,26 @@ export const getMetricsHasMetricsRetrieveUrl = (projectId: string) => {
 export const metricsHasMetricsRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<MetricsHasMetricsRetrieve200> => {
-    return apiMutator<MetricsHasMetricsRetrieve200>(getMetricsHasMetricsRetrieveUrl(projectId), {
+): Promise<_HasMetricsResponseApi> => {
+    return apiMutator<_HasMetricsResponseApi>(getMetricsHasMetricsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsOverviewRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/overview/`
+}
+
+/**
+ * Ingestion rollup for the overview page: freshness of the newest
+ * datapoint plus per-service metric/series counts over the last day.
+ */
+export const metricsOverviewRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<_MetricsOverviewResponseApi> => {
+    return apiMutator<_MetricsOverviewResponseApi>(getMetricsOverviewRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

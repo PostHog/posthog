@@ -9,6 +9,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { LegacyOAuthReconnectBanner } from '../LegacyOAuthReconnectBanner'
 import { AttributionSettings } from './AttributionSettings'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
@@ -32,6 +33,7 @@ export function MarketingAnalyticsSettings({
                     }}
                 />
             )}
+            <LegacyOAuthReconnectBanner />
             <ExternalDataSourceConfiguration />
             <SceneDivider />
             <ConversionGoalsConfiguration />

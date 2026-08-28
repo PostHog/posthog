@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './AssigneeDisplay'
 import { assigneeSelectLogic } from './assigneeSelectLogic'
-import { Assignee, TicketAssignee } from './types'
+import { Assignee, TicketAssignee, toTicketAssignee } from './types'
 
 export interface AssigneeDropdownProps {
     assignee: TicketAssignee
@@ -15,7 +15,8 @@ export interface AssigneeDropdownProps {
 }
 
 export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps): JSX.Element {
-    const { search, filteredRoles, filteredMembers, rolesLoading, membersLoading } = useValues(assigneeSelectLogic)
+    const { search, filteredRoles, otherFilteredMembers, currentUserMember, rolesLoading, membersLoading } =
+        useValues(assigneeSelectLogic)
     const { setSearch } = useActions(assigneeSelectLogic)
 
     return (
@@ -36,11 +37,25 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                     </li>
                 )}
 
+                {currentUserMember && (
+                    <li>
+                        <AssigneeItem
+                            item={{
+                                id: currentUserMember.user.id,
+                                type: 'user',
+                                user: currentUserMember.user,
+                            }}
+                            onSelect={onChange}
+                            activeId={assignee?.id}
+                            labelSuffix={<span className="text-secondary">(you)</span>}
+                        />
+                    </li>
+                )}
+
                 <Section
                     title="Roles"
                     loading={rolesLoading}
                     search={!!search}
-                    type="role"
                     items={filteredRoles.map((role) => ({
                         id: role.id,
                         type: 'role' as const,
@@ -60,28 +75,56 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                     }
                 />
 
-                <Section
-                    title="Users"
-                    loading={membersLoading}
-                    search={!!search}
-                    type="user"
-                    items={filteredMembers.map((member) => ({
-                        id: member.user.id,
-                        type: 'user' as const,
-                        user: member.user,
-                    }))}
-                    onSelect={onChange}
-                    activeId={assignee?.id}
-                />
+                {(!!search || membersLoading || otherFilteredMembers.length > 0) && (
+                    <Section
+                        title="Users"
+                        loading={membersLoading}
+                        search={!!search}
+                        items={otherFilteredMembers.map((member) => ({
+                            id: member.user.id,
+                            type: 'user' as const,
+                            user: member.user,
+                        }))}
+                        onSelect={onChange}
+                        activeId={assignee?.id}
+                    />
+                )}
             </ul>
         </div>
+    )
+}
+
+const AssigneeItem = ({
+    item,
+    onSelect,
+    activeId,
+    labelSuffix,
+}: {
+    item: Assignee
+    onSelect: (value: TicketAssignee) => void
+    activeId?: string | number
+    labelSuffix?: JSX.Element
+}): JSX.Element => {
+    return (
+        <LemonButton
+            fullWidth
+            role="menuitem"
+            size="small"
+            icon={<AssigneeIconDisplay assignee={item} />}
+            onClick={() => item?.id && onSelect(String(activeId) === String(item.id) ? null : toTicketAssignee(item))}
+            active={String(activeId) === String(item?.id)}
+        >
+            <span className="flex items-center gap-1">
+                <AssigneeLabelDisplay assignee={item} />
+                {labelSuffix}
+            </span>
+        </LemonButton>
     )
 }
 
 const Section = ({
     loading,
     search,
-    type,
     items,
     onSelect,
     activeId,
@@ -91,7 +134,6 @@ const Section = ({
     title: string
     loading: boolean
     search: boolean
-    type: 'user' | 'role'
     items: Assignee[]
     onSelect: (value: TicketAssignee) => void
     activeId?: string | number
@@ -103,19 +145,7 @@ const Section = ({
                 <h5 className="mx-2 my-0.5">{title}</h5>
                 {items.map((item) => (
                     <li key={item?.id || 'unassigned'}>
-                        <LemonButton
-                            fullWidth
-                            role="menuitem"
-                            size="small"
-                            icon={<AssigneeIconDisplay assignee={item} />}
-                            onClick={() =>
-                                item?.id &&
-                                onSelect(String(activeId) === String(item.id) ? null : { type, id: item.id })
-                            }
-                            active={String(activeId) === String(item?.id)}
-                        >
-                            <AssigneeLabelDisplay assignee={item} />
-                        </LemonButton>
+                        <AssigneeItem item={item} onSelect={onSelect} activeId={activeId} />
                     </li>
                 ))}
 

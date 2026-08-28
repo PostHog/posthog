@@ -1,0 +1,38 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "comment_id": {
+            "description": "Comment id whose truncated body should continue.",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+        },
+        "content_offset": {
+            "description": "Byte offset returned in content_next_offset for the selected comment.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+        },
+        "cursor": {
+            "description": "Opaque cursor returned by a previous call.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+        },
+        "limit": {
+            "default": 50,
+            "description": "Maximum comments to return. Defaults to 50.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+        },
+        "root_comment_id": {
+            "description": "Root comment id returned by tasks-comments-list.",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+        }
+    },
+    "required": ["root_comment_id"],
+    "type": "object"
+}

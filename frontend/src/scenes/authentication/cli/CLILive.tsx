@@ -20,7 +20,7 @@ export function CLILive(): JSX.Element {
 
     if (!port) {
         return (
-            <BridgePage view="login" hedgehog>
+            <BridgePage view="login">
                 <div className="text-center space-y-4">
                     <h2>Missing port parameter</h2>
                     <LemonBanner type="error">
@@ -34,7 +34,7 @@ export function CLILive(): JSX.Element {
 
     if (redirected) {
         return (
-            <BridgePage view="login" hedgehog={false}>
+            <BridgePage view="login">
                 <div className="text-center space-y-4">
                     <h2>Authorization complete</h2>
                     <LemonBanner type="success">
@@ -49,7 +49,7 @@ export function CLILive(): JSX.Element {
 
     if (error) {
         return (
-            <BridgePage view="login" hedgehog>
+            <BridgePage view="login">
                 <div className="text-center space-y-4">
                     <h2>Authorization failed</h2>
                     <LemonBanner type="error">{error}</LemonBanner>
@@ -60,7 +60,7 @@ export function CLILive(): JSX.Element {
 
     if (projectsLoading || projects.length === 1) {
         return (
-            <BridgePage view="login" hedgehog>
+            <BridgePage view="login">
                 <div className="text-center space-y-4">
                     <h2>Authorizing PostHog Live...</h2>
                     <SpinnerOverlay />
@@ -70,17 +70,7 @@ export function CLILive(): JSX.Element {
     }
 
     return (
-        <BridgePage
-            view="login"
-            hedgehog
-            message={
-                <>
-                    Authorize
-                    <br />
-                    PostHog Live
-                </>
-            }
-        >
+        <BridgePage view="login">
             <div className="space-y-4">
                 <h2>Select a project</h2>
                 <p className="text-muted text-sm">Choose which project to stream live events from.</p>

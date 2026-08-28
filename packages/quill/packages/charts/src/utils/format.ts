@@ -17,6 +17,21 @@ function validateFractionDigits(maximumFractionDigits: number, fallback: number)
     return maximumFractionDigits
 }
 
+const MAX_SIGNIFICANT_DECIMAL_PLACES = 10
+
+/** Fraction digits needed to keep two significant digits — `minimum` for anything at or above 0.1,
+ *  one more for every extra leading zero below that, capped so float residue doesn't render as a wall
+ *  of digits. A flat two decimals collapses a small-valued axis into repeated labels: ticks over
+ *  0–0.012 all round to "0.01" or "0". `minimum` is nullable because adapters pass a nullable config
+ *  field through. */
+export function significantDecimalPlaces(value: number, minimum?: number | null): number {
+    const floor = validateFractionDigits(minimum ?? DEFAULT_DECIMAL_PLACES, DEFAULT_DECIMAL_PLACES)
+    if (!isFinite(value) || value === 0) {
+        return floor
+    }
+    return Math.min(Math.max(floor, 1 - Math.floor(Math.log10(Math.abs(value)))), MAX_SIGNIFICANT_DECIMAL_PLACES)
+}
+
 export function humanFriendlyNumber(
     d: number,
     maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
@@ -85,6 +100,26 @@ export function humanFriendlyDuration(
         units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
     }
     return units.slice(0, maxUnits ?? undefined).join(' ')
+}
+
+const threeSignificantDigits = (value: number): number =>
+    Math.min(Math.max(0, 2 - Math.floor(Math.log10(Math.abs(value)))), 4)
+
+/** Below a minute `humanFriendlyDuration` rounds to whole milliseconds or seconds, which collapses
+ *  neighbouring axis ticks onto one label — 3.5ms and 4ms both render as "4ms". */
+export function formatDurationMilliseconds(milliseconds: number): string {
+    const absolute = Math.abs(milliseconds)
+    if (absolute === 0) {
+        return '0s'
+    }
+    if (absolute < 1_000) {
+        return `${humanFriendlyNumber(milliseconds, threeSignificantDigits(milliseconds))}ms`
+    }
+    const seconds = milliseconds / 1_000
+    if (absolute < 60_000) {
+        return `${humanFriendlyNumber(seconds, threeSignificantDigits(seconds))}s`
+    }
+    return humanFriendlyDuration(seconds)
 }
 
 export function percentage(

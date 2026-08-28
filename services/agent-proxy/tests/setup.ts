@@ -12,20 +12,19 @@ const mockInc = vi.fn()
 const mockDec = vi.fn()
 const mockSet = vi.fn()
 const mockObserve = vi.fn()
-const mockLabels = vi.fn()
 
 // Counters
-const mockCounter = { labels: mockLabels.mockReturnValue({ inc: mockInc }), inc: mockInc }
+const mockCounter = { labels: vi.fn().mockReturnValue({ inc: mockInc }), inc: mockInc }
 // Gauges
 const mockGauge = {
-    labels: mockLabels.mockReturnValue({ inc: mockInc, dec: mockDec, set: mockSet }),
+    labels: vi.fn().mockReturnValue({ inc: mockInc, dec: mockDec, set: mockSet }),
     inc: mockInc,
     dec: mockDec,
     set: mockSet,
 }
 // Histograms
 const mockHistogram = {
-    labels: mockLabels.mockReturnValue({ observe: mockObserve }),
+    labels: vi.fn().mockReturnValue({ observe: mockObserve }),
     observe: mockObserve,
     startTimer: vi.fn().mockReturnValue(vi.fn()),
 }
@@ -43,6 +42,7 @@ vi.mock('@/hono/metrics.js', () => ({
     taskRunStreamResumeGapTotal: mockCounter,
     taskRunStreamConnectionsRejectedTotal: mockCounter,
     streamIngestEventsTotal: mockCounter,
+    ingestClientDisconnectsTotal: mockCounter,
     httpRequestsTotal: mockCounter,
     httpRequestDurationSeconds: mockHistogram,
     inflightRequests: mockGauge,
@@ -54,4 +54,5 @@ vi.mock('@/hono/metrics.js', () => ({
     observeStreamResumeGap: vi.fn(),
     observeStreamConnectionRejected: vi.fn(),
     observeStreamIngestEvents: vi.fn(),
+    observeIngestClientDisconnect: vi.fn(),
 }))

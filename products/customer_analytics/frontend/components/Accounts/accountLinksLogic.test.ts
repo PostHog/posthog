@@ -11,6 +11,10 @@ import type { AccountApi } from 'products/customer_analytics/frontend/generated/
 import { accountLinksLogic } from './accountLinksLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
+    // Keep the real module for everything else — connected logics (e.g. column config's
+    // customPropertyDefinitionsList) call other generated functions on mount, and an
+    // absent export makes their loaders throw on every test.
+    ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
     accountsRetrieve: jest.fn(),
     accountsPartialUpdate: jest.fn(),
 }))
@@ -25,11 +29,12 @@ const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
     name: 'Acme',
     external_id: 'ext-1',
     properties: {
-        csm: { id: 1, email: 'csm@example.com' },
+        hubspot_deal_id: 'deal-1',
         billing_id: 'cus_123',
     },
     tags: [],
     notebooks: [],
+    ignored_at: null,
     created_at: '2026-01-01T00:00:00Z',
     created_by: null,
     updated_at: '2026-01-01T00:00:00Z',
@@ -57,17 +62,22 @@ describe('accountLinksLogic', () => {
 
     it('openEditor pre-fills the form from the current account', async () => {
         await mountWith(
-            buildAccount({ external_id: 'ext-1', properties: { billing_id: 'cus_1', slack_channel_id: 'C1' } })
+            buildAccount({
+                external_id: 'ext-1',
+                properties: { website_domain: 'acme.example', billing_id: 'cus_1', slack_channel_id: 'C1' },
+            })
         )
         logic.actions.openEditor()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.editorOpen).toBe(true)
         expect(logic.values.formValues).toEqual({
+            website_domain: 'acme.example',
             external_id: 'ext-1',
             billing_id: 'cus_1',
             slack_channel_id: 'C1',
             usage_dashboard_link: '',
+            metabase_link: '',
             sfdc_id: '',
         })
     })
@@ -76,7 +86,7 @@ describe('accountLinksLogic', () => {
         await mountWith(
             buildAccount({
                 external_id: 'ext-1',
-                properties: { csm: { id: 1, email: 'csm@example.com' }, billing_id: 'old' },
+                properties: { hubspot_deal_id: 'deal-1', billing_id: 'old' },
             })
         )
         const updated = buildAccount({ external_id: 'ext-2' })
@@ -84,10 +94,12 @@ describe('accountLinksLogic', () => {
 
         logic.actions.openEditor()
         logic.actions.setFormValues({
+            website_domain: 'acme.example',
             external_id: 'ext-2',
             billing_id: 'new',
             slack_channel_id: 'C9',
             usage_dashboard_link: '',
+            metabase_link: '',
             sfdc_id: '001abc',
         })
         logic.actions.saveLinks()
@@ -96,10 +108,12 @@ describe('accountLinksLogic', () => {
         expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(TEAM, 'acc-1', {
             external_id: 'ext-2',
             properties: {
-                csm: { id: 1, email: 'csm@example.com' },
+                hubspot_deal_id: 'deal-1',
+                website_domain: 'acme.example',
                 billing_id: 'new',
                 slack_channel_id: 'C9',
                 usage_dashboard_link: null,
+                metabase_link: null,
                 sfdc_id: '001abc',
             },
         })
@@ -112,10 +126,12 @@ describe('accountLinksLogic', () => {
         mockAccountsPartialUpdate.mockResolvedValue(buildAccount())
 
         logic.actions.setFormValues({
+            website_domain: '',
             external_id: '',
             billing_id: '',
             slack_channel_id: '   ',
             usage_dashboard_link: '',
+            metabase_link: '',
             sfdc_id: '',
         })
         logic.actions.saveLinks()
@@ -123,7 +139,14 @@ describe('accountLinksLogic', () => {
 
         expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(TEAM, 'acc-1', {
             external_id: null,
-            properties: { billing_id: null, slack_channel_id: null, usage_dashboard_link: null, sfdc_id: null },
+            properties: {
+                billing_id: null,
+                website_domain: null,
+                slack_channel_id: null,
+                usage_dashboard_link: null,
+                metabase_link: null,
+                sfdc_id: null,
+            },
         })
     })
 

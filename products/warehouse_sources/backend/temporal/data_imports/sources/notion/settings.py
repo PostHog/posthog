@@ -17,7 +17,7 @@ class NotionEndpointConfig:
     # last_edited_time changes on every edit so it is unsuitable.
     partition_key: Optional[str] = None
     # For "search" streams: the Notion object type to filter to ("page" or "data_source").
-    # Under API version 2025-09-03 the schema-bearing "database" tables are returned as
+    # From API version 2025-09-03 onward the schema-bearing "database" tables are returned as
     # "data_source" objects, so the databases stream filters on "data_source".
     object_filter: Optional[str] = None
 

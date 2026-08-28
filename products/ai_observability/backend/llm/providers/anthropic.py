@@ -16,9 +16,16 @@ from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContextWindowExceededError,
+    LLMError,
+    ModelNotFoundError,
+    ModelPermissionError,
+    ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    is_context_window_error_message,
+    stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -39,7 +46,6 @@ def _is_quota_or_billing_error(error: Exception) -> bool:
 class AnthropicConfig:
     MAX_TOKENS: int = 8192
     MAX_THINKING_TOKENS: int = 4096
-    TEMPERATURE: float = 0
     # Timeout in seconds for API calls. Set high to accommodate slow reasoning models.
     # Note: Infrastructure-level timeouts (load balancers, proxies) may still limit actual request duration.
     TIMEOUT: float = 300.0
@@ -57,9 +63,9 @@ class AnthropicConfig:
         "claude-sonnet-4-0",
     ]
 
-    # Models available to trial users (PostHog pays). Excludes expensive
+    # Models available in the PostHog-funded playground. Excludes expensive
     # opus tiers and includes one flagship sonnet for quality evaluation.
-    TRIAL_MODELS: list[str] = [
+    PLAYGROUND_MODELS: list[str] = [
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
     ]
@@ -136,9 +142,14 @@ class AnthropicAdapter:
             "system": system_prompt,
             "messages": messages,
             "max_tokens": request.max_tokens or AnthropicConfig.MAX_TOKENS,
-            "temperature": request.temperature if request.temperature is not None else AnthropicConfig.TEMPERATURE,
             **(self._build_analytics_kwargs(analytics, client)),
         }
+
+        # Anthropic deprecated the sampling params (temperature/top_p/top_k) on newer models and
+        # recommends omitting them (https://platform.claude.com/docs/en/about-claude/model-deprecations).
+        # Forward temperature only when a caller explicitly set one.
+        if request.temperature is not None:
+            create_kwargs["temperature"] = request.temperature
 
         if use_structured:
             assert request.response_format is not None
@@ -178,16 +189,42 @@ class AnthropicAdapter:
                 usage=usage,
                 parsed=parsed,
             )
-        except anthropic.AuthenticationError as e:
-            raise AuthenticationError(str(e))
-        except anthropic.BadRequestError as e:
-            if _is_quota_or_billing_error(e):
-                raise QuotaExceededError(str(e)) from e
+        except Exception as e:
+            mapped = self._mapped_error(e, request.model)
+            if mapped is not None:
+                raise mapped from e
             raise
-        except anthropic.RateLimitError as e:
-            if _is_quota_or_billing_error(e):
-                raise QuotaExceededError(str(e)) from e
-            raise RateLimitError(str(e)) from e
+
+    def _mapped_error(self, error: Exception, model: str) -> LLMError | None:
+        """Normalize a provider exception into the shared taxonomy, or None when it isn't ours.
+
+        `complete` and `stream` both route through this, so the same provider failure reads the
+        same way whether the caller streamed it or not.
+        """
+        if isinstance(error, anthropic.AuthenticationError):
+            return AuthenticationError(str(error))
+        if isinstance(error, anthropic.NotFoundError):
+            # Anthropic answers a retired or misspelled model with a 404. Without this the
+            # workflow burns its retries on an unmapped exception instead of telling the user
+            # to pick another model.
+            return ModelNotFoundError(model)
+        if isinstance(error, anthropic.PermissionDeniedError):
+            return ModelPermissionError(model)
+        if isinstance(error, anthropic.BadRequestError):
+            if _is_quota_or_billing_error(error):
+                return QuotaExceededError(str(error))
+            if is_context_window_error_message(str(error)):
+                return ContextWindowExceededError(str(error))
+            return None
+        if isinstance(error, anthropic.RateLimitError):
+            if _is_quota_or_billing_error(error):
+                return QuotaExceededError(str(error))
+            return RateLimitError(str(error))
+        if isinstance(error, anthropic.APIConnectionError):
+            # Transient transport failure (connection reset, read timeout). Map to a quiet
+            # retryable error so the caller retries silently instead of spamming error tracking.
+            return ProviderConnectionError(str(error))
+        return None
 
     def stream(
         self,
@@ -221,7 +258,6 @@ class AnthropicAdapter:
 
         reasoning_on = model_id in AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING and request.thinking
 
-        effective_temperature = request.temperature if request.temperature is not None else AnthropicConfig.TEMPERATURE
         effective_max_tokens = request.max_tokens if request.max_tokens is not None else AnthropicConfig.MAX_TOKENS
 
         tools = self._convert_tools(request.tools) if request.tools else None
@@ -245,8 +281,11 @@ class AnthropicAdapter:
                 "model": model_id,
                 "system": system_prompt,
                 "stream": True,
-                "temperature": effective_temperature,
             }
+
+            # See complete(): forward temperature only when a caller explicitly set one.
+            if request.temperature is not None:
+                common_kwargs["temperature"] = request.temperature
 
             if analytics.capture:
                 common_kwargs["posthog_distinct_id"] = analytics.distinct_id
@@ -266,67 +305,68 @@ class AnthropicAdapter:
                 )
             else:
                 stream = client.messages.create(**common_kwargs)
+
+            # Inside the try: Anthropic reports an overload or a mid-request failure by raising
+            # partway through iteration, which is the point where the user has nothing else to
+            # read but this generator's chunks.
+            for chunk in stream:
+                if chunk.type == "message_start":
+                    usage = chunk.message.usage
+                    yield StreamChunk(
+                        type="usage",
+                        data={
+                            "input_tokens": usage.input_tokens or 0,
+                            "output_tokens": usage.output_tokens or 0,
+                            "cache_write_tokens": getattr(usage, "cache_creation_input_tokens", None) or 0,
+                            "cache_read_tokens": getattr(usage, "cache_read_input_tokens", None) or 0,
+                        },
+                    )
+
+                elif chunk.type == "message_delta":
+                    yield StreamChunk(
+                        type="usage",
+                        data={"input_tokens": 0, "output_tokens": chunk.usage.output_tokens or 0},
+                    )
+
+                elif chunk.type == "content_block_start":
+                    if chunk.content_block.type == "thinking":
+                        yield StreamChunk(type="reasoning", data={"reasoning": chunk.content_block.thinking or ""})
+                    elif chunk.content_block.type == "redacted_thinking":
+                        yield StreamChunk(type="reasoning", data={"reasoning": "[Redacted thinking block]"})
+                    elif chunk.content_block.type == "text":
+                        if chunk.index > 0:
+                            yield StreamChunk(type="text", data={"text": "\n"})
+                        yield StreamChunk(type="text", data={"text": chunk.content_block.text})
+                    elif chunk.content_block.type == "tool_use":
+                        yield StreamChunk(
+                            type="tool_call",
+                            data={
+                                "id": chunk.content_block.id,
+                                "function": {
+                                    "name": chunk.content_block.name,
+                                    "arguments": "",
+                                },
+                            },
+                        )
+
+                elif chunk.type == "content_block_delta":
+                    if chunk.delta.type == "thinking_delta":
+                        yield StreamChunk(type="reasoning", data={"reasoning": chunk.delta.thinking})
+                    elif chunk.delta.type == "text_delta":
+                        yield StreamChunk(type="text", data={"text": chunk.delta.text})
+                    elif chunk.delta.type == "input_json_delta":
+                        yield StreamChunk(
+                            type="tool_call",
+                            data={
+                                "id": None,
+                                "function": {
+                                    "name": "",
+                                    "arguments": chunk.delta.partial_json,
+                                },
+                            },
+                        )
         except Exception as e:
-            logger.exception(f"Anthropic API error: {e}")
-            yield StreamChunk(type="error", data={"error": "Anthropic API error"})
-            return
-
-        for chunk in stream:
-            if chunk.type == "message_start":
-                usage = chunk.message.usage
-                yield StreamChunk(
-                    type="usage",
-                    data={
-                        "input_tokens": usage.input_tokens or 0,
-                        "output_tokens": usage.output_tokens or 0,
-                        "cache_write_tokens": getattr(usage, "cache_creation_input_tokens", None) or 0,
-                        "cache_read_tokens": getattr(usage, "cache_read_input_tokens", None) or 0,
-                    },
-                )
-
-            elif chunk.type == "message_delta":
-                yield StreamChunk(
-                    type="usage",
-                    data={"input_tokens": 0, "output_tokens": chunk.usage.output_tokens or 0},
-                )
-
-            elif chunk.type == "content_block_start":
-                if chunk.content_block.type == "thinking":
-                    yield StreamChunk(type="reasoning", data={"reasoning": chunk.content_block.thinking or ""})
-                elif chunk.content_block.type == "redacted_thinking":
-                    yield StreamChunk(type="reasoning", data={"reasoning": "[Redacted thinking block]"})
-                elif chunk.content_block.type == "text":
-                    if chunk.index > 0:
-                        yield StreamChunk(type="text", data={"text": "\n"})
-                    yield StreamChunk(type="text", data={"text": chunk.content_block.text})
-                elif chunk.content_block.type == "tool_use":
-                    yield StreamChunk(
-                        type="tool_call",
-                        data={
-                            "id": chunk.content_block.id,
-                            "function": {
-                                "name": chunk.content_block.name,
-                                "arguments": "",
-                            },
-                        },
-                    )
-
-            elif chunk.type == "content_block_delta":
-                if chunk.delta.type == "thinking_delta":
-                    yield StreamChunk(type="reasoning", data={"reasoning": chunk.delta.thinking})
-                elif chunk.delta.type == "text_delta":
-                    yield StreamChunk(type="text", data={"text": chunk.delta.text})
-                elif chunk.delta.type == "input_json_delta":
-                    yield StreamChunk(
-                        type="tool_call",
-                        data={
-                            "id": None,
-                            "function": {
-                                "name": "",
-                                "arguments": chunk.delta.partial_json,
-                            },
-                        },
-                    )
+            yield stream_error_chunk(e, self._mapped_error(e, model_id), logger=logger, provider=self.name)
 
     @staticmethod
     def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
@@ -403,6 +443,7 @@ class AnthropicAdapter:
                 "posthog_trace_id": analytics.trace_id or str(uuid.uuid4()),
                 "posthog_properties": analytics.properties or {},
                 "posthog_groups": analytics.groups or {},
+                "posthog_privacy_mode": analytics.privacy_mode,
             }
         return {}
 

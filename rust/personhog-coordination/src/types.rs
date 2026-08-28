@@ -20,6 +20,15 @@ pub struct RegisteredPod {
     /// Populated via K8s awareness on registration. None when K8s awareness is disabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub controller: Option<ControllerRef>,
+    /// `host:port` where this pod's gRPC server is reachable. Derived by
+    /// the pod from its bind address (and POD_IP when binding a wildcard),
+    /// so the advertised port is definitionally the serving port. Travels
+    /// with ownership: the coordinator copies it into every handoff and
+    /// assignment naming this pod, which is how routers learn where to
+    /// dial without a second discovery system. `None` only for
+    /// registrations written by binaries that predate the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub advertise_address: Option<String>,
 }
 
 /// Lifecycle status of a writer pod.
@@ -50,12 +59,40 @@ pub struct PartitionAssignment {
     pub partition: u32,
     /// The `pod_name` of the writer pod that currently owns this partition.
     pub owner: String,
+    /// The owner's advertised `host:port`, copied from its registration
+    /// via the handoff that installed it. Routers load it with the
+    /// assignment so reachability arrives with ownership.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub advertise_address: Option<String>,
     pub status: AssignmentStatus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AssignmentStatus {
     Active,
+}
+
+/// What a rebalance plan asserts, at apply time, about a touched
+/// partition's assignment record: the plan's handoffs derive their
+/// `old_owner` from the assignments it read, so applying is only sound
+/// while those records are exactly as read (moves) or still absent
+/// (fresh partitions).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssignmentPrecondition {
+    UnchangedSince { partition: u32, mod_revision: i64 },
+    Absent { partition: u32 },
+}
+
+/// One cancellation-by-replacement in a plan application: the handoff
+/// record at the partition's key is swapped — guarded on the
+/// `mod_revision` the planner read — for the record that resolves its
+/// stashes (a successor `Freezing` handoff, or a reaffirm `Complete`
+/// toward the live current owner), with the predecessor's acks deleted
+/// in the same transaction.
+#[derive(Debug, Clone)]
+pub struct HandoffReplacement {
+    pub handoff: HandoffState,
+    pub expected_mod_revision: i64,
 }
 
 /// Tracks the progress of moving a partition from one writer pod to another,
@@ -82,8 +119,75 @@ pub struct HandoffState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub old_owner: Option<String>,
     pub new_owner: String,
+    /// The new owner's advertised `host:port`, copied from its
+    /// registration when the coordinator creates the handoff; lands in
+    /// the assignment at Complete.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_owner_address: Option<String>,
     pub phase: HandoffPhase,
     pub started_at: i64,
+    /// Unique identity of this handoff attempt. Acks echo it, and the
+    /// coordinator's quorum checks only count acks whose id matches —
+    /// without this, an ack written for a previous handoff of the same
+    /// partition (e.g. re-put by a participant racing the coordinator's
+    /// ack cleanup) could satisfy a later handoff's quorum and advance it
+    /// past a drain or warm that never happened.
+    #[serde(default)]
+    pub handoff_id: String,
+    /// The routers whose freeze acks this handoff requires: those
+    /// registered when the coordinator created it, intersected with the
+    /// live registry at evaluation (`required_freeze_ackers`), so the
+    /// requirement only ever shrinks. Fixing membership at creation
+    /// keeps the quorum satisfiable — every member's watch coverage
+    /// spans this handoff's Freezing event, and a router that registers
+    /// later is never required to ack an event it may not observe.
+    ///
+    /// Exempting late joiners is safe because the freeze quorum is an
+    /// availability gate, not the safety boundary: a joining router
+    /// opens stashes for in-flight handoffs before its routing table
+    /// can forward anywhere, and the drain fence plus the broker's
+    /// producer epoch reject anything that slips through before it is
+    /// ever acked.
+    ///
+    /// `None` means the record predates this field; the quorum then
+    /// falls back to requiring every live router. `Some([])` is a real
+    /// snapshot — zero routers were registered at creation — and
+    /// requires nobody.
+    /// Carried by records written before the membership moved into its
+    /// own key, and read for those. One current path still writes it: a
+    /// reaffirm, which states an empty membership directly rather than
+    /// minting a record no handoff would ever resolve. Nothing reads that
+    /// value — a reaffirm is created at `Complete`, past every quorum
+    /// check — but the field is written, so treat "absent" rather than
+    /// "never written" as the thing this can be relied on for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freeze_quorum: Option<Vec<String>>,
+    /// The id of the record holding this handoff's quorum membership,
+    /// under `{prefix}freeze_quorums/{id}`. A plan's handoffs share one
+    /// membership; inlined, it wrote the router fleet once per
+    /// partition and exceeded etcd's request limit at fleet scale. An
+    /// id that no longer resolves falls back to requiring every live
+    /// router — the stricter answer, so a lost record can only delay a
+    /// handoff, never advance one early.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freeze_quorum_ref: Option<String>,
+    /// Millisecond creation time. `started_at` (seconds) predates it and
+    /// stays authoritative for the cancellation deadline — changing that
+    /// field's units mid-roll would make old records' ages read as
+    /// garbage — while this feeds the latency metrics, whose healthy
+    /// values are sub-second and invisible at second resolution. Zero
+    /// means the record predates the field; consumers skip rather than
+    /// treat it as an epoch-zero time.
+    #[serde(default)]
+    pub created_at_ms: i64,
+    /// When the handoff entered its current phase, stamped at creation
+    /// and refreshed by the coordinator's CAS on every advance. Time
+    /// spent per phase is measured from it directly — per-phase
+    /// durations cannot be recovered from cumulative reached-times
+    /// (differences of quantiles are not quantiles of differences).
+    /// Zero means the record predates the field.
+    #[serde(default)]
+    pub phase_entered_at_ms: i64,
 }
 
 /// State machine for partition handoffs:
@@ -111,7 +215,7 @@ pub struct HandoffState {
 ///   - `Warming → Complete`: the new owner has written a `PodWarmedAck`,
 ///     meaning its cache has been populated up to the stable HWM. The
 ///     phase write and the new `PartitionAssignment` happen atomically.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum HandoffPhase {
     /// Routers are establishing per-partition stash queues. While in this
     /// phase, the old owner continues to serve writes — the gate that
@@ -137,6 +241,16 @@ pub struct RouterFreezeAck {
     pub router_name: String,
     pub partition: u32,
     pub acked_at: i64,
+    /// Echo of the handoff's `handoff_id`; the coordinator only counts
+    /// this ack toward the handoff whose id it names.
+    #[serde(default)]
+    pub handoff_id: String,
+    /// Millisecond stamp written by the store at put time, for span
+    /// metrics (`acked_at` above keeps second resolution for protocol
+    /// visibility). Zero in records written by earlier builds; span
+    /// consumers skip zeros.
+    #[serde(default)]
+    pub acked_at_ms: i64,
 }
 
 /// The old owner's acknowledgment that all inflight request handlers for a
@@ -150,6 +264,16 @@ pub struct PodDrainedAck {
     pub pod_name: String,
     pub partition: u32,
     pub acked_at: i64,
+    /// Echo of the handoff's `handoff_id`; the coordinator only counts
+    /// this ack toward the handoff whose id it names.
+    #[serde(default)]
+    pub handoff_id: String,
+    /// Millisecond stamp written by the store at put time, for span
+    /// metrics (`acked_at` above keeps second resolution for protocol
+    /// visibility). Zero in records written by earlier builds; span
+    /// consumers skip zeros.
+    #[serde(default)]
+    pub acked_at_ms: i64,
 }
 
 /// The new owner's acknowledgment that it has consumed Kafka up to the stable
@@ -160,6 +284,16 @@ pub struct PodWarmedAck {
     pub pod_name: String,
     pub partition: u32,
     pub acked_at: i64,
+    /// Echo of the handoff's `handoff_id`; the coordinator only counts
+    /// this ack toward the handoff whose id it names.
+    #[serde(default)]
+    pub handoff_id: String,
+    /// Millisecond stamp written by the store at put time, for span
+    /// metrics (`acked_at` above keeps second resolution for protocol
+    /// visibility). Zero in records written by earlier builds; span
+    /// consumers skip zeros.
+    #[serde(default)]
+    pub acked_at_ms: i64,
 }
 
 /// Written to `{prefix}coordinator/leader` by the coordinator that wins
@@ -174,6 +308,27 @@ pub struct LeaderInfo {
 mod tests {
     use super::*;
 
+    /// A record written before the snapshot and millisecond-timestamp
+    /// fields existed must deserialize with the safe defaults: `None`
+    /// quorum (fall back to all live routers) and zero clocks (metrics
+    /// and the age gauge skip rather than measure from the epoch).
+    /// Catches anyone removing a `serde(default)` during a refactor.
+    #[test]
+    fn pre_upgrade_handoff_record_deserializes_with_safe_defaults() {
+        let legacy = r#"{
+            "partition": 3,
+            "old_owner": "p-old",
+            "new_owner": "p-new",
+            "phase": "Freezing",
+            "started_at": 1700000000
+        }"#;
+        let h: HandoffState = serde_json::from_str(legacy).unwrap();
+        assert_eq!(h.handoff_id, "");
+        assert!(h.freeze_quorum.is_none());
+        assert_eq!(h.created_at_ms, 0);
+        assert_eq!(h.phase_entered_at_ms, 0);
+    }
+
     #[test]
     fn registered_pod_roundtrip() {
         let pod = RegisteredPod {
@@ -183,6 +338,7 @@ mod tests {
             registered_at: 1700000000,
             last_heartbeat: 1700000010,
             controller: None,
+            advertise_address: None,
         };
         let json = serde_json::to_string(&pod).unwrap();
         let deserialized: RegisteredPod = serde_json::from_str(&json).unwrap();
@@ -206,11 +362,28 @@ mod tests {
         let assignment = PartitionAssignment {
             partition: 42,
             owner: "personhog-writer-1".to_string(),
+            advertise_address: Some("10.1.2.3:50053".to_string()),
             status: AssignmentStatus::Active,
         };
         let json = serde_json::to_string(&assignment).unwrap();
         let deserialized: PartitionAssignment = serde_json::from_str(&json).unwrap();
         assert_eq!(assignment, deserialized);
+    }
+
+    /// Records written by binaries that predate advertise addresses must
+    /// keep deserializing — the field arrives mid-rollout.
+    #[test]
+    fn pre_advertise_address_records_deserialize() {
+        let assignment: PartitionAssignment = serde_json::from_str(
+            r#"{"partition":1,"owner":"personhog-leader-0","status":"Active"}"#,
+        )
+        .unwrap();
+        assert_eq!(assignment.advertise_address, None);
+        let handoff: HandoffState = serde_json::from_str(
+            r#"{"partition":1,"new_owner":"personhog-leader-0","phase":"Freezing","started_at":0}"#,
+        )
+        .unwrap();
+        assert_eq!(handoff.new_owner_address, None);
     }
 
     #[test]
@@ -221,6 +394,12 @@ mod tests {
             new_owner: "personhog-writer-3".to_string(),
             phase: HandoffPhase::Freezing,
             started_at: 1700000000,
+            handoff_id: "1700000000000-0".to_string(),
+            freeze_quorum: None,
+            freeze_quorum_ref: None,
+            created_at_ms: 0,
+            phase_entered_at_ms: 0,
+            new_owner_address: None,
         };
         let json = serde_json::to_string(&handoff).unwrap();
         let deserialized: HandoffState = serde_json::from_str(&json).unwrap();
@@ -235,6 +414,12 @@ mod tests {
             new_owner: "personhog-writer-3".to_string(),
             phase: HandoffPhase::Freezing,
             started_at: 1700000000,
+            handoff_id: "1700000000000-0".to_string(),
+            freeze_quorum: None,
+            freeze_quorum_ref: None,
+            created_at_ms: 0,
+            phase_entered_at_ms: 0,
+            new_owner_address: None,
         };
         let json = serde_json::to_string(&handoff).unwrap();
         let deserialized: HandoffState = serde_json::from_str(&json).unwrap();
@@ -247,6 +432,8 @@ mod tests {
             router_name: "router-0".to_string(),
             partition: 42,
             acked_at: 1700000000,
+            acked_at_ms: 0,
+            handoff_id: "1700000000000-0".to_string(),
         };
         let json = serde_json::to_string(&ack).unwrap();
         let deserialized: RouterFreezeAck = serde_json::from_str(&json).unwrap();
@@ -259,6 +446,8 @@ mod tests {
             pod_name: "leader-0".to_string(),
             partition: 42,
             acked_at: 1700000000,
+            acked_at_ms: 0,
+            handoff_id: "1700000000000-0".to_string(),
         };
         let json = serde_json::to_string(&ack).unwrap();
         let deserialized: PodDrainedAck = serde_json::from_str(&json).unwrap();
@@ -271,6 +460,8 @@ mod tests {
             pod_name: "leader-1".to_string(),
             partition: 42,
             acked_at: 1700000000,
+            acked_at_ms: 0,
+            handoff_id: "1700000000000-0".to_string(),
         };
         let json = serde_json::to_string(&ack).unwrap();
         let deserialized: PodWarmedAck = serde_json::from_str(&json).unwrap();

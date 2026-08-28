@@ -7,15 +7,22 @@ import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtu
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { parseJSON } from '~/common/utils/json-parse'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../types'
+import { HogExecutorAsyncService } from '../../hog-executor-async.service'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
+import { RecipientsManagerService } from '../../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
+import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../messaging/email-suppression.service'
+import { EmailValidationService } from '../../messaging/email-validation.service'
 import { EmailService } from '../../messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
@@ -28,48 +35,65 @@ describe('HogFunctionHandler', () => {
     let hub: Hub
     let team: Team
     let hogFunctionHandler: HogFunctionHandler
-    let mockHogFunctionExecutor: HogExecutorService
+    let mockHogFunctionExecutor: HogExecutorAsyncService
     let mockHogFunctionTemplateManager: HogFunctionTemplateManagerService
     let mockHogFlowFunctionsService: HogFlowFunctionsService
     let mockRecipientPreferencesService: RecipientPreferencesService
+    let mockEmailValidationService: EmailValidationService
 
     let invocation: CyclotronJobInvocationHogFlow
     let action: Extract<HogFlowAction, { type: 'function' }>
     let template: DBHogFunctionTemplate
+    let integrationId: number
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
 
-        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const hogInputsService = new HogInputsService(
+            hub.integrationManager,
+            recipientTokensService,
+            hub.encryptedFields
+        )
         const emailService = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
                 sesEndpoint: hub.SES_ENDPOINT,
+                sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
             },
             hub.integrationManager,
-            new TeamWorkflowsConfigService(hub.postgres),
+            new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
-            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+            new RecipientsManagerService(hub.postgres)
         )
-        const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        mockHogFunctionExecutor = new HogExecutorService(
+        mockHogFunctionExecutor = new HogExecutorAsyncService(
+            new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
             {
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
+                siteUrl: hub.SITE_URL,
+                internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
             },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-            hogInputsService,
-            emailService,
-            recipientTokensService
+            {
+                teamManager: hub.teamManager,
+                conversationsTicketsJwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.CONVERSATIONS_TICKETS,
+                    hub.CONVERSATIONS_TICKETS_JWT_SECRET
+                ),
+                hogInputsService,
+                emailService,
+                recipientTokensService,
+                pushNotificationService: undefined as any,
+            }
         )
         mockHogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         mockHogFlowFunctionsService = new HogFlowFunctionsService(
@@ -78,18 +102,22 @@ describe('HogFunctionHandler', () => {
             mockHogFunctionExecutor
         )
         mockRecipientPreferencesService = {
-            shouldSkipAction: jest.fn().mockResolvedValue(false),
+            shouldSkipAction: jest.fn().mockResolvedValue(null),
+        } as any
+        mockEmailValidationService = {
+            getSkipReason: jest.fn().mockResolvedValue(null),
         } as any
         hogFunctionHandler = new HogFunctionHandler(
             mockHogFlowFunctionsService,
             mockRecipientPreferencesService,
+            mockEmailValidationService,
             'fetch'
         )
 
         // Simple hog function that prints the inputs
 
         template = await insertHogFunctionTemplate(hub.postgres, {
-            id: 'template-test-hogflow-executor',
+            id: `template-test-hogflow-executor-${team.id}`,
             name: 'Test Template',
             code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
             inputs_schema: [
@@ -106,8 +134,9 @@ describe('HogFunctionHandler', () => {
             ],
         })
 
+        integrationId = team.id
         await insertIntegration(hub.postgres, team.id, {
-            id: 1,
+            id: integrationId,
             kind: 'slack',
             config: { team: 'foobar' },
             sensitive_config: {
@@ -129,7 +158,7 @@ describe('HogFunctionHandler', () => {
                                     value: 'John Doe',
                                 },
                                 oauth: {
-                                    value: 1,
+                                    value: integrationId,
                                 },
                             },
                             mappings: [
@@ -175,20 +204,17 @@ describe('HogFunctionHandler', () => {
 
         const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
-        expect(mockFetch.mock.calls).toMatchInlineSnapshot(`
-            [
-              [
-                "http://localhost/test",
-                {
-                  "body": "{"name":"John Doe","oauth":{"team":"foobar","access_token":"token","not_encrypted":"not-encrypted","access_token_raw":"token"}}",
-                  "headers": {
-                    "Content-Type": "application/json",
-                  },
-                  "method": "POST",
-                },
-              ],
-            ]
-        `)
+        expect(mockFetch.mock.calls[0][0]).toBe('http://localhost/test')
+        expect(parseJSON(mockFetch.mock.calls[0][1].body)).toEqual({
+            name: 'John Doe',
+            oauth: {
+                $integration_id: integrationId,
+                team: 'foobar',
+                access_token: 'token',
+                not_encrypted: 'not-encrypted',
+                access_token_raw: 'token',
+            },
+        })
 
         expect(handlerResult.nextAction?.id).toBe('exit')
         expect(invocationResult.logs).toHaveLength(1)
@@ -242,6 +268,62 @@ describe('HogFunctionHandler', () => {
         })
     })
 
+    describe('missing variable references', () => {
+        beforeEach(() => {
+            // {variables.coupon} compiled to hog bytecode; the run has no `coupon` variable
+            action.config.inputs.name = {
+                value: '{variables.coupon}',
+                templating: 'hog',
+                bytecode: ['_H', 1, 32, 'coupon', 32, 'variables', 1, 2],
+            }
+            invocation.state.variables = {}
+        })
+
+        it('warns in the run log when an input references a variable the run does not have', async () => {
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+            const warnings = invocationResult.logs.filter(
+                (l) => l.level === 'warn' && l.message.includes('not set for this run')
+            )
+            expect(warnings).toHaveLength(1)
+            expect(warnings[0].message).toContain('coupon')
+            // Rendering is unchanged: the step still executes, with the reference rendered empty
+            expect(handlerResult.error).toBeUndefined()
+            expect(mockFetch).toHaveBeenCalled()
+        })
+
+        it('does not warn again on a continuation that reuses already-rendered state', async () => {
+            const firstResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+            await hogFunctionHandler.execute({ invocation, action, result: firstResult })
+
+            // Simulate a continuation: the rendered function state is carried on the action,
+            // exactly as the handler persists it for a paused function
+            invocation.state.currentAction!.hogFunctionState = {
+                globals: { ...createExampleHogFlowInvocation(invocation.hogFlow).state.event, inputs: {} } as any,
+                timings: [],
+                attempts: 0,
+            } as any
+
+            const continuationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+            await hogFunctionHandler.execute({ invocation, action, result: continuationResult })
+
+            expect(
+                continuationResult.logs.filter((l) => l.level === 'warn' && l.message.includes('not set for this run'))
+            ).toHaveLength(0)
+        })
+    })
+
     it('should throw an error if template is not found', async () => {
         const action = findActionByType(invocation.hogFlow, 'function')!
         action.config.template_id = 'template_123'
@@ -285,7 +367,7 @@ describe('HogFunctionHandler', () => {
                 value: 'John Doe',
             },
             oauth: {
-                value: 1,
+                value: integrationId,
             },
         })
         expect(calledConfig.inputs_schema).toEqual([
@@ -304,8 +386,8 @@ describe('HogFunctionHandler', () => {
         expect(calledConfig.mappings).toEqual([{ name: 'input mapping field' }])
     })
 
-    it('should skip execution if recipient preferences service returns true', async () => {
-        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(true)
+    it('should skip execution and log an opt-out message when recipient preferences returns opted_out', async () => {
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('opted_out')
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hog',
@@ -322,62 +404,141 @@ describe('HogFunctionHandler', () => {
         expect(invocationResult.logs[0].message).toContain(
             `[Action:function] Recipient has opted out, skipping message delivery.`
         )
+        // Opt-out skips do not emit an app metric — no billable_invocation, no email_suppressed.
+        expect(invocationResult.metrics).toEqual([])
         expect(mockFetch).not.toHaveBeenCalled()
     })
 
-    it('should emit a single billable_invocation metric upon function completion', async () => {
-        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
-            queue: 'hog',
-            queuePriority: 0,
-        })
-
-        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
-
-        const billableMetrics = invocationResult.metrics.filter(
-            (metric) => metric.metric_name === 'billable_invocation' && metric.metric_kind === 'fetch'
-        )
-
-        expect(billableMetrics).toHaveLength(1)
-
-        expect(billableMetrics[0]).toMatchObject({
-            team_id: team.id,
-            app_source_id: invocation.functionId,
-            instance_id: action.id,
-            metric_kind: 'fetch',
-            metric_name: 'billable_invocation',
-            count: 1,
-        })
-    })
-
-    it('should emit a billable_invocation metric with email kind when billingMetricType is email', async () => {
-        hogFunctionHandler = new HogFunctionHandler(
-            mockHogFlowFunctionsService,
-            mockRecipientPreferencesService,
-            'email'
-        )
+    // Guards the fix that split suppression from opt-out: previously both branches collapsed to a
+    // single "opted out" log with no metric, so a customer couldn't tell why a workflow send was
+    // skipped or measure suppression volume from the app-metrics view.
+    it('should skip execution, log a suppression message, and emit email_suppressed when recipient preferences returns suppressed', async () => {
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('suppressed')
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hog',
             queuePriority: 0,
         })
 
-        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
-        const billableMetrics = invocationResult.metrics.filter(
-            (metric) => metric.metric_name === 'billable_invocation' && metric.metric_kind === 'email'
+        expect(handlerResult.nextAction?.id).toBe('exit')
+        expect(invocationResult.logs).toHaveLength(1)
+        expect(invocationResult.logs[0].message).toContain(
+            `[Action:function] Skipping send: recipient is on the suppression list.`
+        )
+        expect(invocationResult.metrics).toEqual([
+            {
+                team_id: team.id,
+                app_source_id: invocation.functionId,
+                instance_id: action.id,
+                metric_kind: 'email',
+                metric_name: 'email_suppressed',
+                count: 1,
+            },
+        ])
+        expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('should skip the send and emit email_bounce_prevented when validation predicts a hard bounce', async () => {
+        ;(mockEmailValidationService.getSkipReason as jest.Mock).mockResolvedValueOnce(
+            'Skipping send: the domain "dead.invalid" has no reachable mail servers, so this message would hard bounce.'
         )
 
-        expect(billableMetrics).toHaveLength(1)
-
-        expect(billableMetrics[0]).toMatchObject({
-            team_id: team.id,
-            app_source_id: invocation.functionId,
-            instance_id: action.id,
-            metric_kind: 'email',
-            metric_name: 'billable_invocation',
-            count: 1,
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
         })
+
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        // Flow continues to the next action (a skip, not a failure branch), and nothing was sent.
+        expect(handlerResult.nextAction?.id).toBe('exit')
+        expect(mockFetch).not.toHaveBeenCalled()
+        expect(invocationResult.logs[0].message).toContain('no reachable mail servers')
+        expect(invocationResult.metrics).toEqual([
+            {
+                team_id: team.id,
+                app_source_id: invocation.functionId,
+                instance_id: action.id,
+                metric_kind: 'email',
+                metric_name: 'email_bounce_prevented',
+                count: 1,
+            },
+        ])
     })
+
+    // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
+    // (roughly half of email), so a completed invocation must emit exactly one billable_invocation
+    // carrying the handler's billing type — never fall back to another channel's kind.
+    it.each(['fetch', 'email', 'push'] as const)(
+        'emits a single billable_invocation with %s kind matching the handler billing type',
+        async (billingType) => {
+            const handler = new HogFunctionHandler(
+                mockHogFlowFunctionsService,
+                mockRecipientPreferencesService,
+                mockEmailValidationService,
+                billingType
+            )
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            await handler.execute({ invocation, action, result: invocationResult })
+
+            const billableMetrics = invocationResult.metrics.filter(
+                (metric) => metric.metric_name === 'billable_invocation'
+            )
+
+            expect(billableMetrics).toHaveLength(1)
+
+            expect(billableMetrics[0]).toMatchObject({
+                team_id: team.id,
+                app_source_id: invocation.functionId,
+                instance_id: action.id,
+                metric_kind: billingType,
+                metric_name: 'billable_invocation',
+                count: 1,
+            })
+        }
+    )
+
+    // Live edits reach runs already in flight, so a run that entered on one version can send its
+    // message under a newer one. The conversion belongs to the version whose message the person
+    // received — the same version `email_sent` is counted under — so a send re-pins the attribution
+    // version. A non-message step must leave it alone.
+    it.each([
+        { billingType: 'email' as const, expected: 3 },
+        { billingType: 'push' as const, expected: 3 },
+        { billingType: 'fetch' as const, expected: 1 },
+    ])(
+        'a completed $billingType step leaves the attribution version at $expected',
+        async ({ billingType, expected }) => {
+            const handler = new HogFunctionHandler(
+                mockHogFlowFunctionsService,
+                mockRecipientPreferencesService,
+                mockEmailValidationService,
+                billingType
+            )
+            // The run entered on v1; v3 is what is live now and what this step executes under.
+            const republished = {
+                ...invocation,
+                hogFlow: { ...invocation.hogFlow, version: 3 },
+                state: { ...invocation.state, flowVersion: 1 },
+            }
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(republished, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            await handler.execute({ invocation: republished, action, result: invocationResult })
+
+            expect(invocationResult.invocation.state.flowVersion).toBe(expected)
+        }
+    )
 
     it('should not emit a billable_invocation metric if function is not finished', async () => {
         // Mock the executeWithAsyncFunctions to return a non-finished result
@@ -388,6 +549,7 @@ describe('HogFunctionHandler', () => {
             metrics: [],
             capturedPostHogEvents: [],
             warehouseWebhookPayloads: [],
+            messageAssets: [],
         })
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
@@ -405,7 +567,7 @@ describe('HogFunctionHandler', () => {
     })
 
     it('should not emit a billable_invocation metric when recipient opts out', async () => {
-        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(true)
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('opted_out')
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hog',
@@ -429,7 +591,7 @@ describe('HogFunctionHandler', () => {
     describe('non_failure_status_codes propagation', () => {
         it('propagates non_failure_status_codes from action.config.inputs into the synthetic hog function', async () => {
             const templateWithNonFailure = await insertHogFunctionTemplate(hub.postgres, {
-                id: 'template-test-hogflow-non-failure-status',
+                id: `template-test-hogflow-non-failure-status-${team.id}`,
                 name: 'Test Template With Non-Failure Codes',
                 code: `fetch('http://localhost/test', { 'method': 'POST', 'body': {} })`,
                 inputs_schema: [

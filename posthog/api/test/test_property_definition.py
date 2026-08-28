@@ -1,14 +1,22 @@
 import json
 from typing import Any, Optional, Union, cast
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
+
+from django.db import OperationalError
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ActivityLog, EventDefinition, EventProperty, Organization, PropertyDefinition, Team
-from posthog.taxonomy.property_definition_api import PropertyDefinitionQuerySerializer, PropertyDefinitionViewSet
+from posthog.taxonomy.property_definition_api import (
+    PropertyDefinitionQuerySerializer,
+    PropertyDefinitionViewSet,
+    QueryContext,
+    is_query_canceled,
+)
 
 
 def exclude_virtual_properties(results: list) -> list:
@@ -65,6 +73,24 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{property.id}")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["property_type"] == "DateTime"
+
+    def test_warehouse_origin_provenance_is_exposed(self):
+        origin = {"source_id": "s1", "table_name": "github.issues", "column": "plan_tier"}
+        property = PropertyDefinition.objects.create(
+            team=self.team,
+            name="plan_tier",
+            type=PropertyDefinition.Type.PERSON,
+            warehouse_origin=origin,
+        )
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{property.id}")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["warehouse_origin"] == origin
+
+    def test_retrieve_with_non_uuid_id_returns_404(self):
+        # Links built without a saved definition id (e.g. pinned defaults) request
+        # `.../property_definitions/undefined` — that must 404, not 500 with a UUID ValueError.
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/undefined")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_list_property_definitions(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
@@ -514,6 +540,11 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?{query_params}")
         assert response.status_code == status.HTTP_200_OK
         assert any(prop["name"] == expected_name for prop in response.json()["results"])
+
+    def test_viewset_runs_query_serializer_validation(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "group_type_index" in response.json()["detail"]
 
     @parameterized.expand(
         [
@@ -1012,15 +1043,76 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert "$virt_bot_name" in virtual_names
 
 
-class TestPropertyDefinitionQuerySerializer(BaseTest):
-    def test_validation(self):
-        assert PropertyDefinitionQuerySerializer(data={}).is_valid()
-        assert PropertyDefinitionQuerySerializer(data={"type": "event", "event_names": '["foo","bar"]'}).is_valid()
-        assert PropertyDefinitionQuerySerializer(data={"type": "person"}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "person", "event_names": '["foo","bar"]'}).is_valid()
+class TestPropertyDefinitionListStatementTimeout(APIBaseTest):
+    def test_cancelled_list_query_returns_a_retryable_503(self) -> None:
+        # Postgres cancels the statement, psycopg raises, and Django re-raises it as a bare
+        # OperationalError. Without the handler that renders as a 500, which the taxonomic filter
+        # shows as "no properties" rather than as a failure the user can retry.
+        slow_count_sql = "SELECT count(*) AS full_count FROM (SELECT pg_sleep(3)) s WHERE %(project_id)s IS NOT NULL"
 
-        assert PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": 3}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "group"}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": 77}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": -1}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "event", "group_type_index": 3}).is_valid()
+        with (
+            patch.object(QueryContext, "as_count_sql", return_value=slow_count_sql),
+            patch(
+                "posthog.taxonomy.property_definition_api.PROPERTY_DEFINITIONS_STATEMENT_TIMEOUT_MS",
+                250,
+            ),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["code"] == "property_definitions_timeout"
+
+
+class TestIsQueryCanceled(SimpleTestCase):
+    @staticmethod
+    def _wrapped_error(**attrs: str) -> OperationalError:
+        # Django surfaces the driver's error as its own OperationalError with the original attached
+        # as __cause__, which is where the SQLSTATE lives.
+        cause = Exception("canceling statement due to statement timeout")
+        for name, value in attrs.items():
+            setattr(cause, name, value)
+        error = OperationalError("canceling statement due to statement timeout")
+        error.__cause__ = cause
+        return error
+
+    @parameterized.expand(
+        [
+            ["psycopg3 exposes sqlstate", {"sqlstate": "57014"}, True],
+            ["psycopg2 exposes pgcode", {"pgcode": "57014"}, True],
+            ["a dropped connection is not a cancellation", {"sqlstate": "08006"}, False],
+            ["a driver error carrying no sqlstate", {}, False],
+        ]
+    )
+    def test_recognises_only_a_cancelled_statement(self, _name: str, attrs: dict[str, str], expected: bool) -> None:
+        assert is_query_canceled(self._wrapped_error(**attrs)) is expected
+
+    def test_recognises_the_code_on_the_error_itself(self) -> None:
+        error = OperationalError("canceling statement due to statement timeout")
+        error.sqlstate = "57014"  # type: ignore[attr-defined]
+
+        assert is_query_canceled(error) is True
+
+
+class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ["defaults", {}],
+            ["event with event_names", {"type": "event", "event_names": '["foo","bar"]'}],
+            ["person", {"type": "person"}],
+            ["group with valid index", {"type": "group", "group_type_index": 3}],
+        ]
+    )
+    def test_valid_query(self, _name: str, data: dict[str, Any]) -> None:
+        assert PropertyDefinitionQuerySerializer(data=data).is_valid()
+
+    @parameterized.expand(
+        [
+            ["event_names set for non-event type", {"type": "person", "event_names": '["foo","bar"]'}],
+            ["group type without index", {"type": "group"}],
+            ["group_type_index above limit", {"type": "group", "group_type_index": 77}],
+            ["negative group_type_index", {"type": "group", "group_type_index": -1}],
+            ["group_type_index set for non-group type", {"type": "event", "group_type_index": 3}],
+        ]
+    )
+    def test_invalid_query(self, _name: str, data: dict[str, Any]) -> None:
+        assert not PropertyDefinitionQuerySerializer(data=data).is_valid()

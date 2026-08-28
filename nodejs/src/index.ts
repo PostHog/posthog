@@ -1,6 +1,7 @@
 // NOTE: Keep these as ~ imports as we can validate the build output this way
 import { PluginServerMode } from '~/common/config'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { initMetrics } from '~/common/metrics/otel-metrics'
 import { initTracing } from '~/common/tracing/otel'
 import { initSuperProperties } from '~/common/utils/posthog'
 import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
@@ -11,6 +12,10 @@ import { IngestionApiServer } from '~/servers/ingestion-api-server'
 import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
 import { IngestionLogsServer } from '~/servers/ingestion-logs-server'
 import { IngestionMetricsServer } from '~/servers/ingestion-metrics-server'
+import { IngestionSessionReplayMlImageFetchRetryServer } from '~/servers/ingestion-session-replay-ml-image-fetch-retry-server'
+import { IngestionSessionReplayMlImageFetchServer } from '~/servers/ingestion-session-replay-ml-image-fetch-server'
+import { IngestionSessionReplayMlImageScrubDlqReplayServer } from '~/servers/ingestion-session-replay-ml-image-scrub-dlq-replay-server'
+import { IngestionSessionReplayMlImageScrubServer } from '~/servers/ingestion-session-replay-ml-image-scrub-server'
 import { IngestionSessionReplayMlMirrorServer } from '~/servers/ingestion-session-replay-ml-mirror-server'
 import { IngestionSessionReplayMlParquetSinkServer } from '~/servers/ingestion-session-replay-ml-parquet-sink-server'
 import { IngestionSessionReplayServer } from '~/servers/ingestion-session-replay-server'
@@ -39,6 +44,18 @@ function createServer(): NodeServer {
         case PluginServerMode.recordings_blob_ingestion_v2_ml_parquet_sink:
             return new IngestionSessionReplayMlParquetSinkServer()
 
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_scrub:
+            return new IngestionSessionReplayMlImageScrubServer()
+
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay:
+            return new IngestionSessionReplayMlImageScrubDlqReplayServer()
+
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch:
+            return new IngestionSessionReplayMlImageFetchServer()
+
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch_retry:
+            return new IngestionSessionReplayMlImageFetchRetryServer()
+
         case PluginServerMode.recording_api:
             return new RecordingApiServer()
 
@@ -61,5 +78,6 @@ function createServer(): NodeServer {
 }
 
 initTracing()
+initMetrics()
 const server = createServer()
 void server.start()

@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 
+import { LogsViewerScope } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { LogsFullScreenButton } from 'products/logs/frontend/components/LogsViewer/LogsFullScreenButton'
 import { SavedViewsButton } from 'products/logs/frontend/components/LogsViews/SavedViewsButton'
 
 import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
@@ -13,7 +15,15 @@ import { LogsAppliedFilters, LogsFilterGroup, LogsFilterSearch, LogsQueryControl
  *
  * Level + Service aren't here — they're facets in the rail. The active-filter chips render under the bar.
  */
-export const LogsQueryBar = ({ showSavedViewsButton = false }: { showSavedViewsButton?: boolean }): JSX.Element => {
+export const LogsQueryBar = ({
+    showSavedViewsButton = false,
+    showFullScreenButton = false,
+    scope,
+}: {
+    showSavedViewsButton?: boolean
+    showFullScreenButton?: boolean
+    scope?: LogsViewerScope
+}): JSX.Element => {
     const { id } = useValues(logsViewerFiltersLogic)
 
     return (
@@ -27,7 +37,10 @@ export const LogsQueryBar = ({ showSavedViewsButton = false }: { showSavedViewsB
                         <FilterHistoryDropdown />
                         {showSavedViewsButton && <SavedViewsButton id={id} iconOnly />}
                     </div>
-                    <LogsQueryControls />
+                    <div className="flex shrink-0 gap-1.5">
+                        <LogsQueryControls />
+                        {showFullScreenButton && <LogsFullScreenButton id={id} scope={scope} />}
+                    </div>
                 </div>
                 <LogsAppliedFilters />
             </div>

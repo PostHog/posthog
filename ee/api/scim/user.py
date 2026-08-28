@@ -8,14 +8,16 @@ from django_scim.adapters import SCIMUser
 from scim2_filter_parser.attr_paths import AttrPath
 
 from posthog.models import Organization, OrganizationMembership, User
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
-from ee.models.rbac.role import RoleMembership
+from products.access_control.backend.models.role import RoleMembership
+
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
 
 class SCIMUserConflict(Exception):
-    """User is already SCIM-provisioned for this organization domain."""
+    """User is already SCIM-provisioned for this identity provider configuration."""
 
 
 def _validate_email_domain_is_verified(email: str, organization: Organization) -> None:
@@ -36,7 +38,7 @@ def _validate_email_domain_is_verified(email: str, organization: Organization) -
 class PostHogSCIMUser(SCIMUser):
     """
     Adapter to map SCIM User schema to PostHog User model.
-    Handles user provisioning scoped to a specific OrganizationDomain.
+    Handles user provisioning scoped to a specific IdentityProviderConfig.
     """
 
     resource_type = "User"
@@ -75,30 +77,24 @@ class PostHogSCIMUser(SCIMUser):
 
     @property
     def user_name(self) -> str:
-        scim_user = SCIMProvisionedUser.objects.filter(
-            user=self.obj, organization_domain=self._organization_domain
-        ).first()
+        scim_user = SCIMProvisionedUser.objects.record_for(user=self.obj, config=self._config)
         return scim_user.username if scim_user else self.obj.email
 
     @property
     def identity_provider(self) -> str:
-        scim_user = SCIMProvisionedUser.objects.filter(
-            user=self.obj, organization_domain=self._organization_domain
-        ).first()
+        scim_user = SCIMProvisionedUser.objects.record_for(user=self.obj, config=self._config)
         return scim_user.identity_provider if scim_user else SCIMProvisionedUser.IdentityProvider.OTHER
 
     @property
     def active(self) -> bool:
         # A user is "active" in SCIM context if they have membership in this org
-        if not hasattr(self, "_organization_domain"):
+        if not hasattr(self, "_config"):
             return self.obj.is_active
-        return OrganizationMembership.objects.filter(
-            user=self.obj, organization=self._organization_domain.organization
-        ).exists()
+        return OrganizationMembership.objects.filter(user=self.obj, organization=self._config.organization).exists()
 
-    def __init__(self, obj: User, organization_domain: OrganizationDomain):
+    def __init__(self, obj: User, config: IdentityProviderConfig):
         super().__init__(obj)
-        self._organization_domain = organization_domain
+        self._config = config
 
     @staticmethod
     def _extract_email_from_value(emails: list[dict]) -> Optional[str]:
@@ -116,7 +112,7 @@ class PostHogSCIMUser(SCIMUser):
         return {
             "id": cls.resource_type,
             "name": cls.resource_type,
-            "endpoint": f"/scim/v2/{request.auth.id if request and request.auth else '{domain_id}'}/Users",
+            "endpoint": f"/scim/v2/{request.auth.scim_slug if request and request.auth else '{scim_slug}'}/Users",
             "schema": constants.SchemaURI.USER,
         }
 
@@ -133,7 +129,7 @@ class PostHogSCIMUser(SCIMUser):
             "active": self.active,
             "meta": {
                 "resourceType": self.resource_type,
-                "location": f"/scim/v2/{self._organization_domain.id}/Users/{self.id}",
+                "location": f"/scim/v2/{self._config.scim_slug}/Users/{self.id}",
             },
         }
 
@@ -141,12 +137,12 @@ class PostHogSCIMUser(SCIMUser):
             base_dict["displayName"] = self.display_name
 
         role_memberships = RoleMembership.objects.filter(
-            user=self.obj, role__organization=self._organization_domain.organization
+            user=self.obj, role__organization=self._config.organization
         ).select_related("role")
         base_dict["groups"] = [
             {
                 "value": str(rm.role.id),
-                "$ref": f"/scim/v2/{self._organization_domain.id}/Groups/{rm.role.id}",
+                "$ref": f"/scim/v2/{self._config.scim_slug}/Groups/{rm.role.id}",
                 "display": rm.role.name,
             }
             for rm in role_memberships
@@ -158,7 +154,7 @@ class PostHogSCIMUser(SCIMUser):
     def from_dict(
         cls,
         data: dict,
-        organization_domain: OrganizationDomain,
+        config: IdentityProviderConfig,
         identity_provider: SCIMProvisionedUser.IdentityProvider = SCIMProvisionedUser.IdentityProvider.OTHER,
     ) -> "PostHogSCIMUser":
         """
@@ -177,16 +173,14 @@ class PostHogSCIMUser(SCIMUser):
         with transaction.atomic():
             user = User.objects.filter(email__iexact=email).first()
 
-            # Check if already SCIM-provisioned for this org domain
-            if user and SCIMProvisionedUser.objects.filter(user=user, organization_domain=organization_domain).exists():
+            # Check if already SCIM-provisioned for this IdP config
+            if user and SCIMProvisionedUser.objects.record_for(user=user, config=config) is not None:
                 raise SCIMUserConflict()
 
             if user:
-                is_member = OrganizationMembership.objects.filter(
-                    user=user, organization=organization_domain.organization
-                ).exists()
+                is_member = OrganizationMembership.objects.filter(user=user, organization=config.organization).exists()
                 if not is_member:
-                    _validate_email_domain_is_verified(email, organization_domain.organization)
+                    _validate_email_domain_is_verified(email, config.organization)
 
                 if first_name:
                     user.first_name = first_name
@@ -194,7 +188,7 @@ class PostHogSCIMUser(SCIMUser):
                     user.last_name = last_name
                 user.save()
             else:
-                _validate_email_domain_is_verified(email, organization_domain.organization)
+                _validate_email_domain_is_verified(email, config.organization)
                 # Create new user with no password (they'll use SAML)
                 user = User.objects.create_user(
                     email=email, password=None, first_name=first_name, last_name=last_name, is_email_verified=True
@@ -203,19 +197,19 @@ class PostHogSCIMUser(SCIMUser):
             # Ensure user has membership in this organization
             OrganizationMembership.objects.get_or_create(
                 user=user,
-                organization=organization_domain.organization,
+                organization=config.organization,
                 defaults={"level": OrganizationMembership.Level.MEMBER},
             )
 
             # Set current org/team if this is their first org
             if not user.current_organization:
-                user.current_organization = organization_domain.organization
-                user.current_team = organization_domain.organization.teams.first()
+                user.current_organization = config.organization
+                user.current_team = config.organization.teams.first()
                 user.save()
 
-            SCIMProvisionedUser.objects.update_or_create(
+            SCIMProvisionedUser.objects.upsert(
                 user=user,
-                organization_domain=organization_domain,
+                config=config,
                 defaults={
                     "identity_provider": identity_provider,
                     "username": user_name,
@@ -223,7 +217,7 @@ class PostHogSCIMUser(SCIMUser):
                 },
             )
 
-        return cls(user, organization_domain)
+        return cls(user, config)
 
     def put(self, data: dict) -> None:
         """
@@ -245,18 +239,18 @@ class PostHogSCIMUser(SCIMUser):
             if existing_user_with_email:
                 raise ValueError("Email belongs to another user")
 
-            _validate_email_domain_is_verified(email, self._organization_domain.organization)
+            _validate_email_domain_is_verified(email, self._config.organization)
             # Org must also own the current email domain to prevent cross-tenant account takeover
-            _validate_email_domain_is_verified(self.obj.email, self._organization_domain.organization)
+            _validate_email_domain_is_verified(self.obj.email, self._config.organization)
 
             self.obj.first_name = name_data.get("givenName", "")
             self.obj.last_name = name_data.get("familyName", "")
             self.obj.email = email
             self.obj.save()
 
-            SCIMProvisionedUser.objects.update_or_create(
+            SCIMProvisionedUser.objects.upsert(
                 user=self.obj,
-                organization_domain=self._organization_domain,
+                config=self._config,
                 defaults={
                     "username": user_name,
                     "active": is_active,
@@ -268,7 +262,7 @@ class PostHogSCIMUser(SCIMUser):
                 # Adding org membership to reactivate the user
                 OrganizationMembership.objects.get_or_create(
                     user=self.obj,
-                    organization=self._organization_domain.organization,
+                    organization=self._config.organization,
                     defaults={"level": OrganizationMembership.Level.MEMBER},
                 )
             else:
@@ -279,7 +273,7 @@ class PostHogSCIMUser(SCIMUser):
         # canonical current-org/team cleanup run. Tolerate an already-removed membership so
         # deprovisioning stays idempotent.
         try:
-            self.obj.leave(organization=self._organization_domain.organization)
+            self.obj.leave(organization=self._config.organization)
         except OrganizationMembership.DoesNotExist:
             pass
 
@@ -289,10 +283,7 @@ class PostHogSCIMUser(SCIMUser):
         """
         self._leave_organization()
 
-        SCIMProvisionedUser.objects.filter(
-            user=self.obj,
-            organization_domain=self._organization_domain,
-        ).update(active=False)
+        SCIMProvisionedUser.objects.for_config(self._config).filter(user=self.obj).update(active=False)
 
     def delete(self) -> None:
         """
@@ -300,10 +291,7 @@ class PostHogSCIMUser(SCIMUser):
         """
         self._leave_organization()
 
-        SCIMProvisionedUser.objects.filter(
-            user=self.obj,
-            organization_domain=self._organization_domain,
-        ).delete()
+        SCIMProvisionedUser.objects.for_config(self._config).filter(user=self.obj).delete()
 
     def handle_replace(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
@@ -324,13 +312,13 @@ class PostHogSCIMUser(SCIMUser):
                 else:
                     OrganizationMembership.objects.get_or_create(
                         user=self.obj,
-                        organization=self._organization_domain.organization,
+                        organization=self._config.organization,
                         defaults={"level": OrganizationMembership.Level.MEMBER},
                     )
 
-                    SCIMProvisionedUser.objects.update_or_create(
+                    SCIMProvisionedUser.objects.upsert(
                         user=self.obj,
-                        organization_domain=self._organization_domain,
+                        config=self._config,
                         defaults={
                             "active": True,
                             "username": self.user_name,
@@ -359,15 +347,15 @@ class PostHogSCIMUser(SCIMUser):
                 if email:
                     if User.objects.filter(email__iexact=email).exclude(id=self.obj.id).exists():
                         raise ValueError("Email belongs to another user")
-                    _validate_email_domain_is_verified(email, self._organization_domain.organization)
+                    _validate_email_domain_is_verified(email, self._config.organization)
                     # Org must also own the current email domain to prevent cross-tenant account takeover
-                    _validate_email_domain_is_verified(self.obj.email, self._organization_domain.organization)
+                    _validate_email_domain_is_verified(self.obj.email, self._config.organization)
                     self.obj.email = email
 
             elif attr_name == "userName" and isinstance(value, str):
-                SCIMProvisionedUser.objects.update_or_create(
+                SCIMProvisionedUser.objects.upsert(
                     user=self.obj,
-                    organization_domain=self._organization_domain,
+                    config=self._config,
                     defaults={
                         "username": value,
                         "active": True,
@@ -389,13 +377,13 @@ class PostHogSCIMUser(SCIMUser):
             if attr_name == "active" and value:
                 OrganizationMembership.objects.get_or_create(
                     user=self.obj,
-                    organization=self._organization_domain.organization,
+                    organization=self._config.organization,
                     defaults={"level": OrganizationMembership.Level.MEMBER},
                 )
 
-                SCIMProvisionedUser.objects.update_or_create(
+                SCIMProvisionedUser.objects.upsert(
                     user=self.obj,
-                    organization_domain=self._organization_domain,
+                    config=self._config,
                     defaults={
                         "active": True,
                         "username": self.user_name,
@@ -425,16 +413,16 @@ class PostHogSCIMUser(SCIMUser):
                 if email:
                     if User.objects.filter(email__iexact=email).exclude(id=self.obj.id).exists():
                         raise ValueError("Email belongs to another user")
-                    _validate_email_domain_is_verified(email, self._organization_domain.organization)
+                    _validate_email_domain_is_verified(email, self._config.organization)
                     # Org must also own the current email domain to prevent cross-tenant account takeover
-                    _validate_email_domain_is_verified(self.obj.email, self._organization_domain.organization)
+                    _validate_email_domain_is_verified(self.obj.email, self._config.organization)
                     self.obj.email = email
                     self.obj.save()
 
             elif attr_name == "userName" and isinstance(value, str):
-                SCIMProvisionedUser.objects.update_or_create(
+                SCIMProvisionedUser.objects.upsert(
                     user=self.obj,
-                    organization_domain=self._organization_domain,
+                    config=self._config,
                     defaults={
                         "username": value,
                         "active": True,
@@ -469,7 +457,5 @@ class PostHogSCIMUser(SCIMUser):
                 raise ValueError("Email is required and cannot be removed")
 
     @classmethod
-    def get_queryset_for_organization(cls, organization_domain: OrganizationDomain) -> QuerySet[User]:
-        return User.objects.filter(organization_membership__organization=organization_domain.organization).order_by(
-            "id"
-        )
+    def get_queryset_for_organization(cls, config: IdentityProviderConfig) -> QuerySet[User]:
+        return User.objects.filter(organization_membership__organization=config.organization).order_by("id")

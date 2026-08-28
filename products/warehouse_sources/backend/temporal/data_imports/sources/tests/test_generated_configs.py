@@ -1,32 +1,67 @@
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
-    BeamerSourceConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import get_config_for_source
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.beamer import BeamerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
     BigQuerySourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargebee import (
     ChargebeeSourceConfig,
-    DoItSourceConfig,
-    GitLabSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitlab import GitLabSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
     GoogleSheetsSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gorgias import (
     GorgiasSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hubspot import (
     HubspotSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
     MetaAdsSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
     MongoDBSourceConfig,
-    MSSQLSourceConfig,
-    MySQLSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.salesforce import (
     SalesforceSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
     ShopifySourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
     SnowflakeSourceConfig,
-    StripeSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import StripeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.supabase import (
     SupabaseSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.temporalio import (
     TemporalIOSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vitally import (
     VitallySourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
     ZendeskSourceConfig,
 )
 
 
-def test_bigquery_config():
+# The form submits "temporary-dataset", but dataclasses.asdict() persists "temporary_dataset",
+# so a source that has been saved once is read back under the second spelling.
+@pytest.mark.parametrize("temporary_dataset_key", ["temporary-dataset", "temporary_dataset"])
+def test_bigquery_config(temporary_dataset_key: str):
     config = BigQuerySourceConfig.from_dict(
         {
             "key_file": {
@@ -37,7 +72,7 @@ def test_bigquery_config():
                 "token_uri": "token_uri",
             },
             "dataset_id": "dataset_id",
-            "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
+            temporary_dataset_key: {"enabled": False, "temporary_dataset_id": ""},
             "dataset_project": {"enabled": False, "dataset_project_id": ""},
         }
     )
@@ -421,3 +456,12 @@ def test_zendesk_config():
     assert config.subdomain == "subdomain"
     assert config.api_key == "api_key"
     assert config.email_address == "email_address"
+
+
+def test_get_config_for_source_resolves_every_registered_source():
+    # The generator emits `<member.name.lower()>.py` modules and the static package __init__
+    # derives the same names at runtime; if either side changes its rule (or a registered
+    # source's module is missing/stale), resolution breaks for that source.
+    for source_type in SourceRegistry.get_all_sources():
+        config_cls = get_config_for_source(source_type)
+        assert config_cls.__name__ == f"{source_type.value}SourceConfig"

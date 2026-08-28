@@ -22,6 +22,8 @@ from posthog.temporal.common.clickhouse import (
     encode_clickhouse_data,
 )
 
+pytestmark = pytest.mark.django_db
+
 
 async def _wait_for_query_status(
     client: ClickHouseClient,
@@ -38,6 +40,12 @@ async def _wait_for_query_status(
     """
     elapsed_time = 0.0
     while elapsed_time < max_wait_time:
+        # Force query_log to materialize before reading (its async flush lags under CI load).
+        # A transient flush failure is a retryable poll miss, so keep it out of the read's error handling.
+        try:
+            await client.execute_query("SYSTEM FLUSH LOGS")
+        except ClickHouseError:
+            pass
         try:
             status = await client.acheck_query_in_query_log(query_id, raise_on_error=raise_on_error)
             if status == expected_status:
@@ -230,6 +238,31 @@ def test_post_query_disables_http_compression(clickhouse_client):
             {"event": "index_{something}", "another": "event"},
             "select * from events where event = 'index_{something}' and event != 'event'",
         ),
+        # a value containing an unbalanced brace used to crash the format pass
+        (
+            "select * from events where event = %(event)s and event != {another}",
+            {"event": "brace {", "another": "event"},
+            "select * from events where event = 'brace {' and event != 'event'",
+        ),
+        # a JSON string value used to be mangled by the format pass
+        (
+            "select * from events where properties = %(props)s and event != {another}",
+            {"props": '{"a": 1}', "another": "event"},
+            "select * from events where properties = '{\"a\": 1}' and event != 'event'",
+        ),
+        # a value matching another parameter's name must not be substituted again
+        (
+            "select * from events where event = %(event)s and event != {another}",
+            {"event": "literal {another}", "another": "event"},
+            "select * from events where event = 'literal {another}' and event != 'event'",
+        ),
+        # the INSERT INTO FUNCTION s3(...) shape used by batch exports: intentional escapes
+        # collapse while a value containing '%' and braces survives verbatim
+        (
+            "INSERT INTO FUNCTION s3('bucket/export_{{_partition_id}}.arrow') SELECT %(v)s SETTINGS log_comment={log_comment}",
+            {"v": '100%-{"a": 1}', "log_comment": "comment"},
+            "INSERT INTO FUNCTION s3('bucket/export_{_partition_id}.arrow') SELECT '100%-{\"a\": 1}' SETTINGS log_comment='comment'",
+        ),
     ],
 )
 def test_prepare_query(clickhouse_client, query, query_parameters, expected):
@@ -309,6 +342,31 @@ async def test_acheck_query_in_query_log_cancelled(clickhouse_client, django_db_
         await _wait_for_query_status(clickhouse_client, query_id, ClickHouseQueryStatus.ERROR, raise_on_error=True)
 
 
+async def test_acheck_query_in_query_log_classifies_the_error(clickhouse_client, django_db_setup):
+    """A failure recovered from the query log is classified like one returned over HTTP.
+
+    A caller that waits out a query which outlived its client timeout reads the failure from the
+    query log instead of the response. Both carry the same error text, so both must yield the same
+    exception class: otherwise whether a caller sees `ClickHouseMemoryLimitExceededError` or a bare
+    `ClickHouseError` depends on how long the query happened to take.
+    """
+    query_id = f"test-memory-limit-query-{uuid.uuid4()}"
+
+    with pytest.raises(ClickHouseMemoryLimitExceededError) as direct:
+        await clickhouse_client.execute_query_with_summary(
+            "SELECT groupArray(toString(number)) FROM numbers(10000000)",
+            query_id=query_id,
+            settings={"max_memory_usage": "1000000"},
+        )
+
+    with pytest.raises(ClickHouseMemoryLimitExceededError) as from_query_log:
+        await _wait_for_query_status(clickhouse_client, query_id, ClickHouseQueryStatus.ERROR)
+
+    assert "MEMORY_LIMIT_EXCEEDED" in str(direct.value)
+    assert "MEMORY_LIMIT_EXCEEDED" in str(from_query_log.value)
+    assert from_query_log.value.query_id == query_id
+
+
 async def test_acheck_query_in_query_log_not_found(clickhouse_client, django_db_setup):
     """Test that acheck_query_in_query_log raises ClickHouseQueryNotFound for non-existent queries."""
     non_existent_query_id = f"test-non-existent-query-{uuid.uuid4()}"
@@ -344,6 +402,26 @@ async def test_acheck_query_in_query_log_error(clickhouse_client, django_db_setu
         query_id = f"test-error-query-{uuid.uuid4()}"
         with pytest.raises(ClickHouseCheckQueryStatusError):
             await clickhouse_client.acheck_query_in_query_log(query_id)
+
+
+async def test_acheck_query_in_query_log_uses_unique_check_query_ids(clickhouse_client: ClickHouseClient) -> None:
+    query_id = f"test-check-query-id-{uuid.uuid4()}"
+    check_query_ids: list[str] = []
+
+    async def mock_read_query_as_jsonl(
+        _query: str, query_parameters: dict[str, object] | None = None, query_id: str | None = None
+    ) -> list[dict[str, str]]:
+        assert query_id is not None
+        check_query_ids.append(query_id)
+        return [{"type": "QueryFinish", "exception": ""}]
+
+    with patch.object(clickhouse_client, "read_query_as_jsonl", side_effect=mock_read_query_as_jsonl):
+        await clickhouse_client.acheck_query_in_query_log(query_id)
+        await clickhouse_client.acheck_query_in_query_log(query_id)
+
+    assert len(check_query_ids) == 2
+    assert check_query_ids[0] != check_query_ids[1]
+    assert all(value.startswith(f"{query_id}-CHECK-QUERY-LOG-") for value in check_query_ids)
 
 
 async def test_acheck_query_found(clickhouse_client, django_db_setup):

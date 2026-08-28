@@ -40,7 +40,7 @@ Before scaffolding YAML, verify:
    Missing descriptions = agents guessing at parameters.
    Use `ListField(child=serializers.CharField())` instead of bare `ListField()`,
    and `@extend_schema_field(PydanticModel)` on `JSONField` subclasses to get typed Zod output
-   (see `posthog/api/alert.py` for the pattern).
+   (see `products/alerts/backend/api/alert.py` for the pattern).
 2. **Plain `ViewSet` methods have `@extend_schema(request=...)`** —
    without it, drf-spectacular can't discover the request body
    and the generated tool gets `z.object({})` (zero parameters).
@@ -78,6 +78,24 @@ Violations fail the build.
 - **Format**: lowercase kebab-case — only `[a-z0-9-]`, no leading/trailing hyphens
 - **Length**: 52 characters or fewer
 - **Convention**: `domain-action`, e.g. `cohorts-create`, `dashboard-get`, `feature-flags-list`
+
+#### Keep action verbs out of compact tool domains
+
+The single-exec prompt builds its compact domain index with
+`ToolDomainExtractor`. Large families can split at an intermediate segment.
+Without action trimming, `experiment-freeze-exposure` can advertise the
+redundant domain `experiment-freeze` instead of `experiment`.
+
+Whenever you add or rename an action tool, check the
+[`TRAILING_ACTIONS`](services/mcp/src/lib/instructions.ts) set in the
+same change. If a rendered domain can end in an operation verb that is not
+already present, add the verb. Cover it in
+`services/mcp/tests/unit/instructions.test.ts`. This applies even when the verb
+is not the final segment of the full tool name.
+
+Add operation verbs such as `freeze`, `publish`, or `emit`. Do not add resource
+or capability nouns such as `config`, `logs`, `stats`, or `schedule` merely to
+make the prompt shorter; those remain useful discovery domains.
 
 ### Feature identifiers
 
@@ -144,6 +162,8 @@ tools:
       include: [id, key, name] # keep only these fields (dot-path wildcards supported)
       exclude: [filters.groups.*.properties] # remove these fields
       # include and exclude are mutually exclusive
+      selectable: true # add optional `fields` param so the agent picks a subset of `include` per call
+      # (constrained to the allowlist); omit `fields` to return the full set. Requires `include`.
     feature_flag: my-flag-key # gate this tool behind a PostHog feature flag
     feature_flag_behavior: enable # 'enable' (default) or 'disable'
 ```

@@ -14,6 +14,7 @@ from products.error_tracking.backend.facade import (
 from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
 MAX_HASH_ID_LENGTH = 128
+RELEASE_HASH_IN_USE_ERROR_CODE = "release_hash_in_use"
 
 
 @extend_schema_field({"type": "object", "additionalProperties": True, "nullable": True})
@@ -105,7 +106,7 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 metadata=request.data.get("metadata"),
             )
         except error_tracking_api.ReleaseHashInUseError as err:
-            raise ValidationError(f"Hash id {err} already in use")
+            raise ValidationError(f"Hash id {err} already in use", code=RELEASE_HASH_IN_USE_ERROR_CODE) from err
         return Response(self.get_serializer(release).data, status=status.HTTP_201_CREATED)
 
     def _apply_update(self, pk: str, data) -> Response:
@@ -120,7 +121,7 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 project=data.get("project"),
             )
         except error_tracking_api.ReleaseHashInUseError as err:
-            raise ValidationError(f"Hash id {err} already in use")
+            raise ValidationError(f"Hash id {err} already in use", code=RELEASE_HASH_IN_USE_ERROR_CODE) from err
         if release is None:
             raise NotFound()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)

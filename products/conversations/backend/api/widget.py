@@ -16,6 +16,7 @@ import logging
 
 from django.db.models import F, Q
 
+from prometheus_client import Counter
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny
@@ -31,6 +32,7 @@ from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
 
 from products.conversations.backend.api.serializers import (
+    WIDGET_TICKETS_DEFAULT_LIMIT,
     WidgetMarkReadSerializer,
     WidgetMessageSerializer,
     WidgetMessagesQuerySerializer,
@@ -46,20 +48,75 @@ from products.conversations.backend.cache import (
     set_cached_messages,
     set_cached_tickets,
 )
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import ChannelDetail
 from products.conversations.backend.services.identity import verify_identity_hash
 
 logger = logging.getLogger(__name__)
 
+IDENTITY_VERIFICATION_COUNTER = Counter(
+    "conversations_identity_verification_total",
+    "Widget identity verification attempts by outcome and which stored secret matched",
+    labelnames=["outcome", "source"],
+)
+
+SIGNING_SECRET_STALE_COUNTER = Counter(
+    "conversations_signing_secret_stale_total",
+    "Signing secret rows skipped because they do not match the team's current secret API token",
+)
+
 
 class IdentityVerificationFailed(Exception):
     """Raised when identity fields are present but HMAC verification fails."""
 
+    # Surfaced to the widget. Keep it generic so a signature mismatch reveals nothing.
+    public_error = "Forbidden"
+
+
+class IdentityVerificationNotConfigured(IdentityVerificationFailed):
+    """Raised when the team has no secret API key to verify identity hashes against."""
+
+    # The widget API is AllowAny — reachable by anyone with the public widget token — so the
+    # response can't name the cause without leaking config state. Stays "Forbidden" (inherited);
+    # the specific reason is logged server-side for the team's own admins to see.
+
+
+def _identity_secrets(team: Team) -> list[tuple[str, str]]:
+    """(source, secret) pairs to verify a hash against, preferred store first.
+
+    The conversations signing secret is where this credential is moving; the legacy
+    Team.secret_api_token stays a fallback so teams that predate the backfill keep
+    verifying. The rotation backup is accepted too, so hashes signed with the previous
+    secret survive a rotation.
+
+    While the legacy column exists it remains the revocation authority: rotating and then
+    deleting the backup has to actually revoke the old key. The row is compared against the
+    current secret API token only — a row still holding the previous key matches the rotation
+    backup, so counting that as agreement would report a team whose sync failed as fully
+    migrated. Verification is unaffected: such a row still verifies via `legacy_backup`.
+    """
+    legacy_secrets: list[tuple[str, str]] = []
+    if team.secret_api_token:
+        legacy_secrets.append(("legacy_token", team.secret_api_token))
+    if team.secret_api_token_backup:
+        legacy_secrets.append(("legacy_backup", team.secret_api_token_backup))
+
+    secrets: list[tuple[str, str]] = []
+    signing_secret = SigningSecret.objects.for_team(team.id).first()
+    if signing_secret and signing_secret.secret:
+        if not legacy_secrets or signing_secret.secret == team.secret_api_token:
+            secrets.append(("signing_secret", signing_secret.secret))
+        else:
+            SIGNING_SECRET_STALE_COUNTER.inc()
+            logger.warning("Conversations signing secret is stale, skipping it", extra={"team_id": team.id})
+
+    return secrets + legacy_secrets
+
 
 def _verify_identity(data: dict, team: Team) -> str | None:
     """
-    Verify HMAC identity fields against team.secret_api_token.
+    Verify HMAC identity fields against the team's signing secret, falling back to the
+    legacy secret API token and its rotation backup.
     Returns the verified distinct_id, or None if identity fields not present.
     Raises IdentityVerificationFailed if identity was attempted but failed.
     """
@@ -68,14 +125,22 @@ def _verify_identity(data: dict, team: Team) -> str | None:
     if not distinct_id or not hash_value:
         return None
 
-    if not team.secret_api_token:
-        logger.warning("Identity verification attempted but team has no secret_api_token")
-        raise IdentityVerificationFailed("Team has no secret_api_token")
+    secrets = _identity_secrets(team)
+    if not secrets:
+        logger.warning(
+            "Identity verification attempted but team has no signing secret or legacy token",
+            extra={"team_id": team.id},
+        )
+        IDENTITY_VERIFICATION_COUNTER.labels(outcome="not_configured", source="none").inc()
+        raise IdentityVerificationNotConfigured("Team has no signing secret")
 
-    if not verify_identity_hash(distinct_id, hash_value, team.secret_api_token):
-        raise IdentityVerificationFailed("Invalid identity hash")
+    for source, secret in secrets:
+        if verify_identity_hash(distinct_id, hash_value, secret):
+            IDENTITY_VERIFICATION_COUNTER.labels(outcome="verified", source=source).inc()
+            return distinct_id
 
-    return distinct_id
+    IDENTITY_VERIFICATION_COUNTER.labels(outcome="invalid_hash", source="none").inc()
+    raise IdentityVerificationFailed("Invalid identity hash")
 
 
 class WidgetMessageView(APIView):
@@ -109,14 +174,42 @@ class WidgetMessageView(APIView):
         serializer = WidgetMessageSerializer(data=request.data)
         if not serializer.is_valid():
             logger.warning("Validation error in WidgetMessageView", extra={"errors": serializer.errors})
+            try:
+                # Track rejected submissions server-side so they're queryable even when the
+                # client-side event is blocked (ad blockers, network drops). Field names and
+                # value lengths only — never message content. An over-long auto-captured
+                # session_context value (e.g. current_url) is a known rejection cause.
+                # This endpoint is public and unauthenticated, so session_context is
+                # attacker-controlled: bound both the number of fields and the key length we
+                # record so a request stuffed with many keys can't inflate the event payload.
+                raw_session_context = request.data.get("session_context")
+                session_context_field_count = len(raw_session_context) if isinstance(raw_session_context, dict) else 0
+                session_context_field_lengths = {}
+                if isinstance(raw_session_context, dict):
+                    for key, value in list(raw_session_context.items())[:20]:
+                        if isinstance(key, str) and isinstance(value, str):
+                            session_context_field_lengths[key[:100]] = len(value)
+                report_team_action(
+                    team,
+                    "support ticket send failed",
+                    {
+                        "channel_source": "widget",
+                        "reason": "validation_error",
+                        "error_fields": sorted(serializer.errors.keys()),
+                        "session_context_field_count": session_context_field_count,
+                        "session_context_field_lengths": session_context_field_lengths,
+                    },
+                )
+            except Exception as e:
+                capture_exception(e)
             return Response(
                 {"error": "Invalid request data", "details": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
             )
 
         try:
             verified_distinct_id = _verify_identity(serializer.validated_data, team)
-        except IdentityVerificationFailed:
-            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        except IdentityVerificationFailed as e:
+            return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
             distinct_id = verified_distinct_id
@@ -172,6 +265,10 @@ class WidgetMessageView(APIView):
                 if session_context:
                     ticket.session_context.update(session_context)
 
+                # HMAC-verified requests are server-attested — mark the identity trusted.
+                if verified_distinct_id is not None:
+                    ticket.identity_verified = True
+
                 # Increment unread count for team (customer sent a message)
                 ticket.unread_team_count = F("unread_team_count") + 1
                 ticket.save(
@@ -181,6 +278,7 @@ class WidgetMessageView(APIView):
                         "session_id",
                         "session_context",
                         "unread_team_count",
+                        "identity_verified",
                         "updated_at",
                     ]
                 )
@@ -207,6 +305,7 @@ class WidgetMessageView(APIView):
                 unread_team_count=1,
                 session_id=session_id,
                 session_context=session_context,
+                identity_verified=verified_distinct_id is not None,
             )
 
             try:
@@ -285,8 +384,8 @@ class WidgetMessagesView(APIView):
         # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
         try:
             verified_distinct_id = _verify_identity(query_serializer.validated_data, team)
-        except IdentityVerificationFailed:
-            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        except IdentityVerificationFailed as e:
+            return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
             allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
@@ -399,8 +498,8 @@ class WidgetTicketsView(APIView):
 
         try:
             verified_distinct_id = _verify_identity(query_serializer.validated_data, team)
-        except IdentityVerificationFailed:
-            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        except IdentityVerificationFailed as e:
+            return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
             cache_key_id = f"iv:{verified_distinct_id}"
@@ -413,8 +512,12 @@ class WidgetTicketsView(APIView):
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]
 
-        # Check cache for first page (most common case for polling)
-        if offset == 0:
+        # Only cache the default first page (WIDGET_TICKETS_DEFAULT_LIMIT, offset=0)
+        # used by widget polling. Custom limit/offset must bypass the cache — its
+        # key doesn't include limit/offset, so serving it for other page sizes
+        # returns the wrong slice (e.g. ?limit=2 getting the full cached page back).
+        use_cache = offset == 0 and limit == WIDGET_TICKETS_DEFAULT_LIMIT
+        if use_cache:
             cached = get_cached_tickets(team.id, cache_key_id, status_filter)
             if cached is not None:
                 return Response(cached)
@@ -454,7 +557,7 @@ class WidgetTicketsView(APIView):
         response_data = {"count": total_count, "results": ticket_list}
 
         # Cache first page (skip empty results to avoid stale cache after restore/migration)
-        if offset == 0 and total_count > 0:
+        if use_cache and total_count > 0:
             set_cached_tickets(team.id, cache_key_id, response_data, status_filter)
 
         return Response(response_data)
@@ -501,8 +604,8 @@ class WidgetMarkReadView(APIView):
         # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
         try:
             verified_distinct_id = _verify_identity(body_serializer.validated_data, team)
-        except IdentityVerificationFailed:
-            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        except IdentityVerificationFailed as e:
+            return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
             allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)

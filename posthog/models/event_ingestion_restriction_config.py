@@ -17,6 +17,7 @@ INGESTION_PIPELINES = [
     {"value": "session_recordings", "label": "Session Recordings Pipeline"},
     {"value": "errortracking", "label": "Error Tracking Pipeline"},
     {"value": "clientwarnings", "label": "Client Warnings Pipeline"},
+    {"value": "ai", "label": "AI Pipeline"},
 ]
 
 
@@ -37,6 +38,7 @@ class IngestionPipeline(models.TextChoices):
     SESSION_RECORDINGS = "session_recordings"
     ERRORTRACKING = "errortracking"
     CLIENTWARNINGS = "clientwarnings"
+    AI = "ai"
 
 
 class EventIngestionRestrictionConfig(UUIDTModel):

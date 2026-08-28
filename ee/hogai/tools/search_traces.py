@@ -108,15 +108,15 @@ class SearchLLMTracesTool(MaxTool):
         query.offset = current_offset
 
         utc_now = timezone.now().astimezone(UTC)
-        executor = AssistantQueryExecutor(self._team, utc_now)
+        executor = AssistantQueryExecutor(self._team, utc_now, user=self._user)
         query_results = await executor.aexecute_query(query)
 
         raw_results = cast(list[dict], query_results.get("results", []))
         results = [LLMTrace.model_validate(r) for r in raw_results]
         has_more = cast(bool, query_results.get("hasMore", False))
 
-        # The query runner returns limit+1 results when hasMore=True — the extra row is
-        # purely for detection and should not be displayed. Trim to the requested limit.
+        # TracesQueryRunner already trims the page to query.limit. This guard keeps the tool
+        # within its own contract if the runner ever returns the extra hasMore detection row.
         if has_more and len(results) > query.limit:
             results = results[: query.limit]
         next_cursor = str(current_offset + len(results)) if has_more else None

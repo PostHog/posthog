@@ -34,6 +34,7 @@ class Client:
         properties: dict[str, Any] | None = None,
         groups: dict[str, Any] | None = None,
         capture_analytics: bool = True,
+        privacy_mode: bool = False,
     ):
         self.provider_key = provider_key
         self.config = config
@@ -43,6 +44,7 @@ class Client:
             properties=properties,
             groups=groups,
             capture=capture_analytics,
+            privacy_mode=privacy_mode,
         )
 
     def _get_api_key(self) -> str | None:
@@ -104,6 +106,7 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
     from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
     from products.ai_observability.backend.llm.providers.openrouter import OpenRouterAdapter
     from products.ai_observability.backend.llm.providers.together import TogetherAdapter
+    from products.ai_observability.backend.llm.providers.zeabur import ZeaburAdapter
 
     match name:
         case "openai":
@@ -120,6 +123,8 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
             return cast("Provider", FireworksAdapter())
         case "minimax":
             return cast("Provider", MiniMaxAdapter())
+        case "zeabur":
+            return cast("Provider", ZeaburAdapter())
         case "azure_openai":
             config = provider_key.encrypted_config if provider_key else {}
             return cast(

@@ -1,10 +1,17 @@
 import { Hono } from 'hono'
 
-import { loadSigningKeyFromEnv, NonceLedger, SignedStateCodec } from '@/lib/signed-state'
+import { env } from '@/lib/env'
+import {
+    loadSigningKeyFromEnv,
+    NonceLedger,
+    PayloadStash,
+    type PayloadStashRedis,
+    SignedStateCodec,
+} from '@/lib/signed-state'
 import { setConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 
 import { confirmedActionRuntimeInstalled } from './metrics'
-import { httpMetrics, securityHeaders } from './middleware'
+import { devRequestLogger, httpMetrics, securityHeaders } from './middleware'
 import { registerPublicRoutes } from './public-routes'
 import { StreamableMcpHandler } from './streamable-handler'
 import type { HonoCtx, RedisWithPing } from './types'
@@ -24,7 +31,7 @@ const sseRedirect = (c: HonoCtx): Response => {
     return c.redirect(target.toString(), 308) as unknown as Response
 }
 
-export function createApp(redis: RedisWithPing): App {
+export function createApp(redis: RedisWithPing & Pick<PayloadStashRedis, 'incrby'>): App {
     const app = new Hono()
     const lifecycle: Lifecycle = { shuttingDown: false }
 
@@ -43,6 +50,7 @@ export function createApp(redis: RedisWithPing): App {
         setConfirmedActionRuntime({
             codec: new SignedStateCodec(loadSigningKeyFromEnv()),
             ledger: new NonceLedger(redis),
+            stash: new PayloadStash(redis),
         })
         confirmedActionRuntimeInstalled.set(1)
     } catch (err) {
@@ -52,6 +60,11 @@ export function createApp(redis: RedisWithPing): App {
             `[mcp] CRITICAL: confirmed-action paradigm disabled — ${(err as Error).message}. ` +
                 `Any -prepare/-execute tool call will fail until this is fixed.`
         )
+    }
+
+    // Positive allowlist so the wire tap fails closed when NODE_ENV is unset.
+    if (env.NODE_ENV === 'development') {
+        app.use('*', devRequestLogger)
     }
 
     app.use('*', securityHeaders)

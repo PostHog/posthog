@@ -7,8 +7,8 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from posthog.security.url_validation import is_url_allowed
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.queries import (
     ISSUES_QUERY,
     SERVERS_QUERY,

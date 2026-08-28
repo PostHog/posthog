@@ -65,14 +65,16 @@ function DashboardWidgetOverviewTile({
                     moreButtonOverlay={mockMoreOverlay}
                 />
                 <WidgetCardBody error={demoState.cardError}>
-                    <WidgetComponent
-                        tileId={tileId}
-                        config={demoState.config}
-                        loading={demoState.loading}
-                        result={demoState.result}
-                        onUpdateConfig={() => undefined}
-                        onRefresh={() => undefined}
-                    />
+                    <React.Suspense fallback={null}>
+                        <WidgetComponent
+                            tileId={tileId}
+                            config={demoState.config}
+                            loading={demoState.loading}
+                            result={demoState.result}
+                            onUpdateConfig={() => undefined}
+                            onRefresh={() => undefined}
+                        />
+                    </React.Suspense>
                 </WidgetCardBody>
             </WidgetCard>
         </div>
@@ -100,7 +102,7 @@ const dashboardOverviewFrameDecorator = [
 ]
 
 const meta: Meta<typeof DashboardWidgetsOverview> = {
-    title: 'Dashboards/Dashboard Widgets/Overview',
+    title: 'Products/Dashboards/Dashboard Widgets/Overview',
     component: DashboardWidgetsOverview,
     parameters: {
         layout: 'fullscreen',

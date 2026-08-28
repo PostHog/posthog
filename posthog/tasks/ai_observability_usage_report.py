@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
 from cachetools import cached
-from celery import shared_task
+from celery import Task, shared_task
 from dateutil import parser
 from posthoganalytics.client import Client as PostHogClient
 from retry import retry
@@ -14,24 +14,35 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
+from posthog.ph_client import PH_US_API_KEY
 from posthog.schema_enums import AIEventType
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
-from posthog.utils import get_instance_region, get_previous_day
+from posthog.utils import DayRange, get_instance_region, get_previous_day
 
 logger = structlog.get_logger(__name__)
 
 
 @cached(cache={})
 def get_ph_client() -> PostHogClient:
-    """Get a PostHog client instance for capturing events."""
-    return PostHogClient("sTMFPsFhdP1Ssg", sync_mode=True)
+    """Get a PostHog client instance for capturing events.
+
+    Shares `PH_US_API_KEY` with `internal_reporting_team_id`, which resolves the team the
+    already-reported lookup reads. A separate literal here could drift from that key, and the lookup
+    would then resolve no team, report that it cannot verify, and emit without checking.
+    """
+    return PostHogClient(PH_US_API_KEY, sync_mode=True)
 
 
 AI_EVENTS = [event.value for event in AIEventType]
 LLM_PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
+
+# The emitted report event. Shared by the emission and the already-reported lookup so the two
+# cannot drift: a lookup reading a different name would find nothing and silently allow duplicates.
+AI_OBSERVABILITY_USAGE_EVENT = "llm analytics usage"
 
 AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS = [*AI_EVENTS, LLM_PROMPT_FETCHED_EVENT]
 
@@ -58,11 +69,30 @@ QUERY_RETRIES = 3
 QUERY_RETRY_DELAY = 1
 QUERY_RETRY_BACKOFF = 2
 
+# How long a queued report message may still be in flight before Celery discards it. The dispatch
+# claim reuses this, so the two cannot disagree about how long a run may still be emitting.
+USAGE_REPORT_MESSAGE_EXPIRY_SECONDS = 4 * 60 * 60
+
 # Celery task ID for query attribution
 CELERY_TASK_ID = "posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports"
 
 
-@dataclass
+def _ai_property_expr(property_name: str, use_new_events_schema: bool) -> str:
+    """A String read of an AI event property: the `properties_group_ai` map on the legacy schema.
+
+    events_json has no property-group columns, so read the property from the JSON `properties`
+    there instead, coalescing NULL to '' to keep the map-read semantics (missing key reads '').
+    """
+    if not use_new_events_schema:
+        return f"properties_group_ai['{property_name}']"
+    expr, is_denormalized = get_property_string_expr(
+        "events", property_name, f"'{property_name}'", "properties", use_new_events_schema=True
+    )
+    return expr if is_denormalized else f"ifNull({expr}, '')"
+
+
+# Mutable by design: the split-query combiner accumulates into one instance per team.
+@dataclass(frozen=False)
 class TeamMetrics:
     """All metrics for a single team from the combined query."""
 
@@ -72,12 +102,11 @@ class TeamMetrics:
     ai_generation_count: int = 0
     ai_embedding_count: int = 0
     ai_span_count: int = 0
-    ai_trace_count: int = 0
+    ai_trace_event_count: int = 0
     ai_metric_count: int = 0
     ai_feedback_count: int = 0
     ai_evaluation_count: int = 0
     ai_is_error_count: int = 0
-    ai_trial_evaluation_count: int = 0
     ai_llm_judge_evaluation_count: int = 0
     ai_hog_evaluation_count: int = 0
     ai_sentiment_evaluation_count: int = 0
@@ -239,9 +268,9 @@ def get_teams_with_ai_events(
     This is a fast query that returns only distinct team_ids, allowing subsequent
     queries to filter by team_id and use the primary key index efficiently.
     """
-    query = """
+    query = f"""
         SELECT DISTINCT team_id
-        FROM events
+        FROM {events_read_table(use_new_events_schema(None))}
         WHERE event IN %(ai_observability_report_trigger_events)s
           AND timestamp >= %(begin)s
           AND timestamp < %(end)s
@@ -294,7 +323,7 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             metrics.ai_generation_count += row[1] or 0
             metrics.ai_embedding_count += row[2] or 0
             metrics.ai_span_count += row[3] or 0
-            metrics.ai_trace_count += row[4] or 0
+            metrics.ai_trace_event_count += row[4] or 0
             metrics.ai_metric_count += row[5] or 0
             metrics.ai_feedback_count += row[6] or 0
             metrics.ai_evaluation_count += row[7] or 0
@@ -326,13 +355,10 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             # Error count (index 26)
             metrics.ai_is_error_count += row[26] or 0
 
-            # Trial evaluation count (index 27)
-            metrics.ai_trial_evaluation_count += row[27] or 0
-
-            # Evaluation runtime counts (indices 28-30)
-            metrics.ai_llm_judge_evaluation_count += row[28] or 0
-            metrics.ai_hog_evaluation_count += row[29] or 0
-            metrics.ai_sentiment_evaluation_count += row[30] or 0
+            # Evaluation runtime counts (indices 27-29)
+            metrics.ai_llm_judge_evaluation_count += row[27] or 0
+            metrics.ai_hog_evaluation_count += row[28] or 0
+            metrics.ai_sentiment_evaluation_count += row[29] or 0
 
     return team_metrics
 
@@ -353,15 +379,19 @@ def get_all_ai_metrics(
     Returns:
         dict mapping team_id to TeamMetrics dataclass
     """
+    use_new = use_new_events_schema(None)
 
-    query_template = """
+    def prop(name: str) -> str:
+        return _ai_property_expr(name, use_new)
+
+    query_template = f"""
         SELECT
             team_id,
             -- Event counts by type
             countIf(event = '$ai_generation') as ai_generation_count,
             countIf(event = '$ai_embedding') as ai_embedding_count,
             countIf(event = '$ai_span') as ai_span_count,
-            countIf(event = '$ai_trace') as ai_trace_count,
+            countIf(event = '$ai_trace') as ai_trace_event_count,
             countIf(event = '$ai_metric') as ai_metric_count,
             countIf(event = '$ai_feedback') as ai_feedback_count,
             countIf(event = '$ai_evaluation') as ai_evaluation_count,
@@ -370,30 +400,29 @@ def get_all_ai_metrics(
             countIf(event = '$ai_trace_clusters') as ai_trace_clusters_count,
             countIf(event = '$ai_generation_clusters') as ai_generation_clusters_count,
             -- Cost metrics
-            SUM(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd'])) as total_cost,
-            SUM(toFloat64OrNull(properties_group_ai['$ai_input_cost_usd'])) as input_cost,
-            SUM(toFloat64OrNull(properties_group_ai['$ai_output_cost_usd'])) as output_cost,
-            SUM(toFloat64OrNull(properties_group_ai['$ai_request_cost_usd'])) as request_cost,
-            SUM(toFloat64OrNull(properties_group_ai['$ai_web_search_cost_usd'])) as web_search_cost,
+            SUM(toFloat64OrNull({prop("$ai_total_cost_usd")})) as total_cost,
+            SUM(toFloat64OrNull({prop("$ai_input_cost_usd")})) as input_cost,
+            SUM(toFloat64OrNull({prop("$ai_output_cost_usd")})) as output_cost,
+            SUM(toFloat64OrNull({prop("$ai_request_cost_usd")})) as request_cost,
+            SUM(toFloat64OrNull({prop("$ai_web_search_cost_usd")})) as web_search_cost,
             -- Token metrics
-            SUM(toInt64OrNull(properties_group_ai['$ai_input_tokens'])) as prompt_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_output_tokens'])) as completion_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_total_tokens'])) as total_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_reasoning_tokens'])) as reasoning_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_cache_read_input_tokens'])) as cache_read_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_cache_creation_input_tokens'])) as cache_creation_tokens,
+            SUM(toInt64OrNull({prop("$ai_input_tokens")})) as prompt_tokens,
+            SUM(toInt64OrNull({prop("$ai_output_tokens")})) as completion_tokens,
+            SUM(toInt64OrNull({prop("$ai_total_tokens")})) as total_tokens,
+            SUM(toInt64OrNull({prop("$ai_reasoning_tokens")})) as reasoning_tokens,
+            SUM(toInt64OrNull({prop("$ai_cache_read_input_tokens")})) as cache_read_tokens,
+            SUM(toInt64OrNull({prop("$ai_cache_creation_input_tokens")})) as cache_creation_tokens,
             -- Cost anomaly counts
-            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) IS NOT NULL) as total_cost_count,
-            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) < 0) as total_cost_negative_count,
-            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) = 0) as total_cost_zero_count,
+            countIf(toFloat64OrNull({prop("$ai_total_cost_usd")}) IS NOT NULL) as total_cost_count,
+            countIf(toFloat64OrNull({prop("$ai_total_cost_usd")}) < 0) as total_cost_negative_count,
+            countIf(toFloat64OrNull({prop("$ai_total_cost_usd")}) = 0) as total_cost_zero_count,
             -- Error count
-            countIf(properties_group_ai['$ai_is_error'] = 'true') as ai_is_error_count,
+            countIf({prop("$ai_is_error")} = 'true') as ai_is_error_count,
             -- Evaluation counts
-            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_key_type'] = 'posthog') as ai_trial_evaluation_count,
-            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'llm_judge') as ai_llm_judge_evaluation_count,
-            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'hog') as ai_hog_evaluation_count,
-            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'sentiment') as ai_sentiment_evaluation_count
-        FROM events
+            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'llm_judge') as ai_llm_judge_evaluation_count,
+            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'hog') as ai_hog_evaluation_count,
+            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'sentiment') as ai_sentiment_evaluation_count
+        FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
           AND event IN %(ai_events)s
           AND timestamp >= %(begin)s
@@ -415,6 +444,55 @@ def get_all_ai_metrics(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_ai_trace_counts(
+    begin: datetime,
+    end: datetime,
+    team_ids: list[int],
+) -> dict[int, int]:
+    """
+    Get the number of distinct traces per team.
+
+    Counts distinct `$ai_trace_id` across every AI event rather than `$ai_trace` events, because
+    emitting a root `$ai_trace` event is optional: several SDK integrations group generations under a
+    trace id without ever sending the root event. Counting the root event makes those teams look like
+    they stopped producing traces when only their instrumentation shape changed.
+
+    Returns:
+        dict mapping team_id to distinct trace count
+    """
+    use_new = use_new_events_schema(None)
+    trace_id = _ai_property_expr("$ai_trace_id", use_new)
+
+    query_template = f"""
+        SELECT
+            team_id,
+            uniqIf({trace_id}, {trace_id} != '') as ai_trace_count
+        FROM {events_read_table(use_new)}
+        WHERE team_id IN %(team_ids)s
+          AND event IN %(ai_events)s
+          AND timestamp >= %(begin)s
+          AND timestamp < %(end)s
+        GROUP BY team_id
+    """
+
+    # Deliberately unsplit: the split combiners sum per team, which would count a trace once per time
+    # split it spans. `uniq` holds a fixed-size sketch per team, so one query over the whole period
+    # stays within the memory budget the splits exist to protect.
+    results = _execute_split_query(
+        begin,
+        end,
+        query_template,
+        {"ai_events": AI_EVENTS},
+        num_splits=1,
+        team_ids=team_ids,
+        query_name="Get AI trace counts",
+    )
+
+    return dict(results)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_llm_prompt_fetched_counts(
     begin: datetime,
     end: datetime,
@@ -426,11 +504,11 @@ def get_llm_prompt_fetched_counts(
     Returns:
         dict mapping team_id to prompt fetched count
     """
-    query_template = """
+    query_template = f"""
         SELECT
             team_id,
             count() as llm_prompt_fetched_count
-        FROM events
+        FROM {events_read_table(use_new_events_schema(None))}
         WHERE team_id IN %(team_ids)s
           AND event = %(llm_prompt_fetched_event)s
           AND timestamp >= %(begin)s
@@ -536,19 +614,25 @@ def get_all_ai_dimension_breakdowns(
         dict mapping team_id to TeamDimensionBreakdowns dataclass
     """
 
-    lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
+    use_new = use_new_events_schema(None)
+    lib_expression, _ = get_property_string_expr(
+        "events", "$lib", "'$lib'", "properties", use_new_events_schema=use_new
+    )
+
+    def prop(name: str) -> str:
+        return _ai_property_expr(name, use_new)
 
     query_template = f"""
         SELECT
             team_id,
-            sumMap(map(properties_group_ai['$ai_model'], toUInt64(1))) as model_breakdown,
-            sumMap(map(properties_group_ai['$ai_provider'], toUInt64(1))) as provider_breakdown,
-            sumMap(map(properties_group_ai['$ai_framework'], toUInt64(1))) as framework_breakdown,
+            sumMap(map({prop("$ai_model")}, toUInt64(1))) as model_breakdown,
+            sumMap(map({prop("$ai_provider")}, toUInt64(1))) as provider_breakdown,
+            sumMap(map({prop("$ai_framework")}, toUInt64(1))) as framework_breakdown,
             sumMap(map({lib_expression}, toUInt64(1))) as library_breakdown,
-            sumMap(map(properties_group_ai['$ai_model_cost_used'], toUInt64(1))) as cost_model_used_breakdown,
-            sumMap(map(properties_group_ai['$ai_cost_model_source'], toUInt64(1))) as cost_model_source_breakdown,
-            sumMap(map(properties_group_ai['$ai_cost_model_provider'], toUInt64(1))) as cost_model_provider_breakdown
-        FROM events
+            sumMap(map({prop("$ai_model_cost_used")}, toUInt64(1))) as cost_model_used_breakdown,
+            sumMap(map({prop("$ai_cost_model_source")}, toUInt64(1))) as cost_model_source_breakdown,
+            sumMap(map({prop("$ai_cost_model_provider")}, toUInt64(1))) as cost_model_provider_breakdown
+        FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
           AND event IN %(ai_events)s
           AND timestamp >= %(begin)s
@@ -621,15 +705,20 @@ def get_llm_feedback_survey_metrics(
     Returns:
         dict mapping team_id to TeamLLMSurveyMetrics
     """
-    ai_trace_id_expr, _ = get_property_string_expr("events", "$ai_trace_id", "'$ai_trace_id'", "properties")
-    survey_id_expr, _ = get_property_string_expr("events", "$survey_id", "'$survey_id'", "properties")
+    use_new = use_new_events_schema(None)
+    ai_trace_id_expr, _ = get_property_string_expr(
+        "events", "$ai_trace_id", "'$ai_trace_id'", "properties", use_new_events_schema=use_new
+    )
+    survey_id_expr, _ = get_property_string_expr(
+        "events", "$survey_id", "'$survey_id'", "properties", use_new_events_schema=use_new
+    )
 
     query_template = f"""
         SELECT
             team_id,
             {survey_id_expr} as survey_id,
             countIf(event = 'survey sent') as response_count
-        FROM events
+        FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
           AND event IN ('survey sent', 'survey shown')
           AND {ai_trace_id_expr} != ''
@@ -651,6 +740,138 @@ def get_llm_feedback_survey_metrics(
     )
 
 
+# Every report is stamped this far after the start of the period it covers, whenever it is emitted.
+# A backfill of an old period therefore lands next to that period rather than at the operator's wall
+# clock, which is what lets the already-reported lookup bound its scan without missing a report.
+REPORT_STAMP_OFFSET = timedelta(days=1)
+
+# Bounds the scan for the already-reported lookup, which has to see every stamp a report for the
+# period could carry. Derived from the stamp offset rather than set independently, so moving where
+# reports are stamped cannot leave the lookup scanning a window that no longer contains them.
+#
+# The slack over the offset is deliberately far larger than the offset itself, because the two
+# directions are not symmetric. A window that is too wide reads more rows, and reads them cheaply,
+# since team_id, the timestamp range and the event name are all a prefix of the events table sort key.
+# A window that is too narrow reads a report that exists as never emitted and emits a duplicate, which
+# no consumer of these events can remove. The slack also covers reports emitted before stamping became
+# deterministic, which carry their arrival time rather than a fixed offset.
+REPORTED_LOOKUP_WINDOW = REPORT_STAMP_OFFSET + timedelta(days=89)
+
+# A claim has to outlive the run that took it, otherwise it lapses while the first dispatch is still
+# emitting and a second dispatch is admitted whose lookup cannot see the first one's events yet.
+USAGE_REPORT_DISPATCH_LOCK_TIMEOUT_SECONDS = USAGE_REPORT_MESSAGE_EXPIRY_SECONDS
+
+
+def usage_report_dispatch_lock_key(date: str) -> str:
+    """Cache key claiming a report date.
+
+    Keyed on the date alone, deliberately, even though it makes two disjoint `--org-ids` backfills of
+    one date serialize. The admin button always dispatches a whole date, so a key that also covered
+    the org scope would give the button and an org-scoped run different keys and let both through.
+    """
+    return f"ai-observability-usage-report-dispatch:{date}"
+
+
+def internal_reporting_team_id() -> int | None:
+    """The team whose events hold previously emitted reports, when this region has one.
+
+    `get_ph_client` emits with the US project's token from every region, so reports only ever land in
+    that one project and only a worker in the region hosting it can read them back. Everywhere else
+    the token matches no team. Callers must read None as "cannot verify", never as "nothing emitted".
+    """
+    return Team.objects.filter(api_token=PH_US_API_KEY).values_list("id", flat=True).first()
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_organizations_already_reported(period_start: datetime, internal_team_id: int) -> set[str]:
+    """Organization ids that already have a report covering `period_start`.
+
+    Matched on the `period_start` report property rather than on the event timestamp, because the
+    timestamp is a presentation choice that has already changed once, so deriving the period from it
+    would break silently if it changed again. `organization_id` and `period_start` are read from
+    `properties` rather than through `_ai_property_expr`: the `ai` property group only holds keys
+    matching `$ai_%`, so a group read of either would always return empty and allow every duplicate.
+    """
+    use_new = use_new_events_schema(internal_team_id)
+    org_id_expr, _ = get_property_string_expr(
+        "events", "organization_id", "'organization_id'", "properties", use_new_events_schema=use_new
+    )
+    period_start_expr, _ = get_property_string_expr(
+        "events", "period_start", "'period_start'", "properties", use_new_events_schema=use_new
+    )
+
+    query = f"""
+        SELECT DISTINCT {org_id_expr} AS organization_id
+        FROM {events_read_table(use_new)}
+        WHERE team_id = %(team_id)s
+          AND event = %(event)s
+          AND timestamp >= %(window_start)s
+          AND timestamp < %(window_end)s
+          AND toDate(parseDateTimeBestEffortOrNull({period_start_expr})) = toDate(%(period_start)s)
+          AND organization_id != ''
+    """
+
+    with tags_context(
+        product=Product.LLM_ANALYTICS,
+        feature=Feature.QUERY,
+        kind="celery",
+        id=CELERY_TASK_ID,
+        name="Get organizations already reported",
+        workload=Workload.OFFLINE.value,
+    ):
+        results = sync_execute(
+            query,
+            {
+                "team_id": internal_team_id,
+                "event": AI_OBSERVABILITY_USAGE_EVENT,
+                "window_start": period_start,
+                "window_end": period_start + REPORTED_LOOKUP_WINDOW,
+                "period_start": period_start,
+            },
+            workload=Workload.OFFLINE,
+            settings=CH_AI_OBSERVABILITY_SETTINGS,
+        )
+
+    return {row[0] for row in results}
+
+
+def _get_organizations_to_skip(period_start: datetime) -> set[str]:
+    """Organizations to leave out of this run because they already have a report for the period.
+
+    Returns an empty set where this region cannot read previously emitted reports, which emits
+    everything and matches the behaviour before the lookup existed. A lookup that fails for any other
+    reason raises instead, and that is deliberate: the run then cannot tell whether the period already
+    has reports, and emitting anyway would double count usage in every insight built on these events
+    with no way to remove the duplicates. Raising lets Celery retry and, if the failure persists, give
+    up having emitted nothing.
+
+    Two limits are worth knowing, both of which want a durable per organization and period record to
+    close properly. The evidence is an event in a project whose write token is public, so a forged
+    event carrying an organization id and a period start suppresses that organization's real report for
+    the period. And an emission is only visible here once ingested, so a run redelivered inside that
+    lag reads the period as unreported.
+    """
+    internal_team_id = internal_reporting_team_id()
+    if internal_team_id is None:
+        logger.warning(
+            "[AIO Usage Error] cannot check for already-emitted reports in this region, emitting without the check",
+            period_start=period_start.isoformat(),
+            event_source="ai_observability_usage_report",
+        )
+        return set()
+
+    return get_organizations_already_reported(period_start, internal_team_id)
+
+
+def _is_final_attempt(task: Task) -> bool:
+    """Whether a failure now is permanent: a direct (synchronous) call never retries, and the
+    last autoretry attempt runs with retries >= max_retries."""
+    if task.request.called_directly:
+        return True
+    return task.max_retries is not None and task.request.retries >= task.max_retries
+
+
 # Celery task configuration
 AI_OBSERVABILITY_USAGE_REPORT_TASK_KWARGS = {
     "queue": CeleryQueue.USAGE_REPORTS.value,
@@ -660,13 +881,13 @@ AI_OBSERVABILITY_USAGE_REPORT_TASK_KWARGS = {
     "autoretry_for": (Exception,),
     "retry_backoff": 300,  # 5min
     "retry_backoff_max": 1800,  # 30min
-    "expires": 14400,  # 4h
+    "expires": USAGE_REPORT_MESSAGE_EXPIRY_SECONDS,
 }
 
 
 def _get_all_ai_observability_reports(
-    period_start: datetime,
-    period_end: datetime,
+    *,
+    period: DayRange,
 ) -> dict[str, dict[str, Any]]:
     """
     Gather all AI observability usage data for all organizations.
@@ -684,10 +905,13 @@ def _get_all_ai_observability_reports(
 
     # Phase 1: Get all team_ids with report trigger events (fast query)
     try:
-        team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
     except Exception:
-        logger.exception(
-            "[AIO Usage Error] teams query failed", phase="teams", event_source="ai_observability_usage_report"
+        logger.warning(
+            "[AIO Usage Error] teams query failed",
+            phase="teams",
+            event_source="ai_observability_usage_report",
+            exc_info=True,
         )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
@@ -701,46 +925,70 @@ def _get_all_ai_observability_reports(
     # Phase 2: Get all metrics in a single combined query
     logger.info("Querying all AI metrics")
     try:
-        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+        all_metrics = get_all_ai_metrics(period.start, period.end, team_ids)
     except Exception:
-        logger.exception(
-            "[AIO Usage Error] metrics query failed", phase="metrics", event_source="ai_observability_usage_report"
+        logger.warning(
+            "[AIO Usage Error] metrics query failed",
+            phase="metrics",
+            event_source="ai_observability_usage_report",
+            exc_info=True,
         )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
     logger.info(f"Retrieved metrics for {len(all_metrics)} teams")
 
-    # Phase 3: Get LLM prompt fetched counts (best effort)
+    # Phase 3: Get distinct trace counts
+    logger.info("Querying AI trace counts")
+    try:
+        ai_trace_counts = get_ai_trace_counts(period.start, period.end, team_ids)
+    except Exception:
+        logger.warning(
+            "[AIO Usage Error] trace counts query failed",
+            phase="trace_counts",
+            event_source="ai_observability_usage_report",
+            exc_info=True,
+        )
+        # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
+        raise
+    logger.info(f"Retrieved trace counts for {len(ai_trace_counts)} teams")
+
+    # Phase 4: Get LLM prompt fetched counts (best effort)
     llm_prompt_fetched_counts: dict[int, int] = {}
     try:
         logger.info("Querying LLM prompt fetched counts")
-        llm_prompt_fetched_counts = get_llm_prompt_fetched_counts(period_start, period_end, team_ids)
+        llm_prompt_fetched_counts = get_llm_prompt_fetched_counts(period.start, period.end, team_ids)
         logger.info(f"Retrieved prompt fetched counts for {len(llm_prompt_fetched_counts)} teams")
     except Exception as err:
-        logger.exception("Failed to query LLM prompt fetched counts, continuing without prompt fetch metrics")
+        logger.warning(
+            "Failed to query LLM prompt fetched counts, continuing without prompt fetch metrics", exc_info=True
+        )
         capture_exception(err)
 
-    # Phase 4: Get all dimension breakdowns in a single combined query
+    # Phase 5: Get all dimension breakdowns in a single combined query
     logger.info("Querying all AI dimension breakdowns")
     try:
-        all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
+        all_breakdowns = get_all_ai_dimension_breakdowns(period.start, period.end, team_ids)
     except Exception:
-        logger.exception(
+        logger.warning(
             "[AIO Usage Error] breakdowns query failed",
             phase="breakdowns",
             event_source="ai_observability_usage_report",
+            exc_info=True,
         )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
     logger.info(f"Retrieved breakdowns for {len(all_breakdowns)} teams")
 
-    # Phase 5: Get LLM feedback survey metrics
+    # Phase 6: Get LLM feedback survey metrics
     logger.info("Querying LLM feedback survey metrics")
     try:
-        survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
+        survey_metrics = get_llm_feedback_survey_metrics(period.start, period.end, team_ids)
     except Exception:
-        logger.exception(
-            "[AIO Usage Error] surveys query failed", phase="surveys", event_source="ai_observability_usage_report"
+        logger.warning(
+            "[AIO Usage Error] surveys query failed",
+            phase="surveys",
+            event_source="ai_observability_usage_report",
+            exc_info=True,
         )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
@@ -759,17 +1007,17 @@ def _get_all_ai_observability_reports(
             org_reports[org_id] = {
                 "organization_id": org_id,
                 "organization_name": org_id_to_name.get(org_id, ""),
-                "period_start": period_start.isoformat(),
-                "period_end": period_end.isoformat(),
+                "period_start": period.start.isoformat(),
+                "period_end": period.end.isoformat(),
                 "ai_generation_count": 0,
                 "ai_embedding_count": 0,
                 "ai_span_count": 0,
                 "ai_trace_count": 0,
+                "ai_trace_event_count": 0,
                 "ai_metric_count": 0,
                 "ai_feedback_count": 0,
                 "ai_evaluation_count": 0,
                 "ai_is_error_count": 0,
-                "ai_trial_evaluation_count": 0,
                 "ai_llm_judge_evaluation_count": 0,
                 "ai_hog_evaluation_count": 0,
                 "ai_sentiment_evaluation_count": 0,
@@ -812,12 +1060,11 @@ def _get_all_ai_observability_reports(
             report["ai_generation_count"] += metrics.ai_generation_count
             report["ai_embedding_count"] += metrics.ai_embedding_count
             report["ai_span_count"] += metrics.ai_span_count
-            report["ai_trace_count"] += metrics.ai_trace_count
+            report["ai_trace_event_count"] += metrics.ai_trace_event_count
             report["ai_metric_count"] += metrics.ai_metric_count
             report["ai_feedback_count"] += metrics.ai_feedback_count
             report["ai_evaluation_count"] += metrics.ai_evaluation_count
             report["ai_is_error_count"] += metrics.ai_is_error_count
-            report["ai_trial_evaluation_count"] += metrics.ai_trial_evaluation_count
             report["ai_llm_judge_evaluation_count"] += metrics.ai_llm_judge_evaluation_count
             report["ai_hog_evaluation_count"] += metrics.ai_hog_evaluation_count
             report["ai_sentiment_evaluation_count"] += metrics.ai_sentiment_evaluation_count
@@ -841,6 +1088,9 @@ def _get_all_ai_observability_reports(
             report["total_reasoning_tokens"] += metrics.reasoning_tokens
             report["total_cache_read_tokens"] += metrics.cache_read_tokens
             report["total_cache_creation_tokens"] += metrics.cache_creation_tokens
+
+        # Summing per-team distinct counts is exact at org level: a trace id belongs to one team.
+        report["ai_trace_count"] += ai_trace_counts.get(team_id, 0)
 
         report["llm_prompt_fetched_count"] += llm_prompt_fetched_counts.get(team_id, 0)
 
@@ -886,9 +1136,11 @@ def _get_all_ai_observability_reports(
 @shared_task(
     name="posthog.tasks.llm_analytics_usage_report.capture_llm_analytics_report",
     max_retries=3,
+    bind=True,
     **AI_OBSERVABILITY_USAGE_REPORT_TASK_KWARGS,
 )
 def capture_ai_observability_report(
+    self: Task,
     *,
     organization_id: str | None = None,
     report_dict: dict[str, Any],
@@ -910,18 +1162,20 @@ def capture_ai_observability_report(
 
         capture_event(
             pha_client=pha_client,
-            name="llm analytics usage",
+            name=AI_OBSERVABILITY_USAGE_EVENT,
             organization_id=organization_id,
             properties=report_dict,
             timestamp=at_date,
         )
         logger.info(f"Captured AI observability usage report for organization {organization_id}")
     except Exception as err:
-        logger.exception(
+        log = logger.error if _is_final_attempt(self) else logger.warning
+        log(
             "[AIO Usage Error] AI observability usage report sent to PostHog for organization failed",
             organization_id=organization_id,
             error=str(err),
             event_source="ai_observability_usage_report",
+            exc_info=True,
         )
 
         try:
@@ -933,11 +1187,12 @@ def capture_ai_observability_report(
                 properties={"error": str(err)},
             )
         except Exception as capture_err:
-            logger.exception(
+            log(
                 "[AIO Usage Error] Failed to capture error event",
                 organization_id=organization_id,
                 error=str(capture_err),
                 event_source="ai_observability_usage_report",
+                exc_info=True,
             )
 
         raise
@@ -946,9 +1201,11 @@ def capture_ai_observability_report(
 @shared_task(
     name="posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports",
     max_retries=3,
+    bind=True,
     **AI_OBSERVABILITY_USAGE_REPORT_TASK_KWARGS,
 )
 def send_ai_observability_usage_reports(
+    self: Task,
     dry_run: bool = False,
     at: str | None = None,
     organization_ids: list[str] | None = None,
@@ -974,7 +1231,10 @@ def send_ai_observability_usage_reports(
 
     at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
-    period_start, period_end = period
+
+    # An explicit date or org filter is what distinguishes an operator-triggered run from the daily
+    # schedule.
+    is_manual_run = bool(at or organization_ids)
 
     if organization_ids:
         logger.info(
@@ -986,7 +1246,30 @@ def send_ai_observability_usage_reports(
     logger.info("Gathering AI observability usage data")
     query_time_start = datetime.now(UTC)
 
-    org_reports = _get_all_ai_observability_reports(period_start, period_end)
+    try:
+        # Every run consults this, not only operator-triggered ones. `acks_late` with
+        # `reject_on_worker_lost` means a worker lost part way through the emission loop has its
+        # message redelivered with the same arguments, and the scheduled run carries no date, so a
+        # redelivered daily run would otherwise emit a second report for every organization it had
+        # already dispatched. It runs before the gathering so that a lookup failure costs one query
+        # rather than the whole five-query gather on each Celery retry, and inside this block so that
+        # a permanent lookup failure still reaches the terminal log the alert alerts on.
+        organizations_to_skip = _get_organizations_to_skip(period.start)
+        org_reports = _get_all_ai_observability_reports(period=period)
+    except Exception as err:
+        # The log alert keys on error severity: retryable attempts stay warnings, only the
+        # exhausted final attempt may page.
+        if _is_final_attempt(self):
+            logger.error(
+                "[AIO Usage Error] usage report run failed permanently",
+                error=str(err),
+                period_start=period.start.isoformat(),
+                period_end=period.end.isoformat(),
+                retries=self.request.retries,
+                event_source="ai_observability_usage_report",
+                exc_info=True,
+            )
+        raise
 
     if organization_ids:
         original_count = len(org_reports)
@@ -1001,6 +1284,18 @@ def send_ai_observability_usage_reports(
             missing_orgs=missing_orgs or None,
         )
 
+    # Applied before the dry-run return so that a dry run previews the organizations a real run would
+    # report on, rather than the unfiltered set.
+    if organizations_to_skip:
+        before_count = len(org_reports)
+        org_reports = {org_id: report for org_id, report in org_reports.items() if org_id not in organizations_to_skip}
+        logger.info(
+            "Skipped organizations that already have an AI observability report for this period",
+            skipped_org_count=before_count - len(org_reports),
+            remaining_org_count=len(org_reports),
+            period_start=period.start.isoformat(),
+        )
+
     query_time_duration = (datetime.now(UTC) - query_time_start).total_seconds()
     logger.info(f"Found {len(org_reports)} AI observability org reports. It took {query_time_duration} seconds.")
 
@@ -1013,14 +1308,19 @@ def send_ai_observability_usage_reports(
 
     logger.info("Sending AI observability usage reports")
 
-    at_date_str = at_date.isoformat() if at_date else None
+    # Deterministic nominal stamp (midnight after the covered day): keeps daily bucketing stable
+    # in UTC and project timezones, and stops retry stragglers landing on the wrong chart day.
+    # Actual arrival time remains queryable via events.created_at.
+    report_timestamp = (period.start + REPORT_STAMP_OFFSET).isoformat()
+    triggered_by = "manual" if is_manual_run else "scheduled"
 
     for org_id, report in org_reports.items():
+        report["triggered_by"] = triggered_by
         try:
             capture_ai_observability_report.delay(
                 organization_id=org_id,
                 report_dict=report,
-                at_date=at_date_str,
+                at_date=report_timestamp,
             )
             total_orgs_sent += 1
 

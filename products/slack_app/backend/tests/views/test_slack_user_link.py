@@ -69,11 +69,11 @@ class TestAuthorizeView:
             slack_team_id=SLACK_TEAM_ID,
             posthog_team_id=workspace_integration.team_id,
         ).encode()
-        with patch("products.slack_app.backend.views.slack_user_link.slack_oauth_link_enabled", return_value=False):
+        with patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=False):
             response = client.get(f"/complete/slack-link/start/?state={token}")
         self._assert_settings_redirect_error(response, "flag_off")
 
-    def test_flag_on_redirects_to_slack_with_user_scope(self, logged_in_client, workspace_integration):
+    def test_flag_on_redirects_to_slack_oidc_authorize(self, logged_in_client, workspace_integration):
         client, _ = logged_in_client
         token = InviteToken(
             slack_user_id=SLACK_USER_ID,
@@ -83,7 +83,7 @@ class TestAuthorizeView:
             thread_ts="1.2",
         ).encode()
         with (
-            patch("products.slack_app.backend.views.slack_user_link.slack_oauth_link_enabled", return_value=True),
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch(
                 "products.slack_app.backend.services.slack_user_oauth.get_instance_settings",
                 return_value={"SLACK_APP_CLIENT_ID": "cid", "SLACK_APP_CLIENT_SECRET": "csecret"},
@@ -92,10 +92,13 @@ class TestAuthorizeView:
             response = client.get(f"/complete/slack-link/start/?state={token}")
         assert response.status_code == 302
         location = response["Location"]
-        assert location.startswith("https://slack.com/oauth/v2/authorize?")
-        # The whole point: user_scope is requested, bot scopes stay empty.
-        assert "user_scope=identity.basic" in location
-        assert "scope=&" in location or location.endswith("scope=")
+        # The whole point: the OIDC authorize endpoint with the openid scope
+        # set — the legacy `/oauth/v2/authorize` + `user_scope=identity.*`
+        # shape is rejected by Slack Marketplace review.
+        assert location.startswith("https://slack.com/openid/connect/authorize?")
+        assert "scope=openid+email+profile" in location
+        assert "response_type=code" in location
+        assert "user_scope" not in location
 
     def test_unauthenticated_user_is_bounced_through_login(self, db):
         # `db` fixture: PostHog's `login_required` consults `User.objects.exists()`
@@ -169,9 +172,9 @@ class TestCallbackView:
         state = self._state_for(user, workspace_integration.team_id)
 
         with (
-            patch("products.slack_app.backend.views.slack_user_link.slack_oauth_link_enabled", return_value=True),
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch("products.slack_app.backend.views.slack_user_link.exchange_code", return_value=self._identity()),
-            patch("posthog.models.integration.WebClient"),
+            patch("posthog.models.integration.slack.WebClient"),
         ):
             response = client.get(f"/complete/slack-link/?code=abc&state={state}")
 
@@ -189,7 +192,7 @@ class TestCallbackView:
         state = self._state_for(user, workspace_integration.team_id)
 
         with (
-            patch("products.slack_app.backend.views.slack_user_link.slack_oauth_link_enabled", return_value=True),
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch(
                 "products.slack_app.backend.views.slack_user_link.exchange_code",
                 return_value=self._identity(slack_team_id="T-DIFFERENT", slack_team_name=None, slack_email=None),
@@ -206,7 +209,7 @@ class TestCallbackView:
         state = self._state_for(user, workspace_integration.team_id)
 
         with (
-            patch("products.slack_app.backend.views.slack_user_link.slack_oauth_link_enabled", return_value=True),
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch(
                 "products.slack_app.backend.views.slack_user_link.exchange_code",
                 side_effect=SlackUserOAuthError("invalid_code"),
@@ -234,7 +237,7 @@ class TestCallbackView:
         state = self._state_for(attacker, workspace_integration.team_id)
 
         with (
-            patch("products.slack_app.backend.views.slack_user_link.slack_oauth_link_enabled", return_value=True),
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch("products.slack_app.backend.views.slack_user_link.exchange_code", return_value=self._identity()),
         ):
             response = client.get(f"/complete/slack-link/?code=abc&state={state}")
@@ -254,7 +257,7 @@ class TestCallbackView:
         state = self._state_for(outsider, workspace_integration.team_id)
 
         with (
-            patch("products.slack_app.backend.views.slack_user_link.slack_oauth_link_enabled", return_value=True),
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch("products.slack_app.backend.views.slack_user_link.exchange_code", return_value=self._identity()),
         ):
             response = client.get(f"/complete/slack-link/?code=abc&state={state}")

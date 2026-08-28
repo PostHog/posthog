@@ -78,10 +78,14 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
                         ? { overflow: 'hidden' }
                         : direction
                           ? {
-                                overflowX: direction === 'horizontal' ? undefined : 'hidden',
-                                overflowY: direction === 'vertical' ? undefined : 'hidden',
+                                // Base UI's ScrollArea.Viewport sets `overflow: scroll` as an inline
+                                // style. Using `undefined` here lets that value win, which renders a
+                                // permanent scrollbar even when content fits. `'auto'` overrides it so
+                                // the scrollbar only appears when content actually overflows.
+                                overflowX: direction === 'horizontal' ? 'auto' : 'hidden',
+                                overflowY: direction === 'vertical' ? 'auto' : 'hidden',
                             }
-                          : undefined
+                          : { overflowX: 'auto', overflowY: 'auto' }
                 }
             >
                 <ScrollArea.Content className={clsx('min-w-0', contentClassName)}>{children}</ScrollArea.Content>

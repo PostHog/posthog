@@ -7,8 +7,9 @@ from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.test.test_team import team_enterprise_api_test_factory
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ignore[misc]
@@ -122,15 +123,19 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ign
             },
         )
 
-    def test_rename_project_as_org_member_allowed(self):
+    def test_rename_project_as_org_member_forbidden(self):
+        # Renaming is admin-only (mirrors the settings UI, which gates rename behind admin access).
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
+        # In an access-control org, a member with no explicit project access defaults to effective admin;
+        # set default member access so the admin-only rename gate actually applies.
+        self._set_project_default_member_access(self.team)
 
         response = self.client.patch(f"/api/projects/@current/", {"name": "Erinaceus europaeus"})
         self.project.refresh_from_db()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.project.name, "Erinaceus europaeus")
+        self.assertEqual(response.status_code, 403)
+        self.assertNotEqual(self.project.name, "Erinaceus europaeus")
 
     def test_list_projects_restricted_ones_hidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

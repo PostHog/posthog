@@ -1,8 +1,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+import redis
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     LOCK_TTL_SECONDS,
+    _get_redis_client,
     _lock_key,
     acquire_v3_pipeline_lock,
     get_v3_pipeline_lock_holder,
@@ -122,3 +125,28 @@ class TestReleaseV3PipelineLock:
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
         assert release_v3_pipeline_lock(1, "s-1", "tok-1") is False
+
+
+class TestGetRedisClient:
+    """The acquire/release activities run with a single Temporal attempt, so a bare
+    DNS/connection blip previously skipped the whole scheduled sync run with no retry."""
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_client")
+    def test_recovers_from_transient_connection_error(self, mock_get_client: MagicMock) -> None:
+        mock_redis = MagicMock()
+        mock_redis.ping.side_effect = [redis.exceptions.ConnectionError("Temporary failure in name resolution"), None]
+        mock_get_client.return_value = mock_redis
+
+        with _get_redis_client() as client:
+            assert client is mock_redis
+        assert mock_redis.ping.call_count == 2
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_client")
+    def test_fails_closed_after_exhausting_retries(self, mock_get_client: MagicMock) -> None:
+        mock_redis = MagicMock()
+        mock_redis.ping.side_effect = redis.exceptions.ConnectionError("Temporary failure in name resolution")
+        mock_get_client.return_value = mock_redis
+
+        with _get_redis_client() as client:
+            assert client is None
+        assert mock_redis.ping.call_count == 3

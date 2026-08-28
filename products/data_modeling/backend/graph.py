@@ -4,24 +4,12 @@ Loads edges once and computes upstream/downstream relationships in Python
 instead of running recursive DB queries per node.
 """
 
-from collections import defaultdict, deque
+from collections import defaultdict
 from uuid import UUID
 
+from products.data_modeling.backend.logic.graph_traversal import reachable
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import NodeType
-
-
-def _bfs(start: str, adjacency: dict[str, set[str]]) -> set[str]:
-    """BFS from start, returning all reachable nodes (excluding start)."""
-    visited: set[str] = set()
-    queue = deque([start])
-    while queue:
-        current = queue.popleft()
-        for neighbor in adjacency.get(current, set()):
-            if neighbor not in visited:
-                visited.add(neighbor)
-                queue.append(neighbor)
-    return visited
 
 
 class Graph:
@@ -70,11 +58,11 @@ class Graph:
 
     def get_upstream(self, node_id: str | UUID) -> set[str]:
         """Get all upstream (ancestor) node IDs, excluding TABLE nodes."""
-        return _bfs(str(node_id), self._upstream_adj)
+        return reachable(str(node_id), self._upstream_adj)
 
     def get_downstream(self, node_id: str | UUID) -> set[str]:
         """Get all downstream (descendant) node IDs, excluding TABLE nodes."""
-        return _bfs(str(node_id), self._downstream_adj)
+        return reachable(str(node_id), self._downstream_adj)
 
     def get_upstream_count(self, node_id: str | UUID) -> int:
         return len(self.get_upstream(node_id))

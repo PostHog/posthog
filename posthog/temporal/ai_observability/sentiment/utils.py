@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from posthog.hogql_queries.ai.sentiment_labeling import select_sentiment_label
 from posthog.temporal.ai_observability.sentiment.schema import PendingClassification
 
 
@@ -49,7 +50,7 @@ def build_generation_result(
         all_scores.append(result.scores)
 
     gen_scores = average_score_dicts(all_scores)
-    gen_label = max(gen_scores, key=gen_scores.get)  # type: ignore
+    gen_label = select_sentiment_label(gen_scores)
 
     return {
         "label": gen_label,

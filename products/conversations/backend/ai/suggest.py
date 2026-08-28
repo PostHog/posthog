@@ -129,6 +129,8 @@ def _fetch_session_exceptions(team: Team, session_id: str, ticket_created_at: st
         select=[
             "event",
             "timestamp",
+            "properties.$exception_values",
+            "properties.$exception_types",
             "properties.$exception_message",
             "properties.$exception_type",
             "properties.$current_url",
@@ -153,6 +155,14 @@ def _fetch_session_exceptions(team: Team, session_id: str, ticket_created_at: st
     return exceptions
 
 
+def _first_string(value: object) -> str | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list) and value and isinstance(value[0], str):
+        return value[0]
+    return None
+
+
 def _format_enhanced_context(
     conversation_text: str,
     events: list[dict],
@@ -164,8 +174,20 @@ def _format_enhanced_context(
     if exceptions:
         parts.append("\n\nRecent exceptions from the user's session:")
         for exc in exceptions[-MAX_EXCEPTIONS_CONTEXT:]:
-            exc_type = exc.get("properties.$exception_type") or exc.get("$exception_type") or "Unknown"
-            exc_msg = exc.get("properties.$exception_message") or exc.get("$exception_message") or "No message"
+            exc_type = (
+                _first_string(exc.get("properties.$exception_types"))
+                or _first_string(exc.get("$exception_types"))
+                or _first_string(exc.get("properties.$exception_type"))
+                or _first_string(exc.get("$exception_type"))
+                or "Unknown"
+            )
+            exc_msg = (
+                _first_string(exc.get("properties.$exception_values"))
+                or _first_string(exc.get("$exception_values"))
+                or _first_string(exc.get("properties.$exception_message"))
+                or _first_string(exc.get("$exception_message"))
+                or "No message"
+            )
             url = exc.get("properties.$current_url") or exc.get("$current_url") or ""
             ts = exc.get("timestamp", "")
             parts.append(f"- [{ts}] {exc_type}: {exc_msg} (on {url})")

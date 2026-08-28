@@ -1,3 +1,12 @@
+import * as chart from '@posthog/brand/hoggies/png/chart'
+import * as construction from '@posthog/brand/hoggies/png/construction-1'
+import * as director from '@posthog/brand/hoggies/png/director'
+import * as experiment from '@posthog/brand/hoggies/png/experiment'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as readingIsMagic from '@posthog/brand/hoggies/png/reading-is-magic'
+import * as reporter from '@posthog/brand/hoggies/png/reporter'
+import * as robot from '@posthog/brand/hoggies/png/robot'
+import * as trafficController from '@posthog/brand/hoggies/png/traffic-controller'
 import {
     IconBolt,
     IconBuilding,
@@ -6,6 +15,7 @@ import {
     IconDatabase,
     IconDecisionTree,
     IconDownload,
+    IconEye,
     IconGear,
     IconGraph,
     IconLive,
@@ -28,24 +38,23 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
-import {
-    BuilderHog1,
-    DetectiveHog,
-    ExperimentsHog,
-    ExplorerHog,
-    FeatureFlagHog,
-    FilmCameraHog,
-    GraphsHog,
-    MailHog,
-    MicrophoneHog,
-    ReadingHog,
-    RobotHog,
-} from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
+import { ExplorerHog, MailHog } from 'lib/components/hedgehogs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { type AvailableOnboardingProducts, type OnboardingProduct } from '~/types'
+
+const HedgehogChart = pngHoggie(chart)
+const HedgehogConstruction = pngHoggie(construction)
+const HedgehogDirector = pngHoggie(director)
+const HedgehogExperiment = pngHoggie(experiment)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
+const HedgehogReadingIsMagic = pngHoggie(readingIsMagic)
+const HedgehogReporter = pngHoggie(reporter)
+const HedgehogRobot = pngHoggie(robot)
+const HedgehogTrafficController = pngHoggie(trafficController)
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {
     IconBolt,
@@ -55,6 +64,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?:
     IconDatabase,
     IconDecisionTree,
     IconDownload,
+    IconEye,
     IconGear,
     IconGraph,
     IconLive,
@@ -125,7 +135,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Trend analysis & dashboards', problem: 'Track how key metrics change week over week' },
             { title: 'User paths & retention', problem: 'Understand which features keep users coming back' },
         ],
-        hedgehog: GraphsHog,
+        hedgehog: HedgehogChart,
         icon: 'IconGraph',
         iconColor: 'rgb(47 128 250)',
         url: urls.insights(),
@@ -161,7 +171,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Console & network logs', problem: 'Debug issues without asking users to reproduce them' },
             { title: 'Click & scroll heatmaps', problem: 'Find which parts of your pages get attention' },
         ],
-        hedgehog: FilmCameraHog,
+        hedgehog: HedgehogDirector,
         icon: 'IconRewindPlay',
         iconColor: 'rgb(247 165 1)',
         url: urls.replay(),
@@ -179,7 +189,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Latency monitoring', problem: 'Find slow prompts before users complain' },
             { title: 'Prompt evaluation', problem: 'Compare prompt versions with real data' },
         ],
-        hedgehog: RobotHog,
+        hedgehog: HedgehogRobot,
         icon: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
         url: urls.aiObservabilityDashboard(),
@@ -196,7 +206,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'External data joins', problem: 'Combine Stripe, Hubspot, or Postgres data with PostHog' },
             { title: 'SQL queries', problem: 'Ask questions no pre-built dashboard can answer' },
         ],
-        hedgehog: BuilderHog1,
+        hedgehog: HedgehogConstruction,
         icon: 'IconDatabase',
         iconColor: 'rgb(133 103 255)',
         breadcrumbsName: 'Data Warehouse',
@@ -215,7 +225,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Release conditions', problem: 'Control who sees what based on properties or cohorts' },
             { title: 'Multivariate flags', problem: 'Test multiple variants without redeploying' },
         ],
-        hedgehog: FeatureFlagHog,
+        hedgehog: HedgehogTrafficController,
         icon: 'IconToggle',
         iconColor: 'rgb(48 171 198)',
         breadcrumbsName: 'Feature Flags',
@@ -234,7 +244,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Statistical analysis', problem: 'Get results you can trust, not gut feelings' },
             { title: 'Goal tracking', problem: 'Tie experiments directly to the metrics that matter' },
         ],
-        hedgehog: ExperimentsHog,
+        hedgehog: HedgehogExperiment,
         icon: 'IconTestTube',
         iconColor: 'rgb(182 42 217)',
         breadcrumbsName: 'Experiments',
@@ -253,7 +263,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Stack trace & context', problem: 'Jump straight to the line of code that broke' },
             { title: 'Issue management', problem: 'Prioritize fixes by how many users are affected' },
         ],
-        hedgehog: DetectiveHog,
+        hedgehog: HedgehogMagnifyingGlass,
         icon: 'IconWarning',
         iconColor: 'rgb(235 157 42)',
         url: urls.errorTracking(),
@@ -270,7 +280,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Targeted surveys', problem: 'Ask the right question at the right moment' },
             { title: 'In-app collection', problem: 'Get feedback without sending users to external forms' },
         ],
-        hedgehog: MicrophoneHog,
+        hedgehog: HedgehogReporter,
         icon: 'IconMessage',
         iconColor: 'rgb(243 84 84)',
         url: urls.surveys(),
@@ -306,11 +316,28 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Structured filtering', problem: 'Drill into logs by service, severity, or any attribute' },
             { title: 'Log-based alerting', problem: 'Get notified the moment an error pattern appears' },
         ],
-        hedgehog: ReadingHog,
+        hedgehog: HedgehogReadingIsMagic,
         icon: 'IconLive',
         iconColor: 'var(--color-product-logs-light)',
         url: urls.logs(),
         scene: Scene.Logs,
+        setupEffort: 'low',
+    },
+    [ProductKey.METRICS]: {
+        name: 'Metrics',
+        description: 'Chart and alert on the metrics your services already expose',
+        userCentricDescription: 'See how your services are performing over time',
+        capabilities: ['Prometheus and OpenTelemetry ingest', 'Metric charts and dashboards', 'Anomaly detection'],
+        valueProps: [
+            { title: 'Bring your existing metrics', problem: 'Scrape a Prometheus endpoint without changing your app' },
+            { title: 'Charts and dashboards', problem: 'Watch latency, throughput, and error rates over time' },
+            { title: 'Metric to trace links', problem: 'Jump from a spike straight to the trace behind it' },
+        ],
+        hedgehog: HedgehogChart,
+        icon: 'IconGraph',
+        iconColor: 'var(--color-product-metrics-light)',
+        url: urls.metrics(),
+        scene: Scene.Metrics,
         setupEffort: 'low',
     },
     [ProductKey.MCP_ANALYTICS]: {
@@ -323,11 +350,28 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Agent intent', problem: 'Know what agents were trying to do, not just which tools they ran' },
             { title: 'Failures & gaps', problem: 'Catch failing tools and capabilities agents wish you had' },
         ],
-        hedgehog: RobotHog,
+        hedgehog: HedgehogRobot,
         icon: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
         url: urls.mcpAnalyticsDashboard(),
         scene: Scene.MCPAnalytics,
+        setupEffort: 'low',
+    },
+    [ProductKey.CONVERSATIONS]: {
+        name: 'Support',
+        description: 'Receive customer questions over web, email, Slack, and Microsoft Teams',
+        userCentricDescription: 'Triage, assign, and automate customer support in PostHog',
+        capabilities: ['In-app chat widget', 'Email, Slack & Teams channels', 'Direct conversations API'],
+        valueProps: [
+            { title: 'In-app widget', problem: 'Let customers reach you without leaving your product' },
+            { title: 'Multi-channel inbox', problem: 'Handle email, Slack, and Teams tickets in one place' },
+            { title: 'Direct API', problem: 'Build your own support UI on top of the conversations API' },
+        ],
+        hedgehog: HedgehogReporter,
+        icon: 'IconMessage',
+        iconColor: 'var(--color-product-support-light)',
+        url: urls.supportTickets(),
+        scene: Scene.SupportTickets,
         setupEffort: 'low',
     },
 }

@@ -8,10 +8,12 @@ from parameterized import parameterized
 
 from posthog.schema import EventsNode, ExperimentMeanMetric, ExperimentQuery, PrecomputationMode
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.experiment_query_runner import (
     MIN_PRECOMPUTATION_DURATION_SECONDS,
     ExperimentQueryRunner,
     experiment_has_min_runtime_for_precomputation,
+    has_uncalculated_cohorts,
 )
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
@@ -105,3 +107,71 @@ class TestShouldPrecomputeRespectsGate(ExperimentQueryRunnerBaseTest):
         self._disable_precomputation()
         runner = self._build_runner(experiment)
         assert runner._should_precompute() is False
+
+
+def _cohort_exposure_criteria(cohort_id: int) -> dict:
+    return {
+        "exposure_config": {
+            "kind": "ExperimentEventExposureConfig",
+            "event": "$feature_flag_called",
+            "properties": [{"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}],
+        }
+    }
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestUncalculatedCohortGate(ExperimentQueryRunnerBaseTest):
+    @parameterized.expand(
+        [
+            # name, is_static, version, is_calculating, expected
+            ("dynamic_never_calculated", False, None, True, True),
+            ("dynamic_calculated", False, 1, False, False),
+            ("dynamic_mid_recalculation", False, 3, True, False),
+            ("static_populating", True, None, True, True),
+            ("static_populated", True, None, False, False),
+        ]
+    )
+    def test_cohort_states(self, _name, is_static, version, is_calculating, expected):
+        cohort = Cohort.objects.create(team=self.team, name="test cohort", is_static=is_static)
+        Cohort.objects.filter(pk=cohort.pk).update(version=version, is_calculating=is_calculating)
+
+        assert has_uncalculated_cohorts(self.team, _cohort_exposure_criteria(cohort.pk)) is expected
+
+    def test_no_cohort_references_returns_false(self):
+        criteria = {
+            "exposure_config": {
+                "kind": "ExperimentEventExposureConfig",
+                "event": "$feature_flag_called",
+                "properties": [{"key": "email", "type": "person", "value": "@x.com", "operator": "icontains"}],
+            }
+        }
+        assert has_uncalculated_cohorts(self.team, criteria, None) is False
+
+    def test_finds_cohort_in_pydantic_metric(self):
+        cohort = Cohort.objects.create(team=self.team, name="test cohort")
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", properties=[{"key": "id", "type": "cohort", "value": cohort.pk}])
+        )
+        assert has_uncalculated_cohorts(self.team, metric) is True
+
+    @freeze_time("2026-04-30T12:00:00Z")
+    def test_should_precompute_waits_for_first_cohort_calculation(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2026, 4, 29, 0, 0, 0),  # over the duration threshold
+        )
+        cohort = Cohort.objects.create(team=self.team, name="fresh cohort", is_calculating=True)
+        experiment.exposure_criteria = _cohort_exposure_criteria(cohort.pk)
+        experiment.save()
+        self._enable_precomputation()
+
+        metric = ExperimentMeanMetric(source=EventsNode(event="purchase"))
+        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        runner = ExperimentQueryRunner(query=query, team=self.team)
+        assert runner._should_precompute() is False
+        assert runner._precompute_skip_reason() == "cohort_not_calculated"
+
+        Cohort.objects.filter(pk=cohort.pk).update(version=1, is_calculating=False)
+        assert runner._should_precompute() is True
+        assert runner._precompute_skip_reason() is None

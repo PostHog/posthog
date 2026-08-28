@@ -5,13 +5,13 @@ import { Link } from '@posthog/lemon-ui'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -191,7 +191,9 @@ export function ProjectCombobox(): JSX.Element | null {
                             tooltip="Create a new project"
                             tooltipPlacement="right"
                             className="shrink-0"
-                            disabled={!!projectCreationForbiddenReason}
+                            disabledReasons={
+                                projectCreationForbiddenReason ? { [projectCreationForbiddenReason]: true } : undefined
+                            }
                         >
                             <IconPlusSmall className="text-tertiary" />
                             New project

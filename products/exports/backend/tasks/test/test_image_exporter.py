@@ -19,7 +19,7 @@ from prometheus_client import REGISTRY
 
 from posthog.hogql.errors import QueryError
 
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.insight_result import InsightResult
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -35,9 +35,8 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks import image_exporter
 from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, InvalidExportContext
-from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
-from products.product_analytics.backend.models.insight import Insight
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.api import map_stale_to_latest
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 
 def make_insight_result(cache_key: str) -> InsightResult:
@@ -101,6 +100,57 @@ class TestImageExporter(APIBaseTest):
 
         with self.assertRaises(InvalidExportContext):
             image_exporter._export_to_png(exported_asset)
+
+    @patch("products.exports.backend.tasks.image_exporter.process_query_dict")
+    def test_adhoc_query_export_renders_without_insight(
+        self,
+        mock_process_query: Any,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        mock_process_query.return_value = {"results": []}
+        source = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "$pageview"}]}}
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            created_by=self.user,
+            export_context={"source": source},
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(exported_asset)
+
+        call_args, call_kwargs = mock_process_query.call_args
+        assert call_args == (self.team, source)
+        assert call_kwargs["execution_mode"] == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        assert call_kwargs["user"] == self.user
+
+        url_to_render = mock_screenshot_asset.call_args[0][1]
+        assert "/exporter?token=" in url_to_render
+        assert exported_asset.content == b"image_data"
+
+    @patch("products.exports.backend.tasks.image_exporter.process_query_dict")
+    def test_adhoc_query_export_fails_fast_on_invalid_query(
+        self,
+        mock_process_query: Any,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        mock_process_query.return_value = {"results": None, "error": "1 validation error for QuerySchemaRoot"}
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            created_by=self.user,
+            export_context={"source": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}},
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False), self.assertRaisesRegex(Exception, "Invalid query"):
+            image_exporter.export_image(exported_asset)
+
+        # The browser must never be reached — the point is failing before the render.
+        mock_screenshot_asset.assert_not_called()
 
     def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args: Any) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
@@ -646,6 +696,92 @@ class TestImageExporterQueryOverrideE2E(ClickhouseTestMixin, APIBaseTest):
         assert "cache_keys=" in url_default
         assert "cache_keys=" in url_override
         assert url_default != url_override
+
+
+class TestInsightQueryScreenshotWidth(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("funnel_default_layout", {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}}, 4000),
+            (
+                "funnel_explicit_vertical",
+                {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery", "funnelsFilter": {"layout": "vertical"}}},
+                4000,
+            ),
+            (
+                "funnel_horizontal",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "FunnelsQuery", "funnelsFilter": {"layout": "horizontal"}},
+                },
+                800,
+            ),
+            ("bare_funnel_query_without_wrapper", {"kind": "FunnelsQuery"}, 4000),
+            ("trends", {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}, 800),
+            (
+                "metric",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "TrendsQuery", "trendsFilter": {"display": "Metric"}},
+                },
+                600,
+            ),
+            (
+                "bare_metric_query_without_wrapper",
+                {"kind": "TrendsQuery", "trendsFilter": {"display": "Metric"}},
+                800,
+            ),
+            ("empty_query", {}, 800),
+        ]
+    )
+    def test_width_for_query(self, _name: str, query: dict, expected: int) -> None:
+        assert image_exporter._insight_query_screenshot_width(query) == expected
+
+
+class TestInsightQueryWantsLegend(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "two_series_gets_legend",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "TrendsQuery", "series": [{"event": "a"}, {"event": "b"}]},
+                },
+                True,
+            ),
+            (
+                "breakdown_gets_legend",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"event": "a"}],
+                        "breakdownFilter": {"breakdown": "$browser"},
+                    },
+                },
+                True,
+            ),
+            (
+                "single_series_skipped",
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "a"}]}},
+                False,
+            ),
+            (
+                "explicit_false_respected",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"event": "a"}, {"event": "b"}],
+                        "trendsFilter": {"showLegend": False},
+                    },
+                },
+                False,
+            ),
+            ("non_insight_kind", {"kind": "DataTableNode"}, False),
+        ]
+    )
+    def test_legend_defaulting(self, _name: str, query: dict, expected: bool) -> None:
+        assert image_exporter._insight_query_wants_legend(query) == expected
 
 
 class TestBuildCdpEndpoint(SimpleTestCase):

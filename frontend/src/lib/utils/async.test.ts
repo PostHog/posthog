@@ -23,10 +23,13 @@ describe('async utils', () => {
             // A promise that never resolves nor rejects — the stalled-fetch scenario.
             const neverSettles = new Promise<string>(() => {})
             const wrapped = withTimeout(neverSettles, 10000, 'loadRecents timed out')
-            const assertion = expect(wrapped).rejects.toThrow(PromiseTimeoutError)
+            // Captured before the clock moves, so the rejection always has a handler; `expect().rejects`
+            // can't be used here because it has to be awaited, and nothing rejects until timers advance.
+            const settled = wrapped.catch((error: unknown) => error)
             await jest.advanceTimersByTimeAsync(10000)
-            await assertion
-            await expect(wrapped).rejects.toThrow('loadRecents timed out')
+            const error = await settled
+            expect(error).toBeInstanceOf(PromiseTimeoutError)
+            expect((error as Error).message).toBe('loadRecents timed out')
         })
 
         it('does not time out a promise that resolves just before the deadline', async () => {
@@ -52,9 +55,9 @@ describe('async utils', () => {
                 received = signal
                 return new Promise<string>(() => {}) // never settles
             }, 10000)
-            const assertion = expect(wrapped).rejects.toThrow(PromiseTimeoutError)
+            const settled = wrapped.catch((error: unknown) => error)
             await jest.advanceTimersByTimeAsync(10000)
-            await assertion
+            expect(await settled).toBeInstanceOf(PromiseTimeoutError)
             expect(received?.aborted).toBe(true)
         })
     })

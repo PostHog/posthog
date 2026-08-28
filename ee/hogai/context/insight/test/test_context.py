@@ -17,6 +17,7 @@ class TestInsightContext(BaseTest):
         context = InsightContext(
             team=self.team,
             query=query,
+            user=self.user,
             name="Test Insight",
             description="Test Description",
             insight_id="test_id",
@@ -38,7 +39,7 @@ class TestInsightContext(BaseTest):
 
     def test_initialization_with_minimal_parameters(self):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(team=self.team, query=query)
+        context = InsightContext(team=self.team, query=query, user=self.user)
 
         self.assertEqual(context.team, self.team)
         self.assertEqual(context.query, query)
@@ -52,7 +53,7 @@ class TestInsightContext(BaseTest):
 
     async def test_get_effective_query_no_filters(self):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(team=self.team, query=query)
+        context = InsightContext(team=self.team, query=query, user=self.user)
 
         effective_query = await context._get_effective_query()
 
@@ -72,6 +73,7 @@ class TestInsightContext(BaseTest):
         context = InsightContext(
             team=self.team,
             query=query,
+            user=self.user,
             dashboard_filters=dashboard_filters,
             filters_override=filters_override,
             variables_override=variables_override,
@@ -88,6 +90,7 @@ class TestInsightContext(BaseTest):
         context = InsightContext(
             team=self.team,
             query=query,
+            user=self.user,
             name="Test Insight",
             description="Test Description",
             insight_id="test_id",
@@ -107,7 +110,7 @@ class TestInsightContext(BaseTest):
         mock_execute.return_value = "Test Results"
 
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(team=self.team, query=query)
+        context = InsightContext(team=self.team, query=query, user=self.user)
 
         result = await context.execute_and_format()
 
@@ -120,7 +123,7 @@ class TestInsightContext(BaseTest):
 
         custom_template = "Custom: {{{insight_name}}} - {{{results}}}"
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(team=self.team, query=query, name="My Insight")
+        context = InsightContext(team=self.team, query=query, user=self.user, name="My Insight")
 
         result = await context.execute_and_format(prompt_template=custom_template)
 
@@ -133,7 +136,7 @@ class TestInsightContext(BaseTest):
         mock_execute.side_effect = Exception("Query failed")
 
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(team=self.team, query=query)
+        context = InsightContext(team=self.team, query=query, user=self.user)
 
         with self.assertRaises(MaxToolRetryableError) as exc:
             await context.execute_and_format()
@@ -145,7 +148,7 @@ class TestInsightContext(BaseTest):
         mock_execute.side_effect = Exception("Query failed")
 
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(team=self.team, query=query, name="Test Insight")
+        context = InsightContext(team=self.team, query=query, user=self.user, name="Test Insight")
 
         result = await context.execute_and_format(return_exceptions=True)
 
@@ -155,7 +158,12 @@ class TestInsightContext(BaseTest):
     async def test_format_schema_basic(self):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         context = InsightContext(
-            team=self.team, query=query, name="Test Insight", description="Test Description", insight_id="test_id"
+            team=self.team,
+            query=query,
+            user=self.user,
+            name="Test Insight",
+            description="Test Description",
+            insight_id="test_id",
         )
 
         result = await context.format_schema()
@@ -169,7 +177,7 @@ class TestInsightContext(BaseTest):
     async def test_format_schema_with_custom_template(self):
         custom_template = "Schema: {{{query_schema}}}"
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(team=self.team, query=query)
+        context = InsightContext(team=self.team, query=query, user=self.user)
 
         result = await context.format_schema(prompt_template=custom_template)
 
@@ -178,7 +186,7 @@ class TestInsightContext(BaseTest):
 
     async def test_format_schema_without_optional_fields(self):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(team=self.team, query=query)
+        context = InsightContext(team=self.team, query=query, user=self.user)
 
         result = await context.format_schema()
 
@@ -190,7 +198,7 @@ class TestInsightContext(BaseTest):
         mock_execute.return_value = "Test Results"
 
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(team=self.team, query=query, dashboard_filters={"date_from": "-7d"})
+        context = InsightContext(team=self.team, query=query, user=self.user, dashboard_filters={"date_from": "-7d"})
 
         await context.execute_and_format()
 
@@ -206,6 +214,7 @@ class TestInsightContext(BaseTest):
         context = InsightContext(
             team=self.team,
             query=query,
+            user=self.user,
             insight_model_id=456,
         )
 
@@ -217,7 +226,7 @@ class TestInsightContext(BaseTest):
 
     async def test_format_schema_applies_dashboard_filters(self):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(team=self.team, query=query, dashboard_filters={"date_from": "-7d"})
+        context = InsightContext(team=self.team, query=query, user=self.user, dashboard_filters={"date_from": "-7d"})
 
         result = await context.format_schema()
 
@@ -238,6 +247,7 @@ class TestInsightContext(BaseTest):
         context = InsightContext(
             team=self.team,
             query=query,
+            user=self.user,
             dashboard_filters=dashboard_filters,
             filters_override=filters_override,
             variables_override=variables_override,
@@ -249,15 +259,15 @@ class TestInsightContext(BaseTest):
 
     def test_insight_url_is_none_when_no_short_id(self):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(team=self.team, query=query)
+        context = InsightContext(team=self.team, query=query, user=self.user)
 
         self.assertIsNone(context.insight_url)
 
     def test_insight_url_generated_from_short_id(self):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(team=self.team, query=query, insight_short_id="abc123")
+        context = InsightContext(team=self.team, query=query, user=self.user, insight_short_id="abc123")
 
-        self.assertEqual(context.insight_url, f"/project/{self.team.id}/insights/abc123")
+        self.assertEqual(context.insight_url, "/insights/abc123")
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_includes_insight_url(self, mock_execute):
@@ -267,6 +277,7 @@ class TestInsightContext(BaseTest):
         context = InsightContext(
             team=self.team,
             query=query,
+            user=self.user,
             name="Test Insight",
             insight_id="display-id",
             insight_short_id="xyz789",
@@ -274,7 +285,8 @@ class TestInsightContext(BaseTest):
 
         result = await context.execute_and_format()
 
-        self.assertIn(f"/project/{self.team.id}/insights/xyz789", result)
+        self.assertIn("/insights/xyz789", result)
+        self.assertIn("Insight ID: display-id", result)
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_shows_fallback_when_no_url(self, mock_execute):
@@ -284,9 +296,16 @@ class TestInsightContext(BaseTest):
         context = InsightContext(
             team=self.team,
             query=query,
+            user=self.user,
             name="Test Insight",
+            insight_id="cJcS",
         )
 
         result = await context.execute_and_format()
 
-        self.assertIn("This insight cannot be accessed via a URL.", result)
+        self.assertIn("cannot be accessed via a URL", result)
+        # An artifact ID under an `Insight ID:` label is what led the model to compose `/insights/cJcS`, which 404s
+        self.assertIn("Artifact ID: cJcS", result)
+        self.assertNotIn("Insight ID:", result)
+        self.assertIn("/insights/", result)
+        self.assertIn("404", result)

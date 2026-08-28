@@ -1,11 +1,13 @@
 import re
 import uuid
 import itertools
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from posthog.schema import (
     BaseMathType,
@@ -13,6 +15,7 @@ from posthog.schema import (
     ConversionGoalFilter2,
     DateRange,
     MarketingAnalyticsBaseColumns,
+    PropertyMathType,
 )
 
 from posthog.hogql import ast
@@ -20,16 +23,20 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.preaggregation.conversion_goal_attributed_sql import (
-    TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
-)
+from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL
+from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tag_queries
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.actions.backend.models.action import Action
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
+    LazyComputationTable,
+)
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 
-from .conversion_goal_processor import ConversionGoalProcessor
-from .conversion_goals_aggregator import ConversionGoalsAggregator
+from .constants import CAC_COLUMN_SUFFIX, ROAS_COLUMN
+from .conversion_goal_processor import ConversionGoalProcessor, SharedTouchpointsPrecompute
+from .conversion_goals_aggregator import ConversionGoalsAggregator, _map_in_caller_context
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
 
@@ -67,7 +74,7 @@ def _normalize_job_uuids(hogql: str) -> str:
 class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        sync_execute(TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
+        sync_execute(TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL())
         PreaggregationJob.objects.all().delete()
         # Force deterministic job_ids so the precompute snapshots are stable in CI.
         self._job_uuid_patcher = patch.object(
@@ -94,8 +101,10 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         goal_id: str,
         goal_name: str,
         event_name: str | None = None,
-        math: BaseMathType = BaseMathType.TOTAL,
+        math: BaseMathType | PropertyMathType = BaseMathType.TOTAL,
         math_property: str | None = None,
+        counts_as_revenue: bool | None = None,
+        counts_as_customer: bool | None = None,
     ) -> ConversionGoalFilter1:
         return ConversionGoalFilter1(
             kind="EventsNode",
@@ -104,6 +113,8 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
             conversion_goal_name=goal_name,
             math=math,
             math_property=math_property,
+            counts_as_revenue=counts_as_revenue,
+            counts_as_customer=counts_as_customer,
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
@@ -308,6 +319,153 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
             division_expr = args[0]
             assert isinstance(division_expr, ast.ArithmeticOperation)
             assert division_expr.op == ast.ArithmeticOperationOp.Div
+
+    def test_roas_column_absent_when_no_goal_is_revenue(self):
+        goal = self._create_test_conversion_goal("plain", "Plain Goal")
+        aggregator = ConversionGoalsAggregator(processors=[self._create_test_processor(goal, 0)], config=self.config)
+
+        columns = aggregator.get_conversion_goal_columns()
+
+        assert ROAS_COLUMN not in columns
+
+    def test_roas_column_absent_without_campaign_costs(self):
+        goal = self._create_test_conversion_goal(
+            "rev", "Revenue Goal", math=PropertyMathType.SUM, math_property="revenue", counts_as_revenue=True
+        )
+        aggregator = ConversionGoalsAggregator(processors=[self._create_test_processor(goal, 0)], config=self.config)
+
+        columns = aggregator.get_conversion_goal_columns(include_cost_per=False)
+
+        assert ROAS_COLUMN not in columns
+
+    def test_roas_numerator_sums_only_the_revenue_goals(self):
+        goals = [
+            self._create_test_conversion_goal("g0", "Signups"),
+            self._create_test_conversion_goal(
+                "g1", "Purchases", math=PropertyMathType.SUM, math_property="revenue", counts_as_revenue=True
+            ),
+            self._create_test_conversion_goal(
+                "g2", "Subscriptions", math=PropertyMathType.SUM, math_property="mrr", counts_as_revenue=True
+            ),
+        ]
+        processors = [self._create_test_processor(goal, i) for i, goal in enumerate(goals)]
+        aggregator = ConversionGoalsAggregator(processors=processors, config=self.config)
+
+        roas = aggregator.get_conversion_goal_columns()[ROAS_COLUMN].expr.to_hogql()
+
+        # Revenue goals sit at indices 1 and 2, the plain signup goal at 0 must not be in the numerator
+        assert self.config.get_conversion_goal_column_name(1) in roas
+        assert self.config.get_conversion_goal_column_name(2) in roas
+        assert self.config.get_conversion_goal_column_name(0) not in roas
+        assert self.config.total_cost_field in roas
+
+    def test_cac_column_absent_when_no_goal_is_a_customer_goal(self):
+        goal = self._create_test_conversion_goal("plain", "Plain Goal")
+        aggregator = ConversionGoalsAggregator(processors=[self._create_test_processor(goal, 0)], config=self.config)
+
+        columns = aggregator.get_conversion_goal_columns()
+
+        assert f"{self.config.cost_per_prefix} {CAC_COLUMN_SUFFIX}" not in columns
+
+    def test_cac_column_absent_without_campaign_costs(self):
+        goal = self._create_test_conversion_goal("cust", "Customer Goal", counts_as_customer=True)
+        aggregator = ConversionGoalsAggregator(processors=[self._create_test_processor(goal, 0)], config=self.config)
+
+        columns = aggregator.get_conversion_goal_columns(include_cost_per=False)
+
+        assert f"{self.config.cost_per_prefix} {CAC_COLUMN_SUFFIX}" not in columns
+
+    def test_cac_divides_spend_by_only_the_customer_goals(self):
+        goals = [
+            self._create_test_conversion_goal("g0", "Pageviews"),
+            self._create_test_conversion_goal("g1", "Signups", counts_as_customer=True),
+            self._create_test_conversion_goal("g2", "Trials"),
+            self._create_test_conversion_goal("g3", "Purchases", counts_as_customer=True),
+        ]
+        processors = [self._create_test_processor(goal, i) for i, goal in enumerate(goals)]
+        aggregator = ConversionGoalsAggregator(processors=processors, config=self.config)
+
+        cac_alias = f"{self.config.cost_per_prefix} {CAC_COLUMN_SUFFIX}"
+        cac_expr = aggregator.get_conversion_goal_columns()[cac_alias].expr
+        cac = cac_expr.to_hogql()
+
+        # Customer goals sit at indices 1 and 3; the non-customer goals at 0 and 2 must not count
+        assert self.config.get_conversion_goal_column_name(1) in cac
+        assert self.config.get_conversion_goal_column_name(3) in cac
+        assert self.config.get_conversion_goal_column_name(0) not in cac
+        assert self.config.get_conversion_goal_column_name(2) not in cac
+        # Cost is the numerator for CAC (spend per customer), the inverse of ROAS
+        assert isinstance(cac_expr, ast.Call)
+        division = cac_expr.args[0]
+        assert isinstance(division, ast.ArithmeticOperation)
+        assert division.op == ast.ArithmeticOperationOp.Div
+        assert isinstance(division.left, ast.Field)
+        assert division.left.chain[-1] == self.config.total_cost_field
+
+    def test_cac_divides_by_the_count_of_a_customer_goal_that_sums_money(self):
+        goals = [
+            # A purchase goal flagged as both. Its own column holds revenue, so the
+            # denominator has to be its paired count or CAC becomes spend over revenue.
+            self._create_test_conversion_goal(
+                "g0",
+                "Purchases",
+                math=PropertyMathType.SUM,
+                math_property="revenue",
+                counts_as_customer=True,
+                counts_as_revenue=True,
+            ),
+            self._create_test_conversion_goal("g1", "Signups", counts_as_customer=True),
+        ]
+        processors = [self._create_test_processor(goal, i) for i, goal in enumerate(goals)]
+        aggregator = ConversionGoalsAggregator(processors=processors, config=self.config)
+
+        cac_alias = f"{self.config.cost_per_prefix} {CAC_COLUMN_SUFFIX}"
+        cac = aggregator.get_conversion_goal_columns()[cac_alias].expr.to_hogql()
+
+        assert self.config.get_conversion_goal_count_column_name(0) in cac
+        # The counting goal is already its own denominator, so it gets no count column.
+        assert self.config.get_conversion_goal_column_name(1) in cac
+        assert self.config.get_conversion_goal_count_column_name(1) not in cac
+
+    def test_cac_exists_when_every_customer_goal_sums_money(self):
+        # The default shape: the only customer goal is a purchase goal with sum math.
+        # This used to emit no column while the frontend still requested one.
+        goal = self._create_test_conversion_goal(
+            "g0",
+            "Purchases",
+            math=PropertyMathType.SUM,
+            math_property="revenue",
+            counts_as_customer=True,
+            counts_as_revenue=True,
+        )
+        aggregator = ConversionGoalsAggregator(processors=[self._create_test_processor(goal, 0)], config=self.config)
+
+        columns = aggregator.get_conversion_goal_columns()
+
+        assert f"{self.config.cost_per_prefix} {CAC_COLUMN_SUFFIX}" in columns
+        assert ROAS_COLUMN in columns
+
+    def test_roas_numerator_skips_revenue_goals_that_count_instead_of_summing(self):
+        goals = [
+            # Flagged as revenue but counts conversions, so its column holds a count, not money.
+            self._create_test_conversion_goal("g0", "Signups", counts_as_revenue=True),
+            self._create_test_conversion_goal(
+                "g1", "Purchases", math=PropertyMathType.SUM, math_property="revenue", counts_as_revenue=True
+            ),
+        ]
+        processors = [self._create_test_processor(goal, i) for i, goal in enumerate(goals)]
+        aggregator = ConversionGoalsAggregator(processors=processors, config=self.config)
+
+        roas = aggregator.get_conversion_goal_columns()[ROAS_COLUMN].expr.to_hogql()
+
+        assert self.config.get_conversion_goal_column_name(1) in roas
+        assert self.config.get_conversion_goal_column_name(0) not in roas
+
+    def test_roas_column_absent_when_every_revenue_goal_counts_instead_of_summing(self):
+        goal = self._create_test_conversion_goal("g0", "Signups", counts_as_revenue=True)
+        aggregator = ConversionGoalsAggregator(processors=[self._create_test_processor(goal, 0)], config=self.config)
+
+        assert ROAS_COLUMN not in aggregator.get_conversion_goal_columns()
 
     def test_coalesce_fallback_columns(self):
         goal = self._create_test_conversion_goal("fallback_test", "Fallback Test")
@@ -626,3 +784,67 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert "Holiday Promo" in sql_string, "SQL should contain mapped campaign name"
         assert "spring_sale_2024" in sql_string, "SQL should contain original campaign name in mapping"
         assert "holiday_campaign" in sql_string, "SQL should contain original campaign name in mapping"
+
+    def test_touchpoints_precompute_materialized_once_across_goals(self):
+        processors = [
+            self._create_test_processor(self._create_test_conversion_goal("goal1", "Sign Ups"), 0),
+            self._create_test_processor(self._create_test_conversion_goal("goal2", "Purchases"), 1),
+        ]
+        aggregator = ConversionGoalsAggregator(processors, self.config)
+
+        with patch(
+            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.marketing_ensure_precomputed",
+            side_effect=lambda **kwargs: LazyComputationResult(ready=True, job_ids=[uuid.uuid4()]),
+        ) as ensure:
+            aggregator.generate_unified_cte(self.date_range, self._create_mock_additional_conditions_getter())
+
+        tables = [call.kwargs["table"] for call in ensure.call_args_list]
+        # Touchpoints are config-agnostic, so both goals share one materialization. Conversions embed the
+        # goal, so each keeps its own — sharing those would serve one goal's conversions for the other.
+        assert tables.count(LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED) == 1
+        assert tables.count(LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED) == len(processors)
+
+    def test_shared_touchpoints_rejects_a_second_date_range(self):
+        # The handle caches the first materialization, so reusing it for another range would attribute
+        # one window's touchpoints to another. Silently, if it just returned the cached result.
+        shared = SharedTouchpointsPrecompute(self.team, self.config)
+        date_from = datetime(2024, 1, 1, tzinfo=UTC)
+        date_to = datetime(2024, 1, 31, tzinfo=UTC)
+
+        with patch(
+            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.marketing_ensure_precomputed",
+            side_effect=lambda **kwargs: LazyComputationResult(ready=True, job_ids=[uuid.uuid4()]),
+        ) as ensure:
+            first = shared.get(date_from, date_to)
+            assert shared.get(date_from, date_to) is first
+
+            with pytest.raises(ValueError, match="one date range per read"):
+                shared.get(date_from, date_to + timedelta(days=1))
+
+        assert ensure.call_count == 1
+
+
+class TestGoalParallelismContextPropagation(SimpleTestCase):
+    def tearDown(self):
+        reset_query_tags()
+        super().tearDown()
+
+    def test_query_tags_survive_into_the_goal_worker_threads(self):
+        # Multi-goal reads build each goal's precompute in a thread pool. ThreadPoolExecutor workers do
+        # not inherit the caller's contextvars, so a bare pool.map drops the query tags — and with them
+        # the CACHE_WARMUP tag a background revalidation sets on itself, which is the only thing stopping
+        # that revalidation from serving itself stale and never refreshing. Guards that regression.
+        tag_queries(feature=Feature.CACHE_WARMUP, trigger="marketingAnalyticsStaleRevalidation")
+        seen: dict[int, tuple] = {}
+
+        def build(item: int) -> int:
+            seen[item] = (get_query_tag_value("feature"), get_query_tag_value("trigger"))
+            return item * 10
+
+        # 3 items > 1 forces the real pool rather than the serial path.
+        result = _map_in_caller_context(build, [1, 2, 3])
+
+        assert result == [10, 20, 30]
+        assert all(tags == (Feature.CACHE_WARMUP, "marketingAnalyticsStaleRevalidation") for tags in seen.values()), (
+            seen
+        )

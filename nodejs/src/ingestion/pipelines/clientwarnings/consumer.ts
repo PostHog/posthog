@@ -5,7 +5,7 @@ import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-
 import { TeamManager } from '~/common/utils/team-manager'
 import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '~/ingestion/common/ingestion-consumer'
-import { ProducerName } from '~/ingestion/common/producers'
+import { ProducerName } from '~/ingestion/common/outputs/producers'
 import { Scope, extend } from '~/ingestion/common/scopes'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'

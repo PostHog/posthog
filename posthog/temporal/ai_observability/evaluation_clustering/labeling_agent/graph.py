@@ -1,11 +1,13 @@
 """LangGraph agent entry point for evaluation cluster labeling."""
 
+import uuid
 from typing import Any
 
 import structlog
 from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 
+from posthog.llm.gateway_client import team_distinct_id
 from posthog.temporal.ai_observability.clustering_agent import fill_missing_labels, get_labeling_llm
 from posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.prompts import (
     EVAL_CLUSTER_LABELING_SYSTEM_PROMPT,
@@ -16,6 +18,7 @@ from posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.stat
     EvalLabelingState,
 )
 from posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.tools import EVAL_LABELING_TOOLS
+from posthog.temporal.ai_observability.llm_endpoint import build_langchain_callbacks
 from posthog.temporal.ai_observability.trace_clustering.models import ClusterLabel
 
 logger = structlog.get_logger(__name__)
@@ -27,6 +30,10 @@ def run_eval_labeling_agent(
     all_eval_contents: dict[str, EvalContent],
     window_start: str,
     window_end: str,
+    trace_id: str = "",
+    session_id: str = "",
+    clustering_run_id: str = "",
+    clustering_job_id: str = "",
 ) -> dict[int, ClusterLabel]:
     """Run the evaluation cluster labeling agent and return generated labels.
 
@@ -44,7 +51,23 @@ def run_eval_labeling_agent(
         LABELING_AGENT_TIMEOUT,
     )
 
-    llm = get_labeling_llm(LABELING_AGENT_MODEL, LABELING_AGENT_TIMEOUT)
+    resolved_trace_id = trace_id or str(uuid.uuid4())
+    resolved_session_id = session_id or resolved_trace_id
+    resolved_distinct_id = team_distinct_id(team_id)
+    observability_properties = {
+        "team_id": str(team_id),
+        "analysis_level": "evaluation",
+        **({"clustering_run_id": clustering_run_id} if clustering_run_id else {}),
+        **({"clustering_job_id": clustering_job_id} if clustering_job_id else {}),
+    }
+    llm = get_labeling_llm(
+        LABELING_AGENT_MODEL,
+        LABELING_AGENT_TIMEOUT,
+        trace_id=resolved_trace_id,
+        session_id=resolved_session_id,
+        properties=observability_properties,
+        distinct_id=resolved_distinct_id,
+    )
 
     agent = create_react_agent(
         model=llm,
@@ -63,10 +86,18 @@ def run_eval_labeling_agent(
         "current_labels": {},
     }
 
+    callbacks = build_langchain_callbacks(
+        distinct_id=resolved_distinct_id,
+        trace_id=resolved_trace_id,
+        session_id=resolved_session_id,
+        ai_product="aio_clustering",
+        properties=observability_properties,
+    )
+
     try:
         result = agent.invoke(
             initial_state,
-            {"recursion_limit": LABELING_AGENT_RECURSION_LIMIT},
+            {"recursion_limit": LABELING_AGENT_RECURSION_LIMIT, "callbacks": callbacks},
         )
         logger.info(
             "eval_cluster_labeling_agent_completed",

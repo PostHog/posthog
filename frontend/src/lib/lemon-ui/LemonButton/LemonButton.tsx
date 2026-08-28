@@ -32,6 +32,7 @@ export interface LemonButtonPropsBase
         | 'style'
         | 'role'
         | 'aria-haspopup'
+        | 'aria-pressed'
     > {
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
@@ -99,6 +100,7 @@ export type SideAction = Pick<
     | 'id'
     | 'onClick'
     | 'to'
+    | 'center'
     | 'loading'
     | 'disableClientSideRouting'
     | 'disabled'
@@ -299,6 +301,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         arrowOffset={tooltipArrowOffset}
                         docLink={tooltipDocLink}
                         visible={tooltipForceMount}
+                        // A click on a blocked button must surface the reason, since hover is unavailable on touch
+                        openOnClick={!!disabledReason}
                         interactive={disabledReasonInteractive}
                         closeDelayMs={disabledReasonInteractive ? INTERACTIVE_CLOSE_DELAY_MS : undefined}
                     >

@@ -1,6 +1,8 @@
 export interface PaginationBase {
     /** By default pagination is only shown when there are multiple pages, but will always be if this is `false`. */
     hideOnSinglePage?: boolean
+    /** Set to false when page changes must stay local instead of adding a `page` search parameter to the URL. */
+    useUrl?: boolean
 }
 
 export interface PaginationAuto extends PaginationBase {

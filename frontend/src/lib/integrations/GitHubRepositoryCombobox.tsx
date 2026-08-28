@@ -1,22 +1,18 @@
 import { useActions, useValues } from 'kea'
-import { type MouseEvent, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
-import { IconGithub, IconRefresh } from '@posthog/icons'
+import { IconGithub } from '@posthog/icons'
 import {
     Button,
     Combobox,
     ComboboxContent,
     ComboboxEmpty,
-    ComboboxInput,
     ComboboxItem,
     ComboboxList,
-    ComboboxListFooter,
     ComboboxTrigger,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
 } from '@posthog/quill'
 
+import { ComboboxLoadMoreFooter, ComboboxSearchField } from './ComboboxSearchChrome'
 import { githubRepositorySearchLogic } from './githubRepositorySearchLogic'
 
 export interface GitHubRepositoryComboboxProps {
@@ -26,20 +22,25 @@ export interface GitHubRepositoryComboboxProps {
     onChange: (value: string | null) => void
     disabled?: boolean
     placeholder?: string
+    /** When true, prepends a "— No repository —" item so users can explicitly clear the selection. */
+    showNoneOption?: boolean
 }
 
 /**
- * GitHub repository picker built on Quill's Combobox, mirroring the PostHog Code repo picker: a button
+ * GitHub repository picker built on Quill's Combobox, mirroring the PostHog Desktop repo picker: a button
  * trigger, an in-popover search field driving server-side search, a paginated "Load more" footer, and a
  * refresh control. Searching and pagination are delegated to {@link githubRepositorySearchLogic} so large
  * accounts never load the full repository list up front.
  */
+const NONE_SENTINEL = '\x00none'
+
 export function GitHubRepositoryCombobox({
     integrationId,
     value,
     onChange,
     disabled = false,
     placeholder = 'Select repository...',
+    showNoneOption = false,
 }: GitHubRepositoryComboboxProps): JSX.Element {
     const logic = githubRepositorySearchLogic({ id: integrationId })
     const { repositoryNames, loading, hasMore, searchQuery, error } = useValues(logic)
@@ -73,13 +74,15 @@ export function GitHubRepositoryCombobox({
         )
     }
 
+    const items = showNoneOption ? [NONE_SENTINEL, ...repositoryNames] : repositoryNames
+
     return (
         <Combobox
-            items={repositoryNames}
+            items={items}
             // Server-side search already filtered the list; don't let the combobox re-filter by input value.
             filter={null}
             value={value || null}
-            onValueChange={(next: string | null) => onChange(next ? next : null)}
+            onValueChange={(next: string | null) => onChange(next === NONE_SENTINEL ? null : next || null)}
             open={open}
             onOpenChange={(nextOpen: boolean) => {
                 setOpen(nextOpen)
@@ -103,71 +106,37 @@ export function GitHubRepositoryCombobox({
                 }
             />
             <ComboboxContent anchor={triggerRef} side="bottom" sideOffset={6} className="min-w-[280px]">
-                <div className="flex min-w-0 items-center gap-1 pe-2">
-                    <div className="min-w-0 flex-1">
-                        <ComboboxInput placeholder="Search repositories..." />
-                    </div>
-                    <Tooltip>
-                        <TooltipTrigger
-                            render={
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={disabled || loading}
-                                    aria-label="Refresh repositories"
-                                    onMouseDown={(event: MouseEvent) => {
-                                        event.preventDefault()
-                                        event.stopPropagation()
-                                    }}
-                                    onClick={(event: MouseEvent) => {
-                                        event.preventDefault()
-                                        event.stopPropagation()
-                                        refresh()
-                                    }}
-                                >
-                                    <IconRefresh className={loading ? 'animate-spin' : undefined} />
-                                </Button>
-                            }
-                        />
-                        <TooltipContent>Refresh repositories</TooltipContent>
-                    </Tooltip>
-                </div>
+                <ComboboxSearchField
+                    itemsLabel="repositories"
+                    loading={loading}
+                    disabled={disabled}
+                    onRefresh={refresh}
+                />
                 <ComboboxEmpty>
-                    {showInlineLoadingState ? 'Loading repositories...' : error ? error : 'No repositories found.'}
+                    {showInlineLoadingState ? 'Loading repositories...' : (error ?? 'No repositories found.')}
                 </ComboboxEmpty>
                 <ComboboxList>
-                    {(repo: string) => (
-                        <ComboboxItem key={repo} value={repo}>
-                            {repo}
-                        </ComboboxItem>
-                    )}
+                    {(repo: string) =>
+                        repo === NONE_SENTINEL ? (
+                            <ComboboxItem key={repo} value={repo}>
+                                No repository
+                            </ComboboxItem>
+                        ) : (
+                            <ComboboxItem key={repo} value={repo}>
+                                {repo}
+                            </ComboboxItem>
+                        )
+                    }
                 </ComboboxList>
 
                 {hasMore && (
-                    <ComboboxListFooter>
-                        <div className="px-2 pb-2">
-                            <div className="px-1 pb-2 text-center text-muted text-xs">
-                                {`Showing ${repositoryNames.length}+ ${trimmedSearchQuery ? 'matches' : 'repositories'}`}
-                            </div>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="w-full justify-center"
-                                disabled={loading}
-                                onMouseDown={(event: MouseEvent) => {
-                                    event.preventDefault()
-                                    event.stopPropagation()
-                                }}
-                                onClick={(event: MouseEvent) => {
-                                    event.preventDefault()
-                                    event.stopPropagation()
-                                    loadMore()
-                                }}
-                            >
-                                Load more
-                            </Button>
-                        </div>
-                    </ComboboxListFooter>
+                    <ComboboxLoadMoreFooter
+                        loadedCount={repositoryNames.length}
+                        itemsLabel="repositories"
+                        searching={!!trimmedSearchQuery}
+                        loading={loading}
+                        onLoadMore={loadMore}
+                    />
                 )}
             </ComboboxContent>
         </Combobox>

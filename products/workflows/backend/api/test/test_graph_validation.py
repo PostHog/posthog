@@ -147,6 +147,12 @@ class TestApplyGraphOperations(TestCase):
         new_actions, _ = apply_graph_operations([TRIGGER], [], [{"op": "add_action", "action": _fn("a")}])
         assert [x["id"] for x in new_actions] == ["t", "a"]
 
+    def test_add_action_with_edges_wires_them(self):
+        ops = [{"op": "add_action", "action": _fn("a"), "edges": [_edge("t", "a"), _edge("a", "x")]}]
+        new_actions, new_edges = apply_graph_operations([TRIGGER, EXIT], [], ops)
+        assert [x["id"] for x in new_actions] == ["t", "x", "a"]
+        assert new_edges == [_edge("t", "a"), _edge("a", "x")]
+
     def test_add_action_duplicate_id_raises(self):
         with pytest.raises(serializers.ValidationError) as exc:
             apply_graph_operations([TRIGGER, _fn("a")], [], [{"op": "add_action", "action": _fn("a")}])

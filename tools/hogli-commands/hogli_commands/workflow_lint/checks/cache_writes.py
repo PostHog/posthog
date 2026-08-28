@@ -53,7 +53,7 @@ SETUP_CACHE_ACTIONS = (
 
 # triggers whose runs can land on a non-default ref (workflow_dispatch is excluded
 # on purpose — see module docstring, condition 1)
-BRANCH_REF_TRIGGERS = frozenset({"pull_request", "pull_request_target", "merge_group", "workflow_call"})
+BRANCH_REF_TRIGGERS = frozenset({"pull_request", "pull_request_target", "workflow_call"})
 
 # step `if:` substrings (whitespace-stripped) that pin a write to the default branch.
 # Positive `==` only, so a negation like `github.ref != 'refs/heads/master'` (which runs

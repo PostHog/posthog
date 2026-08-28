@@ -214,10 +214,12 @@ class MultipleInCohortResolver(TraversingVisitor):
             parts: list[ast.SelectQuery | ast.SelectSetQuery] = []
 
             if static_cohorts:
+                # DISTINCT because duplicate membership rows survive in `person_static_cohort` (its sort
+                # key carries a per-row UUID), and each one would fan out through the LEFT JOIN below.
                 parts.append(
                     parse_select(
                         """
-                            SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
+                            SELECT DISTINCT person_id AS cohort_person_id, 1 AS matched, cohort_id
                             FROM static_cohort_people
                             WHERE {clause}
                         """,
@@ -378,13 +380,20 @@ class InCohortResolver(TraversingVisitor):
         must_add_join = True
         last_join = select.select_from
         while last_join:
-            if isinstance(last_join.table, ast.Field) and last_join.table.chain[0] == f"in_cohort__{cohort_id}":
+            # Dedup on the join alias: a second `IN COHORT <id>` in the same scope must reuse the
+            # existing join, not add a colliding one. (The join's `table` is the cohort subquery, so
+            # the alias is the only place the `in_cohort__<id>` name lives.)
+            if last_join.alias == f"in_cohort__{cohort_id}":
                 must_add_join = False
                 break
             if last_join.next_join:
                 last_join = last_join.next_join
             else:
                 break
+
+        current_scope = self.stack[-1].type
+        if current_scope is None:
+            raise QueryError("Could not resolve current select scope")
 
         if must_add_join:
             inline_ast = inline_cohort_query(cohort_id, is_static, version, self.context)
@@ -396,7 +405,10 @@ class InCohortResolver(TraversingVisitor):
                 )
             else:
                 if is_static:
-                    sql = "(SELECT person_id, 1 as matched FROM static_cohort_people WHERE cohort_id = {cohort_id})"
+                    # DISTINCT because `person_static_cohort` keeps a per-row UUID in its sort key, so
+                    # ReplacingMergeTree can't collapse repeated inserts of the same member. Without it
+                    # every duplicate membership row fans out through the LEFT JOIN below.
+                    sql = "(SELECT DISTINCT person_id, 1 as matched FROM static_cohort_people WHERE cohort_id = {cohort_id})"
                 elif version is not None:
                     sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} AND version = {version})"
                 else:
@@ -421,9 +433,6 @@ class InCohortResolver(TraversingVisitor):
                     constraint_type="ON",
                 ),
             )
-            current_scope = self.stack[-1].type
-            if current_scope is None:
-                raise QueryError("Could not resolve current select scope")
             new_join = cast(
                 ast.JoinExpr,
                 resolve_types(
@@ -453,9 +462,6 @@ class InCohortResolver(TraversingVisitor):
                 last_join.next_join = new_join
             else:
                 select.select_from = new_join
-
-        if current_scope is None:
-            raise ValueError("Expected current scope when resolving cohort comparison")
 
         compare.op = ast.CompareOperationOp.NotEq if negative else ast.CompareOperationOp.Eq
         compare.left = resolve_types(

@@ -4,10 +4,11 @@ import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { NODE_TYPE_TAG_SETTINGS } from 'scenes/models/nodeDetailConstants'
 import { urls } from 'scenes/urls'
 
 import { DataModelingNode, DataModelingNodeType } from '~/types'
+
+import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
 
 import { dataModelingLogic } from '../dataModelingLogic'
 import { PAGE_SIZE } from './constants'
@@ -48,7 +49,6 @@ export function TableView(): JSX.Element {
     }
     return (
         <LemonTable
-            className="h-[calc(100vh-17rem)] overflow-y-auto"
             dataSource={visibleNodes}
             loading={nodesLoading}
             columns={[

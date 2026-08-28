@@ -23,6 +23,7 @@ const TOOLS: ToolCall[] = [
     { name: 'feature-flag-get-all', arguments: { limit: 5, offset: 10 } },
     { name: 'feature-flag-get-all', arguments: { limit: 3, offset: 50 } },
     { name: 'feature-flag-get-definition', arguments: { id: 683820 } },
+    { name: 'feature-flag-get-definition-by-key', arguments: { key: 'new-checkout' } },
     { name: 'dashboards-get-all', arguments: { limit: 3 } },
     { name: 'dashboards-get-all', arguments: { limit: 5, search: 'revenue' } },
     { name: 'insights-list', arguments: { limit: 3 } },

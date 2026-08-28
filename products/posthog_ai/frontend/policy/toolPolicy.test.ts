@@ -4,6 +4,7 @@ import type { AgentQuestion } from './questionUtils'
 import {
     defaultPermissionDecision,
     findAllowOptionId,
+    isPersistPromptTool,
     isPostHogDestructiveSubTool,
     isPostHogExecTool,
     type PermissionDecision,
@@ -60,10 +61,37 @@ describe('toolPolicy', () => {
             'experiment-partial-update',
             'update-something',
             'delete',
+            'workflows-patch-graph',
+            'workflows-patch-email-template',
+            // Destructive-annotated names with no verb segment come from the exact-name set.
+            'workflows-publish',
+            'experiment-ship-variant',
+            'feature-requests-remove-evidence-create',
+            'skill-archive',
+            'error-tracking-issues-merge-create',
         ])('%s is destructive', (sub) => expect(isPostHogDestructiveSubTool(sub)).toBe(true))
-        it.each(['experiment-get', 'feature-flag-list', 'experiment-create', 'insights-pause', 'get-updated-events'])(
-            '%s is not destructive',
-            (sub) => expect(isPostHogDestructiveSubTool(sub)).toBe(false)
+        it.each([
+            'experiment-get',
+            'feature-flag-list',
+            'experiment-create',
+            'insights-pause',
+            'get-updated-events',
+            // `patch` must match as a whole `-`-bounded segment, not as a substring.
+            'dispatch-events-list',
+        ])('%s is not destructive', (sub) => expect(isPostHogDestructiveSubTool(sub)).toBe(false))
+
+        // posthog-connection-call runs another tool in a connected project, so its verdict comes
+        // from the `tool` argument. Reading the wrapper's own name would either prompt on every
+        // cross-account read or wave a cross-account delete straight through.
+        it.each<[string, Record<string, unknown> | undefined, boolean]>([
+            ['read in the connected project', { tool: 'execute-sql' }, false],
+            ['write in the connected project', { tool: 'feature-flag-delete' }, true],
+            ['destructive-annotated name with no verb', { tool: 'workflows-publish' }, true],
+            ['no arguments at all', undefined, true],
+            ['tool argument missing', { connection_id: '1' }, true],
+            ['tool argument not a string', { tool: { name: 'execute-sql' } }, true],
+        ])('posthog-connection-call with %s → destructive: %s', (_case, input, expected) =>
+            expect(isPostHogDestructiveSubTool('posthog-connection-call', input)).toBe(expected)
         )
     })
 
@@ -82,6 +110,9 @@ describe('toolPolicy', () => {
             ['exec discovery verb', makeRecord({ input: { command: 'tools' } }), 'auto_allow'],
             ['exec create', makeRecord({ input: { command: 'call insight-create {"name":"Signups"}' } }), 'auto_allow'],
             ['exec update', makeRecord({ input: { command: 'call insight-update {"id":"abc"}' } }), 'prompt'],
+            // A destructive-annotated name without a verb segment must resolve through the
+            // exact-name set, not just the verb regex.
+            ['exec publish', makeRecord({ input: { command: 'call workflows-publish {"id":"w1"}' } }), 'prompt'],
             ['exec delete', makeRecord({ input: { command: 'call feature-flag-delete {"key":"new-nav"}' } }), 'prompt'],
             // A destructive sub-tool hidden behind --confirm/--json (in any order) must still prompt —
             // the inner tool name is resolved after the flags, not as the flag token.
@@ -102,6 +133,27 @@ describe('toolPolicy', () => {
             ],
             // An exec call we can't resolve to a concrete sub-tool fails closed.
             ['exec call with no sub-tool', makeRecord({ input: { command: 'call --json' } }), 'prompt'],
+            // The connected-project wrapper is judged by the tool it forwards, end to end through
+            // the exec command parser — a read there is as free as a read here.
+            [
+                'connection call running a read',
+                makeRecord({
+                    input: {
+                        command:
+                            'call posthog-connection-call {"connection_id":"1","tool":"execute-sql","arguments":{"query":"select 1"}}',
+                    },
+                }),
+                'auto_allow',
+            ],
+            [
+                'connection call running a delete',
+                makeRecord({
+                    input: {
+                        command: 'call posthog-connection-call {"connection_id":"1","tool":"feature-flag-delete"}',
+                    },
+                }),
+                'prompt',
+            ],
             // A permission frame carrying no canonical tool name isn't a positively-identified built-in.
             [
                 'unidentified frame',
@@ -128,6 +180,98 @@ describe('toolPolicy', () => {
             ],
         ])('%s → %s', (_case, record, expected) => {
             expect(defaultPermissionDecision(record)).toEqual(expected)
+        })
+    })
+
+    describe('isPersistPromptTool', () => {
+        // Proves the set resolves through `resolveToolCall` and matches a real generated create-family
+        // sub-tool name; a regression here (e.g. a typo'd set entry, or `resolveToolCall` changing its
+        // resolution shape) would silently drop the foreground prompt gate for that product family.
+        it.each<[string, PermissionRequestRecord, boolean]>([
+            [
+                'dashboard-create',
+                makeRecord({ input: { command: 'call dashboard-create {"name":"My dashboard"}' } }),
+                true,
+            ],
+            [
+                'dashboard-create-text-tile',
+                makeRecord({ input: { command: 'call dashboard-create-text-tile {"dashboard_id":1}' } }),
+                true,
+            ],
+            ['dashboard-tile-copy', makeRecord({ input: { command: 'call dashboard-tile-copy {"id":1}' } }), true],
+            [
+                'dashboard-widgets-batch-add',
+                makeRecord({ input: { command: 'call dashboard-widgets-batch-add {"dashboard_id":1}' } }),
+                true,
+            ],
+            [
+                'feature-flags-copy-flags-create',
+                makeRecord({ input: { command: 'call feature-flags-copy-flags-create {"key":"x"}' } }),
+                true,
+            ],
+            [
+                'scheduled-changes-create',
+                makeRecord({ input: { command: 'call scheduled-changes-create {"model_name":"FeatureFlag"}' } }),
+                true,
+            ],
+            ['survey-launch', makeRecord({ input: { command: 'call survey-launch {"id":"s1"}' } }), true],
+            ['survey-stop', makeRecord({ input: { command: 'call survey-stop {"id":"s1"}' } }), true],
+            ['workflows-create', makeRecord({ input: { command: 'call workflows-create {"name":"Flow"}' } }), true],
+            // A read-only query wrapper must never be swept in by an over-broad set/match.
+            ['query-trends (read-only)', makeRecord({ input: { command: 'call query-trends {}' } }), false],
+            // An exec call that can't resolve to a concrete sub-tool has no `innerToolName` to match on.
+            ['unresolvable exec call', makeRecord({ input: { command: 'call --json' } }), false],
+            // posthog-connection-call persists whatever the tool it forwards persists — in *another*
+            // account. Matching the wrapper name alone would auto-approve a cross-account launch in
+            // exactly the watched run this gate exists for.
+            [
+                'posthog-connection-call running survey-launch',
+                makeRecord({
+                    input: {
+                        command:
+                            'call posthog-connection-call {"connection_id":"1","tool":"survey-launch","arguments":{}}',
+                    },
+                }),
+                true,
+            ],
+            [
+                'posthog-connection-call running dashboard-create',
+                makeRecord({
+                    input: {
+                        command:
+                            'call posthog-connection-call {"connection_id":"1","tool":"dashboard-create","arguments":{"name":"x"}}',
+                    },
+                }),
+                true,
+            ],
+            [
+                'posthog-connection-call running a read-only tool',
+                makeRecord({
+                    input: {
+                        command:
+                            'call posthog-connection-call {"connection_id":"1","tool":"execute-sql","arguments":{}}',
+                    },
+                }),
+                false,
+            ],
+            // The three ways the forwarded name can be unreadable all fail closed to a prompt.
+            [
+                'posthog-connection-call with no tool argument',
+                makeRecord({ input: { command: 'call posthog-connection-call {"connection_id":"1"}' } }),
+                true,
+            ],
+            [
+                'posthog-connection-call with a non-string tool argument',
+                makeRecord({ input: { command: 'call posthog-connection-call {"connection_id":"1","tool":42}' } }),
+                true,
+            ],
+            [
+                'posthog-connection-call with unparseable arguments',
+                makeRecord({ input: { command: 'call posthog-connection-call {not json' } }),
+                true,
+            ],
+        ])('%s → %s', (_case, record, expected) => {
+            expect(isPersistPromptTool(record)).toEqual(expected)
         })
     })
 

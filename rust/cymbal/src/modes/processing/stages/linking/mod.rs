@@ -15,7 +15,7 @@ use crate::{
         linking::{
             issue::IssueLinker, rule_suppression::RuleSuppression, suppression::IssueSuppression,
         },
-        pipeline::ExceptionEventPipelineItem,
+        pipeline::{FingerprintedPipelineItem, LinkedPipelineItem},
     },
     types::{
         batch::Batch,
@@ -29,29 +29,36 @@ pub struct LinkingStage {
     pub app_context: Arc<AppContext>,
     // Cross-batch `(team_id, fingerprint) -> issue_id` mapping cache. Owned by AppContext.
     pub issue_cache: Cache<(TeamId, String), Uuid>,
-    // Per-batch fingerprint -> Issue dedup. Built fresh per batch (LinkingStage is
-    // constructed per batch via `From`), so events sharing a fingerprint within a single
-    // batch resolve the Issue exactly once. moka's `try_get_with` also deduplicates
+    // Per-batch fingerprints -> resolved issue dedup. Built fresh per batch (LinkingStage is
+    // constructed per batch via `From`), so events sharing candidate fingerprints within a
+    // single batch resolve the Issue exactly once. moka's `try_get_with` also deduplicates
     // concurrent misses for the same key inside the same batch.
     pub batch_issue_cache: Cache<(TeamId, String), Issue>,
 }
 
 impl Stage for LinkingStage {
-    type Input = ExceptionEventPipelineItem;
-    type Output = ExceptionEventPipelineItem;
+    type Input = FingerprintedPipelineItem;
+    type Output = LinkedPipelineItem;
 
     fn name(&self) -> &'static str {
         LINKING_STAGE
     }
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
-        batch
-            .apply_operator(RuleSuppression, self.clone())
-            .await?
-            .apply_operator(IssueLinker, self.clone())
-            .await?
-            .apply_operator(IssueSuppression, self.clone())
-            .await
+        let fingerprinted = batch.apply_operator(RuleSuppression, self.clone()).await?;
+        let linker = IssueLinker;
+        let timing = common_metrics::timing_guard(linker.name(), &[]);
+        let linked = fingerprinted
+            .apply_func(
+                move |item, context| {
+                    let linker = linker.clone();
+                    async move { linker.execute(item, context).await }
+                },
+                self.clone(),
+            )
+            .await?;
+        timing.label("outcome", "success");
+        linked.apply_operator(IssueSuppression, self.clone()).await
     }
 }
 

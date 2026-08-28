@@ -16,6 +16,9 @@ datamodel-codegen \
 # Re-apply discriminator keywords to array items dropped by datamodel-code-generator
 python3 bin/patch-schema-array-discriminators.py
 
+# Route the AnyPropertyFilter union on `type` via a legacy-tolerant callable discriminator
+python3 bin/patch-schema-property-filter-discriminator.py
+
 # Move enum classes to posthog/schema_enums.py (importable without the pydantic model cost)
 python3 bin/split-schema-enums.py
 

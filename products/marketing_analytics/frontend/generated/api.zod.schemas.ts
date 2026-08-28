@@ -9,13 +9,25 @@
  */
 import { z as zod } from 'zod'
 
+export const ConversionGoalKindEnumApi = zod
+    .enum(['EventsNode', 'ActionsNode', 'DataWarehouseNode'])
+    .describe(
+        '\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
+    )
+
+export type ConversionGoalKindEnumApi = zod.input<typeof ConversionGoalKindEnumApi>
+export type ConversionGoalKindEnumApiOutput = zod.output<typeof ConversionGoalKindEnumApi>
+
 export const ConversionGoalSummaryApi = zod.object({
-    id: zod.string().describe('Unique id of the goal (event name, action id, or DW goal id)'),
+    conversion_goal_id: zod.string().describe('Id of the goal. Pass this to the explain, update and delete endpoints.'),
     name: zod.string().describe('Display name of the conversion goal'),
     kind: zod
-        .string()
+        .enum(['EventsNode', 'ActionsNode', 'DataWarehouseNode'])
         .describe(
-            'Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table)'
+            '\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
+        )
+        .describe(
+            'Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)\n\n\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
         ),
     target_label: zod.string().describe('Human-readable target the goal matches (event\/action name or table)'),
     last_30d_count: zod.number().describe('Count of matching conversion events in the last 30 days'),
@@ -58,12 +70,17 @@ export const ConversionGoalsListResponseApi = zod.object({
     goals: zod
         .array(
             zod.object({
-                id: zod.string().describe('Unique id of the goal (event name, action id, or DW goal id)'),
+                conversion_goal_id: zod
+                    .string()
+                    .describe('Id of the goal. Pass this to the explain, update and delete endpoints.'),
                 name: zod.string().describe('Display name of the conversion goal'),
                 kind: zod
-                    .string()
+                    .enum(['EventsNode', 'ActionsNode', 'DataWarehouseNode'])
                     .describe(
-                        'Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table)'
+                        '\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
+                    )
+                    .describe(
+                        'Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)\n\n\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
                     ),
                 target_label: zod
                     .string()
@@ -542,12 +559,17 @@ export const MarketingDiagnosticResponseApi = zod.object({
                 goals: zod
                     .array(
                         zod.object({
-                            id: zod.string().describe('Unique id of the goal (event name, action id, or DW goal id)'),
+                            conversion_goal_id: zod
+                                .string()
+                                .describe('Id of the goal. Pass this to the explain, update and delete endpoints.'),
                             name: zod.string().describe('Display name of the conversion goal'),
                             kind: zod
-                                .string()
+                                .enum(['EventsNode', 'ActionsNode', 'DataWarehouseNode'])
                                 .describe(
-                                    'Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table)'
+                                    '\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
+                                )
+                                .describe(
+                                    'Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)\n\n\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
                                 ),
                             target_label: zod
                                 .string()
@@ -650,9 +672,16 @@ export type GoalEventSampleApi = zod.input<typeof GoalEventSampleApi>
 export type GoalEventSampleApiOutput = zod.output<typeof GoalEventSampleApi>
 
 export const GoalExplanationApi = zod.object({
-    goal_id: zod.string().describe('Id of the explained conversion goal'),
+    conversion_goal_id: zod.string().describe('conversion_goal_id of the explained goal'),
     goal_name: zod.string().describe('Display name of the conversion goal'),
-    kind: zod.string().describe('EventsNode\/ActionsNode\/DataWarehouseNode'),
+    kind: zod
+        .enum(['EventsNode', 'ActionsNode', 'DataWarehouseNode'])
+        .describe(
+            '\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
+        )
+        .describe(
+            'Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)\n\n\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
+        ),
     period: zod
         .object({
             date_from: zod.string().nullable().describe('Start of the analyzed period (ISO)'),
@@ -744,6 +773,9 @@ export const SourceMappingSuggestionApi = zod.object({
     suggested_target: zod.string().describe('Integration key it maps to'),
     suggested_target_display_name: zod.string().describe('Human-readable name of the suggested integration'),
     reason: zod.string().describe('Why this mapping is suggested'),
+    event_count_30d: zod
+        .number()
+        .describe('Events carrying this raw utm_source in the window. Suggestions are ordered by it.'),
 })
 
 export type SourceMappingSuggestionApi = zod.input<typeof SourceMappingSuggestionApi>
@@ -757,6 +789,9 @@ export const CampaignMappingSuggestionApi = zod.object({
     confidence: zod.number().describe('Confidence score for the clustering (0-1)'),
     method: zod.string().describe('Mapping method'),
     reason: zod.string().describe('Why these campaign values were clustered together'),
+    event_count_30d: zod
+        .number()
+        .describe('Events across every raw value folded into this suggestion. Suggestions are ordered by it.'),
 })
 
 export type CampaignMappingSuggestionApi = zod.input<typeof CampaignMappingSuggestionApi>
@@ -805,6 +840,9 @@ export const UtmMappingSuggestionsResponseApi = zod.object({
                     .string()
                     .describe('Human-readable name of the suggested integration'),
                 reason: zod.string().describe('Why this mapping is suggested'),
+                event_count_30d: zod
+                    .number()
+                    .describe('Events carrying this raw utm_source in the window. Suggestions are ordered by it.'),
             })
         )
         .describe('Suggested custom_source_mappings entries'),
@@ -820,9 +858,16 @@ export const UtmMappingSuggestionsResponseApi = zod.object({
                 confidence: zod.number().describe('Confidence score for the clustering (0-1)'),
                 method: zod.string().describe('Mapping method'),
                 reason: zod.string().describe('Why these campaign values were clustered together'),
+                event_count_30d: zod
+                    .number()
+                    .describe(
+                        'Events across every raw value folded into this suggestion. Suggestions are ordered by it.'
+                    ),
             })
         )
-        .describe('Suggested campaign-name clusters (empty in v1)'),
+        .describe(
+            'campaign_name_mappings entries for orphaned utm_campaign values that fuzzy-match a real campaign. Near-ties are withheld, so an absent campaign may still be mappable by hand.'
+        ),
     raw_unmatched_samples: zod
         .array(
             zod.object({
@@ -865,12 +910,38 @@ export const UtmMappingSuggestionsResponseApi = zod.object({
 export type UtmMappingSuggestionsResponseApi = zod.input<typeof UtmMappingSuggestionsResponseApi>
 export type UtmMappingSuggestionsResponseApiOutput = zod.output<typeof UtmMappingSuggestionsResponseApi>
 
-export const UtmIssueSeverityEnumApi = zod
+export const DiagnosticSeverityEnumApi = zod
     .enum(['error', 'warning'])
     .describe('\* `error` - error\n\* `warning` - warning')
 
-export type UtmIssueSeverityEnumApi = zod.input<typeof UtmIssueSeverityEnumApi>
-export type UtmIssueSeverityEnumApiOutput = zod.output<typeof UtmIssueSeverityEnumApi>
+export type DiagnosticSeverityEnumApi = zod.input<typeof DiagnosticSeverityEnumApi>
+export type DiagnosticSeverityEnumApiOutput = zod.output<typeof DiagnosticSeverityEnumApi>
+
+export const UtmIssueKindEnumApi = zod
+    .enum(['not_linked', 'name_collision', 'no_tagged_events', 'unknown_source', 'missing_source'])
+    .describe(
+        '\* `not_linked` - not_linked\n\* `name_collision` - name_collision\n\* `no_tagged_events` - no_tagged_events\n\* `unknown_source` - unknown_source\n\* `missing_source` - missing_source'
+    )
+
+export type UtmIssueKindEnumApi = zod.input<typeof UtmIssueKindEnumApi>
+export type UtmIssueKindEnumApiOutput = zod.output<typeof UtmIssueKindEnumApi>
+
+export const UtmAlternativeSourceApi = zod.object({
+    utm_source: zod.string().describe("A utm_source value found on this campaign's pageviews"),
+    event_count: zod.number().describe('Number of pageview events with this utm_source'),
+})
+
+export type UtmAlternativeSourceApi = zod.input<typeof UtmAlternativeSourceApi>
+export type UtmAlternativeSourceApiOutput = zod.output<typeof UtmAlternativeSourceApi>
+
+export const SuggestedActionsEnumApi = zod
+    .enum(['fix_platform_urls', 'add_source_mapping', 'switch_to_id_match', 'add_campaign_name_mapping'])
+    .describe(
+        '\* `fix_platform_urls` - fix_platform_urls\n\* `add_source_mapping` - add_source_mapping\n\* `switch_to_id_match` - switch_to_id_match\n\* `add_campaign_name_mapping` - add_campaign_name_mapping'
+    )
+
+export type SuggestedActionsEnumApi = zod.input<typeof SuggestedActionsEnumApi>
+export type SuggestedActionsEnumApiOutput = zod.output<typeof SuggestedActionsEnumApi>
 
 export const UtmIssueApi = zod.object({
     field: zod.string().describe('The UTM field with the issue (e.g. utm_campaign, utm_source)'),
@@ -878,7 +949,45 @@ export const UtmIssueApi = zod.object({
         .enum(['error', 'warning'])
         .describe('\* `error` - error\n\* `warning` - warning')
         .describe('Issue severity level\n\n\* `error` - error\n\* `warning` - warning'),
-    message: zod.string().describe('Human-readable description of the issue'),
+    kind: zod
+        .enum(['not_linked', 'name_collision', 'no_tagged_events', 'unknown_source', 'missing_source'])
+        .describe(
+            '\* `not_linked` - not_linked\n\* `name_collision` - name_collision\n\* `no_tagged_events` - no_tagged_events\n\* `unknown_source` - unknown_source\n\* `missing_source` - missing_source'
+        )
+        .describe(
+            'Which kind of UTM problem this campaign has\n\n\* `not_linked` - not_linked\n\* `name_collision` - name_collision\n\* `no_tagged_events` - no_tagged_events\n\* `unknown_source` - unknown_source\n\* `missing_source` - missing_source'
+        ),
+    message: zod.string().describe('Human-readable headline; the frontend composes richer text from the fields below'),
+    alternative_sources: zod
+        .array(
+            zod.object({
+                utm_source: zod.string().describe("A utm_source value found on this campaign's pageviews"),
+                event_count: zod.number().describe('Number of pageview events with this utm_source'),
+            })
+        )
+        .describe("utm_source values actually found on this campaign's pageviews, ordered by event count"),
+    shared_with_integrations: zod
+        .array(zod.string())
+        .describe("Other integrations whose campaigns share this campaign's name (name_collision only)"),
+    missing_source_count: zod
+        .number()
+        .describe('Pageviews that matched this campaign but carried no utm_source, on any issue kind'),
+    suggested_actions: zod
+        .array(
+            zod
+                .enum(['fix_platform_urls', 'add_source_mapping', 'switch_to_id_match', 'add_campaign_name_mapping'])
+                .describe(
+                    '\* `fix_platform_urls` - fix_platform_urls\n\* `add_source_mapping` - add_source_mapping\n\* `switch_to_id_match` - switch_to_id_match\n\* `add_campaign_name_mapping` - add_campaign_name_mapping'
+                )
+        )
+        .describe(
+            'Recommended remediations, most-recommended first. fix_platform_urls cures the tagging bug itself; the others are workarounds that leave the bad URLs in place.'
+        ),
+    mapping_candidate: zod
+        .string()
+        .describe(
+            'The orphaned utm_campaign value that looks like a typo of this campaign, when one was found confidently. Set only alongside add_campaign_name_mapping; empty otherwise, including when several candidates tie and picking one could misattribute spend.'
+        ),
 })
 
 export type UtmIssueApi = zod.input<typeof UtmIssueApi>
@@ -901,7 +1010,52 @@ export const CampaignAuditResultApi = zod.object({
                     .enum(['error', 'warning'])
                     .describe('\* `error` - error\n\* `warning` - warning')
                     .describe('Issue severity level\n\n\* `error` - error\n\* `warning` - warning'),
-                message: zod.string().describe('Human-readable description of the issue'),
+                kind: zod
+                    .enum(['not_linked', 'name_collision', 'no_tagged_events', 'unknown_source', 'missing_source'])
+                    .describe(
+                        '\* `not_linked` - not_linked\n\* `name_collision` - name_collision\n\* `no_tagged_events` - no_tagged_events\n\* `unknown_source` - unknown_source\n\* `missing_source` - missing_source'
+                    )
+                    .describe(
+                        'Which kind of UTM problem this campaign has\n\n\* `not_linked` - not_linked\n\* `name_collision` - name_collision\n\* `no_tagged_events` - no_tagged_events\n\* `unknown_source` - unknown_source\n\* `missing_source` - missing_source'
+                    ),
+                message: zod
+                    .string()
+                    .describe('Human-readable headline; the frontend composes richer text from the fields below'),
+                alternative_sources: zod
+                    .array(
+                        zod.object({
+                            utm_source: zod.string().describe("A utm_source value found on this campaign's pageviews"),
+                            event_count: zod.number().describe('Number of pageview events with this utm_source'),
+                        })
+                    )
+                    .describe("utm_source values actually found on this campaign's pageviews, ordered by event count"),
+                shared_with_integrations: zod
+                    .array(zod.string())
+                    .describe("Other integrations whose campaigns share this campaign's name (name_collision only)"),
+                missing_source_count: zod
+                    .number()
+                    .describe('Pageviews that matched this campaign but carried no utm_source, on any issue kind'),
+                suggested_actions: zod
+                    .array(
+                        zod
+                            .enum([
+                                'fix_platform_urls',
+                                'add_source_mapping',
+                                'switch_to_id_match',
+                                'add_campaign_name_mapping',
+                            ])
+                            .describe(
+                                '\* `fix_platform_urls` - fix_platform_urls\n\* `add_source_mapping` - add_source_mapping\n\* `switch_to_id_match` - switch_to_id_match\n\* `add_campaign_name_mapping` - add_campaign_name_mapping'
+                            )
+                    )
+                    .describe(
+                        'Recommended remediations, most-recommended first. fix_platform_urls cures the tagging bug itself; the others are workarounds that leave the bad URLs in place.'
+                    ),
+                mapping_candidate: zod
+                    .string()
+                    .describe(
+                        'The orphaned utm_campaign value that looks like a typo of this campaign, when one was found confidently. Set only alongside add_campaign_name_mapping; empty otherwise, including when several candidates tie and picking one could misattribute spend.'
+                    ),
             })
         )
         .describe('List of detected UTM configuration issues'),
@@ -965,7 +1119,70 @@ export const UtmAuditResponseApi = zod.object({
                                 .enum(['error', 'warning'])
                                 .describe('\* `error` - error\n\* `warning` - warning')
                                 .describe('Issue severity level\n\n\* `error` - error\n\* `warning` - warning'),
-                            message: zod.string().describe('Human-readable description of the issue'),
+                            kind: zod
+                                .enum([
+                                    'not_linked',
+                                    'name_collision',
+                                    'no_tagged_events',
+                                    'unknown_source',
+                                    'missing_source',
+                                ])
+                                .describe(
+                                    '\* `not_linked` - not_linked\n\* `name_collision` - name_collision\n\* `no_tagged_events` - no_tagged_events\n\* `unknown_source` - unknown_source\n\* `missing_source` - missing_source'
+                                )
+                                .describe(
+                                    'Which kind of UTM problem this campaign has\n\n\* `not_linked` - not_linked\n\* `name_collision` - name_collision\n\* `no_tagged_events` - no_tagged_events\n\* `unknown_source` - unknown_source\n\* `missing_source` - missing_source'
+                                ),
+                            message: zod
+                                .string()
+                                .describe(
+                                    'Human-readable headline; the frontend composes richer text from the fields below'
+                                ),
+                            alternative_sources: zod
+                                .array(
+                                    zod.object({
+                                        utm_source: zod
+                                            .string()
+                                            .describe("A utm_source value found on this campaign's pageviews"),
+                                        event_count: zod
+                                            .number()
+                                            .describe('Number of pageview events with this utm_source'),
+                                    })
+                                )
+                                .describe(
+                                    "utm_source values actually found on this campaign's pageviews, ordered by event count"
+                                ),
+                            shared_with_integrations: zod
+                                .array(zod.string())
+                                .describe(
+                                    "Other integrations whose campaigns share this campaign's name (name_collision only)"
+                                ),
+                            missing_source_count: zod
+                                .number()
+                                .describe(
+                                    'Pageviews that matched this campaign but carried no utm_source, on any issue kind'
+                                ),
+                            suggested_actions: zod
+                                .array(
+                                    zod
+                                        .enum([
+                                            'fix_platform_urls',
+                                            'add_source_mapping',
+                                            'switch_to_id_match',
+                                            'add_campaign_name_mapping',
+                                        ])
+                                        .describe(
+                                            '\* `fix_platform_urls` - fix_platform_urls\n\* `add_source_mapping` - add_source_mapping\n\* `switch_to_id_match` - switch_to_id_match\n\* `add_campaign_name_mapping` - add_campaign_name_mapping'
+                                        )
+                                )
+                                .describe(
+                                    'Recommended remediations, most-recommended first. fix_platform_urls cures the tagging bug itself; the others are workarounds that leave the bad URLs in place.'
+                                ),
+                            mapping_candidate: zod
+                                .string()
+                                .describe(
+                                    'The orphaned utm_campaign value that looks like a typo of this campaign, when one was found confidently. Set only alongside add_campaign_name_mapping; empty otherwise, including when several candidates tie and picking one could misattribute spend.'
+                                ),
                         })
                     )
                     .describe('List of detected UTM configuration issues'),

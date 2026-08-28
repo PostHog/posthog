@@ -13,6 +13,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { QueryTile } from 'scenes/web-analytics/common'
+import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { NonIntegratedConversionsTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsTable'
 import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -23,11 +24,14 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
+import { LegacyOAuthReconnectBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/LegacyOAuthReconnectBanner'
 import { MarketingAnalyticsFilters } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MarketingAnalyticsSourceStatusBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 import {
     MarketingAnalyticsTab,
+    SETUP_ABSORBED_TABS,
     marketingAnalyticsLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
@@ -35,8 +39,10 @@ import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
+import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
 import { marketingOnboardingLogic } from './Onboarding/marketingOnboardingLogic'
 import { Onboarding } from './Onboarding/Onboarding'
+import { SetupTab } from './Setup/SetupTab'
 
 export const scene: SceneExport = {
     component: MarketingAnalyticsScene,
@@ -75,6 +81,34 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
         </div>
     )
 }
+
+// Loading placeholder that mirrors the real dashboard layout — an overview metric row, a chart card,
+// and a table card — instead of a single thin bar, so the page doesn't visibly reflow when data lands.
+const MarketingAnalyticsDashboardSkeleton = (): JSX.Element => (
+    <div className="mt-4 flex flex-col gap-y-10">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="flex flex-col gap-2 p-4 border rounded">
+                    <LemonSkeleton className="h-3 w-20" />
+                    <LemonSkeleton className="h-8 w-24" />
+                </div>
+            ))}
+        </div>
+        <div className="flex flex-col gap-3">
+            <LemonSkeleton className="h-6 w-40" />
+            <div className="border rounded p-4">
+                <LemonSkeleton className="h-64 w-full" />
+            </div>
+        </div>
+        <div className="flex flex-col gap-3">
+            <LemonSkeleton className="h-6 w-40" />
+            <div className="border rounded p-4 flex flex-col gap-3">
+                <LemonSkeleton className="h-8 w-full" />
+                <LemonSkeleton.Row repeat={5} fade className="h-10" />
+            </div>
+        </div>
+    </div>
+)
 
 const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -143,7 +177,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         return (
             <>
                 {feedbackBanner}
-                <LemonSkeleton />
+                <MarketingAnalyticsDashboardSkeleton />
             </>
         )
     }
@@ -161,6 +195,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     return (
         <>
             {feedbackBanner}
+            <LegacyOAuthReconnectBanner />
             <MarketingAnalyticsSourceStatusBanner />
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-12">
                 {marketingTiles?.map((tile, i) => (
@@ -175,49 +210,96 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
 const MarketingAnalyticsContent = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTab } = useValues(marketingAnalyticsLogic)
-    const { setActiveTab } = useActions(marketingAnalyticsLogic)
+    const { setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
 
-    const showIntegrationHealth = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
+    // The redesigned dashboard replaces the current one under the same "Dashboard" tab when its flag is
+    // on, so the eventual cutover is just flipping the flag — no tab rename, no extra tab key to strand.
+    const dashboard = featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ? (
+        <NewMarketingAnalyticsDashboard />
+    ) : (
+        <>
+            <MarketingAnalyticsFilters tabs={<></>} />
+            <MarketingAnalyticsDashboard />
+        </>
+    )
+
+    // Setup absorbs Integration health: while its flag is on, the audit lives inside
+    // Setup as a section rather than as a second top-level tab, so there's one door to
+    // "something is wrong with my setup" instead of two.
+    const setupEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]
+
+    // Setup absorbs the tabs it replaces, so a link or bookmark carrying one still lands
+    // somewhere sensible. Here rather than in the logic because only the scene knows
+    // whether Setup is rendering: with its flag off those tabs are still real and
+    // resolve on their own. Above the early return below, since hooks have to run on
+    // every render.
+    const absorbed = setupEnabled ? SETUP_ABSORBED_TABS[activeTab] : undefined
+    useEffect(() => {
+        if (absorbed) {
+            setActiveTab(MarketingAnalyticsTab.SETUP)
+            setSetupSection(absorbed)
+        }
+    }, [absorbed, setActiveTab, setSetupSection])
+
+    const tabs = [
+        { key: MarketingAnalyticsTab.DASHBOARD, label: 'Dashboard', content: dashboard },
+        // Untouched by Setup: the explorer compares attribution models against each
+        // other, which is analysis. Setup's Attribution section is the two config
+        // fields (mode and lookback), which is a different thing with the same name.
+        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION]
+            ? [
+                  {
+                      key: MarketingAnalyticsTab.ATTRIBUTION,
+                      label: 'Attribution explorer',
+                      content: <AttributionTab />,
+                  },
+              ]
+            : []),
+        ...(setupEnabled
+            ? [{ key: MarketingAnalyticsTab.SETUP, label: 'Setup', content: <SetupTab /> }]
+            : featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
+              ? [
+                    {
+                        key: MarketingAnalyticsTab.INTEGRATION_HEALTH,
+                        label: 'Integration health',
+                        content: <UtmAuditTab />,
+                    },
+                ]
+              : []),
+    ]
+
+    // A stored tab can still name one no flag is rendering — a key persisted from before
+    // a flag was turned off. Normalising the state rather than just what LemonTabs
+    // highlights: `activeTab` also feeds the scene description and `?tab=`, so leaving it
+    // invalid describes a tab you aren't on and writes it back into the URL on the next
+    // filter change. Above the early return, since hooks run on every render.
+    const tabIsRendered = tabs.some((tab) => tab.key === activeTab)
+    useEffect(() => {
+        if (!tabIsRendered && !absorbed) {
+            setActiveTab(MarketingAnalyticsTab.DASHBOARD)
+        }
+    }, [tabIsRendered, absorbed, setActiveTab])
+    const selectedTab = tabIsRendered ? activeTab : MarketingAnalyticsTab.DASHBOARD
+
+    // Only surface the tab bar once a secondary tab is enabled; otherwise show the dashboard directly.
+    if (tabs.length === 1) {
+        return dashboard
+    }
 
     return (
-        <>
-            {showIntegrationHealth ? (
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)}
-                    tabs={[
-                        {
-                            key: MarketingAnalyticsTab.DASHBOARD,
-                            label: 'Dashboard',
-                            content: (
-                                <>
-                                    <MarketingAnalyticsFilters tabs={<></>} />
-                                    <MarketingAnalyticsDashboard />
-                                </>
-                            ),
-                        },
-                        {
-                            key: MarketingAnalyticsTab.INTEGRATION_HEALTH,
-                            label: 'Integration health',
-                            content: <UtmAuditTab />,
-                        },
-                    ]}
-                />
-            ) : (
-                <>
-                    <MarketingAnalyticsFilters tabs={<></>} />
-                    <MarketingAnalyticsDashboard />
-                </>
-            )}
-        </>
+        <LemonTabs activeKey={selectedTab} onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)} tabs={tabs} />
     )
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
     [MarketingAnalyticsTab.DASHBOARD]:
         'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
+    [MarketingAnalyticsTab.ATTRIBUTION]:
+        'Compare how each attribution model credits your conversions, to see which marketing you might be over or under valuing.',
     [MarketingAnalyticsTab.INTEGRATION_HEALTH]:
         'Check that your ad platform campaigns are properly linked to UTM tracking in PostHog.',
+    [MarketingAnalyticsTab.SETUP]:
+        'Everything Marketing analytics needs to work: connected ad platforms, conversion goals, UTM mapping and attribution.',
 }
 
 const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
@@ -245,6 +327,33 @@ const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNo
     useMaxTool({ identifier: 'marketing_audit_utm', context: maxContext, active: aiEnabled })
     useMaxTool({ identifier: 'marketing_suggest_conversion_goals', context: maxContext, active: aiEnabled })
     useMaxTool({ identifier: 'marketing_suggest_utm_mappings', context: maxContext, active: aiEnabled })
+
+    useAttachedContext(
+        [
+            {
+                type: 'marketing_analytics_filters',
+                value: JSON.stringify({ integrationFilter, compareFilter }),
+                label: 'Current filters',
+            },
+            {
+                type: 'marketing_analytics_date_range',
+                value: JSON.stringify({ date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }),
+                label: 'Date range',
+            },
+            {
+                type: 'marketing_analytics_config_counts',
+                value: JSON.stringify({
+                    custom_source_mappings_count: Object.keys(marketingAnalyticsConfig?.custom_source_mappings || {})
+                        .length,
+                    campaign_name_mappings_count: Object.keys(marketingAnalyticsConfig?.campaign_name_mappings || {})
+                        .length,
+                    existing_goal_count: (conversion_goals || []).length,
+                }),
+                label: 'Marketing config counts',
+            },
+        ],
+        { active: aiEnabled }
+    )
 
     return (
         <MaxTool

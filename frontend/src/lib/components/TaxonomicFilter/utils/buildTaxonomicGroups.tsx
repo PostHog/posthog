@@ -17,19 +17,28 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { withKeywordShortcuts } from 'lib/components/TaxonomicFilter/utils/keywordShortcuts'
+import {
+    MCP_TOOL_CALL_EVENT,
+    MCP_TOOL_CALL_SUGGESTED_PROPERTIES,
+    getMCPExcludedEventProperties,
+    getMCPPropertyFilterOptions,
+    includesMCPAnalyticsEvents,
+} from 'lib/components/TaxonomicFilter/utils/mcpProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { isString } from 'lib/utils/guards'
 import { pluralize } from 'lib/utils/strings'
 import {
+    getAccountCustomPropertyDefinitionIcon,
+    getAccountFieldDefinitionIcon,
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
+    getPersonPropertyDefinitionIcon,
     getPropertyDefinitionIcon,
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
-import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
 import {
     getProductEventFilterOptions,
@@ -64,6 +73,7 @@ import {
 } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
 import { InlineHogQLEditor } from '../InlineHogQLEditor'
@@ -135,6 +145,12 @@ export interface BuildTaxonomicGroupsContext {
     groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[]
     eventNames: string[]
     /**
+     * The picker's requested group types — read by group definitions that adapt to which
+     * tabs are present (e.g. Event properties excludes the known MCP schema only when the
+     * MCP properties tab is there to host it).
+     */
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    /**
      * Distinct promoted properties for events currently in context. Surfaced first in the
      * SuggestedFilters tab so the team's chosen "summary" property is one click away.
      */
@@ -148,6 +164,7 @@ export interface BuildTaxonomicGroupsContext {
         propertyAllowList?: Partial<Record<TaxonomicFilterGroupType, (string | number | null)[]>>
     }
     eventMetadataPropertyDefinitions: PropertyDefinition[]
+    personMetadataPropertyDefinitions: PropertyDefinition[]
     maxContextOptions: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts: boolean
     endpointFilters: Record<string, any> | undefined
@@ -172,6 +189,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         suggestedFiltersLabel,
         propertyFilters,
         eventMetadataPropertyDefinitions,
+        personMetadataPropertyDefinitions,
         maxContextOptions,
         hideBehavioralCohorts,
         endpointFilters,
@@ -181,8 +199,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
     const { id: teamId } = currentTeam
     const { excludedProperties, propertyAllowList } = propertyFilters
     // Opt the cohort picker into the trimmed `?basic=true` payload (drops the
-    // filters/query/groups JSON the picker never reads). Gated by a flag so the
-    // smaller response shape can be rolled out and rolled back independently.
+    // query/groups/last_error_message/experiment_set fields the picker never reads;
+    // `filters` is kept). Gated by a flag so the smaller response shape can be rolled
+    // out and rolled back independently.
     const cohortsEndpointParams = featureFlags[FEATURE_FLAGS.COHORTS_TAXONOMIC_BASIC_LIST] ? { basic: true } : undefined
     const groups: TaxonomicFilterGroup[] = [
         {
@@ -351,6 +370,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 ...(!featureFlags[FEATURE_FLAGS.TRAFFIC_TYPE_VIRTUAL_PROPERTIES]
                     ? TRAFFIC_TYPE_VIRTUAL_PROPERTIES
                     : []),
+                // The known MCP schema lives only in its own group when that tab is
+                // present — excluded via the same mechanism as TRAFFIC_TYPE_VIRTUAL_PROPERTIES
+                // above; the exclusivity intent is documented on getMCPExcludedEventProperties.
+                ...getMCPExcludedEventProperties(eventNames, ctx.taxonomicGroupTypes),
             ],
             propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
             ...withKeywordShortcuts<PropertyDefinition>(
@@ -377,6 +400,26 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getIcon: getPropertyDefinitionIcon,
             getPopoverHeader: () => 'Internal event properties',
         },
+        // Only offered when the picker is scoped to canonical MCP events, so the
+        // known @posthog/mcp schema is separated out without adding a tab anywhere else.
+        ...(includesMCPAnalyticsEvents(eventNames)
+            ? [
+                  {
+                      name: 'MCP properties',
+                      searchPlaceholder: 'MCP properties',
+                      type: TaxonomicFilterGroupType.MCPProperties,
+                      options: getMCPPropertyFilterOptions().map((value) => ({
+                          name: value,
+                          value,
+                          group: TaxonomicFilterGroupType.EventProperties,
+                      })),
+                      getName: (option: SimpleOption) => option.name,
+                      getValue: (option: SimpleOption) => option.name,
+                      getIcon: getPropertyDefinitionIcon,
+                      getPopoverHeader: () => 'MCP property',
+                  },
+              ]
+            : []),
         {
             name: 'Event metadata',
             searchPlaceholder: 'event metadata',
@@ -445,15 +488,19 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                     name: value,
                     value,
                     group: TaxonomicFilterGroupType.EventProperties,
+                    propertyFilterType: PropertyFilterType.Event,
                 })),
                 ...(currentTeam?.person_display_name_properties
                     ? currentTeam.person_display_name_properties.map((property) => ({
                           name: property,
                           value: property,
                           group: TaxonomicFilterGroupType.PersonProperties,
+                          propertyFilterType: PropertyFilterType.Person,
                       }))
                     : []),
             ],
+            getName: (option) => option.name,
+            getValue: (option) => option.value,
             getIcon: getPropertyDefinitionIcon,
             getPopoverHeader: () => 'Exception properties',
         },
@@ -490,6 +537,30 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getPopoverHeader: () => 'Revenue analytics properties',
         },
         {
+            name: 'Account fields',
+            searchPlaceholder: 'account fields',
+            type: TaxonomicFilterGroupType.AccountFields,
+            getIcon: getAccountFieldDefinitionIcon,
+            getName: (option: PropertyDefinition) => option.name,
+            getValue: (option: PropertyDefinition) => option.id,
+            getPopoverHeader: () => 'Account field',
+        },
+        {
+            name: 'Account custom properties',
+            searchPlaceholder: 'account custom properties',
+            type: TaxonomicFilterGroupType.AccountCustomProperties,
+            // Mirrors the legacy taxonomicFilterLogic group: account custom property definitions
+            // are per-team API data, so the options come from the consumer via `optionsFromProp` —
+            // items carry `{ id, name, description, is_canonical, property_type }` with the
+            // definition id as the value.
+            getIcon: getAccountCustomPropertyDefinitionIcon,
+            getName: (option: PropertyDefinition) => option.name,
+            getValue: (option: PropertyDefinition) => option.id,
+            valuesEndpoint: (key) =>
+                `api/projects/${projectId}/custom_property_definitions/values/?key=${encodeURIComponent(key)}`,
+            getPopoverHeader: () => 'Custom property',
+        },
+        {
             name: 'Logs',
             searchPlaceholder: 'logs',
             type: TaxonomicFilterGroupType.Logs,
@@ -498,10 +569,16 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 { key: 'severity_level', name: 'severity_level', propertyFilterType: 'log' },
                 { key: 'trace_id', name: 'trace_id', propertyFilterType: 'log' },
                 { key: 'span_id', name: 'span_id', propertyFilterType: 'log' },
-            ],
+            ].filter((o) => !excludedProperties[TaxonomicFilterGroupType.Logs]?.includes(o.key)),
             localItemsSearch: (items: any[], q: string): any[] => {
                 if (!q) {
                     return items
+                }
+                const matches = items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase()))
+                // Mirrors the legacy Logs group in taxonomicFilterLogic: the free-text message-search
+                // item only makes sense where picking `message` does.
+                if (excludedProperties[TaxonomicFilterGroupType.Logs]?.includes('message')) {
+                    return matches
                 }
                 return [
                     {
@@ -510,7 +587,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                         value: q,
                         propertyFilterType: 'log',
                     },
-                ].concat(items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase())))
+                ].concat(matches)
             },
             getName: (option: { key: string; name: string }) => option.name,
             getValue: (option: { key: string; name: string }) => option.key,
@@ -555,6 +632,22 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getPopoverHeader: () => 'Resource attributes',
         },
         {
+            name: 'Metric attributes',
+            searchPlaceholder: 'attributes',
+            type: TaxonomicFilterGroupType.MetricAttributes,
+            endpoint: combineUrl(`api/environments/${projectId}/metrics/attributes`, {
+                ...endpointFilters,
+            }).url,
+            valuesEndpoint: (key) =>
+                combineUrl(`api/environments/${projectId}/metrics/attribute_values`, {
+                    key: key,
+                    ...endpointFilters,
+                }).url,
+            getName: (option: SimpleOption) => option.name,
+            getValue: (option: SimpleOption) => option.name,
+            getPopoverHeader: () => 'Metric attributes',
+        },
+        {
             name: 'Spans',
             searchPlaceholder: 'spans',
             type: TaxonomicFilterGroupType.Spans,
@@ -574,19 +667,6 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                           ...endpointFilters,
                       }).url
                     : undefined,
-            localItemsSearch: (items: any[], q: string): any[] => {
-                if (!q) {
-                    return items
-                }
-                return [
-                    {
-                        key: 'message',
-                        name: 'Search span message for "' + q + '"',
-                        value: q,
-                        propertyFilterType: 'span',
-                    },
-                ].concat(items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase())))
-            },
             getName: (option: { key: string; name: string }) => option.name,
             getValue: (option: { key: string; name: string }) => option.key,
             getPopoverHeader: () => 'Span attributes',
@@ -656,6 +736,20 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getValue: (personProperty: PersonProperty) => personProperty.name,
             propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
             ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
+            getIcon: getPersonPropertyDefinitionIcon,
+        },
+        {
+            name: 'Person metadata',
+            searchPlaceholder: 'person metadata',
+            type: TaxonomicFilterGroupType.PersonMetadata,
+            options: personMetadataPropertyDefinitions,
+            getIcon: getPropertyDefinitionIcon,
+            getName: (option: PropertyDefinition) => {
+                const coreDefinition = getCoreFilterDefinition(option.id, TaxonomicFilterGroupType.PersonMetadata)
+                return coreDefinition ? coreDefinition.label : option.name
+            },
+            getValue: (option: PropertyDefinition) => option.id,
+            getPopoverHeader: () => 'Person metadata',
         },
         {
             name: 'Cohorts',
@@ -821,15 +915,18 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             endpoint: combineUrl(`api/projects/${projectId}/feature_flags/`).url,
             getName: (featureFlag: FeatureFlagType) => {
                 const name = featureFlag.key || featureFlag.name
-                const isInactive = !featureFlag.active
+                const isInactive = featureFlag.active === false
                 return isInactive ? `${name} (disabled)` : name
             },
             getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
             getPopoverHeader: () => `Feature Flags`,
             getIcon: (featureFlag: FeatureFlagType) => (
-                <IconFlag className={clsx('size-4', !featureFlag.active && 'text-muted-alt opacity-50')} />
+                <IconFlag className={clsx('size-4', featureFlag.active === false && 'text-muted-alt opacity-50')} />
             ),
-            getIsDisabled: (featureFlag: FeatureFlagType) => !featureFlag.active,
+            // Recently-used entries are stored stripped of `active`, so treat only an explicit
+            // `false` as disabled — otherwise recent flags are wrongly disabled and unselectable.
+            // Keep in sync with the Feature Flags group in taxonomicFilterLogic.tsx.
+            getIsDisabled: (featureFlag: FeatureFlagType) => featureFlag.active === false,
             localItemsSearch: (items: TaxonomicDefinitionTypes[], query: string): TaxonomicDefinitionTypes[] => {
                 // Note: This function doesn't have direct access to the current value
                 // The actual filtering logic needs to be implemented in the infinite list logic
@@ -1026,6 +1123,12 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                     ? (['text', 'selector'] as const).map((name) => ({
                           name,
                           group: TaxonomicFilterGroupType.Elements,
+                      }))
+                    : []),
+                ...(eventNames.includes(MCP_TOOL_CALL_EVENT)
+                    ? MCP_TOOL_CALL_SUGGESTED_PROPERTIES.map((name) => ({
+                          name,
+                          group: TaxonomicFilterGroupType.EventProperties,
                       }))
                     : []),
             ],

@@ -9,19 +9,23 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PandaDocSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pandadoc import (
+    PandaDocSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.pandadoc import (
+    API_VERSION_V1,
+    API_VERSION_V2,
     PandaDocResumeConfig,
     pandadoc_source,
     validate_credentials as validate_pandadoc_credentials,
@@ -35,6 +39,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PandaDocSource(ResumableSource[PandaDocSourceConfig, PandaDocResumeConfig]):
+    # v2 is declared so new sources are stamped with the vendor's current API generation, but the
+    # endpoints this source reads are v1-only (see pandadoc.py), so both pins resolve to the same wire.
+    supported_versions = (API_VERSION_V1, API_VERSION_V2)
+    default_version = API_VERSION_V2
+    api_docs_url = "https://developers.pandadoc.com/reference/version"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -88,25 +98,16 @@ You can find your API key in the [PandaDoc developer dashboard](https://app.pand
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: PandaDocSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: PandaDocSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_pandadoc_credentials(config.api_key):
             return True, None
@@ -125,7 +126,8 @@ You can find your API key in the [PandaDoc developer dashboard](https://app.pand
         return pandadoc_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

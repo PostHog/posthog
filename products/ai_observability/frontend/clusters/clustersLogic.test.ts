@@ -341,8 +341,8 @@ describe('clustersLogic', () => {
             })
         })
 
-        describe('traceToClusterTitle', () => {
-            it('maps trace IDs to cluster titles', async () => {
+        describe('scatterPlotSeries', () => {
+            it('creates item and centroid series for regular clusters', async () => {
                 const mockRun: ClusteringRun = {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
@@ -355,60 +355,16 @@ describe('clustersLogic', () => {
 
                 logic.actions.loadClusteringRunSuccess(mockRun)
 
-                const mapping = logic.values.traceToClusterTitle
-                expect(mapping['trace-1']).toBe('Cluster A')
-                expect(mapping['trace-2']).toBe('Cluster A')
-                expect(mapping['trace-3']).toBe('Cluster B')
+                const series = logic.values.scatterPlotSeries
+                // 2 item series + 2 centroid series
+                expect(series.length).toBe(4)
+
+                const itemSeries = series.filter((d) => !d.label.includes('(centroid)'))
+                expect(itemSeries.length).toBe(2)
+                expect(itemSeries[0].shape).toBe('circle')
             })
 
-            it('uses default title when cluster title is empty', async () => {
-                const clusterWithoutTitle: Cluster = {
-                    ...mockCluster1,
-                    title: '',
-                }
-
-                const mockRun: ClusteringRun = {
-                    runId: 'test-run',
-                    windowStart: '2025-01-01T00:00:00Z',
-                    windowEnd: '2025-01-08T00:00:00Z',
-                    totalItemsAnalyzed: 10,
-                    clusters: [clusterWithoutTitle],
-                    timestamp: '2025-01-08T00:00:00Z',
-                    clusteringParams: undefined,
-                }
-
-                logic.actions.loadClusteringRunSuccess(mockRun)
-
-                const mapping = logic.values.traceToClusterTitle
-                expect(mapping['trace-1']).toBe('Cluster 0')
-            })
-        })
-
-        describe('scatterPlotDatasets', () => {
-            it('creates datasets for regular clusters', async () => {
-                const mockRun: ClusteringRun = {
-                    runId: 'test-run',
-                    windowStart: '2025-01-01T00:00:00Z',
-                    windowEnd: '2025-01-08T00:00:00Z',
-                    totalItemsAnalyzed: 15,
-                    clusters: [mockCluster1, mockCluster2],
-                    timestamp: '2025-01-08T00:00:00Z',
-                    clusteringParams: undefined,
-                }
-
-                logic.actions.loadClusteringRunSuccess(mockRun)
-
-                const datasets = logic.values.scatterPlotDatasets
-                // 2 trace datasets + 2 centroid datasets
-                expect(datasets.length).toBe(4)
-
-                // Verify trace datasets have correct structure
-                const traceDatasets = datasets.filter((d) => !d.label.includes('(centroid)'))
-                expect(traceDatasets.length).toBe(2)
-                expect(traceDatasets[0].pointStyle).toBe('circle')
-            })
-
-            it('uses crossRot style for outlier cluster', async () => {
+            it('uses cross shape for outlier cluster', async () => {
                 const mockRun: ClusteringRun = {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
@@ -421,11 +377,10 @@ describe('clustersLogic', () => {
 
                 logic.actions.loadClusteringRunSuccess(mockRun)
 
-                const datasets = logic.values.scatterPlotDatasets
-                const outlierDataset = datasets.find((d) => d.label === 'Outliers')
+                const series = logic.values.scatterPlotSeries
+                const outlierSeries = series.find((d) => d.label === 'Outliers')
 
-                expect(outlierDataset).toBeTruthy()
-                expect(outlierDataset?.pointStyle).toBe('crossRot')
+                expect(outlierSeries).toMatchObject({ shape: 'cross' })
             })
 
             it('does not create centroid marker for outlier cluster', async () => {
@@ -441,15 +396,15 @@ describe('clustersLogic', () => {
 
                 logic.actions.loadClusteringRunSuccess(mockRun)
 
-                const datasets = logic.values.scatterPlotDatasets
-                const centroidDatasets = datasets.filter((d) => d.label.includes('(centroid)'))
+                const series = logic.values.scatterPlotSeries
+                const centroidSeries = series.filter((d) => d.label.includes('(centroid)'))
 
                 // Only one centroid for regular cluster, none for outliers
-                expect(centroidDatasets.length).toBe(1)
-                expect(centroidDatasets[0].label).toBe('Cluster A (centroid)')
+                expect(centroidSeries.length).toBe(1)
+                expect(centroidSeries[0].label).toBe('Cluster A (centroid)')
             })
 
-            it('includes trace metadata in data points', async () => {
+            it('carries trace metadata into item points', async () => {
                 const mockRun: ClusteringRun = {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
@@ -462,14 +417,14 @@ describe('clustersLogic', () => {
 
                 logic.actions.loadClusteringRunSuccess(mockRun)
 
-                const datasets = logic.values.scatterPlotDatasets
-                const traceDataset = datasets.find((d) => d.label === 'Cluster A')
+                const series = logic.values.scatterPlotSeries
+                const itemSeries = series.find((d) => d.label === 'Cluster A')
 
-                expect(traceDataset?.data[0]).toMatchObject({
-                    x: 0.0,
-                    y: 0.0,
-                    traceId: 'trace-1',
-                    timestamp: '2025-01-05T10:00:00Z',
+                expect(itemSeries).toMatchObject({
+                    points: [
+                        { x: 0.0, y: 0.0, meta: { traceId: 'trace-1', timestamp: '2025-01-05T10:00:00Z' } },
+                        { x: 0.1, y: 0.1, meta: { traceId: 'trace-2', timestamp: '2025-01-05T11:00:00Z' } },
+                    ],
                 })
             })
         })
@@ -734,14 +689,20 @@ describe('clustersLogic', () => {
                     // filteredSortedClusters reads off the currentRun; seed a run and hydrate the cache.
                     // We pass the run's level so the level-mismatch guard in `sortedClusters` (which
                     // exists to suppress stale cards during a level switch) treats the seed as live.
+                    // Window bounds must be real strings — the summary/metrics loaders interpolate
+                    // them into hogql templates, which reject undefined.
                     logic.actions.loadClusteringRunSuccess({
                         runId: 'test-run',
+                        // Without window bounds the success listeners interpolate undefined
+                        // into hogql templates and log load failures.
+                        windowStart: '2026-04-13T00:00:00Z',
+                        windowEnd: '2026-04-20T00:00:00Z',
                         clusters: sampleClusters,
                         level: level ?? logic.values.clusteringLevel,
                     } as ClusteringRun)
                 }
 
-                it('returns clusters unchanged when no filter is active', () => {
+                it('returns clusters unchanged when no filter is active', async () => {
                     setEvalLevelAndAttrs()
                     loadClustersAsCurrentRun()
 
@@ -750,9 +711,12 @@ describe('clustersLogic', () => {
                     const byId = Object.fromEntries(result.map((c) => [c.cluster_id, c]))
                     expect(byId[0].size).toBe(3)
                     expect(byId[1].size).toBe(2)
+
+                    // Let the run-triggered background loads settle before unmount.
+                    await expectLogic(logic).toFinishAllListeners()
                 })
 
-                it('drops non-matching traces, rewrites size, and prunes clusters that empty out', () => {
+                it('drops non-matching traces, rewrites size, and prunes clusters that empty out', async () => {
                     setEvalLevelAndAttrs()
                     loadClustersAsCurrentRun()
                     logic.actions.setEvalVerdictsFilter(['pass'])
@@ -763,6 +727,9 @@ describe('clustersLogic', () => {
                     expect(result[0].cluster_id).toBe(0)
                     expect(Object.keys(result[0].traces).sort()).toEqual(['id-pass-a', 'id-pass-b'])
                     expect(result[0].size).toBe(2)
+
+                    // Let the run-triggered background loads settle before unmount.
+                    await expectLogic(logic).toFinishAllListeners()
                 })
 
                 it('narrows clusters by propertyFilteredItemIds (cohort / property filter)', () => {
@@ -793,7 +760,7 @@ describe('clustersLogic', () => {
                     expect(byId[1].size).toBe(1)
                 })
 
-                it('combines property and eval filters (intersection)', () => {
+                it('combines property and eval filters (intersection)', async () => {
                     setEvalLevelAndAttrs()
                     loadClustersAsCurrentRun()
                     // Property filter narrows to {id-pass-a, id-pass-b, id-fail-b}, eval verdict
@@ -807,6 +774,9 @@ describe('clustersLogic', () => {
                     expect(result).toHaveLength(1)
                     expect(result[0].cluster_id).toBe(0)
                     expect(Object.keys(result[0].traces).sort()).toEqual(['id-pass-a', 'id-pass-b'])
+
+                    // Let the run-triggered background loads settle before unmount.
+                    await expectLogic(logic).toFinishAllListeners()
                 })
 
                 it('treats null propertyFilteredItemIds as "no property filter applied"', () => {

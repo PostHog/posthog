@@ -7,15 +7,10 @@ from pydantic import BaseModel
 
 from posthog.schema import (
     BingAdsDefaultSources,
-    BingAdsTableExclusions,
-    BingAdsTableKeywords,
+    DefaultChannelTypes,
     GoogleAdsDefaultSources,
-    GoogleAdsTableExclusions,
-    GoogleAdsTableKeywords,
     InfinityValue,
     LinkedinAdsDefaultSources,
-    LinkedinAdsTableExclusions,
-    LinkedinAdsTableKeywords,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConstants,
@@ -33,23 +28,14 @@ from posthog.schema import (
     MetaAdsConversionOmniActionTypes,
     MetaAdsConversionSpecificActionTypes,
     MetaAdsDefaultSources,
-    MetaAdsTableExclusions,
-    MetaAdsTableKeywords,
     NativeMarketingSource,
+    NodeKind,
     PinterestAdsDefaultSources,
-    PinterestAdsTableExclusions,
-    PinterestAdsTableKeywords,
     RedditAdsDefaultSources,
-    RedditAdsTableExclusions,
-    RedditAdsTableKeywords,
     SnapchatAdsConversionFields,
     SnapchatAdsConversionValueFields,
     SnapchatAdsDefaultSources,
-    SnapchatAdsTableExclusions,
-    SnapchatAdsTableKeywords,
     TikTokAdsDefaultSources,
-    TikTokAdsTableExclusions,
-    TikTokAdsTableKeywords,
     WebAnalyticsItemKind,
 )
 
@@ -59,6 +45,16 @@ from posthog.hogql import ast
 DEFAULT_LIMIT = 100
 PAGINATION_EXTRA = 1  # Request one extra for pagination
 FALLBACK_COST_VALUE = 999999999
+# The three node kinds a conversion goal can be, derived from the schema enum so they can't drift
+# from ConversionGoalFilter1/2/3. Referenced by name from SPECTACULAR_SETTINGS["ENUM_NAME_OVERRIDES"]
+# so the API serializers can expose `kind` as a real enum: the name collides in drf-spectacular, and
+# without a stable override the generated type degrades to a plain string.
+CONVERSION_GOAL_KIND_CHOICES = [
+    NodeKind.EVENTS_NODE.value,
+    NodeKind.ACTIONS_NODE.value,
+    NodeKind.DATA_WAREHOUSE_NODE.value,
+]
+
 UNKNOWN_CAMPAIGN = "Unknown Campaign"
 UNKNOWN_SOURCE = "Unknown Source"
 ORGANIC_CAMPAIGN = "organic"
@@ -70,6 +66,7 @@ DEFAULT_DISTINCT_ID_FIELD = "distinct_id"
 # CTE names
 CAMPAIGN_COST_CTE_NAME = "campaign_costs"
 UNIFIED_CONVERSION_GOALS_CTE_ALIAS = "ucg"
+CHANNEL_SESSIONS_CTE_NAME = "channel_sessions"
 
 # Prefixes for table names
 CONVERSION_GOAL_PREFIX_ABBREVIATION = "cg_"
@@ -81,6 +78,29 @@ TOTAL_CLICKS_FIELD = "total_clicks"
 TOTAL_IMPRESSIONS_FIELD = "total_impressions"
 TOTAL_REPORTED_CONVERSION_FIELD = "total_reported_conversions"
 TOTAL_REPORTED_CONVERSION_VALUE_FIELD = "total_reported_conversion_value"
+TOTAL_SESSIONS_FIELD = "total_sessions"
+
+# Sessions come from the sessions table, not from an ad platform, so this column is only
+# available at levels that can be derived from session data (channel_source).
+SESSIONS_COLUMN_ALIAS = "Sessions"
+
+# The label every side of the query falls back to when channel can't be derived. Sourced from the
+# enum so the sides can't drift apart and split one row in two.
+UNKNOWN_CHANNEL = DefaultChannelTypes.UNKNOWN.value
+
+# Revenue from goals marked counts_as_revenue over the channel's spend. Distinct from
+# REPORTED_ROAS, the platform's own figure. Not a base column: it needs the goals CTE.
+ROAS_COLUMN = MarketingAnalyticsConstants.ROAS.value
+
+# Joined to the "Cost per" prefix so it inherits that family's currency and higher-is-worse
+# formatting. Counts each customer goal's conversions as customers — see the aggregator.
+CAC_COLUMN_SUFFIX = MarketingAnalyticsConstants.CUSTOMER.value
+
+# What `$entry_referring_domain` holds when a session arrived with no referrer at all. Stored as a
+# sentinel rather than an empty string, so anything asking "does this session name a referrer?" has
+# to test for it explicitly. Matches the literal the channel-type classifier keys off in
+# posthog/hogql/database/schema/channel_type.py.
+DIRECT_REFERRING_DOMAIN = "$direct"
 
 # Field used for joining with conversion goals
 MATCH_KEY_FIELD = "match_key"
@@ -360,6 +380,17 @@ DRILL_DOWN_LEVEL_CONFIG: dict[MarketingAnalyticsDrillDownLevel, DrillDownLevelCo
             }
         ),
     },
+    MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE: {
+        # Channel is the grouping alias; Source survives as the second column so a channel's
+        # rows break down into the sources that make it up.
+        "column_alias": "Channel",
+        "excluded_base_columns": frozenset(
+            {
+                MarketingAnalyticsBaseColumns.ID,
+                MarketingAnalyticsBaseColumns.CAMPAIGN,
+            }
+        ),
+    },
     MarketingAnalyticsDrillDownLevel.SOURCE: {
         "column_alias": MarketingAnalyticsBaseColumns.SOURCE,
         "excluded_base_columns": frozenset(
@@ -500,28 +531,6 @@ _DEFAULT_SOURCES_ENUMS = {
     NativeMarketingSource.PINTEREST_ADS: PinterestAdsDefaultSources,
 }
 
-_TABLE_KEYWORDS_ENUMS = {
-    NativeMarketingSource.GOOGLE_ADS: GoogleAdsTableKeywords,
-    NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsTableKeywords,
-    NativeMarketingSource.META_ADS: MetaAdsTableKeywords,
-    NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableKeywords,
-    NativeMarketingSource.REDDIT_ADS: RedditAdsTableKeywords,
-    NativeMarketingSource.BING_ADS: BingAdsTableKeywords,
-    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableKeywords,
-    NativeMarketingSource.PINTEREST_ADS: PinterestAdsTableKeywords,
-}
-
-_TABLE_EXCLUSIONS_ENUMS = {
-    NativeMarketingSource.GOOGLE_ADS: GoogleAdsTableExclusions,
-    NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsTableExclusions,
-    NativeMarketingSource.META_ADS: MetaAdsTableExclusions,
-    NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableExclusions,
-    NativeMarketingSource.REDDIT_ADS: RedditAdsTableExclusions,
-    NativeMarketingSource.BING_ADS: BingAdsTableExclusions,
-    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableExclusions,
-    NativeMarketingSource.PINTEREST_ADS: PinterestAdsTableExclusions,
-}
-
 # Derived constants from generated types
 NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
     source: [
@@ -533,9 +542,8 @@ NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
 
 TABLE_PATTERNS = {
     source: {
-        "campaign_table_keywords": _get_enum_values(_TABLE_KEYWORDS_ENUMS[source]),
-        "campaign_table_exclusions": _get_enum_values(_TABLE_EXCLUSIONS_ENUMS[source]),
         "stats_table_keywords": [_get_field_default(config, "statsTableName")],
+        "campaign_table_name": _get_field_default(config, "campaignTableName"),
     }
     for source, config in _CONFIG_MODELS.items()
 }

@@ -18,7 +18,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.cluster import ClickhouseCluster, FuturesMap, HostInfo, get_cluster
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.clickhouse.materialized_columns import (
+from posthog.clickhouse.materialized_column_types import (
     MATERIALIZATION_VALID_TABLES,
     ColumnName,
     TablesWithMaterializedColumns,
@@ -97,7 +97,10 @@ class MaterializedColumn:
 
     @staticmethod
     def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, str, bool, list[str]]]:
-        refresh_cache = random.random() < 0.002  # we run around 50 of those queries per minute
+        # In TEST mode never do the probabilistic refresh: test-mode cache is process-local and
+        # every schema mutation invalidates the key explicitly, so a random bypass would cause
+        # non-deterministic extra system.columns queries that break assertNumQueries / snapshot tests.
+        refresh_cache = not TEST and random.random() < 0.002  # we run around 50 of those queries per minute
         if table in MATERIALIZATION_VALID_TABLES and not refresh_cache and MATERIALIZED_COLUMNS_USE_CACHE:
             cache_key = get_materialized_columns_cache_key(table)
 
@@ -250,7 +253,7 @@ def get_enabled_materialized_columns(
 
 
 @dataclass
-class TableInfo:
+class TableLayout:
     data_table: str
 
     @property
@@ -263,7 +266,7 @@ class TableInfo:
 
 
 @dataclass
-class ShardedTableInfo(TableInfo):
+class ShardedTable(TableLayout):
     dist_table: str
 
     @property
@@ -274,9 +277,9 @@ class ShardedTableInfo(TableInfo):
         return cluster.map_one_host_per_shard(fn)
 
 
-tables: dict[str, TableInfo | ShardedTableInfo] = {
-    PERSONS_TABLE: TableInfo(PERSONS_TABLE),
-    "events": ShardedTableInfo(EVENTS_DATA_TABLE(), "events"),
+tables: dict[str, TableLayout | ShardedTable] = {
+    PERSONS_TABLE: TableLayout(PERSONS_TABLE),
+    "events": ShardedTable(EVENTS_DATA_TABLE(), "events"),
 }
 
 
@@ -482,7 +485,7 @@ def materialize(
         ).execute,
     ).result()
 
-    if isinstance(table_info, ShardedTableInfo):
+    if isinstance(table_info, ShardedTable):
         cluster.map_all_hosts(
             CreateColumnOnQueryNodesTask(
                 table_info.dist_table,
@@ -604,7 +607,7 @@ def drop_column(table: TablesWithMaterializedColumns, column_names: Iterable[str
     table_info = tables[table]
     column_names = [*column_names]
 
-    if isinstance(table_info, ShardedTableInfo):
+    if isinstance(table_info, ShardedTable):
         cluster.map_all_hosts(
             DropColumnTask(
                 table_info.dist_table,

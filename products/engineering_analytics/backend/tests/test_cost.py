@@ -7,7 +7,7 @@ from products.engineering_analytics.backend.logic.cost import (
     RunnerOS,
     RunnerProvider,
     RunnerTier,
-    aggregate_pr_cost,
+    billed_elapsed_seconds,
     billing_multiplier,
     classify_runner,
     estimate_job_cost_usd,
@@ -91,6 +91,41 @@ class TestCostModel:
     def test_estimate_job_cost_is_none_when_not_depot_billed(self, _name, labels, elapsed):
         assert estimate_job_cost_usd(labels, elapsed) is None
 
+    @parameterized.expand(
+        [
+            # Depot doesn't bill the runner boot GitHub stamps into started_at.
+            ("provisioning_subtracted", 600, 23, 577),
+            # No steps payload -> nothing to subtract, so the wall-clock stands (under-correct, never over).
+            ("no_steps_keeps_wall_clock", 600, None, 600),
+            # Clock skew can't hand the rate a negative.
+            ("clamped_at_zero", 10, 25, 0),
+        ]
+    )
+    def test_billed_elapsed_seconds(self, _name, elapsed, provisioning, expected):
+        assert billed_elapsed_seconds(elapsed, provisioning) == expected
+
+    def test_billed_elapsed_seconds_is_none_for_unknown_elapsed(self):
+        # An unsettled job has no elapsed to bill — None, never a measured 0 that would cost $0.00.
+        assert billed_elapsed_seconds(None, 23) is None
+
+    def test_estimate_job_cost_uses_the_billed_elapsed(self):
+        # The provisioning seconds must never reach the rate: a 10-minute job that spent 23s booting
+        # costs 577s, not 600s, worth of Depot minutes.
+        labels = ["depot-ubuntu-latest"]
+        billed = billed_elapsed_seconds(600, 23)
+        cost_billed = estimate_job_cost_usd(labels, billed)
+        cost_wall_clock = estimate_job_cost_usd(labels, 600)
+        assert cost_billed is not None and cost_wall_clock is not None
+        assert cost_billed == pytest.approx(577 / 60 * REFERENCE_RATE_USD_PER_MIN)
+        assert cost_billed < cost_wall_clock
+
+    def test_estimate_job_cost_is_none_for_a_rerun_copy(self):
+        # GitHub re-lists an already-passed job under the next run_attempt with the earlier attempt's
+        # timestamps. Nothing ran, so there are no minutes to bill — None, not the elapsed-derived
+        # figure the same labels and duration would otherwise produce.
+        assert estimate_job_cost_usd(["depot-ubuntu-latest"], 600) is not None
+        assert estimate_job_cost_usd(["depot-ubuntu-latest"], 600, is_rerun_copy=True) is None
+
     def test_estimate_job_cost_is_none_for_unknown_elapsed(self):
         # A queued / not-yet-started Depot job has no elapsed time: report None ("cost unknown"),
         # never 0.0 — so a consumer never shows a pending job as $0.00.
@@ -106,34 +141,3 @@ class TestCostModel:
         # A Depot job that ran for no measurable time (started == completed, or clock skew) is a
         # real, measured 0.0 — distinct from the unknown-elapsed case above.
         assert estimate_job_cost_usd(["depot-ubuntu-latest"], elapsed) == 0.0
-
-
-class TestAggregatePRCost:
-    def test_partitions_jobs_by_billability(self):
-        # One Depot Linux job (costed), one github-hosted (excluded), one non-Linux Depot (excluded),
-        # one Depot Linux still running (unsettled). Only the first contributes minutes and cost.
-        result = aggregate_pr_cost(
-            [
-                (["depot-ubuntu-22.04-4"], 120.0),  # costed: 2 min on a 4-core (2x) tier
-                (["ubuntu-latest"], 300.0),  # github-hosted → excluded
-                (["depot-macos-14"], 600.0),  # non-Linux Depot → excluded
-                (["depot-ubuntu-22.04-4"], None),  # no elapsed → unsettled
-            ]
-        )
-        assert result.costed_jobs == 1
-        assert result.excluded_jobs == 2
-        assert result.unsettled_jobs == 1
-        assert result.billable_seconds == 120.0
-        assert result.estimated_cost_usd == pytest.approx(2 * REFERENCE_RATE_USD_PER_MIN * 2)
-
-    def test_cost_is_none_when_nothing_costable(self):
-        # Only excluded / unsettled jobs → "no figure yet", never a misleading $0.00.
-        result = aggregate_pr_cost([(["ubuntu-latest"], 300.0), (["depot-ubuntu-latest"], None)])
-        assert result.estimated_cost_usd is None
-        assert result.costed_jobs == 0
-
-    def test_empty_input(self):
-        result = aggregate_pr_cost([])
-        assert result == result.__class__(
-            billable_seconds=0.0, estimated_cost_usd=None, costed_jobs=0, unsettled_jobs=0, excluded_jobs=0
-        )

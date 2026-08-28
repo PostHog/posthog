@@ -1,0 +1,208 @@
+{
+  "id": 31,
+  "short_id": "boxPlot",
+  "name": "Latency distribution by plan",
+  "derived_name": null,
+  "filters": {},
+  "query": {
+    "kind": "DataVisualizationNode",
+    "source": {
+      "kind": "HogQLQuery",
+      "query": "SELECT\n    toStartOfWeek(timestamp) AS bucket,\n    properties.plan AS series,\n    min(toFloat(properties.latency)) AS min,\n    quantile(0.25)(toFloat(properties.latency)) AS p25,\n    quantile(0.5)(toFloat(properties.latency)) AS median,\n    avg(toFloat(properties.latency)) AS mean,\n    quantile(0.75)(toFloat(properties.latency)) AS p75,\n    max(toFloat(properties.latency)) AS max\nFROM events\nGROUP BY bucket, series\nORDER BY bucket, series"
+    },
+    "display": "BoxPlot",
+    "chartSettings": {
+      "boxPlot": {
+        "xAxisColumn": "bucket",
+        "seriesColumn": "series",
+        "minColumn": "min",
+        "p25Column": "p25",
+        "medianColumn": "median",
+        "meanColumn": "mean",
+        "p75Column": "p75",
+        "maxColumn": "max",
+        "excludeOutliers": true
+      },
+      "showLegend": true,
+      "leftYAxisSettings": {
+        "label": "Latency (ms)",
+        "showGridLines": true
+      }
+    }
+  },
+  "order": null,
+  "deleted": false,
+  "dashboards": [],
+  "dashboard_tiles": [],
+  "last_refresh": "2026-03-04T16:10:59.052768Z",
+  "cache_target_age": "2026-03-04T22:10:59.052768Z",
+  "next_allowed_client_refresh": "2026-03-04T16:11:59.052768Z",
+  "result": [
+    [
+      "2026-01-05",
+      "Free",
+      80,
+      120,
+      170,
+      195,
+      240,
+      620
+    ],
+    [
+      "2026-01-05",
+      "Paid",
+      45,
+      70,
+      95,
+      110,
+      135,
+      310
+    ],
+    [
+      "2026-01-12",
+      "Free",
+      75,
+      115,
+      165,
+      185,
+      225,
+      560
+    ],
+    [
+      "2026-01-12",
+      "Paid",
+      40,
+      65,
+      88,
+      102,
+      125,
+      280
+    ],
+    [
+      "2026-01-19",
+      "Free",
+      90,
+      135,
+      190,
+      215,
+      265,
+      710
+    ],
+    [
+      "2026-01-19",
+      "Paid",
+      50,
+      75,
+      105,
+      118,
+      145,
+      340
+    ],
+    [
+      "2026-01-26",
+      "Free",
+      70,
+      105,
+      150,
+      172,
+      210,
+      490
+    ],
+    [
+      "2026-01-26",
+      "Paid",
+      38,
+      60,
+      82,
+      96,
+      118,
+      250
+    ]
+  ],
+  "hasMore": false,
+  "columns": [
+    "bucket",
+    "series",
+    "min",
+    "p25",
+    "median",
+    "mean",
+    "p75",
+    "max"
+  ],
+  "created_at": "2026-03-04T16:11:08.460573Z",
+  "created_by": {
+    "id": 1,
+    "uuid": "019c66e6-fd77-0000-a6bb-509ac38f988e",
+    "distinct_id": "otSl3FZiAxw3Vv8GUTeWtZcV3mdpR0lH9pprZmBRKXd",
+    "first_name": "Employee 427",
+    "last_name": "",
+    "email": "test@posthog.com",
+    "is_email_verified": null,
+    "hedgehog_config": null,
+    "role_at_organization": "engineering"
+  },
+  "description": null,
+  "updated_at": "2026-03-04T16:11:08.460609Z",
+  "favorited": false,
+  "saved": true,
+  "last_modified_at": "2026-03-04T16:11:08.456506Z",
+  "last_modified_by": {
+    "id": 1,
+    "uuid": "019c66e6-fd77-0000-a6bb-509ac38f988e",
+    "distinct_id": "otSl3FZiAxw3Vv8GUTeWtZcV3mdpR0lH9pprZmBRKXd",
+    "first_name": "Employee 427",
+    "last_name": "",
+    "email": "test@posthog.com",
+    "is_email_verified": null,
+    "hedgehog_config": null,
+    "role_at_organization": "engineering"
+  },
+  "is_sample": false,
+  "effective_restriction_level": 21,
+  "effective_privilege_level": 37,
+  "user_access_level": "manager",
+  "timezone": "UTC",
+  "is_cached": true,
+  "query_status": null,
+  "hogql": "SELECT\n    toStartOfWeek(timestamp) AS bucket,\n    properties.plan AS series,\n    min(toFloat(properties.latency)) AS min,\n    quantile(0.25)(toFloat(properties.latency)) AS p25,\n    quantile(0.5)(toFloat(properties.latency)) AS median,\n    avg(toFloat(properties.latency)) AS mean,\n    quantile(0.75)(toFloat(properties.latency)) AS p75,\n    max(toFloat(properties.latency)) AS max\nFROM events\nGROUP BY bucket, series\nORDER BY bucket, series\nLIMIT 101\nOFFSET 0",
+  "types": [
+    [
+      "bucket",
+      "Date"
+    ],
+    [
+      "series",
+      "String"
+    ],
+    [
+      "min",
+      "Float64"
+    ],
+    [
+      "p25",
+      "Float64"
+    ],
+    [
+      "median",
+      "Float64"
+    ],
+    [
+      "mean",
+      "Float64"
+    ],
+    [
+      "p75",
+      "Float64"
+    ],
+    [
+      "max",
+      "Float64"
+    ]
+  ],
+  "resolved_date_range": null,
+  "alerts": [],
+  "last_viewed_at": "2026-03-04T16:11:30.018817Z",
+  "tags": [],
+  "filters_hash": "cache_1_eb04b61fff884f29a4c74600aea3684fb7769ff1fa6e0d4e59865ee187c3b58b"
+}

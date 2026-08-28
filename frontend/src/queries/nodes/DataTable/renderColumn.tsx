@@ -40,7 +40,6 @@ import {
     isGroupsQuery,
     isHogQLQuery,
     isPersonsNode,
-    isRevenueExampleEventsQuery,
     isTracesQuery,
     trimQuotes,
 } from '~/queries/utils'
@@ -334,7 +333,7 @@ export function renderColumn(
             noPopover: true,
         }
 
-        if (isEventsQuery(query.source) || isRevenueExampleEventsQuery(query.source)) {
+        if (isEventsQuery(query.source)) {
             displayProps.person = value.distinct_id ? (value as EventsQueryPersonColumn) : value
             displayProps.noPopover = false // If we are in an events list, the popover experience is better
         }

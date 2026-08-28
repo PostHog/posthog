@@ -1,8 +1,27 @@
-//! Shared test utilities for MinIO/S3 integration tests.
+//! Shared test utilities for the batch-import integration tests.
+//!
+//! Each integration test file is its own crate and pulls this in via `mod
+//! common;`, so a helper used by only some of them looks "dead" to the others —
+//! hence the crate-wide allow below.
+#![allow(dead_code)]
+
+pub mod harness;
+pub mod mock_export;
+
+use std::io::Write;
 
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::Client as AwsS3Client;
+use flate2::write::GzEncoder;
+use flate2::Compression;
+
+/// Gzip-compress `data` with default compression (single member).
+pub fn gzip_bytes(data: &[u8]) -> Vec<u8> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(data).unwrap();
+    encoder.finish().unwrap()
+}
 
 pub const MINIO_ENDPOINT: &str = "http://localhost:19000";
 pub const MINIO_ACCESS_KEY: &str = "object_storage_root_user";

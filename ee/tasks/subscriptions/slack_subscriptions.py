@@ -8,6 +8,7 @@ import aiohttp
 import structlog
 from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.helpers.slack_subscription_explore import build_explore_hint, build_explore_hint_text
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.storage import object_storage
@@ -15,9 +16,14 @@ from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription, SubscriptionResourceInfo
+from products.exports.backend.models.subscription import Subscription, SubscriptionResource
 
-from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, UTM_TAGS_BASE, _has_asset_failed
+from ee.tasks.subscriptions.subscription_utils import (
+    ASSET_GENERATION_FAILED_MESSAGE,
+    UTM_TAGS_BASE,
+    _has_asset_failed,
+    subscription_asset_error_message,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -45,10 +51,6 @@ _RETRYABLE_SLACK_ERRORS = frozenset(
     }
 )
 
-# Per-file memory guard for gallery uploads: up to DEFAULT_MAX_ASSET_COUNT assets' full image
-# bytes are held in memory at once. Typical insight exports are well under 100 KB, so 1 MB is ample
-# headroom while keeping worst-case memory tiny as the asset-count limit grows; oversized assets are
-# skipped with a warning (chunking is a possible future option, out of scope here).
 MAX_SLACK_UPLOAD_BYTES = 1 * 1024 * 1024
 
 
@@ -58,7 +60,7 @@ def _next_delivery_date_display(subscription: Subscription) -> str:
 
 
 @dataclass
-class SlackMessageData:
+class SlackMessage:
     channel: str
     blocks: list[dict[str, Any]]
     title: str
@@ -83,8 +85,8 @@ class SlackDeliveryResult:
         return self.main_message_sent and len(self.failed_thread_message_indices) == 0
 
 
-@dataclass
-class SlackGalleryData:
+@frozen
+class SlackGallery:
     channel: str
     initial_comment: str
     file_uploads: list[dict[str, Any]] = field(default_factory=list)
@@ -98,17 +100,12 @@ def _asset_image_bytes(asset: ExportedAsset) -> bytes | None:
     return None
 
 
-def _failed_insight_name(asset: ExportedAsset) -> str:
-    # Fall back through name → derived_name → "Insight" so insights with only a derived_name
-    # aren't labelled "Insight" in the gallery's "Could not generate" notice.
+def _insight_name(asset: ExportedAsset) -> str:
     return ((asset.insight.name or asset.insight.derived_name) if asset.insight else "Insight") or "Insight"
 
 
-# Title/summary/overflow text is identical across the threaded message and the gallery; these
-# helpers keep the wording and the Slack 3000-char summary cap in one place so the two delivery
-# paths can't drift apart.
 def _subscription_title(
-    subscription: Subscription, resource_info: SubscriptionResourceInfo, is_new_subscription: bool
+    subscription: Subscription, resource_info: SubscriptionResource, is_new_subscription: bool
 ) -> str:
     if subscription.title:
         display_name = f"*{subscription.title}* ({resource_info.kind}: {resource_info.name})"
@@ -126,7 +123,6 @@ def _subscription_title(
 
 def _ai_summary_text(change_summary: str) -> str:
     summary_text = f"*AI summary:*\n{change_summary}"
-    # Slack section text is capped at 3000 chars; truncate with an ellipsis.
     return summary_text[:2997] + "..." if len(summary_text) > 3000 else summary_text
 
 
@@ -144,14 +140,13 @@ def _prepare_slack_gallery(
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
     integration: Integration | None = None,
-) -> SlackGalleryData:
+) -> SlackGallery:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     resource_info = subscription.resource_info
     if not resource_info:
         raise NotImplementedError("This type of subscription resource is not supported")
-    channel = subscription.target_value.split("|")[0]
 
-    lines: list[str] = [_subscription_title(subscription, resource_info, is_new_subscription)]
+    lines = [_subscription_title(subscription, resource_info, is_new_subscription)]
     if change_summary:
         lines.append(_ai_summary_text(change_summary))
     elif summary_skipped_over_budget:
@@ -162,11 +157,11 @@ def _prepare_slack_gallery(
     failed_names: list[str] = []
     for asset in assets:
         if _has_asset_failed(asset):
-            failed_names.append(_failed_insight_name(asset))
+            failed_names.append(_insight_name(asset))
             continue
         content = _asset_image_bytes(asset)
         if content is None:
-            failed_names.append(_failed_insight_name(asset))
+            failed_names.append(_insight_name(asset))
             continue
         if len(content) > MAX_SLACK_UPLOAD_BYTES:
             logger.warning(
@@ -175,15 +170,9 @@ def _prepare_slack_gallery(
                 filename=asset.filename,
                 size_bytes=len(content),
             )
-            failed_names.append(_failed_insight_name(asset))
+            failed_names.append(_insight_name(asset))
             continue
-        file_uploads.append(
-            {
-                "content": content,
-                "filename": asset.filename,
-                "title": _failed_insight_name(asset),
-            }
-        )
+        file_uploads.append({"content": content, "filename": asset.filename, "title": _insight_name(asset)})
 
     if failed_names:
         lines.append("_Could not generate: " + ", ".join(failed_names) + "_")
@@ -193,12 +182,15 @@ def _prepare_slack_gallery(
         f"<{resource_info.url}?{utm_tags}|View in PostHog> · <{subscription.url}?{utm_tags}|Manage subscription>"
     )
 
-    # `initial_comment` is plain mrkdwn (no blocks), so append the explore hint as a text line.
     ai_enabled = bool(integration and integration.team.organization.is_ai_data_processing_approved)
     if explore_hint := build_explore_hint_text(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
         lines.append(explore_hint)
 
-    return SlackGalleryData(channel=channel, initial_comment="\n\n".join(lines), file_uploads=file_uploads)
+    return SlackGallery(
+        channel=subscription.target_value.split("|")[0],
+        initial_comment="\n\n".join(lines),
+        file_uploads=file_uploads,
+    )
 
 
 def _block_for_asset(asset: ExportedAsset, resource_url: str) -> dict:
@@ -210,7 +202,7 @@ def _block_for_asset(asset: ExportedAsset, resource_url: str) -> dict:
         max_error_length = 2000
 
         if asset.exception:
-            exception_text = str(asset.exception)
+            exception_text = subscription_asset_error_message(asset)
             if len(exception_text) > max_error_length:
                 exception_text = exception_text[:max_error_length] + "... (truncated)"
         else:
@@ -232,8 +224,6 @@ def _block_for_asset(asset: ExportedAsset, resource_url: str) -> dict:
         alt_text = asset.insight.name or asset.insight.derived_name
 
     if settings.DEBUG:
-        # Locally the real asset URL points at localhost, which Slack's servers can't fetch,
-        # so substitute a publicly reachable PostHog-branded placeholder image.
         image_url = "https://posthog.com/icons/icon-512x512.png"
 
     return {"type": "image", "image_url": image_url, "alt_text": alt_text}
@@ -269,7 +259,7 @@ def _prepare_slack_message(
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
     integration: Integration | None = None,
-) -> SlackMessageData:
+) -> SlackMessage:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
 
@@ -278,6 +268,7 @@ def _prepare_slack_message(
         raise NotImplementedError("This type of subscription resource is not supported")
 
     channel = subscription.target_value.split("|")[0]
+    first_asset, *other_assets = assets
 
     title = _subscription_title(subscription, resource_info, is_new_subscription)
 
@@ -296,25 +287,15 @@ def _prepare_slack_message(
             }
         )
 
-    overflow_block: dict | None = None
-    if total_asset_count > len(assets):
-        overflow_block = {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": _overflow_text(len(assets), total_asset_count, resource_info.url, utm_tags),
-            },
-        }
-
-    # Only the first image goes into the main message; the rest are sent as thread replies.
-    thread_messages: list[dict] = []
-    first_asset, *other_assets = assets
     blocks.append(_block_for_asset(first_asset, resource_url=resource_info.url))
+
     if other_assets:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "_See 🧵 for more Insights_"}})
-        thread_messages = [{"blocks": [_block_for_asset(a, resource_url=resource_info.url)]} for a in other_assets]
-    if overflow_block:
-        thread_messages.append({"blocks": [overflow_block]})
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "_See 🧵 for more Insights_"},
+            }
+        )
 
     action_elements: list[dict] = [
         {
@@ -339,7 +320,27 @@ def _prepare_slack_message(
     if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
         blocks.append(explore_hint)
 
-    return SlackMessageData(
+    # Prepare additional messages for thread
+    thread_messages = []
+    for asset in other_assets:
+        thread_messages.append({"blocks": [_block_for_asset(asset, resource_url=resource_info.url)]})
+
+    if total_asset_count > len(assets):
+        thread_messages.append(
+            {
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": _overflow_text(len(assets), total_asset_count, resource_info.url, utm_tags),
+                        },
+                    }
+                ]
+            }
+        )
+
+    return SlackMessage(
         channel=channel,
         blocks=blocks,
         title=title,
@@ -421,9 +422,9 @@ async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs)
 async def deliver_slack_message_data(
     integration: Integration,
     subscription: Subscription,
-    message_data: SlackMessageData,
+    message_data: SlackMessage,
 ) -> SlackDeliveryResult:
-    # shared send path: callers build the SlackMessageData; retry + partial-failure handling are shared
+    # shared send path: callers build the SlackMessage; retry + partial-failure handling are shared
     slack_integration = SlackIntegration(integration)
 
     async with aiohttp.ClientSession(trust_env=True) as slack_session:
@@ -475,24 +476,25 @@ async def deliver_slack_message_data(
 
 
 async def deliver_slack_gallery(
-    integration: Integration, subscription: Subscription, gallery: SlackGalleryData
+    integration: Integration, subscription: Subscription, gallery: SlackGallery
 ) -> SlackDeliveryResult:
     slack_integration = SlackIntegration(integration)
     async with aiohttp.ClientSession(trust_env=True) as slack_session:
         async_client = slack_integration.async_client(session=slack_session)
         if not gallery.file_uploads:
-            # All assets failed — no files to attach; send the comment as a plain message.
             await _send_slack_message_with_retry(
                 async_client,
                 channel=gallery.channel,
                 text=gallery.initial_comment,
-                blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": gallery.initial_comment}}],
                 unfurl_links=False,
                 unfurl_media=False,
             )
             return SlackDeliveryResult(
-                main_message_sent=True, total_thread_messages=0, failed_thread_message_indices=[]
+                main_message_sent=True,
+                total_thread_messages=0,
+                failed_thread_message_indices=[],
             )
+
         for attempt in range(3):
             try:
                 await async_client.files_upload_v2(
@@ -501,14 +503,13 @@ async def deliver_slack_gallery(
                     file_uploads=gallery.file_uploads,
                 )
                 break
-            except (TimeoutError, SlackApiError) as e:
-                # TimeoutError has no `.response` and is always retryable; only SlackApiError
-                # consults the transient-error set to decide whether to retry.
-                if isinstance(e, SlackApiError) and e.response.get("error", "") not in _RETRYABLE_SLACK_ERRORS:
+            except (TimeoutError, SlackApiError) as error:
+                if isinstance(error, SlackApiError) and error.response.get("error", "") not in _RETRYABLE_SLACK_ERRORS:
                     raise
                 if attempt >= 2:
                     raise
                 await asyncio.sleep(2**attempt)
+
     logger.info(
         "deliver_slack_gallery.uploaded",
         subscription_id=subscription.id,
@@ -537,6 +538,7 @@ async def send_slack_message_with_integration_async(
             integration=integration,
         )
         return await deliver_slack_gallery(integration, subscription, gallery)
+
     # `_prepare_slack_message` reads lazily-loaded ORM relations (e.g. `integration.team.organization`),
     # which Django forbids on the event loop. Build it in a thread before the async Slack send.
     message_data = await database_sync_to_async(_prepare_slack_message, thread_sensitive=False)(

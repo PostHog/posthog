@@ -148,7 +148,8 @@ class Tagger(UUIDTModel):
 
     def save(self, *args, **kwargs):
         from posthog.cdp.filters import compile_filters_bytecode
-        from posthog.cdp.validation import compile_hog
+
+        from ..hog import compile_ai_observability_hog  # noqa: PLC0415 - keeps Hog compiler off model import path
 
         # Validate tagger config based on type
         if self.tagger_config:
@@ -162,7 +163,7 @@ class Tagger(UUIDTModel):
             try:
                 # Use "tagger" kind so we don't expose PRODUCT_ASYNC_FUNCTIONS (fetch, posthogCapture, …) —
                 # taggers should only classify, never perform side effects.
-                bytecode = compile_hog(self.tagger_config["source"], "tagger")
+                bytecode = compile_ai_observability_hog(self.tagger_config["source"], "tagger")
                 self.tagger_config["bytecode"] = bytecode
             except Exception as e:
                 raise ValidationError({"tagger_config": f"Failed to compile Hog code: {e}"})

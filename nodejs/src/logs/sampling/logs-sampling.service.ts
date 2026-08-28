@@ -5,14 +5,8 @@ import { type RedisV2 } from '~/common/redis/redis-v2'
 import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
-import { type PiiScrubStats } from '~/logs/log-pii-scrub'
-import {
-    type LogRecord,
-    decodeLogRecords,
-    encodeLogRecords,
-    transformDecodedLogRecordsInPlace,
-} from '~/logs/log-record-avro'
-import type { LogsSettings } from '~/types'
+import { type LogRecord } from '~/logs/log-record-avro'
+import type { FilterResult, PipelineStage } from '~/logs/pipeline/log-processing-pipeline'
 
 import type { CompiledRuleSet, EvaluateResult, RateLimitPendingByRule, SamplingClassifyResult } from './evaluate'
 import {
@@ -58,24 +52,6 @@ function safeEvaluateLogRecord(ruleSet: CompiledRuleSet, record: LogRecord, team
     }
 }
 
-export type ProcessBufferWithSamplingResult = {
-    value: Buffer
-    pii: PiiScrubStats
-    recordsDropped: number
-    /** Counts dropped lines (drop / sample_dropped) attributed to the first matching rule UUID. */
-    recordsDroppedByRuleId: Map<string, number>
-    /** Sum of per-row `bytes_uncompressed` for dropped lines. Rows from old producers contribute 0. */
-    bytesDropped: number
-    /** Sum of per-row `bytes_uncompressed` for dropped lines, attributed to the first matching rule UUID. */
-    bytesDroppedByRuleId: Map<string, number>
-    /** Sum of customer-content bytes (body + attributes + event_name) for dropped lines. Billing pro-rate numerator. */
-    contentBytesDropped: number
-    /** Sum of customer-content bytes across ALL decoded rows (kept + dropped). Billing pro-rate denominator. */
-    contentBytesTotal: number
-    /** When true, the caller must not produce this message to downstream Kafka (all lines sampled out). */
-    allDropped: boolean
-}
-
 const recordBytes = (r: LogRecord): number => r.bytes_uncompressed ?? 0
 
 /**
@@ -98,25 +74,29 @@ export class LogsSamplingService {
     private rateLimiter: KeyedRateLimiterService
 
     constructor(redis: RedisV2, ttlSeconds: number) {
-        this.rateLimiter = new KeyedRateLimiterService({ name: 'logs-sampling-rate', ttlSeconds }, redis)
+        this.rateLimiter = new KeyedRateLimiterService(
+            { name: 'logs-sampling-rate', ttlSeconds, scriptVersion: 'v3' },
+            redis
+        )
     }
 
+    /**
+     * Applies drop rules + rate limits to already-decoded records, returning the survivors and the
+     * per-rule drop accounting. Decode/encode, PII scrub, metric extraction, and hog transforms are
+     * owned by the pipeline (`processLogMessageBuffer`); this is the body of the sampling `filter`
+     * stage (see `makeSamplingStage`).
+     */
     @instrumented({
-        key: 'logsIngestion.sampling.processBufferWithSampling',
+        key: 'logsIngestion.sampling.sampleRecords',
         measureTime: false,
         sendException: false,
     })
-    public async processBuffer(
-        buffer: Buffer,
-        settings: LogsSettings,
+    public async sampleRecords(
+        records: LogRecord[],
         ruleSet: CompiledRuleSet,
-        teamId?: number
-    ): Promise<ProcessBufferWithSamplingResult> {
-        const [logRecordType, compressionCodec, records] = await decodeLogRecords(buffer)
-        if (!logRecordType) {
-            throw new Error('avro schema metadata not found')
-        }
-        const pii = await transformDecodedLogRecordsInPlace(records, settings)
+        teamId?: number,
+        headerBytesUncompressed: number = 0
+    ): Promise<FilterResult> {
         const kept: LogRecord[] = []
         let recordsDropped = 0
         const recordsDroppedByRuleId = new Map<string, number>()
@@ -138,7 +118,14 @@ export class LogsSamplingService {
                     pendingByRule.set(c.ruleId, list)
                 }
             }
-            const rateKeep = await this.applyRateLimits(teamId, ruleSet, pendingByRule, records)
+            const rateKeep = await this.applyRateLimits(
+                teamId,
+                ruleSet,
+                pendingByRule,
+                records,
+                headerBytesUncompressed,
+                contentBytesTotal
+            )
 
             for (let i = 0; i < records.length; i++) {
                 const record = records[i]!
@@ -192,34 +179,32 @@ export class LogsSamplingService {
             'logs.sampling.kept_record_count': kept.length,
             'logs.sampling.dropped_record_count': recordsDropped,
             'logs.sampling.all_dropped': kept.length === 0,
-            'logs.sampling.json_parse_logs': Boolean(settings.json_parse_logs),
-            'logs.sampling.pii_scrub_logs': Boolean(settings.pii_scrub_logs),
         })
 
-        if (kept.length === 0) {
-            return {
-                value: Buffer.alloc(0),
-                pii,
+        return {
+            kept,
+            stats: {
                 recordsDropped,
                 recordsDroppedByRuleId,
                 bytesDropped,
                 bytesDroppedByRuleId,
                 contentBytesDropped,
                 contentBytesTotal,
-                allDropped: true,
-            }
+                droppedBy: recordsDropped > 0 ? 'sampling' : undefined,
+            },
         }
-        const value = await encodeLogRecords(logRecordType, compressionCodec, kept)
+    }
+
+    /** The sampling drop-rules + rate-limit `filter` stage for the log processing pipeline. */
+    public makeSamplingStage(
+        ruleSet: CompiledRuleSet,
+        teamId?: number,
+        headerBytesUncompressed: number = 0
+    ): PipelineStage {
         return {
-            value,
-            pii,
-            recordsDropped,
-            recordsDroppedByRuleId,
-            bytesDropped,
-            bytesDroppedByRuleId,
-            contentBytesDropped,
-            contentBytesTotal,
-            allDropped: false,
+            kind: 'filter',
+            name: 'sampling',
+            run: (records) => this.sampleRecords(records, ruleSet, teamId, headerBytesUncompressed),
         }
     }
 
@@ -227,19 +212,31 @@ export class LogsSamplingService {
      * Maps a recordIndex -> keep (true) or drop (false) decision per rate_limit rule.
      * Each rule's pending lines share one Lua call; lines are admitted while their
      * accumulated cost stays within the pre-batch token budget. Cost is one token
-     * per record (`costUnit: 'records'`) or each record's `bytes_uncompressed`
-     * (`costUnit: 'bytes'`); rows missing the field contribute 0.
+     * per record (`costUnit: 'records'`) or, for `costUnit: 'bytes'`, each row's
+     * pro-rata share of the batch header `bytesUncompressed`
+     * (`headerBytesUncompressed × contentBytes(row) / contentBytesTotal`) — the same
+     * unit billing meters, so the limiter admits at the configured byte rate instead
+     * of over-counting the per-row `bytes_uncompressed` (which re-includes shared
+     * batch data on every row). Falls back to per-row `bytes_uncompressed` when the
+     * header is unavailable (older producers).
      */
     private async applyRateLimits(
         teamId: number,
         ruleSet: CompiledRuleSet,
         pendingByRule: RateLimitPendingByRule,
-        records: LogRecord[]
+        records: LogRecord[],
+        headerBytesUncompressed: number,
+        contentBytesTotal: number
     ): Promise<Map<number, boolean>> {
         const keepByIndex = new Map<number, boolean>()
         if (pendingByRule.size === 0) {
             return keepByIndex
         }
+
+        const proRataScale =
+            headerBytesUncompressed > 0 && contentBytesTotal > 0 ? headerBytesUncompressed / contentBytesTotal : 0
+        const byteCost = (idx: number): number =>
+            proRataScale > 0 ? contentBytes(records[idx]!) * proRataScale : recordBytes(records[idx]!)
 
         const ruleById = new Map(ruleSet.rules.map((r) => [r.id, r]))
         type Entry = { indices: number[]; costs: number[]; req: KeyedRateLimitRequest }
@@ -250,8 +247,7 @@ export class LogsSamplingService {
             if (!rl || indices.length === 0) {
                 continue
             }
-            const costs =
-                rl.costUnit === 'bytes' ? indices.map((idx) => recordBytes(records[idx]!)) : indices.map(() => 1)
+            const costs = rl.costUnit === 'bytes' ? indices.map(byteCost) : indices.map(() => 1)
             const totalCost = costs.reduce((a, b) => a + b, 0)
             entries.push({
                 indices,

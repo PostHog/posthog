@@ -8,9 +8,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.settings import (
     DATADOG_ENDPOINTS,
     DatadogEndpointConfig,
@@ -228,7 +228,9 @@ def get_rows(
     def fetch_page(page_url: str) -> Any:
         response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
 
-        if response.status_code == 429 or response.status_code >= 500:
+        # 408 is a transient request timeout on Datadog's side; retry it like 429/5xx rather than
+        # letting it raise_for_status() into a fatal, non-retried HTTPError.
+        if response.status_code in (408, 429) or response.status_code >= 500:
             raise DatadogRetryableError(f"Datadog API error (retryable): status={response.status_code}, url={page_url}")
 
         if not response.ok:

@@ -3,7 +3,7 @@ use std::str::FromStr;
 use common_types::ClickHouseEvent;
 use cymbal::{
     frames::{Frame, RawFrame},
-    types::{RawErrProps, Stacktrace},
+    types::{RawExceptionProperties, Stacktrace},
 };
 use serde_json::Value;
 
@@ -14,7 +14,7 @@ fn serde_passthrough() {
     let raw: ClickHouseEvent = serde_json::from_str(raw).unwrap();
 
     let before_properties: Value = serde_json::from_str(raw.properties.as_ref().unwrap()).unwrap();
-    let properties_parsed: RawErrProps =
+    let properties_parsed: RawExceptionProperties =
         serde_json::from_str(raw.properties.as_ref().unwrap()).unwrap();
 
     let properties_raw = serde_json::to_string(&properties_parsed).unwrap();
@@ -30,7 +30,7 @@ fn serde_passthrough() {
 
 #[test]
 fn python_exceptions() {
-    let props: RawErrProps =
+    let props: RawExceptionProperties =
         serde_json::from_str(include_str!("./static/python_err_props.json")).unwrap();
 
     let frames = props
@@ -57,7 +57,7 @@ fn python_exceptions() {
 
 #[test]
 fn node_exceptions() {
-    let props: RawErrProps =
+    let props: RawExceptionProperties =
         serde_json::from_str(include_str!("./static/node_err_props.json")).unwrap();
 
     let frames = props
@@ -99,7 +99,7 @@ fn node_exceptions() {
 
 #[test]
 fn php_exceptions() {
-    let props: RawErrProps =
+    let props: RawExceptionProperties =
         serde_json::from_str(include_str!("./static/php_err_props.json")).unwrap();
 
     let frames = props

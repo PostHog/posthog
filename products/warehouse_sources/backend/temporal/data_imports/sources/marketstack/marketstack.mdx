@@ -1,0 +1,58 @@
+---
+title: Linking Marketstack as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: Marketstack
+beta: true
+---
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+[Marketstack](https://marketstack.com) (an APILayer product) is a REST API for real-time, intraday, and historical stock market data covering 70+ exchanges and 125,000+ tickers. Linking Marketstack as a source pulls end-of-day, intraday, splits, and dividends data along with market reference tables (tickers, exchanges, currencies, timezones) into your PostHog Data warehouse, where you can join it with your product data.
+
+## Prerequisites
+
+Before connecting Marketstack, you need:
+
+- A [Marketstack account](https://marketstack.com/signup).
+- Your API **access key**, found in your [Marketstack dashboard](https://marketstack.com/dashboard). The free plan covers end-of-day and all reference tables; intraday data requires a paid plan.
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+When configuring the source, provide:
+
+- **Access key**: your Marketstack API access key from the [dashboard](https://marketstack.com/dashboard).
+- **Symbols** (optional): a comma-separated list of ticker symbols, e.g. `AAPL,MSFT,TSLA`. Symbols are **required** for the EOD, intraday, splits, and dividends tables — those endpoints return data per symbol. The reference tables (tickers, exchanges, currencies, timezones) don't need symbols.
+
+Marketstack enforces a rate limit of 5 requests per second and a monthly request quota tied to your plan, so keep the number of symbols and the historical range in mind when backfilling.
+
+## Sync modes
+
+<SyncModes />
+
+The time-series tables (`eod`, `intraday`, `splits`, `dividends`) support incremental sync — after the first backfill, each run only requests data on or after the latest synced `date`, using Marketstack's `date_from` filter. The reference tables (`tickers`, `exchanges`, `currencies`, `timezones`) are full-refresh snapshots.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+## Troubleshooting
+
+- **`missing_symbols` / no rows for EOD, intraday, splits, or dividends**: these tables require at least one symbol. Add symbols to the source configuration and resync.
+- **`function_access_restricted`**: your Marketstack plan doesn't include this endpoint (intraday requires a paid plan). Upgrade your plan or deselect the restricted table.
+- **`usage_limit_reached`**: you've hit your monthly request quota. Upgrade your plan or wait for the quota to reset, then resync.
+- **`invalid_access_key`**: the access key is wrong or deactivated. Generate a new key in your Marketstack dashboard and reconnect.
+
+<TroubleshootingLink />

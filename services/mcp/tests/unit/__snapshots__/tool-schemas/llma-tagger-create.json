@@ -50,7 +50,7 @@
                             "type": "string"
                         },
                         "provider": {
-                            "description": "LLM provider to use for this tagger.\n\n* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax",
+                            "description": "LLM provider to use for this tagger.\n\n* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax\n* `zeabur` - Zeabur AI Hub",
                             "enum": [
                                 "openai",
                                 "anthropic",
@@ -59,15 +59,14 @@
                                 "fireworks",
                                 "azure_openai",
                                 "together_ai",
-                                "minimax"
+                                "minimax",
+                                "zeabur"
                             ],
                             "type": "string"
                         },
                         "provider_key_id": {
                             "anyOf": [
                                 {
-                                    "format": "uuid",
-                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                                     "type": "string"
                                 },
                                 {

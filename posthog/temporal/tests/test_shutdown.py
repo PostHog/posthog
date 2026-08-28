@@ -53,7 +53,9 @@ async def test_shutdown_monitor_async(temporal_client: Client):
     wait_for_shutdown_task = asyncio.create_task(waiter.shutdown_monitor.wait_for_worker_shutdown())
     shutdown_task = asyncio.create_task(worker.shutdown())
 
-    _ = await asyncio.wait([wait_for_shutdown_task], timeout=5)
+    # Generous bound: shutdown propagation is the thing under test and can take
+    # longer than a few seconds on loaded CI runners.
+    _ = await asyncio.wait([wait_for_shutdown_task], timeout=15)
     assert waiter.shutdown_monitor.is_worker_shutdown()
 
     _ = await asyncio.wait([shutdown_task, worker_run_task], timeout=5)
@@ -135,10 +137,13 @@ async def test_shutdown_monitor_sync(temporal_client: Client, task_queue: str, w
     _ = await asyncio.to_thread(waiter.is_waiting_sync.wait)
     shutdown_task = asyncio.create_task(worker.shutdown())
 
-    _ = await asyncio.wait([shutdown_task], timeout=5)
-
     assert waiter.shutdown_monitor is not None
-    assert waiter.shutdown_monitor.is_worker_shutdown()
+    # Wait on the monitor's own event: worker.shutdown() completing within a fixed
+    # window is neither necessary nor sufficient for the sync event to be set, and
+    # propagation can take longer than a few seconds on loaded CI runners.
+    assert await asyncio.to_thread(waiter.shutdown_monitor.wait_for_worker_shutdown_sync, 15)
+
+    _ = await asyncio.wait([shutdown_task], timeout=5)
 
     with ThreadPoolExecutor(max_workers=50) as executor:
         # Need to start a new worker to pick-up the workflow again and set the failure.

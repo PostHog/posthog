@@ -17,7 +17,7 @@ describe('MemoryKeyStore', () => {
 
     describe('generateKey', () => {
         it('should generate a key with ciphertext sessionState', async () => {
-            const result = await keyStore.generateKey('session-123', 1)
+            const result = await keyStore.generateKey('session-123', 1, 30)
 
             expect(result.sessionState).toBe('ciphertext')
             expect(result.plaintextKey).toBeInstanceOf(Buffer)
@@ -26,22 +26,22 @@ describe('MemoryKeyStore', () => {
         })
 
         it('should generate different keys for different sessions', async () => {
-            const key1 = await keyStore.generateKey('session-1', 1)
-            const key2 = await keyStore.generateKey('session-2', 1)
+            const key1 = await keyStore.generateKey('session-1', 1, 30)
+            const key2 = await keyStore.generateKey('session-2', 1, 30)
 
             expect(key1.plaintextKey.equals(key2.plaintextKey)).toBe(false)
         })
 
         it('should generate different keys for different teams with same session id', async () => {
-            const key1 = await keyStore.generateKey('session-1', 1)
-            const key2 = await keyStore.generateKey('session-1', 2)
+            const key1 = await keyStore.generateKey('session-1', 1, 30)
+            const key2 = await keyStore.generateKey('session-1', 2, 30)
 
             expect(key1.plaintextKey.equals(key2.plaintextKey)).toBe(false)
         })
 
         it('should overwrite existing key when called again', async () => {
-            const key1 = await keyStore.generateKey('session-1', 1)
-            const key2 = await keyStore.generateKey('session-1', 1)
+            const key1 = await keyStore.generateKey('session-1', 1, 30)
+            const key2 = await keyStore.generateKey('session-1', 1, 30)
 
             expect(key1.plaintextKey.equals(key2.plaintextKey)).toBe(false)
 
@@ -53,7 +53,7 @@ describe('MemoryKeyStore', () => {
 
     describe('getKey', () => {
         it('should return existing key if previously generated', async () => {
-            const generated = await keyStore.generateKey('session-123', 1)
+            const generated = await keyStore.generateKey('session-123', 1, 30)
             const retrieved = await keyStore.getKey('session-123', 1)
 
             expect(retrieved.plaintextKey.equals(generated.plaintextKey)).toBe(true)
@@ -70,7 +70,7 @@ describe('MemoryKeyStore', () => {
         })
 
         it('should return same key on subsequent calls', async () => {
-            await keyStore.generateKey('session-123', 1)
+            await keyStore.generateKey('session-123', 1, 30)
 
             const first = await keyStore.getKey('session-123', 1)
             const second = await keyStore.getKey('session-123', 1)
@@ -79,7 +79,7 @@ describe('MemoryKeyStore', () => {
         })
 
         it('should return deleted state if key was deleted', async () => {
-            await keyStore.generateKey('session-123', 1)
+            await keyStore.generateKey('session-123', 1, 30)
             await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
             const result = await keyStore.getKey('session-123', 1)
@@ -89,7 +89,7 @@ describe('MemoryKeyStore', () => {
         })
 
         it('should include deletedAt timestamp in deleted state', async () => {
-            await keyStore.generateKey('session-123', 1)
+            await keyStore.generateKey('session-123', 1, 30)
 
             // Timestamps are in seconds
             const beforeDelete = Math.floor(Date.now() / 1000)
@@ -105,7 +105,7 @@ describe('MemoryKeyStore', () => {
 
     describe('deleteKey', () => {
         it('should return status deleted if key existed', async () => {
-            await keyStore.generateKey('session-123', 1)
+            await keyStore.generateKey('session-123', 1, 30)
             const result = await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
             expect(result).toEqual({ status: 'deleted', deletedAt: expect.any(Number), deletedBy: 'test@example.com' })
@@ -122,7 +122,7 @@ describe('MemoryKeyStore', () => {
         })
 
         it('should return already_deleted with timestamp if key was already deleted', async () => {
-            await keyStore.generateKey('session-123', 1)
+            await keyStore.generateKey('session-123', 1, 30)
             await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
             const result = await keyStore.deleteKey('session-123', 1, 'test@example.com')
@@ -132,7 +132,7 @@ describe('MemoryKeyStore', () => {
         })
 
         it('should return deleted state on subsequent getKey calls', async () => {
-            await keyStore.generateKey('session-123', 1)
+            await keyStore.generateKey('session-123', 1, 30)
             await keyStore.deleteKey('session-123', 1, 'test@example.com')
 
             const result = await keyStore.getKey('session-123', 1)
@@ -140,8 +140,8 @@ describe('MemoryKeyStore', () => {
         })
 
         it('should not affect other sessions', async () => {
-            await keyStore.generateKey('session-1', 1)
-            await keyStore.generateKey('session-2', 1)
+            await keyStore.generateKey('session-1', 1, 30)
+            await keyStore.generateKey('session-2', 1, 30)
 
             await keyStore.deleteKey('session-1', 1, 'test@example.com')
 
@@ -155,8 +155,8 @@ describe('MemoryKeyStore', () => {
         })
 
         it('should not affect same session id in different teams', async () => {
-            await keyStore.generateKey('session-1', 1)
-            await keyStore.generateKey('session-1', 2)
+            await keyStore.generateKey('session-1', 1, 30)
+            await keyStore.generateKey('session-1', 2, 30)
 
             await keyStore.deleteKey('session-1', 1, 'test@example.com')
 

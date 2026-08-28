@@ -6,8 +6,8 @@ use tracing::info;
 use crate::{
     app_context::AppContext,
     metric_consts::{
-        BYTE_HISTOGRAM_BUCKETS, S3_FETCHED_BYTES, S3_PUT_BYTES, SOURCEMAP_EXTERNAL_BYTES,
-        SYMBOL_SET_DECOMPRESSED_BYTES,
+        BYTE_HISTOGRAM_BUCKETS, ISSUE_CREATED_EVENT_PROPERTIES_BYTES, S3_FETCHED_BYTES,
+        S3_PUT_BYTES, SOURCEMAP_EXTERNAL_BYTES, SYMBOL_SET_DECOMPRESSED_BYTES,
     },
     modes::processing::config::ProcessingConfig,
     router::get_router,
@@ -16,6 +16,10 @@ use crate::{
 pub async fn start_server(config: ProcessingConfig, context: Arc<AppContext>) -> () {
     let router = get_router(context);
     let bucket_overrides: &[(Matcher, &[f64])] = &[
+        (
+            Matcher::Full(ISSUE_CREATED_EVENT_PROPERTIES_BYTES.into()),
+            BYTE_HISTOGRAM_BUCKETS,
+        ),
         (
             Matcher::Full(S3_FETCHED_BYTES.into()),
             BYTE_HISTOGRAM_BUCKETS,

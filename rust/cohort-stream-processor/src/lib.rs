@@ -8,7 +8,7 @@ pub mod cascade;
 pub mod config;
 pub mod consumers;
 pub mod filters;
-pub mod hogvm;
+pub use cohort_core::hogvm;
 pub mod kill_switch;
 pub mod merge;
 pub mod observability;

@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { SlopeChart, createXAxisTickCallback } from '@posthog/quill-charts'
 import type { Series, SlopeChartConfig, SlopeSeriesMeta } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -13,7 +13,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -26,8 +25,7 @@ interface TrendsSlopeChartProps {
 const handleChartError = makeChartErrorHandler('trends-slope-chart')
 
 export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
 
     const { indexedResults, currentPeriodResult, getTrendsColor, getTrendsHidden, trendsFilter, interval, showLegend } =
@@ -39,7 +37,9 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
     // matching labels, so we just map to quill series: resolve the theme colour, drop legend-hidden
     // series, and forward the backend's `incomplete_end` flag (which dashes the connector). A
     // single-bucket range comes back as one point and is dropped — there's no slope to draw.
-    const labels = currentPeriodResult?.labels ?? []
+    // Key the endpoints by ISO days rather than display labels: week and hour labels omit the
+    // year, so on a multi-year range both endpoints can share a label and collapse onto one x.
+    const labels = (currentPeriodResult?.days?.length ? currentPeriodResult.days : currentPeriodResult?.labels) ?? []
     const series = useMemo<Series<SlopeSeriesMeta>[]>(() => {
         return (indexedResults ?? [])
             .filter((result: IndexedTrendResult) => !getTrendsHidden(result) && (result.data?.length ?? 0) >= 2)
@@ -69,7 +69,13 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
     )
 
     if (series.length === 0) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="line"
+            />
+        )
     }
 
     return (

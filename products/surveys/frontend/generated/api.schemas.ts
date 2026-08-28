@@ -93,6 +93,7 @@ export interface MinimalFeatureFlagApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -105,6 +106,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -364,7 +366,7 @@ export interface SurveyApi {
      */
     readonly user_access_level: string | null
     form_content?: unknown
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
@@ -408,6 +410,10 @@ export const PropertyGroupTypeEnumApi = {
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
  * * `regex` - regex
  * * `not_regex` - not_regex
  * * `gt` - gt
@@ -423,6 +429,10 @@ export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -434,7 +444,7 @@ export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyGenericSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -446,7 +456,7 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -458,6 +468,10 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex
      * * `gt` - gt
@@ -481,7 +495,7 @@ export const ExistenceOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyExistsSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -493,7 +507,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -522,7 +536,7 @@ export const DateOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyDateSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -534,7 +548,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -577,7 +591,7 @@ export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertySemverSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -589,7 +603,7 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -624,7 +638,7 @@ export const FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -636,7 +650,7 @@ export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -684,7 +698,7 @@ export interface FeatureFlagFilterPropertyCohortInSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -730,7 +744,7 @@ export interface FeatureFlagFilterPropertyFlagEvaluatesSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
      * @nullable
      */
     group_type_index?: number | null
@@ -1109,22 +1123,22 @@ export type SurveyQuestionInputSchemaApi =
     | SurveyMultipleChoiceQuestionSchemaApi
 
 /**
+ * * `regex` - regex
+ * * `not_regex` - not_regex
  * * `exact` - exact
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
- * * `regex` - regex
- * * `not_regex` - not_regex
  */
-export type StringMatchOperatorEnumApi = (typeof StringMatchOperatorEnumApi)[keyof typeof StringMatchOperatorEnumApi]
+export type SurveyMatchTypeEnumApi = (typeof SurveyMatchTypeEnumApi)[keyof typeof SurveyMatchTypeEnumApi]
 
-export const StringMatchOperatorEnumApi = {
+export const SurveyMatchTypeEnumApi = {
+    Regex: 'regex',
+    NotRegex: 'not_regex',
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
-    Regex: 'regex',
-    NotRegex: 'not_regex',
 } as const
 
 export interface SurveyConditionEventValueSchemaApi {
@@ -1168,7 +1182,7 @@ export interface SurveyConditionsSchemaApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains */
-    urlMatchType?: StringMatchOperatorEnumApi
+    urlMatchType?: SurveyMatchTypeEnumApi
     events?: SurveyEventsConditionSchemaApi
     /** Device types that should match for this survey to be shown. */
     deviceTypes?: DeviceTypesEnumApi[]
@@ -1180,7 +1194,7 @@ export interface SurveyConditionsSchemaApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains */
-    deviceTypesMatchType?: StringMatchOperatorEnumApi
+    deviceTypesMatchType?: SurveyMatchTypeEnumApi
     /** The variant of the feature flag linked to this survey. */
     linkedFlagVariant?: string
 }
@@ -1237,12 +1251,12 @@ export interface SurveyAppearanceSchemaApi {
 export interface SurveySerializerCreateUpdateOnlySchemaApi {
     readonly id: string
     /**
-     * Survey name.
+     * Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it.
      * @minLength 1
      * @maxLength 400
      */
     name: string
-    /** Survey description. */
+    /** Survey description. Internal only: unlike the name and questions, it is never delivered to visitors. */
     description?: string
     /** Survey type.
      *
@@ -1674,12 +1688,12 @@ export interface SurveySerializerCreateUpdateOnlyApi {
 export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     readonly id?: string
     /**
-     * Survey name.
+     * Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it.
      * @minLength 1
      * @maxLength 400
      */
     name?: string
-    /** Survey description. */
+    /** Survey description. Internal only: unlike the name and questions, it is never delivered to visitors. */
     description?: string
     /** Survey type.
      *
@@ -2154,7 +2168,7 @@ export type SurveysListParams = {
      */
     offset?: number
     /**
-     * Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.
+     * Match against survey `name` and `description`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`.
      */
     search?: string
     /**

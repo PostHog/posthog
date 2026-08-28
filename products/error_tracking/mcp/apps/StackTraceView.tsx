@@ -23,7 +23,7 @@ export interface ExceptionData {
     type: string
     value: string
     module?: string
-    mechanism?: { handled?: boolean; type?: string }
+    mechanism?: { handled?: boolean; synthetic?: boolean; type?: string }
     stacktrace?: {
         type?: string
         frames?: StackFrame[]
@@ -117,7 +117,8 @@ function FrameRow({ frame, index }: { frame: StackFrame; index: number }): React
 
 function ExceptionSection({ exception, index }: { exception: ExceptionData; index: number }): ReactElement {
     const frames = exception.stacktrace?.frames ?? []
-    // Reverse frames so most recent call is at the top (Python/JS convention)
+    // Stored order is canonical bottom-up; display policy is most recent call
+    // first for every platform, so the crash site leads.
     const displayFrames = [...frames].reverse()
     const inAppCount = frames.filter((f) => f.in_app).length
 

@@ -1,3 +1,4 @@
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -5,15 +6,21 @@ from django.core.exceptions import ObjectDoesNotExist
 
 from temporalio import activity
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.exceptions import TaskInvalidStateError
+from products.tasks.backend.constants import CI_STATUSES, PR_STATES
+from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.activities import TaskProcessingContext
+
+# GitHub's documented guidance when it rate-limits without timing headers is to wait ≥1 minute;
+# also the fallback for our own egress-budget shed, which carries no reset hint.
+DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS = 60
 
 
 @dataclass
@@ -26,15 +33,49 @@ class GetPrContextOutput:
     pr_url: str
     pr_state: str
     fingerprint: str
+    # Defaults keep replay of pre-rollout activity results deserializable.
+    ci_status: str = "none"
+    changes_requested: bool = False
+    unresolved_threads: int = 0
+
+
+def is_pr_actionable(pr: GetPrContextOutput) -> bool:
+    """Whether a changed PR snapshot warrants waking the agent.
+
+    Only failing CI or a changes-requested review gives the agent real work to
+    do. Waking it for a green, pending, or check-less PR produces a "nothing to
+    report" turn that spams the originating Slack thread and burns one of the
+    limited CI follow-up repetitions. Pending needs no special handling: the
+    head SHA and CI status are both in the fingerprint, so the settled state
+    (which may be failing) registers as its own change on a later tick.
+    """
+    return pr.changes_requested or pr.ci_status == "failing"
 
 
 def compute_pr_fingerprint(pr: dict[str, Any]) -> str:
-    """Compute a fingerprint for a PR based on its URL and updated_at timestamp."""
-    import hashlib
+    """Fingerprint the actionable state of a PR for the CI follow-up loop.
 
-    pr_url = pr.get("url", "")
-    updated_at = pr.get("updated_at", "")
-    fingerprint_source = f"{pr_url}|{updated_at}"
+    Keyed on the signals that mean the agent has real work to do — PR state, the
+    CI check rollup, and whether changes are requested — never on ``updated_at``.
+    GitHub bumps ``updated_at`` on any PR activity (comments, labels, reviews, the
+    bot's own pushes), so hashing it re-poked the agent for every one of those long
+    after the PR was opened.
+
+    For the review signal we key on the boolean ``review_decision == "changes_requested"``
+    rather than the raw decision: ``changes_requested`` is the only value that means
+    the agent has code to fix, so an ``approved`` or ``review_required`` transition no
+    longer re-pokes it for nothing.
+
+    The head SHA is included so that a new commit failing with the same coarse
+    ``ci_status`` as its predecessor still reads as a change — without it, an
+    agent push that fails again would hash identically to the previous failure
+    and the follow-up would never re-fire. The fingerprint only detects change;
+    whether a change is worth firing on is decided by ``is_pr_actionable``.
+    """
+    changes_requested = pr.get("review_decision") == "changes_requested"
+    fingerprint_source = "|".join(
+        [str(pr.get(key, "")) for key in ("url", "state", "ci_status", "head_sha")] + [str(changes_requested)]
+    )
     return hashlib.sha256(fingerprint_source.encode()).hexdigest()
 
 
@@ -89,12 +130,35 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
             return None
 
         try:
-            pull_request = github_integration.get_pull_request_from_url(pr_url)  # Validate PR URL and permissions
+            # Snapshot (GraphQL) over the plain REST fetch: it carries the CI rollup
+            # and review decision the fingerprint keys on, so the follow-up loop can
+            # tell a real CI change or a changes-requested review from noise like
+            # comments, approvals, or thread churn.
+            pull_request = github_integration.get_pull_request_snapshot(pr_url)  # Validate PR URL and permissions
             if not pull_request.get("success"):
                 return None
             fingerprint = compute_pr_fingerprint(pull_request)
+        except (GitHubRateLimitError, GitHubEgressBudgetExhausted) as e:
+            # A GitHub rate limit (its own 429) or our egress budget shedding the call is a
+            # normal, recoverable condition — not a fault. Keep it retryable but skip error
+            # tracking capture, and honor the backoff hint so the retry lands after the limit
+            # window instead of burning every attempt inside it.
+            retry_after = getattr(e, "retry_after", None) or DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS
+            raise GitHubRateLimitedError(
+                f"GitHub rate limited PR context fetch for URL {pr_url}; retrying in {retry_after}s",
+                context={
+                    "pr_url": pr_url,
+                    "github_integration_id": ctx.github_integration_id,
+                    "github_user_integration_id": ctx.github_user_integration_id,
+                },
+                retry_after=retry_after,
+            )
         except Exception as e:
-            raise TaskInvalidStateError(
+            # A failed snapshot fetch is almost always a transient GitHub hiccup (a network
+            # blip, a rate limit, or a 200-with-`errors` GraphQL server error). Raise it as
+            # transient so the activity's retry policy retries it, rather than a fatal
+            # non-retryable error that permanently kills the in-flight follow-up run.
+            raise ProcessTaskTransientError(
                 f"Failed to fetch PR details from GitHub for URL {pr_url}",
                 context={
                     "pr_url": pr_url,
@@ -104,8 +168,27 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
                 cause=e,
             )
 
+        # Persist the snapshot the CI loop just paid for, so the task list's
+        # pr:/ci: filters read live state off the run's output instead of
+        # needing their own GitHub round trips. Only canonical values land in
+        # output, and best-effort: the follow-up decision must not fail
+        # because a row write did.
+        updates: dict[str, Any] = {}
+        if pull_request.get("state") in PR_STATES:
+            updates["pr_state"] = pull_request["state"]
+        if pull_request.get("ci_status") in CI_STATUSES:
+            updates["ci_status"] = pull_request["ci_status"]
+        if updates:
+            try:
+                TaskRun.update_output_atomic(ctx.run_id, updates=updates)
+            except Exception:
+                activity.logger.warning("get_pr_context_snapshot_persist_failed", exc_info=True)
+
         return GetPrContextOutput(
             pr_url=pr_url,
             pr_state=pull_request.get("state", "unknown"),
             fingerprint=fingerprint,
+            ci_status=pull_request.get("ci_status", "none"),
+            changes_requested=pull_request.get("review_decision") == "changes_requested",
+            unresolved_threads=pull_request.get("unresolved_threads", 0),
         )

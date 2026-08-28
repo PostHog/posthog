@@ -25,7 +25,7 @@ export class FunnelsInsight {
         this.stepLegends = this.verticalChart.getByTestId('funnel-step-legend')
         this.layoutSelector = page.getByTestId('funnel-bar-layout-selector')
         this.stepOrderFilter = page.getByTestId('funnel-step-order-filter')
-        this.tooltip = page.getByTestId('funnel-tooltip')
+        this.tooltip = page.locator('[data-hog-charts-tooltip]')
         this.taxonomicFilter = new TaxonomicFilter(page)
         this.conversionWindowSection = page.getByTestId('funnel-conversion-window-filter')
         this.conversionWindowInput = this.conversionWindowSection.getByRole('spinbutton')

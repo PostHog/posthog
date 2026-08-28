@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 15 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -15,7 +15,7 @@ export const VisualReviewReposListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -32,8 +32,70 @@ export const VisualReviewReposRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or were absorbed by a toleration on a recent default-branch run, and those under an active quarantine. Everything else is omitted, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Each entry carries the share of the last 7 days of default-branch runs that failed the gate (`hard_rate`) and the share a toleration absorbed (`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
+ */
+export const VisualReviewReposFlakinessRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * List quarantined identifiers. Without filter: active only. With identifier: full history.
+ */
+export const VisualReviewReposQuarantineListParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const VisualReviewReposQuarantineListQueryParams = /* @__PURE__ */ zod.object({
+    identifier: zod.string().optional().describe('Filter by identifier (returns full history)'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    run_type: zod.string().optional().describe('Filter by run type'),
+})
+
+/**
+ * List runs in this repo, optionally filtered by review state and free-text search.
+ */
+export const VisualReviewReposRunsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    repo_id: zod.string(),
+})
+
+export const VisualReviewReposRunsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    review_state: zod.string().optional().describe('Filter by review state'),
+    search: zod.string().optional().describe('Free-text search over branch, commit SHA, run type, and PR number'),
+})
+
+/**
+ * Review state counts for runs in this repo.
+ */
+export const VisualReviewReposRunsCountsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    repo_id: zod.string(),
 })
 
 /**
@@ -43,7 +105,7 @@ export const VisualReviewRunsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -65,7 +127,7 @@ export const VisualReviewRunsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -73,14 +135,16 @@ export const VisualReviewRunsRetrieveParams = /* @__PURE__ */ zod.object({
  * Mark snapshots reviewed (DB only).
  *
  * Records the per-snapshot "Accept change" decision. Does not commit the baseline
- * or change the GitHub gate — call finalize to ship the run.
+ * or change the GitHub gate — call finalize to ship the run. Works on a quarantined
+ * snapshot too: a quarantined NEW snapshot approved here is committed by finalize,
+ * which gives a quarantined story a baseline entry without lifting the quarantine.
  */
 export const VisualReviewRunsApproveCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -97,7 +161,7 @@ export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
             })
         )
         .describe(
-            'Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot "Accept change" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint.'
+            'Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot \"Accept change\" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint.'
         ),
 })
 
@@ -106,15 +170,17 @@ export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
  *
  * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
  * and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
- * any still-pending changed/new snapshot is approved first. With commit_to_github=false
- * the server returns the signed baseline YAML instead of committing it.
+ * any still-pending changed/new snapshot is approved first; quarantined snapshots are
+ * skipped, but a quarantined NEW snapshot approved by identifier is still committed.
+ * With commit_to_github=false the server returns the signed baseline YAML instead of
+ * committing it.
  */
 export const VisualReviewRunsFinalizeCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -127,7 +193,7 @@ export const VisualReviewRunsFinalizeCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(visualReviewRunsFinalizeCreateBodyApproveAllDefault)
         .describe(
-            "Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed."
+            "Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed\/new snapshot is still unreviewed."
         ),
     commit_to_github: zod
         .boolean()
@@ -139,7 +205,7 @@ export const VisualReviewRunsFinalizeCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(visualReviewRunsFinalizeCreateBodyAddImagesToCommentOnPrDefault)
         .describe(
-            'Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots.'
+            'Whether to embed the before\/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots.'
         ),
 })
 
@@ -151,7 +217,7 @@ export const VisualReviewRunsSnapshotHistoryListParams = /* @__PURE__ */ zod.obj
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -169,7 +235,7 @@ export const VisualReviewRunsSnapshotsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -192,7 +258,7 @@ export const VisualReviewRunsTolerateCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -212,7 +278,7 @@ export const VisualReviewRunsToleratedHashesListParams = /* @__PURE__ */ zod.obj
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -229,6 +295,6 @@ export const VisualReviewRunsCountsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })

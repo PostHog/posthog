@@ -2,6 +2,8 @@ import pytest
 
 from django.test.utils import override_settings
 
+from posthog.credentials import AWSKeyPair
+
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     _get_s3_credentials,
     _get_s3_endpoint_url,
@@ -49,7 +51,33 @@ def test_internal_stage_uses_object_storage_endpoint_for_self_hosted_local_and_t
             _get_test_s3_staging_folder_url()
             == f"{OBJECT_STORAGE_ENDPOINT}/{OBJECT_STORAGE_BUCKET}/{EXPECTED_STAGE_FOLDER}"
         )
-        assert _get_s3_credentials() == (OBJECT_STORAGE_ACCESS_KEY_ID, OBJECT_STORAGE_SECRET_ACCESS_KEY)
+        assert _get_s3_credentials() == AWSKeyPair.unsafe_from_strings(
+            OBJECT_STORAGE_ACCESS_KEY_ID, OBJECT_STORAGE_SECRET_ACCESS_KEY
+        )
+
+
+@pytest.mark.parametrize(
+    "access_key_id,secret_access_key",
+    [
+        (OBJECT_STORAGE_ACCESS_KEY_ID, None),
+        (None, OBJECT_STORAGE_SECRET_ACCESS_KEY),
+        (None, None),
+    ],
+)
+def test_partially_configured_object_storage_is_keyless(
+    access_key_id: str | None, secret_access_key: str | None
+) -> None:
+    # Half a pair would reach boto3 as partial credentials and raise, so it counts as keyless.
+    with override_settings(
+        CLOUD_DEPLOYMENT=None,
+        DEBUG=False,
+        TEST=False,
+        BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT=OBJECT_STORAGE_ENDPOINT,
+        BATCH_EXPORT_INTERNAL_STAGING_BUCKET=OBJECT_STORAGE_BUCKET,
+        OBJECT_STORAGE_ACCESS_KEY_ID=access_key_id,
+        OBJECT_STORAGE_SECRET_ACCESS_KEY=secret_access_key,
+    ):
+        assert _get_s3_credentials() is None
 
 
 @pytest.mark.parametrize("cloud_deployment", ["DEV", "US", "EU", "E2E"])
@@ -65,7 +93,7 @@ def test_internal_stage_uses_aws_s3_for_cloud(cloud_deployment: str) -> None:
             _get_test_s3_staging_folder_url()
             == f"https://{OBJECT_STORAGE_BUCKET}.s3.{OBJECT_STORAGE_REGION}.amazonaws.com/{EXPECTED_STAGE_FOLDER}"
         )
-        assert _get_s3_credentials() == (None, None)
+        assert _get_s3_credentials() is None
 
 
 def test_s3_endpoint_url_self_hosted_uses_configured_endpoint_not_localhost() -> None:

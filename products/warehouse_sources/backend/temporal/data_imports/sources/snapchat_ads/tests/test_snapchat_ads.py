@@ -1,20 +1,33 @@
 from collections.abc import Callable, Iterator
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.settings import (
+    SNAPCHAT_ADS_CONFIG,
+    EndpointType,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads import (
     SnapchatResumeConfig,
     _iter_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.source import SnapchatAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.utils import (
+    AD_ACCOUNTS_PAGE_LIMIT,
+    MAX_AD_ACCOUNT_PAGES,
+    SnapchatAdsPaginator,
     SnapchatDateRangeManager,
+    SnapchatStatsResource,
     format_stats_day_boundary,
+    list_ad_accounts,
 )
 
 
@@ -408,3 +421,393 @@ class TestNonRetryableErrors:
         assert not any(pattern in error_msg for pattern in self._patterns), (
             f"Snapchat error '{error_msg}' should remain retryable"
         )
+
+
+class TestListAdAccounts:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.utils"
+
+    def test_flattens_accounts_and_pairs_with_organization_name(self) -> None:
+        body = {
+            "organizations": [
+                {
+                    "sub_request_status": "SUCCESS",
+                    "organization": {
+                        "name": "PostHog",
+                        "ad_accounts": [
+                            {"id": "acc-1", "name": "PostHog Self Service", "status": "PENDING"},
+                            {"id": "acc-2", "name": "PostHog", "status": "ACTIVE"},
+                        ],
+                    },
+                },
+                # A failed sub-request contributes no accounts.
+                {"sub_request_status": "ERROR", "organization": {"name": "Broken", "ad_accounts": [{"id": "x"}]}},
+            ]
+        }
+        response = MagicMock()
+        response.json.return_value = body
+        session = MagicMock()
+        session.get.return_value = response
+
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            result = list_ad_accounts("token")
+
+        assert [(account["id"], org_name) for account, org_name in result] == [
+            ("acc-1", "PostHog"),
+            ("acc-2", "PostHog"),
+        ]
+        assert session.get.call_args.kwargs["params"] == {
+            "with_ad_accounts": "true",
+            "limit": AD_ACCOUNTS_PAGE_LIMIT,
+        }
+
+    @staticmethod
+    def _organizations_page(name: str, account_id: str, next_link: str | None = None) -> dict:
+        page: dict = {
+            "request_status": "SUCCESS",
+            "organizations": [
+                {
+                    "sub_request_status": "SUCCESS",
+                    "organization": {"name": name, "ad_accounts": [{"id": account_id, "name": account_id}]},
+                }
+            ],
+        }
+        if next_link:
+            page["paging"] = {"next_link": next_link}
+        return page
+
+    def _session_returning(self, *bodies: dict) -> MagicMock:
+        responses = []
+        for body in bodies:
+            response = MagicMock()
+            response.json.return_value = body
+            responses.append(response)
+        session = MagicMock()
+        session.get.side_effect = responses
+        return session
+
+    def test_follows_next_link_until_exhausted(self) -> None:
+        # A single page would silently truncate the picker for an org with more accounts than fit
+        # in one page — the user's account just wouldn't be there, with no error.
+        next_link = "https://adsapi.snapchat.com/v1/me/organizations?with_ad_accounts=true&cursor=page-2"
+        session = self._session_returning(
+            self._organizations_page("PostHog", "acc-1", next_link=next_link),
+            self._organizations_page("Agency", "acc-2"),
+        )
+
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            result = list_ad_accounts("token")
+
+        assert [(account["id"], org_name) for account, org_name in result] == [
+            ("acc-1", "PostHog"),
+            ("acc-2", "Agency"),
+        ]
+        assert session.get.call_count == 2
+        # The second request follows next_link verbatim: it already carries the cursor and the query.
+        assert session.get.call_args_list[1].args[0] == next_link
+        assert session.get.call_args_list[1].kwargs["params"] is None
+
+    def test_in_body_failure_raises_actionable_error(self) -> None:
+        # A 200 whose body reports failure would otherwise fall through to an empty picker.
+        session = self._session_returning(
+            {"request_status": "ERROR", "debug_message": "Invalid scope", "display_message": "Something went wrong"}
+        )
+
+        with (
+            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
+            pytest.raises(IntegrationAccountListingError, match="Invalid scope"),
+        ):
+            list_ad_accounts("token")
+
+    def test_all_organizations_failing_raises_instead_of_returning_empty(self) -> None:
+        session = self._session_returning(
+            {
+                "request_status": "SUCCESS",
+                "organizations": [
+                    {"sub_request_status": "ERROR", "organization": {"name": "Broken", "ad_accounts": []}}
+                ],
+            }
+        )
+
+        with (
+            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
+            pytest.raises(IntegrationAccountListingError),
+        ):
+            list_ad_accounts("token")
+
+    def test_no_organizations_returns_empty_list(self) -> None:
+        session = self._session_returning({"request_status": "SUCCESS", "organizations": []})
+
+        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+            assert list_ad_accounts("token") == []
+
+    def test_page_cap_raises_instead_of_returning_partial(self) -> None:
+        # A looping/oversized next_link must fail closed rather than return the accounts collected so
+        # far as if complete — that would silently present a truncated (or cursor-duplicated) picker.
+        response = MagicMock()
+        response.json.return_value = self._organizations_page(
+            "PostHog", "acc-1", next_link="https://adsapi.snapchat.com/v1/me/organizations?cursor=loop"
+        )
+        session = MagicMock()
+        session.get.return_value = response
+
+        with (
+            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
+            pytest.raises(IntegrationAccountListingError, match="too many pages"),
+        ):
+            list_ad_accounts("token")
+
+        assert session.get.call_count == MAX_AD_ACCOUNT_PAGES
+
+    @parameterized.expand(
+        [
+            ("cross_origin_host", "https://evil.example.com/v1/me/organizations?with_ad_accounts=true&cursor=page-2"),
+            (
+                "non_https_same_host",
+                "http://adsapi.snapchat.com/v1/me/organizations?with_ad_accounts=true&cursor=page-2",
+            ),
+        ]
+    )
+    def test_rejects_untrusted_pagination_link_without_following_it(self, _name: str, next_link: str) -> None:
+        # The bearer token rides on each pagination request, so a next_link off Snapchat's HTTPS API
+        # host must be rejected before we re-attach the token to it.
+        session = self._session_returning(
+            self._organizations_page("PostHog", "acc-1", next_link=next_link),
+            self._organizations_page("Agency", "acc-2"),
+        )
+
+        with (
+            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
+            pytest.raises(IntegrationAccountListingError),
+        ):
+            list_ad_accounts("token")
+
+        # The token-bearing request to the untrusted host is never made.
+        assert session.get.call_count == 1
+
+
+def _breakdown_page(entity_id: str, breakdown_key: str, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "timeseries_stat": {
+                "breakdown_stats": {
+                    breakdown_key: [
+                        {
+                            "id": entity_id,
+                            "type": breakdown_key.upper(),
+                            "start_time": "2026-04-01T00:00:00-07:00",
+                            "end_time": "2026-04-03T00:00:00-07:00",
+                            "timeseries": entries,
+                        }
+                    ]
+                }
+            }
+        }
+    ]
+
+
+class TestStatsDimensionTransform:
+    def test_dimension_stats_expand_to_one_row_per_dimension_value(self) -> None:
+        # A `report_dimension` response replaces the day's `stats` object with a
+        # `dimension_stats` array. Reading only `stats` would sync the breakdown tables empty.
+        page = _breakdown_page(
+            "campaign-1",
+            "campaign",
+            [
+                {
+                    "start_time": "2026-04-01T00:00:00-07:00",
+                    "end_time": "2026-04-02T00:00:00-07:00",
+                    "dimension_stats": [
+                        {"impressions": 10, "swipes": 1, "country": "us"},
+                        {"impressions": 4, "swipes": 0, "country": "gb"},
+                    ],
+                },
+                {
+                    "start_time": "2026-04-02T00:00:00-07:00",
+                    "end_time": "2026-04-03T00:00:00-07:00",
+                    "dimension_stats": [{"impressions": 7, "swipes": 2, "country": "us"}],
+                },
+            ],
+        )
+
+        rows = SnapchatStatsResource.transform_stats_reports(page, currency="USD")
+
+        assert rows == [
+            {
+                "id": "campaign-1",
+                "type": "CAMPAIGN",
+                "start_time": "2026-04-01T00:00:00-07:00",
+                "end_time": "2026-04-02T00:00:00-07:00",
+                "impressions": 10,
+                "swipes": 1,
+                "country": "us",
+                "currency": "USD",
+            },
+            {
+                "id": "campaign-1",
+                "type": "CAMPAIGN",
+                "start_time": "2026-04-01T00:00:00-07:00",
+                "end_time": "2026-04-02T00:00:00-07:00",
+                "impressions": 4,
+                "swipes": 0,
+                "country": "gb",
+                "currency": "USD",
+            },
+            {
+                "id": "campaign-1",
+                "type": "CAMPAIGN",
+                "start_time": "2026-04-02T00:00:00-07:00",
+                "end_time": "2026-04-03T00:00:00-07:00",
+                "impressions": 7,
+                "swipes": 2,
+                "country": "us",
+                "currency": "USD",
+            },
+        ]
+
+    def test_totals_rows_still_read_the_stats_object(self) -> None:
+        # The existing totals tables must keep flattening `stats` unchanged.
+        page = _breakdown_page(
+            "adsquad-1",
+            "adsquad",
+            [
+                {
+                    "start_time": "2026-04-01T00:00:00-07:00",
+                    "end_time": "2026-04-02T00:00:00-07:00",
+                    "stats": {"impressions": 21, "spend": 500},
+                }
+            ],
+        )
+
+        assert SnapchatStatsResource.transform_stats_reports(page) == [
+            {
+                "id": "adsquad-1",
+                "type": "ADSQUAD",
+                "start_time": "2026-04-01T00:00:00-07:00",
+                "end_time": "2026-04-02T00:00:00-07:00",
+                "impressions": 21,
+                "spend": 500,
+            }
+        ]
+
+    def test_entity_level_dimension_stats_are_kept_and_dated_from_the_entity(self) -> None:
+        # Snapchat only documents delivery insights at TOTAL granularity, where the breakdown
+        # hangs off the entity with no `timeseries`. Those rows must not be silently dropped.
+        page = _breakdown_page("ad-1", "ad", [])
+        page[0]["timeseries_stat"]["breakdown_stats"]["ad"][0]["dimension_stats"] = [
+            {"impressions": 9, "age_bucket": "25-34", "gender": "female"}
+        ]
+
+        assert SnapchatStatsResource.transform_stats_reports(page) == [
+            {
+                "id": "ad-1",
+                "type": "AD",
+                "start_time": "2026-04-01T00:00:00-07:00",
+                "end_time": "2026-04-03T00:00:00-07:00",
+                "impressions": 9,
+                "age_bucket": "25-34",
+                "gender": "female",
+            }
+        ]
+
+
+class TestEntityUnwrapping:
+    @parameterized.expand(
+        [
+            ("creative", "creatives"),
+            ("media", "media"),
+            ("segment", "audience_segments"),
+            ("pixel", "pixels"),
+            ("adaccount", "ad_accounts"),
+        ]
+    )
+    def test_configured_entity_key_unwraps_the_object(self, wrapper_key: str, endpoint: str) -> None:
+        # Snapchat wraps each list item in a singular key that differs per endpoint. Without the
+        # configured key these tables would store the wrapper instead of the object.
+        assert SNAPCHAT_ADS_CONFIG[endpoint].entity_key == wrapper_key
+
+        rows = SnapchatStatsResource.apply_stream_transformations(
+            EndpointType.ENTITY,
+            [{"sub_request_status": "SUCCESS", wrapper_key: {"id": "obj-1", "name": "Object"}}],
+            entity_key=wrapper_key,
+        )
+
+        assert rows == [{"id": "obj-1", "name": "Object"}]
+
+    def test_campaign_style_wrappers_still_unwrap_without_a_configured_key(self) -> None:
+        rows = SnapchatStatsResource.apply_stream_transformations(
+            EndpointType.ENTITY,
+            [{"sub_request_status": "SUCCESS", "campaign": {"id": "c-1"}}],
+        )
+
+        assert rows == [{"id": "c-1"}]
+
+
+class TestBreakdownEndpointConfig:
+    _DIMENSION_COLUMNS = {"country": ["country"], "age,gender": ["age_bucket", "gender"]}
+
+    @parameterized.expand(
+        [
+            "campaign_stats_daily_country",
+            "campaign_stats_daily_demographics",
+            "ad_stats_daily_country",
+            "ad_stats_daily_demographics",
+        ]
+    )
+    def test_primary_key_covers_the_requested_dimension(self, endpoint: str) -> None:
+        # A breakdown row is only unique per entity, day, and dimension value. Dropping the
+        # dimension from the key collapses every country (or age/gender) onto one row on merge.
+        config = SNAPCHAT_ADS_CONFIG[endpoint]
+        params = cast(dict[str, Any], config.resource["endpoint"])["params"]
+        report_dimension = cast(str, params["report_dimension"])
+
+        assert config.resource["primary_key"] == [
+            "id",
+            "start_time",
+            *self._DIMENSION_COLUMNS[report_dimension],
+        ]
+
+
+class TestSchemaDefaults:
+    def test_breakdown_tables_are_opt_in_and_the_rest_stay_on(self) -> None:
+        # Breakdown tables multiply every day by its dimension values, so they must not be
+        # pre-selected for every new connection.
+        schemas = SnapchatAdsSource().get_schemas(config=MagicMock(), team_id=1)
+        by_name = {schema.name: schema.should_sync_default for schema in schemas}
+
+        assert by_name == {
+            "campaigns": True,
+            "ad_squads": True,
+            "ads": True,
+            "ad_accounts": True,
+            "creatives": True,
+            "media": True,
+            "audience_segments": True,
+            "pixels": True,
+            "campaign_stats_daily": True,
+            "ad_squad_stats_daily": True,
+            "ad_stats_daily": True,
+            "campaign_stats_daily_country": False,
+            "campaign_stats_daily_demographics": False,
+            "ad_stats_daily_country": False,
+            "ad_stats_daily_demographics": False,
+        }
+
+
+class TestPaginatorRequestStatus:
+    @parameterized.expand(["SUCCESS", "success"])
+    def test_next_link_is_followed_whatever_the_case_of_request_status(self, request_status: str) -> None:
+        # Snapchat's docs show this status in both cases across endpoints; a case-sensitive
+        # check would fail the sync on the endpoints that report it lowercase.
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            "request_status": request_status,
+            "paging": {"next_link": "https://adsapi.snapchat.com/v1/adaccounts/a/creatives?cursor=abc"},
+        }
+
+        paginator = SnapchatAdsPaginator()
+        paginator.update_state(response)
+
+        assert paginator.get_resume_state() == {
+            "next_link": "https://adsapi.snapchat.com/v1/adaccounts/a/creatives?cursor=abc"
+        }

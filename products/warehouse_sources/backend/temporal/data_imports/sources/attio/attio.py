@@ -2,7 +2,6 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.attio.settings import ATTIO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -14,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
 class AttioOffsetPaginator(BasePaginator):
@@ -124,6 +124,14 @@ def get_resource(name: str) -> EndpointResource:
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Validate Attio API credentials by making a test request."""
+    # A non-ASCII key can't be encoded into the Authorization header (requests uses latin-1),
+    # which would otherwise surface a raw UnicodeEncodeError to the user.
+    if not api_key.isascii():
+        return (
+            False,
+            "Your Attio API key contains an unsupported character (for example an invisible one pasted "
+            "from another app). Retype it by hand and try again.",
+        )
     try:
         res = make_tracked_session().get(
             "https://api.attio.com/v2/self",

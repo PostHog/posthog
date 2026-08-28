@@ -38,6 +38,8 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         activity: list[dict] = activity_response.json()["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
 
         self.maxDiff = None
         assert activity == expected
@@ -79,6 +81,19 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
                 {"some": "kind", "of": "tip", "tap": "content"},
                 "some kind of tip tap content",
             ),
+            (
+                "with_markdown_content",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-markdown-notebook",
+                            "attrs": {"nodeId": "markdown-notebook-v2", "markdown": "# Test\n\nBody"},
+                        }
+                    ],
+                },
+                "# Test\n\nBody",
+            ),
         ]
     )
     def test_create_a_notebook(self, _, content: dict | None, text_content: str | None) -> None:
@@ -87,27 +102,56 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             data={"content": content, "text_content": text_content},
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json() == {
-            "id": response.json()["id"],
-            "short_id": response.json()["short_id"],
+        response_json = response.json()
+        assert response_json == {
+            "id": response_json["id"],
+            "short_id": response_json["short_id"],
             "content": content,
             "text_content": text_content,
             "title": None,
             "version": 0,
-            "created_at": mock.ANY,
-            "created_by": response.json()["created_by"],
+            "created_at": response_json["created_at"],
+            "created_by": response_json["created_by"],
             "deleted": False,
-            "last_modified_at": mock.ANY,
-            "last_modified_by": response.json()["last_modified_by"],
+            "last_modified_at": response_json["last_modified_at"],
+            "last_modified_by": response_json["last_modified_by"],
             "user_access_level": "manager",
             "parent_resource": None,
+            "variables": None,
         }
 
         self.assert_notebook_activity(
             [
-                self.created_activity(item_id=response.json()["short_id"], short_id=response.json()["short_id"]),
+                self.created_activity(item_id=response_json["short_id"], short_id=response_json["short_id"]),
             ],
         )
+
+    @parameterized.expand(
+        [
+            ("legacy_rich_text", {"some": "kind", "of": "tip", "tap": "content"}, None),
+            (
+                "markdown_notebook",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-markdown-notebook",
+                            "attrs": {"nodeId": "markdown-notebook-v2", "markdown": "# Test\n\nBody"},
+                        }
+                    ],
+                },
+                "# Test\n\nBody",
+            ),
+        ]
+    )
+    def test_gets_notebook_markdown_by_shortid(self, _, content: dict, expected_markdown: str | None) -> None:
+        create_response = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={"content": content})
+        short_id = create_response.json()["short_id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{short_id}/markdown")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"markdown": expected_markdown}
 
     def test_gets_individual_notebook_by_shortid(self) -> None:
         create_response = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={})
@@ -462,3 +506,56 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestNotebookVariables(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        response = self.client.post(f"/api/projects/{self.team.id}/notebooks/", {"content": None})
+        self.short_id = response.json()["short_id"]
+        self.url = f"/api/projects/{self.team.id}/notebooks/{self.short_id}"
+
+    def test_variables_round_trip(self):
+        # The bar reads what it saved, so a shape the serializer drops on the way out would show
+        # the user an empty bar after a reload.
+        variables = [
+            {"name": "country", "type": "string", "value": "US"},
+            {"name": "lookback_days", "type": "number", "value": 30},
+        ]
+        response = self.client.patch(self.url, {"variables": variables})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["variables"] == variables
+        assert self.client.get(self.url).json()["variables"] == variables
+
+    def test_a_notebook_without_variables_reads_as_null(self):
+        assert self.client.get(self.url).json()["variables"] is None
+
+    @parameterized.expand(
+        [
+            # A SQL cell reads the name as `{name}` and a Python cell as a global, so only a
+            # plain identifier can ever resolve.
+            ("a hyphen", "look-back"),
+            ("a leading digit", "7days"),
+            ("a space", "look back"),
+            # HogQL injects its own {filters}, so a variable of that name could never be read.
+            ("the reserved filters name", "filters"),
+        ]
+    )
+    def test_rejects_an_unusable_name(self, _name: str, variable_name: str) -> None:
+        response = self.client.patch(self.url, {"variables": [{"name": variable_name, "type": "string", "value": "x"}]})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_rejects_duplicate_names(self):
+        # A Python cell reads variables out of one namespace, so a duplicate would make which
+        # value binds depend on ordering.
+        response = self.client.patch(
+            self.url,
+            {
+                "variables": [
+                    {"name": "country", "type": "string", "value": "US"},
+                    {"name": "country", "type": "string", "value": "DE"},
+                ]
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "unique" in str(response.json())

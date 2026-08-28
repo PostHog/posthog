@@ -194,6 +194,14 @@ class TestCreateLLMSkillTool(BaseTest):
         assert first_file is not None
         assert first_file.path == "scripts/mandelbrot.py"
 
+    def test_reserved_name_raises_fatal(self):
+        tool = CreateLLMSkillTool(team=self.team, user=self.user)
+
+        with self.assertRaisesRegex(MaxToolFatalError, "reserved name"):
+            _run(tool, name="community", description="d", body="b")
+
+        assert not LLMSkill.objects.filter(team=self.team, name="community").exists()
+
     def test_duplicate_name_raises_fatal(self):
         LLMSkill.objects.create(team=self.team, name="dup", description="d", body="b")
 

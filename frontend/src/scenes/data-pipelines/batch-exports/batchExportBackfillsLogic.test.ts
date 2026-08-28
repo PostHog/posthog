@@ -35,22 +35,19 @@ const MOCK_BATCH_EXPORT_CONFIG: BatchExportConfiguration = {
     team_id: 997,
     name: 'Test Export',
     destination: {
-        type: 'S3',
+        type: 'AwsS3',
+        integration: 31,
         config: {
             bucket_name: 'test-bucket',
             region: 'us-east-1',
             prefix: 'events/',
-            aws_access_key_id: 'AKIAIOSFODNN7EXAMPLE',
-            aws_secret_access_key: 'secret',
             exclude_events: [],
             include_events: [],
             compression: 'gzip',
             encryption: null,
             kms_key_id: null,
-            endpoint_url: null,
             file_format: 'Parquet',
             max_file_size_mb: null,
-            use_virtual_style_addressing: false,
         },
     },
     interval: 'hour',
@@ -84,6 +81,7 @@ describe('batchExportBackfillsLogic', () => {
         results: RawBatchExportBackfill[]
         next: string | null
     }): Promise<void> {
+        // eslint-disable-next-line react-hooks/rules-of-hooks -- useMocks is an MSW test helper, not a React hook
         useMocks({
             get: {
                 [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/`]: MOCK_BATCH_EXPORT_CONFIG,
@@ -242,6 +240,8 @@ describe('batchExportBackfillsLogic', () => {
         })
 
         it('ignores polling errors and continues', async () => {
+            // The poller reports the deliberate failure via console.warn by design
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
             jest.spyOn(api.batchExports, 'getBackfill')
                 .mockRejectedValueOnce(new Error('Network error'))
                 .mockResolvedValueOnce(makeBackfill({ total_records_count: 3000 }))
@@ -254,6 +254,8 @@ describe('batchExportBackfillsLogic', () => {
             await jest.advanceTimersByTimeAsync(POLL_ADVANCE_MS)
 
             expect(lemonToast.info).toHaveBeenCalledWith('Estimated ~3,000 rows to export', expect.anything())
+            expect(warnSpy).toHaveBeenCalledWith('Failed to poll for backfill estimate', expect.any(Error))
+            warnSpy.mockRestore()
         })
 
         it('cancel button in toast calls cancel API', async () => {

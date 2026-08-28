@@ -1,13 +1,16 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import urlencode
 
 import nh3
 import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
+from slack_sdk.errors import SlackApiError
 
-from posthog.email import EmailMessage
+from posthog.email import EmailMessage, raise_if_delivery_rejected
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.helpers.slack_subscription_explore import build_explore_hint
 from posthog.models import Team, User
@@ -15,17 +18,23 @@ from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
-from products.exports.backend.models.subscription import Subscription, get_unsubscribe_token
+from products.exports.backend.facade.api import get_delivery_image_url
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, get_unsubscribe_token
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     generate_ai_report,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    PromptRejectedError,
+    ReportWindow,
+    compute_report_window,
+)
+from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     UTM_TAGS_BASE,
     SlackDeliveryResult,
-    SlackMessageData,
+    SlackMessage,
     deliver_slack_message_data,
 )
 
@@ -68,6 +77,7 @@ _ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
 
 # Slack's hard limit is 3000 chars per section block; keep margin for safety.
 SLACK_MRKDWN_SECTION_LIMIT = 2900
+SLACK_IMAGE_TITLE_LIMIT = 2000
 
 
 def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) -> list[str]:
@@ -93,24 +103,132 @@ def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) 
     return chunks
 
 
-def _resolve_subscription_actors(subscription: Subscription) -> tuple[Team, User | None]:
-    # team/created_by are FK relations; reading them may hit the DB, so this runs off the event loop
-    return subscription.team, subscription.created_by
+def _last_scheduled_report_cutoff(subscription: Subscription) -> datetime | None:
+    try:
+        row = (
+            SubscriptionDelivery.objects.filter(
+                subscription_id=subscription.id,
+                status=SubscriptionDelivery.Status.COMPLETED,
+                # Only real scheduled sends move the anchor: a manual "Test delivery" (or an immediate
+                # target-change confirmation) right before a run would otherwise shrink its window to
+                # near-empty — a test is a preview, not a send.
+                trigger_type=SubscriptionTriggerType.SCHEDULED,
+                finished_at__isnull=False,
+            )
+            .order_by("-finished_at")
+            .values_list("finished_at", "content_snapshot")
+            .first()
+        )
+        if row is None:
+            return None
+        finished_at, snapshot = row
+        # Prefer the run's persisted window end: anchoring on finished_at leaves the run's own
+        # generation+send time uncovered. Rows written before the key existed fall back.
+        window_end = (snapshot or {}).get(AI_REPORT_WINDOW_END_KEY)
+        if isinstance(window_end, str):
+            try:
+                return datetime.fromisoformat(window_end)
+            except ValueError:
+                pass
+        return finished_at
+    except Exception as exc:
+        # A transient DB error on this one lookup shouldn't fail the whole delivery — None falls
+        # back to the cadence window (which may re-cover already-sent data, never drop any).
+        logger.warning(
+            "ai_report.last_delivery_lookup_failed",
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            exc_info=True,
+        )
+        capture_exception(exc, {"subscription_id": subscription.id, "feature": "ai_subscription"})
+        return None
+
+
+def _resolve_subscription_context(
+    subscription: Subscription,
+) -> tuple[Team, User | None, ReportWindow, dict | None]:
+    # team/created_by are FK relations and the last-delivery lookup hits the DB; resolving the window
+    # here keeps all ORM access (and the timezone math) off the event loop in one sync hop. The frozen
+    # plan (if any) is read here too so the generation path stays free of ORM access.
+    team = subscription.team
+    # Day-based window modes don't anchor to delivery history — skip the lookup for them.
+    last_scheduled_cutoff = (
+        _last_scheduled_report_cutoff(subscription)
+        if subscription.ai_window_mode == Subscription.AIWindowMode.SINCE_LAST_SENT
+        else None
+    )
+    window = compute_report_window(
+        team=team,
+        last_scheduled_cutoff=last_scheduled_cutoff,
+        now=datetime.now(tz=UTC),
+        window_days=subscription.ai_report_window_days,
+        mode=subscription.ai_window_mode,
+        start_days_ago=subscription.ai_window_start_days_ago,
+        end_days_ago=subscription.ai_window_end_days_ago,
+    )
+    return team, subscription.created_by, window, subscription.ai_query_plan
+
+
+def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, plan: dict) -> None:
+    # Targeted update, never a full save() — that would re-emit the activity-log/analytics signals.
+    # Filtering on the planning-time prompt closes a race: a prompt edited mid-generation clears the
+    # plan via Subscription.save(), and this no-ops instead of re-freezing a plan for the old prompt.
+    Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
 
 
 async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
-    team, user = await database_sync_to_async(_resolve_subscription_actors, thread_sensitive=False)(subscription)
+    team, user, window, ai_query_plan = await database_sync_to_async(
+        _resolve_subscription_context, thread_sensitive=False
+    )(subscription)
     # created_by is FK SET_NULL; the pipeline requires a non-None user
     if user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
 
-    return await generate_ai_report(
+    result = await generate_ai_report(
         team=team,
         user=user,
         prompt=subscription.prompt,
-        window_days=subscription.ai_report_window_days,
+        window=window,
+        ai_query_plan=ai_query_plan,
         trace_correlation_id=subscription.id,
     )
+
+    if result.plan_to_persist is not None:
+        try:
+            await database_sync_to_async(_persist_ai_query_plan, thread_sensitive=False)(
+                subscription.id, subscription.team_id, subscription.prompt, result.plan_to_persist
+            )
+        except Exception as exc:
+            # The frozen plan is an optimization — losing this write must not abort the delivery (the
+            # report is already generated; failing here would burn the LLM run and retry from scratch).
+            logger.warning(
+                "ai_report.query_plan_persist_failed",
+                subscription_id=subscription.id,
+                team_id=subscription.team_id,
+                exc_info=True,
+            )
+            capture_exception(exc, {"subscription_id": subscription.id, "feature": "ai_subscription"})
+
+    return result
+
+
+CHART_IMAGE_URL_TTL = timedelta(days=180)
+
+
+def build_chart_image_urls(charts: Any, *, team_id: int) -> list[dict]:
+    if not isinstance(charts, list):
+        return []
+    urls: list[dict] = []
+    for chart in charts:
+        if not isinstance(chart, dict):
+            continue
+        asset_id = chart.get("export_asset_id")
+        if not isinstance(asset_id, int) or isinstance(asset_id, bool):
+            continue
+        image_url = get_delivery_image_url(team_id=team_id, asset_id=asset_id, expiry_delta=CHART_IMAGE_URL_TTL)
+        if image_url:
+            urls.append({"title": str(chart.get("title") or ""), "image_url": image_url})
+    return urls
 
 
 def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback: str, source: str) -> str:
@@ -132,6 +250,7 @@ def send_email_ai_subscription_report(
     markdown: str,
     delivery_run_id: str,
     delivery_id: uuid.UUID,
+    charts: list[dict] | None = None,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
     html = render_ai_email_html(markdown)
@@ -150,7 +269,10 @@ def send_email_ai_subscription_report(
         template_context={
             "title": title,
             "rendered_html": html,
-            "subscription_url": f"{subscription_url}?{utm_tags}",
+            "charts": charts or [],
+            # `delivery` lets the frontend capture `ai_report_clicked` on landing — the
+            # click-through signal for whether delivered reports actually get read.
+            "subscription_url": f"{subscription_url}?{utm_tags}&delivery={delivery_id}",
             "unsubscribe_url": unsubscribe_url,
             "feedback_positive_url": _build_feedback_url(subscription_url, delivery_id, "positive", "email"),
             "feedback_negative_url": _build_feedback_url(subscription_url, delivery_id, "negative", "email"),
@@ -158,6 +280,8 @@ def send_email_ai_subscription_report(
     )
     message.add_recipient(email=email)
     message.send(send_async=False)
+
+    raise_if_delivery_rejected(campaign_key, email)
 
 
 def send_email_ai_subscription_credit_limited(
@@ -198,7 +322,8 @@ def _build_ai_slack_message(
     *,
     delivery_id: uuid.UUID,
     integration: Integration | None = None,
-) -> SlackMessageData:
+    charts: list[dict] | None = None,
+) -> SlackMessage:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     channel = subscription.target_value.split("|")[0]
     sections = _split_text_into_chunks(_SLACK_CONVERTER.convert(strip_external_links_markdown(markdown)))
@@ -209,6 +334,16 @@ def _build_ai_slack_message(
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*"}},
         {"type": "section", "text": {"type": "mrkdwn", "text": first_section}},
     ]
+    for chart in charts or []:
+        caption = chart.get("title") or "Chart"
+        image_block: dict = {
+            "type": "image",
+            "image_url": chart["image_url"],
+            "alt_text": caption[:SLACK_IMAGE_TITLE_LIMIT],
+        }
+        if chart.get("title"):
+            image_block["title"] = {"type": "plain_text", "text": caption[:SLACK_IMAGE_TITLE_LIMIT]}
+        blocks.append(image_block)
     if len(sections) > 1:
         blocks.append(
             {"type": "section", "text": {"type": "mrkdwn", "text": "_See thread for the rest of the report._"}}
@@ -253,7 +388,7 @@ def _build_ai_slack_message(
         {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": section}}]} for section in sections[1:]
     ]
     # unfurl=False: report content is LLM-generated; never let Slack auto-fetch a link it contains.
-    return SlackMessageData(channel=channel, blocks=blocks, title=title, thread_messages=thread_messages, unfurl=False)
+    return SlackMessage(channel=channel, blocks=blocks, title=title, thread_messages=thread_messages, unfurl=False)
 
 
 async def send_slack_ai_subscription_report(
@@ -262,13 +397,29 @@ async def send_slack_ai_subscription_report(
     markdown: str,
     integration: Integration,
     delivery_id: uuid.UUID,
+    charts: list[dict] | None = None,
 ) -> SlackDeliveryResult:
-    message_data = _build_ai_slack_message(subscription, markdown, delivery_id=delivery_id, integration=integration)
-    return await deliver_slack_message_data(integration, subscription, message_data)
+    def build(with_charts: list[dict] | None) -> SlackMessage:
+        return _build_ai_slack_message(
+            subscription, markdown, delivery_id=delivery_id, integration=integration, charts=with_charts
+        )
+
+    try:
+        return await deliver_slack_message_data(integration, subscription, build(charts))
+    except SlackApiError as exc:
+        if not charts or exc.response.get("error") != "invalid_blocks":
+            raise
+        logger.warning(
+            "ai_report.slack_charts_rejected_resending_without_them",
+            subscription_id=subscription.id,
+            chart_count=len(charts),
+        )
+        return await deliver_slack_message_data(integration, subscription, build(None))
 
 
 __all__ = [
     "build_ai_subscription_report",
+    "build_chart_image_urls",
     "render_ai_email_html",
     "send_email_ai_subscription_report",
     "send_slack_ai_subscription_report",

@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Data pipelines
 feature: batch_exports
-url_prefix: /data-pipelines/destinations
+url_prefix: /data-management/destinations
 ui_apps: {}
 tools:
     batch-export-create:
@@ -20,11 +20,12 @@ tools:
             idempotent: false
         title: Create batch export
         description: >
-            Create a new batch export. Typed destination config schemas are available for Databricks and AzureBlob
-            destinations — both require a team-scoped Integration (use integrations-list to find one). Other destination
-            types are permitted by the API but typically must be created via the PostHog UI because their credentials
-            are stored in the destination config. Always specify the model field (events, persons, or sessions) —
-            omitting it defaults to events but the field should be set explicitly.
+            Create a new batch export. Typed destination config schemas are available for Databricks, AzureBlob,
+            BigQuery, Postgres, AwsS3, S3Compatible and Snowflake destinations. All of those except Snowflake require a
+            team-scoped Integration for credentials (use integrations-list to find one). Other destination types are
+            permitted by the API but typically must be created via the PostHog UI because their credentials are stored
+            in the destination config. Always specify the model field (events, persons, or sessions) — omitting it
+            defaults to events but the field should be set explicitly.
         exclude_params:
             - id
             - team_id
@@ -200,11 +201,16 @@ tools:
             idempotent: false
         title: Start file download export
         description: >
-            Start an on-demand batch export that prepares downloadable files for events, persons, or sessions. Provide
-            data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week. For
-            events, include and exclude filter event names. Use file-download-batch-exports-retrieve with the returned
-            id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the
-            files through the existing REST download endpoint.
+            Start an on-demand batch export that prepares downloadable files for events, persons, sessions, or the
+            results of a HogQL query. For events, persons and sessions, provide data_interval_start and
+            data_interval_end as ISO 8601 datetimes; the interval must be at most one week, and for events, include and
+            exclude filter event names. The hogql model is in closed beta and is enabled per team: it takes a
+            hogql_query instead of a data interval, and returns a permission error naming HogQL batch exports when the
+            team does not have it enabled, in which case tell the user they can contact PostHog support to request
+            access. Limit hogql_query with a WHERE clause to export only the data the user asked for, because user
+            queries run under stricter resource limits than the other models. Use file-download-batch-exports-retrieve
+            with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill
+            to download the files through the existing REST download endpoint.
     file-download-batch-exports-download-retrieve:
         operation: file_download_batch_exports_download_retrieve
         enabled: false

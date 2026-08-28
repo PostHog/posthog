@@ -24,7 +24,6 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
 /** CDP + Workflows - full CDP with HogFlow workflow automation */
 export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     ...CAPABILITIES_CDP,
-    cdpBatchHogFlow: true,
     cdpCyclotronWorkerBatchResolve: true,
     cdpCyclotronWorkerHogFlow: true,
     cdpCyclotronWorkerEmail: true,
@@ -33,9 +32,8 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpHogflowSubscriptionMatcher: isDevEnv(),
 }
 
-/** Realtime Cohorts - precalculated filters and cohort membership */
+/** Realtime Cohorts - cohort membership persistence */
 export const CAPABILITIES_REALTIME_COHORTS: PluginServerCapabilities = {
-    cdpPrecalculatedFilters: true,
     cdpCohortMembership: true,
 }
 
@@ -129,22 +127,14 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronWorkerHogFlow: true,
             }
-        case PluginServerMode.cdp_cyclotron_worker_hogflow_legacy_pg:
-            return {
-                cdpCyclotronWorkerHogFlowLegacyPg: true,
-            }
         case PluginServerMode.cdp_cyclotron_worker_email:
             return {
                 cdpCyclotronWorkerEmail: true,
             }
-        case PluginServerMode.cdp_cyclotron_worker_email_legacy_pg:
-            return {
-                cdpCyclotronWorkerEmailLegacyPg: true,
-            }
         case PluginServerMode.cdp_precalculated_filters:
-            return {
-                cdpPrecalculatedFilters: true,
-            }
+            // The consumer is gone. Boot with no capabilities so a pod that charts still
+            // launches in this mode idles instead of crash-looping on an unknown mode.
+            return {}
         case PluginServerMode.cdp_hogflow_subscription_matcher:
             return {
                 cdpHogflowSubscriptionMatcher: true,
@@ -175,10 +165,6 @@ export function getPluginServerCapabilities(
             return {
                 errorTrackingIngestion: true,
             }
-        case PluginServerMode.cdp_batch_hogflow_requests:
-            return {
-                cdpBatchHogFlow: true,
-            }
         case PluginServerMode.cdp_cyclotron_worker_batch_resolve:
             return {
                 cdpCyclotronWorkerBatchResolve: true,
@@ -208,6 +194,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.recordings_blob_ingestion_v2_overflow:
         case PluginServerMode.recordings_blob_ingestion_v2_ml_mirror:
         case PluginServerMode.recordings_blob_ingestion_v2_ml_parquet_sink:
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_scrub:
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay:
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch:
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch_retry:
         case PluginServerMode.recording_api:
             throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
     }

@@ -1,0 +1,37 @@
+---
+source: cymbal/tests/fingerprint_golden.rs
+expression: fingerprint
+---
+{
+  "value": "3d5a74c21354d860d03b40d21a26f77cd818977efe11d4c27a082f2d3f030199f45d95841480b3ccee1376ed27f0bfa6426ef28227a469c3a67570b3edd87ded",
+  "record": [
+    {
+      "type": "exception",
+      "id": "00000000-0000-0000-0000-000000000000",
+      "pieces": [
+        "Exception Type"
+      ]
+    },
+    {
+      "type": "frame",
+      "raw_id": "/0",
+      "pieces": [
+        "Source file name",
+        "Mangled function name",
+        "Line number",
+        "Column number",
+        "Language"
+      ]
+    },
+    {
+      "type": "frame",
+      "raw_id": "/0",
+      "pieces": [
+        "Mangled function name",
+        "Line number",
+        "Column number",
+        "Language"
+      ]
+    }
+  ]
+}

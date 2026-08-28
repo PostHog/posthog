@@ -5,13 +5,13 @@ from posthog.temporal.common.logger import get_logger
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.revenue_analytics.backend.joins import ensure_person_join
 from products.warehouse_sources.backend.facade.models import ExternalDataJob
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus, ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
 
 def database_operations(team_id: int, table_prefix: str) -> None:
-    DataWarehouseJoin.objects.get_or_create(
+    DataWarehouseJoin.create_if_missing(
         team_id=team_id,
         deleted=False,
         source_table_name="persons",
@@ -21,7 +21,7 @@ def database_operations(team_id: int, table_prefix: str) -> None:
         field_name=f"{table_prefix}stripe_customer",
     )
 
-    DataWarehouseJoin.objects.get_or_create(
+    DataWarehouseJoin.create_if_missing(
         team_id=team_id,
         deleted=False,
         source_table_name="persons",
@@ -42,7 +42,7 @@ def create_warehouse_templates_for_source(team_id: int, run_id: str) -> None:
     job: ExternalDataJob = ExternalDataJob.objects.get(pk=run_id)
     last_successful_job: ExternalDataJob | None = (
         ExternalDataJob.objects.filter(
-            team_id=job.team_id, pipeline_id=job.pipeline_id, status=ExternalDataJob.Status.COMPLETED
+            team_id=job.team_id, pipeline_id=job.pipeline_id, status=ExternalDataJobStatus.COMPLETED
         )
         .prefetch_related("pipeline")
         .order_by("-created_at")

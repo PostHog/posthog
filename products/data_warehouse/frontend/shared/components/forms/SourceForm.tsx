@@ -7,11 +7,13 @@ import {
     LemonDivider,
     LemonFileInput,
     LemonInput,
+    LemonInputSelect,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
+    Link,
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
@@ -36,8 +38,7 @@ import { CDC_SOURCE_TYPES } from '../../cdc'
 import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { customSourceManifestBuilderLogic } from './customSourceManifestBuilderLogic'
-import { GitHubRepositorySelector } from './GitHubRepositorySelector'
-import { GoogleSearchConsoleSiteSelector } from './GoogleSearchConsoleSiteSelector'
+import { IntegrationAccountSelector, findOauthBranch } from './IntegrationAccountSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
 import { supportsDirectQuery } from './schemaGroupingUtils'
@@ -50,6 +51,9 @@ export interface SourceFormProps {
     showPrefix?: boolean
     showDescription?: boolean
     showAccessMethodSelector?: boolean
+    showDirectQueryToggle?: boolean
+    /** When set, the live-queries toggle shows a link to the SQL editor with this connection preselected. */
+    directQueryEditorUrl?: string
     showCdcConfig?: boolean
     jobInputs?: Record<string, any>
     initialAccessMethod?: 'warehouse' | 'direct'
@@ -61,19 +65,33 @@ export interface SourceFormProps {
     oauthRedirectUrl?: string
 }
 
+/** How a new source will be queried: synced only, synced + live queries, or live only. */
+export type SourceQueryMode = 'warehouse' | 'warehouse_and_direct' | 'direct'
+
+export function getSourceQueryMode(
+    accessMethod: 'warehouse' | 'direct',
+    directQueryEnabled: boolean | undefined
+): SourceQueryMode {
+    if (accessMethod === 'direct') {
+        return 'direct'
+    }
+    // New synced sources default to live queries enabled.
+    return directQueryEnabled === false ? 'warehouse' : 'warehouse_and_direct'
+}
+
 export function SourceAccessMethodSelector({
     value,
     onChange,
 }: {
-    value: 'warehouse' | 'direct'
-    onChange: (value: 'warehouse' | 'direct') => void
+    value: SourceQueryMode
+    onChange: (value: SourceQueryMode) => void
 }): JSX.Element {
     return (
         <LemonField.Pure label="How should PostHog query this source?">
             <LemonRadio
                 data-attr="postgres-access-method"
                 value={value}
-                onChange={(newValue) => onChange(newValue as 'warehouse' | 'direct')}
+                onChange={(newValue) => onChange(newValue as SourceQueryMode)}
                 options={[
                     {
                         value: 'warehouse',
@@ -97,8 +115,20 @@ export function SourceAccessMethodSelector({
                                     </LemonTag>
                                 </div>
                                 <div className="text-xs text-secondary">
-                                    Run queries live against this database connection. Data from this source can&apos;t
-                                    be joined with PostHog data.
+                                    Only run queries live against this database connection, without syncing anything.
+                                    Data from this source can&apos;t be joined with PostHog data.
+                                </div>
+                            </div>
+                        ),
+                    },
+                    {
+                        value: 'warehouse_and_direct',
+                        label: (
+                            <div>
+                                <div>Sync and query live</div>
+                                <div className="text-xs text-secondary">
+                                    Sync selected tables into PostHog-managed storage, and also run live queries against
+                                    this database from the SQL editor.
                                 </div>
                             </div>
                         ),
@@ -117,6 +147,11 @@ export const sourceFieldToElement = (
     setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void,
     oauthRedirectUrl?: string
 ): JSX.Element => {
+    // Hidden fields stay in the config tree (their stored values parse and prefill) but never render.
+    if ('hidden' in field && field.hidden) {
+        return <React.Fragment key={field.name} />
+    }
+
     // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
     // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
     if (field.type === 'text' && field.name === 'connection_string') {
@@ -162,11 +197,15 @@ export const sourceFieldToElement = (
     }
 
     if (field.type === 'switch-group') {
-        const enabled = !!lastValue?.[field.name]?.enabled || lastValue?.[field.name]?.enabled === 'True'
+        // job_inputs booleans round-trip through the encrypted field as the strings "True"/"False",
+        // and LemonSwitch treats anything but a real `true` as off — translate before rendering.
+        // `lastValue` is already scoped to this group by the caller.
+        const toBool = (flag: unknown): boolean => flag === true || flag === 'True'
+        const enabled = toBool(lastValue?.enabled)
         return (
             <LemonField key={field.name} name={[field.name, 'enabled']} label={field.label}>
                 {({ value, onChange }) => {
-                    const isEnabled = value === undefined || value === null || value === 'False' ? enabled : value
+                    const isEnabled = value === undefined || value === null ? enabled : toBool(value)
                     return (
                         <>
                             {!!field.caption && <p className="mb-0">{field.caption}</p>}
@@ -188,6 +227,31 @@ export const sourceFieldToElement = (
                         </>
                     )
                 }}
+            </LemonField>
+        )
+    }
+
+    if (field.type === 'select' && field.multiple) {
+        // A config saved before the field became multiple still holds a bare string.
+        const toArray = (value: any): string[] => (Array.isArray(value) ? value : value ? [value] : [])
+
+        return (
+            <LemonField
+                key={field.name}
+                name={field.name}
+                label={field.label}
+                help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
+            >
+                {({ value, onChange }) => (
+                    <LemonInputSelect
+                        mode="multiple"
+                        data-attr={field.name}
+                        placeholder={`Select ${field.label.toLowerCase()}`}
+                        options={field.options.map((option) => ({ key: option.value, label: option.label }))}
+                        value={toArray(value === undefined || value === null ? lastValue?.[field.name] : value)}
+                        onChange={onChange}
+                    />
+                )}
             </LemonField>
         )
     }
@@ -214,6 +278,7 @@ export const sourceFieldToElement = (
                 key={field.name}
                 name={hasOptionFields ? [field.name, 'selection'] : field.name}
                 label={field.label}
+                help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
             >
                 {({ value, onChange }) => (
                     <>
@@ -279,6 +344,35 @@ export const sourceFieldToElement = (
         )
     }
 
+    // Ad/analytics sources whose account/property field is backed by the shared IntegrationAccount
+    // contract: once the OAuth integration is picked, the text input becomes a dropdown of the
+    // accounts the integration can access (one component, one logic, one endpoint shape for all).
+    if (field.type === 'oauth-account-select') {
+        // A hidden sibling of the same type is a legacy single-value field this multi field
+        // superseded (e.g. GitHub `repository` -> `repositories`); its saved value seeds the
+        // picker when the multi field is still empty.
+        const legacySingleField = field.multiple
+            ? sourceConfig.fields.find(
+                  (sibling) => sibling.type === 'oauth-account-select' && sibling.hidden && sibling.name !== field.name
+              )?.name
+            : undefined
+        return (
+            <IntegrationAccountSelector
+                key={field.name}
+                fieldName={field.name}
+                fieldLabel={field.label}
+                integrationField={field.integrationField}
+                integrationKind={field.integrationKind}
+                sourceType={sourceConfig.name}
+                placeholder={field.placeholder}
+                caption={field.caption}
+                multiple={field.multiple}
+                legacySingleField={legacySingleField}
+                oauthBranch={findOauthBranch(sourceConfig.fields, field.integrationField)}
+            />
+        )
+    }
+
     if (field.type === 'file-upload') {
         return (
             <LemonField key={field.name} name={field.name} label={field.label}>
@@ -305,18 +399,6 @@ export const sourceFieldToElement = (
             setSourceConnectionDetailsValue,
             oauthRedirectUrl
         )
-    }
-
-    if (field.type === 'text' && field.name === 'repository' && sourceConfig.name === 'Github') {
-        // Special case, this is the GitHub repository field
-        return <GitHubRepositorySelector key={field.name} />
-    }
-
-    if (field.type === 'text' && field.name === 'site_url' && sourceConfig.name === 'GoogleSearchConsole') {
-        // Special case — once the user picks an OAuth integration the selector swaps the
-        // text input for a dropdown populated from the Search Console API. Avoids the
-        // `sc-domain:` vs trailing-slash typos that bounce off `validate_credentials`.
-        return <GoogleSearchConsoleSiteSelector key={field.name} />
     }
 
     return (
@@ -691,6 +773,8 @@ export function SourceFormComponent({
     showPrefix = true,
     showDescription,
     showAccessMethodSelector = true,
+    showDirectQueryToggle = false,
+    directQueryEditorUrl,
     showCdcConfig = true,
     jobInputs,
     initialAccessMethod,
@@ -758,19 +842,54 @@ export function SourceFormComponent({
             {!isUpdateMode && supportsDirectQuery(sourceConfig.name) && showAccessMethodSelector && (
                 <>
                     <LemonField name="access_method">
-                        {({ value, onChange }) => (
-                            <SourceAccessMethodSelector
-                                value={(value as 'warehouse' | 'direct' | undefined) || selectedAccessMethod}
-                                onChange={(nextValue) => {
-                                    setSelectedAccessMethod(nextValue)
-                                    onChange(nextValue)
-                                }}
-                            />
+                        {({ value: accessMethodValue, onChange: onChangeAccessMethod }) => (
+                            <LemonField name="direct_query_enabled">
+                                {({ value: directQueryEnabledValue, onChange: onChangeDirectQueryEnabled }) => (
+                                    <SourceAccessMethodSelector
+                                        value={getSourceQueryMode(
+                                            (accessMethodValue as 'warehouse' | 'direct' | undefined) ||
+                                                selectedAccessMethod,
+                                            directQueryEnabledValue
+                                        )}
+                                        onChange={(mode) => {
+                                            const nextAccessMethod = mode === 'direct' ? 'direct' : 'warehouse'
+                                            setSelectedAccessMethod(nextAccessMethod)
+                                            onChangeAccessMethod(nextAccessMethod)
+                                            onChangeDirectQueryEnabled(mode === 'warehouse_and_direct')
+                                        }}
+                                    />
+                                )}
+                            </LemonField>
                         )}
                     </LemonField>
                     <LemonDivider />
                 </>
             )}
+            {showDirectQueryToggle &&
+                supportsDirectQuery(sourceConfig.name) &&
+                selectedAccessMethod === 'warehouse' && (
+                    <LemonField
+                        name="direct_query_enabled"
+                        help="Run live queries against this database from the SQL editor, in addition to syncing tables to the warehouse."
+                    >
+                        {({ value, onChange }) => (
+                            <div className="flex items-center gap-3">
+                                <LemonSwitch
+                                    checked={!!value}
+                                    onChange={onChange}
+                                    label="Enable live queries"
+                                    bordered
+                                    data-attr="direct-query-enabled-toggle"
+                                />
+                                {directQueryEditorUrl && (
+                                    <Link to={directQueryEditorUrl} data-attr="direct-query-open-sql-editor">
+                                        Open in SQL editor
+                                    </Link>
+                                )}
+                            </div>
+                        )}
+                    </LemonField>
+                )}
             {isDirectQuerySource && (
                 <LemonField
                     name="prefix"
@@ -861,8 +980,8 @@ export function SourceFormComponent({
             {showPrefix && !isDirectQuerySource && !customAiIntroActive && (
                 <LemonField
                     name="prefix"
-                    label="Table prefix (optional)"
-                    help="Use only letters, numbers, and underscores. Must start with a letter or underscore."
+                    label="Table name prefix (optional)"
+                    help="Renames the tables PostHog creates. It doesn't filter which tables get imported. Use only letters, numbers, and underscores, and start with a letter or underscore."
                 >
                     {({ value, onChange }) => {
                         const cleaned = value ? value.trim().replace(/^_+|_+$/g, '') : ''

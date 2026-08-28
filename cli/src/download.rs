@@ -16,9 +16,10 @@ use crate::{api::symbol_sets, invocation_context::context};
 
 #[derive(Subcommand)]
 pub enum SymbolSetsSubcommand {
-    /// Upload native (ELF) debug symbols from a directory. ELF executables,
-    /// shared libraries, and `objcopy --only-keep-debug` companions with debug
-    /// info are uploaded; other files (dSYM bundles, etc.) are reported and skipped.
+    /// Upload native debug symbols from a directory. ELF executables, shared
+    /// libraries, and `objcopy --only-keep-debug` companions with debug info are
+    /// uploaded, as are Apple `.dSYM` bundles (macOS only — needs `dwarfdump`
+    /// from Xcode); other files are reported and skipped.
     Upload(crate::debug_symbols::upload::Args),
     /// Download and extract a symbol set (sourcemap, hermes, proguard, or dSYM)
     Download(DownloadArgs),
@@ -100,7 +101,7 @@ fn extract_symbol_data(data: &[u8], base_name: &str, output: &Path) -> Result<()
         fs::write(&map_path, &parsed.sourcemap).context("Failed to write sourcemap file")?;
         info!("Wrote {}", map_path.display());
 
-        println!("Extracted source and sourcemap to {}", output.display());
+        crate::safe_println!("Extracted source and sourcemap to {}", output.display());
         return Ok(());
     }
 
@@ -109,7 +110,7 @@ fn extract_symbol_data(data: &[u8], base_name: &str, output: &Path) -> Result<()
         fs::write(&map_path, &parsed.sourcemap).context("Failed to write hermes sourcemap")?;
         info!("Wrote {}", map_path.display());
 
-        println!("Extracted hermes sourcemap to {}", output.display());
+        crate::safe_println!("Extracted hermes sourcemap to {}", output.display());
         return Ok(());
     }
 
@@ -118,7 +119,7 @@ fn extract_symbol_data(data: &[u8], base_name: &str, output: &Path) -> Result<()
         fs::write(&map_path, &parsed.content).context("Failed to write proguard mapping")?;
         info!("Wrote {}", map_path.display());
 
-        println!("Extracted proguard mapping to {}", output.display());
+        crate::safe_println!("Extracted proguard mapping to {}", output.display());
         return Ok(());
     }
 
@@ -181,7 +182,7 @@ fn extract_dsym_zip(zip_data: &[u8], base_name: &str, output: &Path) -> Result<(
         info!("Wrote {}", out_path.display());
     }
 
-    println!(
+    crate::safe_println!(
         "Extracted dSYM ({} files) to {}",
         archive.len(),
         dsym_dir.display()

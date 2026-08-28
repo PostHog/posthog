@@ -37,6 +37,11 @@ services:
         ports:
             - '6379:6379'
 
+    valkey:
+        extends:
+            file: docker-compose.base.yml
+            service: valkey
+
     clickhouse:
         extends:
             file: docker-compose.base.yml
@@ -111,6 +116,9 @@ services:
         environment:
             - DEBUG=1
             - PLUGIN_SERVER_IDLE=1
+            - FEATURE_FLAGS_SERVICE_URL=http://feature-flags:3001
+            - CLICKHOUSE_LOGS_CLUSTER_HOST=clickhouse
+            - CLICKHOUSE_LOGS_CLUSTER_SECURE=false
 
     web:
         extends:
@@ -127,6 +135,9 @@ services:
             - OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000
             - POSTHOG_SKIP_MIGRATION_CHECKS=true
             - JS_URL=http://localhost:8000
+            - FEATURE_FLAGS_SERVICE_URL=http://feature-flags:3001
+            - CLICKHOUSE_LOGS_CLUSTER_HOST=clickhouse
+            - CLICKHOUSE_LOGS_CLUSTER_SECURE=false
         depends_on:
             - db
             - redis7
@@ -186,9 +197,13 @@ services:
             - .:/app/posthog
         environment:
             - DOCKER=1
+            # Every CDP process dual-writes to Valkey and refuses to start without a host.
+            - CDP_VALKEY_HOST=valkey
+            - CDP_VALKEY_PORT=6379
         depends_on:
             - db
             - redis7
+            - valkey
             - clickhouse
             - kafka
             - objectstorage
@@ -240,6 +255,10 @@ services:
         build: .
         volumes:
             - .:/app/posthog
+        environment:
+            - FEATURE_FLAGS_SERVICE_URL=http://feature-flags:3001
+            - CLICKHOUSE_LOGS_CLUSTER_HOST=clickhouse
+            - CLICKHOUSE_LOGS_CLUSTER_SECURE=false
         depends_on:
             - db
             - redis7
@@ -247,20 +266,6 @@ services:
             - kafka
             - objectstorage
             - temporal
-
-    cyclotron-janitor:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-janitor
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            KAFKA_HOSTS: 'kafka:9092'
-            DEBUG: 1 # Add debug mode like other services
-        depends_on:
-            db:
-                condition: service_healthy
-            kafka:
-                condition: service_started
 
     otel-collector:
         extends:
@@ -274,10 +279,10 @@ services:
             file: docker-compose.base.yml
             service: jaeger
 
-    localstack:
+    dynamodb:
         extends:
             file: docker-compose.base.yml
-            service: localstack
+            service: dynamodb
 
 networks:
     otel_network:

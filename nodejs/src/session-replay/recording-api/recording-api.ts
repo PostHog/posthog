@@ -14,10 +14,9 @@ import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore
 import { RedisCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
-import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
-import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
 
+import { createRecordingApiAuthMiddleware } from './auth'
 import { RecordingService } from './recording-service'
 import { DeleteRecordingsBodySchema, GetBlockQuerySchema, RecordingParamsSchema, TeamParamsSchema } from './schemas'
 import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
@@ -85,7 +84,6 @@ export class RecordingApi {
 
         this.s3Client = new S3Client(s3Config)
 
-        const teamService = new TeamService(this.postgres)
         this.redisPool = createRedisPoolFromConfig({
             connection: {
                 url: this.config.SESSION_RECORDING_API_REDIS_HOST,
@@ -95,9 +93,8 @@ export class RecordingApi {
             poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
-        const retentionService = new RetentionService(this.redisPool, teamService)
 
-        const keyStore: KeyStore = getKeyStore(retentionService, s3Region, {
+        const keyStore: KeyStore = getKeyStore(s3Region, {
             kmsEndpoint: this.config.SESSION_RECORDING_KMS_ENDPOINT,
             dynamoDBEndpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
@@ -189,6 +186,23 @@ export class RecordingApi {
         const blockPath = '/api/projects/:team_id/recordings/:session_id/block'
 
         const blocksPath = '/api/projects/:team_id/recordings/:session_id/blocks'
+
+        const auth = (op: 'read' | 'delete') =>
+            createRecordingApiAuthMiddleware({
+                jwtSecret: this.config.RECORDING_API_JWT_SECRET,
+                legacySecret: this.config.INTERNAL_API_SECRET,
+                allowLegacySecret: this.config.RECORDING_API_ALLOW_LEGACY_SECRET,
+                op,
+            })
+        const readAuth = auth('read')
+        const deleteAuth = auth('delete')
+
+        // Mounted on the whole '/api/projects' prefix, matching what the shared-secret middleware
+        // exempts, rather than on the recording routes alone. Anything under the prefix that this
+        // router does not handle then still needs a valid token and gets a 401, so a route added
+        // later cannot ship unauthenticated. op comes from the method: GET reads, anything mutating
+        // gets the stricter delete scope. Registered before the routes so it runs first.
+        router.use('/api/projects', (req, res, next) => (req.method === 'GET' ? readAuth : deleteAuth)(req, res, next))
 
         router.get(blockPath, asyncHandler(this.getBlock))
         router.get(blocksPath, asyncHandler(this.listBlocks))

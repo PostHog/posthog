@@ -8,6 +8,7 @@ from typing import Any
 
 from django.conf import settings
 
+import httpx
 import posthoganalytics
 from google import genai
 from google.genai.errors import APIError
@@ -17,9 +18,14 @@ from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    LLMError,
+    ModelNotFoundError,
+    ModelPermissionError,
+    ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -46,19 +52,17 @@ class GeminiConfig:
         "gemini-2.5-flash-lite",
         "gemini-2.5-pro",
         "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
         "gemini-1.5-flash",
         "gemini-1.5-pro",
     ]
 
-    # Models available to trial users (PostHog pays). Excludes older/preview
+    # Models available in the PostHog-funded playground. Excludes older/preview
     # pro tiers while keeping the current flagship (gemini-2.5-pro).
-    TRIAL_MODELS: list[str] = [
+    PLAYGROUND_MODELS: list[str] = [
         "gemini-2.5-pro",
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
         "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
         "gemini-1.5-flash",
     ]
 
@@ -135,16 +139,41 @@ class GeminiAdapter:
                 usage=usage,
                 parsed=parsed,
             )
-        except APIError as e:
-            error_message = str(e).lower()
-            status_code = getattr(e, "code", None) or getattr(e, "status_code", None)
+        except Exception as e:
+            mapped = self._mapped_error(e, request.model)
+            if mapped is not None:
+                raise mapped from e
+            raise
+
+    def _mapped_error(self, error: Exception, model: str) -> LLMError | None:
+        """Normalize a provider exception into the shared taxonomy, or None when it isn't ours.
+
+        `complete` and `stream` both route through this, so the same provider failure reads the
+        same way whether the caller streamed it or not.
+        """
+        if isinstance(error, APIError):
+            error_message = str(error).lower()
+            status_code = getattr(error, "code", None) or getattr(error, "status_code", None)
             if status_code == 401 or "authentication" in error_message or "api key" in error_message:
-                raise AuthenticationError(str(e))
+                return AuthenticationError(str(error))
+            if status_code == 403 or "permission denied" in error_message:
+                return ModelPermissionError(model)
             if status_code == 429 or "rate limit" in error_message or "resource exhausted" in error_message:
                 if "quota" in error_message or "billing" in error_message:
-                    raise QuotaExceededError(str(e))
-                raise RateLimitError(str(e))
-            raise
+                    return QuotaExceededError(str(error))
+                return RateLimitError(str(error))
+            # Google returns a 404-class error (often with "no longer available") when a
+            # model is retired/deprecated. Map it so call_llm_judge disables the eval
+            # gracefully instead of burning Temporal retries on an unhandled exception.
+            if status_code == 404 or "no longer available" in error_message or "not found" in error_message:
+                return ModelNotFoundError(model)
+            return None
+        if isinstance(error, httpx.TransportError):
+            # google-genai doesn't wrap httpx transport failures (connection reset, read timeout)
+            # in APIError, so without this they escape as an unmapped exception and spam error
+            # tracking. Map to a quiet retryable error so the caller retries silently.
+            return ProviderConnectionError(str(error))
+        return None
 
     def stream(
         self,
@@ -183,6 +212,7 @@ class GeminiAdapter:
                 "posthog_trace_id": analytics.trace_id or str(uuid.uuid4()),
                 "posthog_properties": analytics.properties or {},
                 "posthog_groups": analytics.groups or {},
+                "posthog_privacy_mode": analytics.privacy_mode,
             }
 
         try:
@@ -205,12 +235,8 @@ class GeminiAdapter:
                         },
                     )
 
-        except APIError as e:
-            logger.exception(f"Gemini API error when streaming response: {e}")
-            yield StreamChunk(type="error", data={"error": "Gemini API error"})
         except Exception as e:
-            logger.exception(f"Unexpected error when streaming response: {e}")
-            yield StreamChunk(type="error", data={"error": "Unexpected error"})
+            yield stream_error_chunk(e, self._mapped_error(e, model_id), logger=logger, provider=self.name)
 
     @staticmethod
     def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:

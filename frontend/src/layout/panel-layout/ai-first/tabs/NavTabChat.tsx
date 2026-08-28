@@ -1,7 +1,7 @@
 import { Combobox } from '@base-ui/react/combobox'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 
 import { IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
@@ -46,9 +46,27 @@ function getDateGroupLabel(dateString: string | null): string {
     return 'Older'
 }
 
-interface ConversationGroup {
+export interface ConversationGroup {
     value: string
     items: Conversation[]
+}
+
+export function groupConversations(conversationHistory: Conversation[]): ConversationGroup[] {
+    const grouped: Record<string, Conversation[]> = {}
+    for (const conversation of conversationHistory) {
+        if (!conversation) {
+            continue
+        }
+        const label = getDateGroupLabel(conversation.updated_at)
+        if (!grouped[label]) {
+            grouped[label] = []
+        }
+        grouped[label].push(conversation)
+    }
+
+    return DATE_GROUP_ORDER.filter((label) => grouped[label]?.length > 0).map(
+        (label): ConversationGroup => ({ value: label, items: grouped[label] })
+    )
 }
 
 export function NavTabChat({
@@ -58,23 +76,13 @@ export function NavTabChat({
     inPanel?: boolean
     onItemClick?: () => void
 }): JSX.Element {
+    // The chat surface can be mounted twice at once (nav tab, kept mounted, plus the side panel),
+    // so the search input's id must be per-instance to keep label/htmlFor pairing valid.
+    const searchInputId = useId()
     const { conversationHistory, conversationHistoryLoading, currentConversationId } = useValues(maxGlobalLogic)
     const [inputValue, setInputValue] = useState('')
 
-    const conversationGroups = useMemo(() => {
-        const grouped: Record<string, Conversation[]> = {}
-        for (const conversation of conversationHistory) {
-            const label = getDateGroupLabel(conversation.updated_at)
-            if (!grouped[label]) {
-                grouped[label] = []
-            }
-            grouped[label].push(conversation)
-        }
-
-        return DATE_GROUP_ORDER.filter((label) => grouped[label]?.length > 0).map(
-            (label): ConversationGroup => ({ value: label, items: grouped[label] })
-        )
-    }, [conversationHistory])
+    const conversationGroups = useMemo(() => groupConversations(conversationHistory), [conversationHistory])
 
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
@@ -91,7 +99,7 @@ export function NavTabChat({
                 <div className="flex flex-col h-full min-h-0">
                     <div className={cn('flex items-center gap-1 p-2 shrink-0', inPanel && 'p-1')}>
                         <label
-                            htmlFor="nav-search-chats"
+                            htmlFor={searchInputId}
                             className={cn(
                                 'input-like flex items-center flex-1 px-1 gap-1 group h-[30px]',
                                 inPanel && 'bg-fill-input'
@@ -99,7 +107,7 @@ export function NavTabChat({
                         >
                             <IconSearch className="size-4 text-tertiary group-focus-within:text-primary w-4 shrink-0" />
                             <Combobox.Input
-                                id="nav-search-chats"
+                                id={searchInputId}
                                 placeholder="Chat history"
                                 aria-label="Chat history"
                                 className="w-full text-sm bg-transparent border-none focus:outline-none focus:ring-0 transition-[width] duration-100 h-[30px]"

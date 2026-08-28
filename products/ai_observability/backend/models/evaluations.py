@@ -1,6 +1,7 @@
 from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils.functional import Promise
 
 import structlog
 
@@ -18,6 +19,7 @@ from .evaluation_configs import (
     evaluation_configs_allow_empty,
     evaluation_uses_model_configuration,
     validate_evaluation_configs,
+    validate_target_config,
 )
 
 logger = structlog.get_logger(__name__)
@@ -30,8 +32,7 @@ class EvaluationStatus(models.TextChoices):
 
 
 class EvaluationStatusReason(models.TextChoices):
-    TRIAL_LIMIT_REACHED = "trial_limit_reached", "Trial evaluation limit reached"
-    MODEL_NOT_ALLOWED = "model_not_allowed", "Model not available on the trial plan"
+    PROVIDER_KEY_REQUIRED = "provider_key_required", "No provider API key configured"
     PROVIDER_KEY_DELETED = "provider_key_deleted", "Provider API key was deleted"
     NO_DEFAULT_MODEL = "no_default_model", "No default model available for the selected provider"
     PROVIDER_KEY_INVALID = "provider_key_invalid", "Provider API key is invalid"
@@ -42,6 +43,22 @@ class EvaluationStatusReason(models.TextChoices):
     HOG_ERROR = "hog_error", "Hog evaluation code failed"
 
 
+def evaluation_status_reason_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(EvaluationStatusReason.choices)
+
+
+class EvaluationQuerySet(models.QuerySet):
+    def using_provider_keys(self) -> "EvaluationQuerySet":
+        return self.filter(evaluation_type=EvaluationType.LLM_JUDGE)
+
+
+class EvaluationTarget(models.TextChoices):
+    GENERATION = "generation", "Generation"
+    TRACE = "trace", "Trace"
+    SESSION = "session", "Session"
+
+
 class Evaluation(ModelActivityMixin, UUIDTModel):
     class Meta:
         db_table = "llm_analytics_evaluation"
@@ -50,18 +67,40 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             models.Index(fields=["team", "-created_at", "id"]),
             models.Index(fields=["team", "enabled"]),
             models.Index(fields=["model_configuration"], name="llm_analyti_model_c_idx"),
+            models.Index(
+                fields=["team", "directory", "-created_at", "id"],
+                name="llma_eval_team_dir_created_idx",
+            ),
         ]
+        constraints = [
+            models.CheckConstraint(
+                name="model_config_only_on_llm_judge",
+                condition=models.Q(model_configuration__isnull=True)
+                | models.Q(evaluation_type=EvaluationType.LLM_JUDGE),
+            ),
+        ]
+
+    objects = EvaluationQuerySet.as_manager()
 
     # Core fields
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
+    directory = models.ForeignKey(
+        "ai_observability.EvaluationDirectory",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="evaluations",
+        db_index=False,
+        db_constraint=False,
+    )
 
     # Lifecycle state. `status` is authoritative; `enabled` is a boolean projection kept in sync by save() for
     # backwards compatibility with existing API / DB callers. When status is ERROR, status_reason must be set.
     enabled = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=EvaluationStatus, default=EvaluationStatus.PAUSED)
-    status_reason = models.CharField(max_length=50, choices=EvaluationStatusReason, null=True, blank=True)
+    status_reason = models.CharField(max_length=50, choices=evaluation_status_reason_choices, null=True, blank=True)
     status_reason_detail = models.TextField(null=True, blank=True)
 
     evaluation_type = models.CharField(max_length=50, choices=EvaluationType)
@@ -70,6 +109,18 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     output_config = models.JSONField(default=dict)
 
     conditions = models.JSONField(default=list)
+
+    # What unit the evaluation runs on: a single $ai_generation event, or the whole trace
+    # (debounced and pulled from ClickHouse after an aggregation window).
+    target = models.CharField(
+        max_length=20,
+        choices=EvaluationTarget,
+        default=EvaluationTarget.GENERATION,
+        db_default=EvaluationTarget.GENERATION,
+    )
+    # Target-specific settings, keyed off `target` (parallel to evaluation_config/output_config).
+    # Trace targets carry {window_seconds}; generation targets carry nothing.
+    target_config = models.JSONField(default=dict, db_default=models.Value("{}"))
 
     # Model configuration for the LLM judge
     model_configuration = models.ForeignKey(
@@ -170,7 +221,8 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
 
     def save(self, *args, **kwargs):
         from posthog.cdp.filters import compile_filters_bytecode
-        from posthog.cdp.validation import compile_hog
+
+        from ..hog import compile_ai_observability_hog  # noqa: PLC0415 - keeps Hog compiler off model import path
 
         # Coerce status and enabled into a consistent pair. status is authoritative, but we accept writes to
         # either field — typically `enabled` from user PATCHes, `status` from system transitions.
@@ -195,10 +247,16 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             except ValueError as e:
                 raise ValidationError(str(e))
 
+        # Validate target config (defaults the trace window when absent, strips it for generation).
+        try:
+            self.target_config = validate_target_config(self.target, self.target_config)
+        except ValueError as e:
+            raise ValidationError({"target_config": str(e)})
+
         # Compile Hog source to bytecode
         if self.evaluation_type == EvaluationType.HOG and self.evaluation_config.get("source"):
             try:
-                bytecode = compile_hog(self.evaluation_config["source"], "destination")
+                bytecode = compile_ai_observability_hog(self.evaluation_config["source"], "destination")
                 self.evaluation_config["bytecode"] = bytecode
             except Exception as e:
                 raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"})
@@ -229,6 +287,10 @@ def evaluation_saved(sender, instance, created, **kwargs):
 
     if instance.deleted:
         EvaluationReport.objects.filter(evaluation_id=instance.id, deleted=False).update(deleted=True, enabled=False)
+    elif instance.status == EvaluationStatus.PAUSED:
+        # A user pause should persist on the report too. Error states are only filtered from delivery
+        # temporarily so the report can resume when the evaluation recovers.
+        EvaluationReport.objects.filter(evaluation_id=instance.id, deleted=False, enabled=True).update(enabled=False)
 
     # Defer publishing to workers until the surrounding transaction commits — otherwise
     # workers can fire before the row is visible, especially now that perform_create wraps

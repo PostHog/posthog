@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { createPortal } from 'react-dom'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
@@ -21,7 +22,7 @@ export function BulkSelectionBar<T extends Record<string, any>, K extends BulkSe
     const [singular, plural] = noun
     const word = context.selectedCount === 1 ? singular : plural
 
-    return (
+    const bar = (
         <div
             className={clsx(
                 'flex items-center justify-end gap-2 min-h-9 px-1 LemonTable__bulk-selection-bar',
@@ -37,4 +38,6 @@ export function BulkSelectionBar<T extends Record<string, any>, K extends BulkSe
             {config.renderActions(context)}
         </div>
     )
+
+    return config.barPortalTarget ? createPortal(bar, config.barPortalTarget) : bar
 }

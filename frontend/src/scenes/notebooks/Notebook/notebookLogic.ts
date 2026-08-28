@@ -1,6 +1,6 @@
 import { EventSourceMessage } from '@microsoft/fetch-event-source'
-import { sendableSteps } from '@tiptap/pm/collab'
 import {
+    MakeLogicType,
     BuiltLogic,
     actions,
     afterMount,
@@ -24,6 +24,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
+import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import {
     markdownCrc,
     mergeNotebookMarkdownChanges,
@@ -32,9 +33,7 @@ import {
 import type { TextChange } from 'lib/components/MarkdownNotebook/collaboration'
 import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
 import type { NotebookCollaborationConflict } from 'lib/components/MarkdownNotebook/types'
-import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { base64Decode, base64Encode } from 'lib/utils/base64'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -55,58 +54,60 @@ import {
     openNotebook,
 } from '~/models/notebooksModel'
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
-import { AnyResponseType, NodeKind } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isSavedInsightNode } from '~/queries/utils'
+import { AnyResponseType } from '~/queries/schema/schema-general'
+import { isHogQLQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     InsightModel,
     AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
-    CommentType,
-    InsightShortId,
     SidePanelTab,
 } from '~/types'
 
 import { notebooksCollabPresenceCreate } from 'products/notebooks/frontend/generated/api'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 
+import type { CommentType, UserType } from '../../../types'
 import {
     buildNotebookDependencyGraph,
     collectDuckSqlNodes,
     collectHogqlSqlNodes,
     collectNodeIndices,
     collectPythonNodes,
+    collectNotebookFrameNodes,
+    collectSqlV2Nodes,
 } from '../Nodes/notebookNodeContent'
-import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
-// NOTE: Annoyingly, if we import this then kea logic type-gen generates
-// two imports and fails so, we reimport it from the types file
-import {
-    NotebookEditor,
-    NotebookNodeType,
-    NotebookSyncStatus,
-    NotebookTarget,
-    NotebookType,
-    TableOfContentData,
-} from '../types'
+import type {
+    DuckSqlNodeSummary,
+    HogqlSqlNodeSummary,
+    NotebookDependencyGraph,
+    PythonNodeSummary,
+    NotebookFrameNodeSummary,
+    SqlV2NodeSummary,
+} from '../Nodes/notebookNodeContent'
+import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
+import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '../types'
+import type { NotebookListItemType, NotebookVariableApi } from '../types'
 import { updateContentHeading } from '../utils'
 import { NotebookArtifactApplyMode } from './markdownNotebookRuntime'
 import {
     appendMarkdownNotebookBlock,
     buildMarkdownNotebookContent,
+    convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookNodeId,
     getMarkdownNotebookTextContent,
     getMarkdownNotebookTitle,
     isMarkdownNotebookContent,
     notebookArtifactContentToMarkdown,
-    serializeMarkdownNotebookComponent,
 } from './markdownNotebookV2'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { buildNotebookOpenedEvent } from './notebookAnalytics'
 import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
-import { notebookCollabLogic } from './notebookCollabLogic'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
-import type { notebookLogicType } from './notebookLogicType'
+import type { NotebookKernelInfo } from './notebookKernelInfoLogic'
+import { notebookNodeStalenessLogic } from './notebookNodeStalenessLogic'
 import {
     NOTEBOOK_AI_PRESENCE_CLIENT_ID,
     NOTEBOOK_AI_PRESENCE_NAME,
@@ -120,7 +121,19 @@ import {
     pruneNotebookRemotePresence,
 } from './notebookPresence'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+import {
+    NotebookVariable,
+    getNotebookVariableConflictNames,
+    getNotebookVariableErrors,
+    droppedSavedNotebookVariables,
+    getRunnableNotebookVariables,
+    getSavableNotebookVariables,
+    isNotebookVariableDraft,
+    parseNotebookVariables,
+    sameNotebookVariables,
+} from './notebookVariables'
 
+/** Save debounce for local-only notebooks (scratchpad, canvas), which don't sync to the server. */
 export const SYNC_DELAY = 1000
 /** Markdown notebooks save on a tighter cadence so same-block co-editing feels near-realtime. */
 export const MARKDOWN_SYNC_DELAY = 400
@@ -128,8 +141,8 @@ export const MARKDOWN_SYNC_DELAY = 400
 export const MARKDOWN_SYNC_MAX_DELAY = 1500
 const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000
 
-function getNotebookTextContent(content: JSONContent | null | undefined, editorText: string): string {
-    return getMarkdownNotebookTextContent(content) ?? editorText
+function getNotebookTextContent(content: JSONContent | null | undefined): string {
+    return getMarkdownNotebookTextContent(content) ?? ''
 }
 
 function keepNewestNotebookResponse(current: NotebookType | null, incoming: NotebookType | null): NotebookType | null {
@@ -138,6 +151,44 @@ function keepNewestNotebookResponse(current: NotebookType | null, incoming: Note
     }
 
     return incoming.version < current.version ? current : incoming
+}
+
+/**
+ * On-load migration: legacy TipTap notebooks still stored in the database are converted
+ * to markdown at render time, and the conversion is persisted on the first edit.
+ */
+function convertNotebookContentForRender(content: JSONContent | null | undefined): JSONContent {
+    if (content && isMarkdownNotebookContent(content)) {
+        return content
+    }
+
+    // Content-less notebooks (a fresh scratchpad or canvas) start as empty markdown notebooks.
+    if (!content) {
+        return buildMarkdownNotebookContent('')
+    }
+
+    return buildMarkdownNotebookContent(convertNotebookContentToMarkdown(content))
+}
+
+/**
+ * Markdown notebooks never mount the TipTap editor, so the generic insertion actions append
+ * serialized markdown blocks to the markdown source instead. Returns null when the notebook
+ * isn't a markdown notebook, so callers fall through to the TipTap editor path.
+ */
+function appendContentToMarkdownNotebook(
+    notebookContent: JSONContent,
+    insertedContent: JSONContent | JSONContent[] | string
+): JSONContent | null {
+    if (!isMarkdownNotebookContent(notebookContent)) {
+        return null
+    }
+    // The converter serializes the children of a doc, so a single leaf node (e.g. a dropped
+    // resource) must be wrapped in an array to be serialized itself.
+    const normalizedContent =
+        typeof insertedContent === 'string' || Array.isArray(insertedContent) || insertedContent.type === 'doc'
+            ? insertedContent
+            : [insertedContent]
+    return appendMarkdownNotebookBlock(notebookContent, convertNotebookContentToMarkdown(normalizedContent))
 }
 
 export type NotebookLogicMode = 'notebook' | 'canvas'
@@ -225,13 +276,13 @@ export type NotebookLogicProps = {
     cachedInlineQueryResultsByNodeId?: Record<string, AnyResponseType>
 }
 
-async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any | null> {
+async function runWhenNotebookIsReady(waitForNotebook: () => boolean, fn: () => any): Promise<any | null> {
     const maxWaitMs = 5000
     const startTime = Date.now()
 
-    while (!waitForEditor()) {
+    while (!waitForNotebook()) {
         if (Date.now() - startTime > maxWaitMs) {
-            console.warn('Notebook editor not ready after timeout')
+            console.warn('Notebook not ready after timeout')
             return null
         }
         await new Promise((resolve) => setTimeout(resolve, 10))
@@ -240,20 +291,441 @@ async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any)
     return fn()
 }
 
-function buildCommentContexts(editor: NotebookEditor, comments: CommentType[]): Record<string, string> {
-    const markTexts = editor.getAllCommentTexts()
-    const contexts: Record<string, string> = {}
-    for (const comment of comments) {
-        if (comment.source_comment || comment.item_context?.type !== 'mark') {
-            continue
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface notebookLogicValues {
+    comments: CommentType[] | null // commentsLogic
+    selectedCommentId: string | null // commentsLogic
+    kernelInfo: NotebookKernelInfo | null // notebookKernelInfoLogic
+    showKernelInfo: boolean // notebookSettingsLogic
+    showVariablesOverride: boolean | null // notebookSettingsLogic
+    notebookTemplates: NotebookType[] // notebooksModel
+    scratchpadNotebook: NotebookListItemType // notebooksModel
+    user: UserType | null // userLogic
+    accessDeniedToNotebook: boolean
+    activeCommentMarkId: string | null
+    autosavePaused: boolean
+    cachedInlineQueryResultsByNodeId: Record<string, AnyResponseType>
+    cachedInsightsByShortId: Record<string, InsightModel>
+    canEditNotebook: boolean
+    canvasFiltersOverride: any
+    containerSize: 'medium' | 'small'
+    content: JSONContent
+    dependencyGraph: NotebookDependencyGraph
+    duckSqlNodeIndices: Map<string, number>
+    duckSqlNodeSummaries: DuckSqlNodeSummary[]
+    editingNodeIds: Record<string, true>
+    editingNodeLogics: BuiltLogic<notebookNodeLogicType>[]
+    findNodeLogic: (type: NotebookNodeType, attributes: Record<string, any>) => notebookNodeLogicType | null
+    findNodeLogicById: (id: string) => BuiltLogic<notebookNodeLogicType> | null
+    frameNodeSummaries: NotebookFrameNodeSummary[]
+    getSharedCachedInlineQueryResults: (nodeId: string | null | undefined) => AnyResponseType | null
+    getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel | null
+    hasUnsavedVariables: boolean
+    hogqlSqlNodeIndices: Map<string, number>
+    hogqlSqlNodeSummaries: HogqlSqlNodeSummary[]
+    isEditable: boolean
+    isLocalOnly: boolean
+    isShareModalOpen: boolean
+    isShared: boolean
+    isShowingLeftColumn: boolean
+    isTemplate: boolean
+    localContent: JSONContent | null
+    localVariables: NotebookVariable[] | null
+    markdownAIPresenceActive: boolean
+    markdownEditorBuffer: string | null
+    markdownEditorDraft: string | null
+    markdownEditorInteractionActive: boolean
+    markdownEditorMarkdown: string
+    markdownEditorNodeId: string
+    markdownEditorValue: string
+    markdownMergeConflictDetails: NotebookCollaborationConflict[] | null
+    markdownRealtimeEnabled: boolean
+    markdownRemoteCarets: RemoteNotebookCaret[]
+    markdownRemoteParticipants: NotebookRemoteParticipant[]
+    markdownRemotePresence: Record<string, NotebookRemotePresenceState>
+    mode: NotebookLogicMode
+    newNotebook: NotebookType | null
+    newNotebookLoading: boolean
+    nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>
+    nodeLogicsWithChildren: BuiltLogic<notebookNodeLogicType>[]
+    notebook: NotebookType | null
+    notebookLoading: boolean
+    notebookMissing: boolean
+    notebookPresenceParticipants: NotebookPresenceParticipant[]
+    personUUIDFromCanvasOverride: string | null
+    previewContent: JSONContent | null
+    pythonNodeIndices: Map<string, number>
+    pythonNodeSummaries: PythonNodeSummary[]
+    runnableVariables: NotebookVariable[]
+    shortId: string
+    shouldBeEditable: boolean
+    showHistory: boolean
+    showVariables: boolean
+    sqlNodeIndices: Map<string, number>
+    sqlV2NodeSummaries: SqlV2NodeSummary[]
+    syncStatus: NotebookSyncStatus
+    title: string
+    variableErrors: (string | null)[]
+    variables: NotebookVariable[]
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface notebookLogicActions {
+    maybeLoadComments: () => {
+        value: true
+    } // commentsLogic
+    setItemContext: (
+        context: Record<string, any> | null,
+        callback?: ((event: { sent: boolean }) => void) | undefined
+    ) => {
+        callback: ((event: { sent: boolean }) => void) | undefined
+        context: Record<string, any> | null
+    } // commentsLogic
+    setShowVariables: (showVariables: boolean | null) => {
+        showVariables: boolean | null
+    } // notebookSettingsLogic
+    receiveNotebookUpdate: (notebook: NotebookListItemType) => {
+        notebook: NotebookListItemType
+    } // notebooksModel
+    openSidePanel: (
+        tab: SidePanelTab,
+        options?: string | undefined
+    ) => {
+        options: string | undefined
+        tab: SidePanelTab
+    } // sidePanelStateLogic
+    applyNotebookArtifactMarkdown: (
+        content: NotebookArtifactContent,
+        conversationId?: string,
+        mode?: NotebookArtifactApplyMode
+    ) => {
+        content: NotebookArtifactContent
+        conversationId: string | undefined
+        mode: NotebookArtifactApplyMode
+    }
+    applyRemoteNotebookContent: (
+        content: JSONContent,
+        version: number
+    ) => {
+        content: JSONContent
+        version: number
+    }
+    clearLocalContent: () => {
+        value: true
+    }
+    clearLocalVariables: () => {
+        value: true
+    }
+    clearPreviewContent: () => {
+        value: true
+    }
+    closeShareModal: () => {
+        value: true
+    }
+    connectMarkdownUpdateStream: () => {
+        value: true
+    }
+    copyMarkdown: () => {
+        value: true
+    }
+    disconnectMarkdownUpdateStream: () => {
+        value: true
+    }
+    dismissMarkdownMergeConflictDetails: () => {
+        value: true
+    }
+    downloadMarkdown: () => {
+        value: true
+    }
+    duplicateNotebook: () => any
+    duplicateNotebookFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    duplicateNotebookSuccess: (
+        newNotebook: NotebookType | null,
+        payload?: any
+    ) => {
+        newNotebook: NotebookType | null
+        payload?: any
+    }
+    exportJSON: () => {
+        value: true
+    }
+    handleMarkdownEditorChange: (markdown: string) => {
+        markdown: string
+    }
+    handleMarkdownStreamEvent: (event: MarkdownStreamEvent) => {
+        event: MarkdownStreamEvent
+    }
+    handleRemotePresence: (presence: Omit<NotebookRemotePresenceState, 'lastSeenAt'>) => {
+        presence: Omit<NotebookRemotePresenceState, 'lastSeenAt'>
+        receivedAt: number
+    }
+    insertAfterLastNode: (content: JSONContent) => {
+        content: JSONContent
+    }
+    insertComment: (context: Record<string, any>) => {
+        context: Record<string, any>
+    }
+    loadNotebook: () => {
+        value: true
+    }
+    loadNotebookFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadNotebookSuccess: (
+        notebook: NotebookType | null,
+        payload?: {
+            value: true
         }
-        const text = markTexts[comment.item_context.id]
-        if (text) {
-            contexts[comment.id] = text
+    ) => {
+        notebook: NotebookType | null
+        payload?: {
+            value: true
         }
     }
-    return contexts
+    notebookVariablesSaved: (variables: NotebookVariableApi[]) => {
+        variables: NotebookVariableApi[]
+    }
+    openShareModal: () => {
+        value: true
+    }
+    pasteAfterLastNode: (content: string) => {
+        content: string
+    }
+    processPendingMarkdownStreamEvents: () => {
+        value: true
+    }
+    pruneRemotePresence: () => {
+        now: number
+    }
+    publishMarkdownCaret: (position: MarkdownNotebookCaretPosition | null) => {
+        position: MarkdownNotebookCaretPosition | null
+    }
+    registerNodeLogic: (
+        nodeId: string,
+        nodeLogic: BuiltLogic<notebookNodeLogicType>
+    ) => {
+        nodeId: string
+        nodeLogic: BuiltLogic<notebookNodeLogicType>
+    }
+    renameNotebook: (title: string) => {
+        title: string
+    }
+    renameNotebookFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    renameNotebookSuccess: (
+        notebook: NotebookType | null,
+        payload?: {
+            title: string
+        }
+    ) => {
+        notebook: NotebookType | null
+        payload?: {
+            title: string
+        }
+    }
+    reportMarkdownMergeConflicts: (conflicts: NotebookCollaborationConflict[]) => {
+        conflicts: NotebookCollaborationConflict[]
+    }
+    saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => {
+        notebook: Pick<NotebookType, 'content' | 'title'>
+    }
+    saveNotebookFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    saveNotebookSuccess: (
+        notebook: NotebookType | null,
+        payload?: {
+            notebook: Pick<NotebookType, 'content' | 'title'>
+        }
+    ) => {
+        notebook: NotebookType | null
+        payload?: {
+            notebook: Pick<NotebookType, 'content' | 'title'>
+        }
+    }
+    scheduleNotebookRefresh: () => {
+        value: true
+    }
+    selectComment: (itemContextId: string) => {
+        itemContextId: string
+    }
+    setAccessDeniedToNotebook: () => {
+        value: true
+    }
+    setAutosavePaused: (paused: boolean) => {
+        paused: boolean
+    }
+    setContainerSize: (containerSize: 'medium' | 'small') => {
+        containerSize: 'medium' | 'small'
+    }
+    setEditable: (editable: boolean) => {
+        editable: boolean
+    }
+    setEditingNodeEditing: (
+        nodeId: string,
+        editing: boolean
+    ) => {
+        editing: boolean
+        nodeId: string
+    }
+    setLocalContent: (
+        jsonContent: JSONContent,
+        skipCapture?: any
+    ) => {
+        jsonContent: JSONContent
+        skipCapture: any
+    }
+    setMarkdownAIPresenceActive: (active: boolean) => {
+        active: boolean
+    }
+    setMarkdownEditorBuffer: (buffered: string | null) => {
+        buffered: string | null
+    }
+    setMarkdownEditorDraft: (draft: string | null) => {
+        draft: string | null
+    }
+    setMarkdownEditorInteractionActive: (active: boolean) => {
+        active: boolean
+    }
+    setPreviewContent: (jsonContent: JSONContent) => {
+        jsonContent: JSONContent
+    }
+    setShowHistory: (showHistory: boolean) => {
+        showHistory: boolean
+    }
+    setVariables: (variables: NotebookVariable[]) => {
+        variables: NotebookVariable[]
+    }
+    showMarkdownMergeConflictDetails: (conflicts: NotebookCollaborationConflict[]) => {
+        conflicts: NotebookCollaborationConflict[]
+    }
+    unregisterNodeLogic: (nodeId: string) => {
+        nodeId: string
+    }
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface notebookLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        canvasFiltersOverride: (arg: any) => any
+        shortId: (shortId: string) => string
+        mode: (arg: any) => NotebookLogicMode
+        isTemplate: (shortId: string) => boolean
+        isLocalOnly: (arg: any, isTemplate: boolean) => boolean
+        markdownRealtimeEnabled: (
+            arg: any,
+            mode: NotebookLogicMode,
+            isLocalOnly: boolean,
+            notebook: NotebookType | null
+        ) => boolean
+        notebookMissing: (notebook: NotebookType | null, notebookLoading: boolean, mode: NotebookLogicMode) => boolean
+        markdownRemoteCarets: (
+            markdownRemotePresence: Record<string, NotebookRemotePresenceState>
+        ) => RemoteNotebookCaret[]
+        markdownRemoteParticipants: (
+            markdownRemotePresence: Record<string, NotebookRemotePresenceState>
+        ) => NotebookRemoteParticipant[]
+        notebookPresenceParticipants: (
+            user: UserType | null,
+            markdownRemoteParticipants: NotebookPresenceState[],
+            markdownAIPresenceActive: boolean
+        ) => NotebookPresenceParticipant[]
+        content: (
+            notebook: NotebookType | null,
+            localContent: JSONContent | null,
+            previewContent: JSONContent | null
+        ) => JSONContent
+        markdownEditorMarkdown: (content: JSONContent) => string
+        markdownEditorNodeId: (content: JSONContent) => string
+        markdownEditorValue: (markdownEditorDraft: string | null, markdownEditorMarkdown: string) => string
+        title: (notebook: NotebookType | null, content: JSONContent) => string
+        hasUnsavedVariables: (localVariables: NotebookVariable[] | null, notebook: NotebookType | null) => boolean
+        syncStatus: (
+            notebook: NotebookType | null,
+            notebookLoading: boolean,
+            localContent: JSONContent | null,
+            isLocalOnly: boolean,
+            previewContent: JSONContent | null,
+            hasUnsavedVariables: boolean
+        ) => NotebookSyncStatus
+        editingNodeLogics: (
+            editingNodeIds: Record<string, true>,
+            nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>,
+            isShared: boolean
+        ) => BuiltLogic<notebookNodeLogicType>[]
+        findNodeLogic: (
+            nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>
+        ) => (type: NotebookNodeType, attributes: Record<string, any>) => notebookNodeLogicType | null
+        findNodeLogicById: (
+            nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>
+        ) => (id: string) => BuiltLogic<notebookNodeLogicType> | null
+        nodeLogicsWithChildren: (
+            nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>,
+            content: JSONContent
+        ) => BuiltLogic<notebookNodeLogicType>[]
+        pythonNodeSummaries: (content: JSONContent) => PythonNodeSummary[]
+        duckSqlNodeSummaries: (content: JSONContent) => DuckSqlNodeSummary[]
+        hogqlSqlNodeSummaries: (content: JSONContent) => HogqlSqlNodeSummary[]
+        sqlV2NodeSummaries: (content: JSONContent) => SqlV2NodeSummary[]
+        frameNodeSummaries: (content: JSONContent) => NotebookFrameNodeSummary[]
+        dependencyGraph: (content: JSONContent) => NotebookDependencyGraph
+        pythonNodeIndices: (content: JSONContent) => Map<string, number>
+        sqlNodeIndices: (content: JSONContent) => Map<string, number>
+        duckSqlNodeIndices: (content: JSONContent) => Map<string, number>
+        hogqlSqlNodeIndices: (content: JSONContent) => Map<string, number>
+        isShowingLeftColumn: (showHistory: boolean) => boolean
+        variables: (localVariables: NotebookVariable[] | null, notebook: NotebookType | null) => NotebookVariable[]
+        variableErrors: (variables: NotebookVariable[], content: JSONContent) => (string | null)[]
+        runnableVariables: (variables: NotebookVariable[], content: JSONContent) => NotebookVariable[]
+        showVariables: (showVariablesOverride: boolean | null, variables: NotebookVariable[]) => boolean
+        canEditNotebook: (
+            previewContent: JSONContent | null,
+            notebook: NotebookType | null,
+            mode: NotebookLogicMode
+        ) => boolean
+        isEditable: (shouldBeEditable: boolean, canEditNotebook: boolean) => boolean
+        isShared: (arg: any) => boolean
+        cachedInsightsByShortId: (arg: any) => Record<string, InsightModel>
+        cachedInlineQueryResultsByNodeId: (arg: any) => Record<string, AnyResponseType>
+        getSharedCachedInsight: (
+            isShared: boolean,
+            cachedInsightsByShortId: Record<string, InsightModel>
+        ) => (shortId: string | null | undefined) => InsightModel | null
+        getSharedCachedInlineQueryResults: (
+            isShared: boolean,
+            cachedInlineQueryResultsByNodeId: Record<string, AnyResponseType>
+        ) => (nodeId: string | null | undefined) => AnyResponseType | null
+        personUUIDFromCanvasOverride: (arg: any) => string | null
+        activeCommentMarkId: (selectedCommentId: string | null, comments: CommentType[] | null) => string | null
+    }
+}
+
+export type notebookLogicType = MakeLogicType<
+    notebookLogicValues,
+    notebookLogicActions,
+    NotebookLogicProps,
+    notebookLogicMeta
+>
 
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
@@ -262,25 +734,23 @@ export const notebookLogic = kea<notebookLogicType>([
 
     connect((props: NotebookLogicProps) => ({
         values: [
-            featureFlagLogic,
-            ['featureFlags'],
             notebooksModel,
             ['scratchpadNotebook', 'notebookTemplates'],
             commentsLogic({
                 scope: ActivityScope.NOTEBOOK,
                 item_id: props.shortId,
             }),
-            ['comments', 'itemContext', 'selectedCommentId', 'commentContexts'],
-            notebookKernelInfoLogic({ shortId: props.shortId }),
+            ['comments', 'selectedCommentId'],
+            notebookKernelInfoLogic({ shortId: props.shortId, mode: props.mode }),
             ['kernelInfo'],
             notebookSettingsLogic,
-            ['showKernelInfo', 'showTableOfContents'],
-            notebookCollabLogic({ shortId: props.shortId }),
-            ['ttEditor', 'remoteParticipants'],
+            ['showKernelInfo', 'showVariablesOverride'],
             userLogic,
             ['user'],
         ],
         actions: [
+            notebookSettingsLogic,
+            ['setShowVariables'],
             notebooksModel,
             ['receiveNotebookUpdate'],
             sidePanelStateLogic,
@@ -289,16 +759,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 scope: ActivityScope.NOTEBOOK,
                 item_id: props.shortId,
             }),
-            ['setItemContext', 'maybeLoadComments', 'setSelectedComment', 'setCommentContexts'],
-            notebookCollabLogic({ shortId: props.shortId }),
-            ['ackLocalSteps', 'applyRemoteSteps', 'rebaseFailed'],
+            ['setItemContext', 'maybeLoadComments'],
         ],
     })),
     actions({
-        setEditor: (editor: NotebookEditor) => ({ editor }),
-        editorIsReady: true,
-        onEditorUpdate: true,
-        onEditorSelectionUpdate: true,
         setAutosavePaused: (paused: boolean) => ({ paused }),
         setMarkdownEditorInteractionActive: (active: boolean) => ({ active }),
         setMarkdownAIPresenceActive: (active: boolean) => ({ active }),
@@ -310,12 +774,14 @@ export const notebookLogic = kea<notebookLogicType>([
             conversationId?: string,
             mode: NotebookArtifactApplyMode = 'replace'
         ) => ({ content, conversationId, mode }),
-        setLocalContent: (jsonContent: JSONContent, updateEditor = false, skipCapture = false) => ({
+        setLocalContent: (jsonContent: JSONContent, skipCapture = false) => ({
             jsonContent,
-            updateEditor,
             skipCapture,
         }),
         clearLocalContent: true,
+        setVariables: (variables: NotebookVariable[]) => ({ variables }),
+        clearLocalVariables: true,
+        notebookVariablesSaved: (variables: NotebookVariableApi[]) => ({ variables }),
         setPreviewContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearPreviewContent: true,
         loadNotebook: true,
@@ -342,46 +808,22 @@ export const notebookLogic = kea<notebookLogicType>([
         exportJSON: true,
         downloadMarkdown: true,
         copyMarkdown: true,
-        showConflictWarning: true,
-        onUpdateEditor: true,
         registerNodeLogic: (nodeId: string, nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeId, nodeLogic }),
         unregisterNodeLogic: (nodeId: string) => ({ nodeId }),
         setEditable: (editable: boolean) => ({ editable }),
-        scrollToSelection: true,
         pasteAfterLastNode: (content: string) => ({
             content,
         }),
         insertAfterLastNode: (content: JSONContent) => ({
             content,
         }),
-
-        insertAfterLastNodeOfType: (nodeType: string, content: JSONContent, knownStartingPosition) => ({
-            content,
-            nodeType,
-            knownStartingPosition,
-        }),
-        addSavedInsightToNotebook: (insightShortId: InsightShortId, insertionPosition: number | null = null) => ({
-            insightShortId,
-            insertionPosition,
-        }),
-        addExperimentToNotebook: (experimentId: number, insertionPosition: number | null = null) => ({
-            experimentId,
-            insertionPosition,
-        }),
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
-        setTableOfContents: (tableOfContents: TableOfContentData) => ({ tableOfContents }),
-        setTextSelection: (selection: number | EditorRange) => ({ selection }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
         insertComment: (context: Record<string, any>) => ({ context }),
         selectComment: (itemContextId: string) => ({ itemContextId }),
         openShareModal: true,
         closeShareModal: true,
         setAccessDeniedToNotebook: true,
-        showCollabConflict: (params: { serverContent: JSONContent; localContent: JSONContent; localText: string }) =>
-            params,
-        dismissCollabConflict: true,
-        discardLocalChanges: true,
-        copyUnsavedToNewNotebook: true,
     }),
     reducers(({ props }) => ({
         isShareModalOpen: [
@@ -398,6 +840,16 @@ export const notebookLogic = kea<notebookLogicType>([
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
                 clearLocalContent: () => null,
+            },
+        ],
+        // Local edits ahead of the saved notebook; null means "nothing edited yet, use the server's".
+        localVariables: [
+            null as NotebookVariable[] | null,
+            {
+                setVariables: (_, { variables }) => variables,
+                // Dropped once the save round-trips, so `variables` falls back to the server's
+                // copy and the bar stops reporting an unsaved edit that already landed.
+                clearLocalVariables: () => null,
             },
         ],
         previewContent: [
@@ -432,36 +884,6 @@ export const notebookLogic = kea<notebookLogicType>([
             null as string | null,
             {
                 setMarkdownEditorBuffer: (_, { buffered }) => buffered,
-            },
-        ],
-        editor: [
-            null as NotebookEditor | null,
-            {
-                setEditor: (_, { editor }) => editor,
-            },
-        ],
-        ready: [
-            false,
-            {
-                setReady: () => true,
-            },
-        ],
-        conflictWarningVisible: [
-            false,
-            {
-                showConflictWarning: () => true,
-                loadNotebookSuccess: () => false,
-            },
-        ],
-        collabConflict: [
-            null as {
-                serverContent: JSONContent
-                localContent: JSONContent
-                localText: string
-            } | null,
-            {
-                showCollabConflict: (_, params) => params,
-                dismissCollabConflict: () => null,
             },
         ],
         markdownMergeConflictDetails: [
@@ -547,12 +969,6 @@ export const notebookLogic = kea<notebookLogicType>([
                 setShowHistory: (_, { showHistory }) => showHistory,
             },
         ],
-        tableOfContents: [
-            [] as TableOfContentData,
-            {
-                setTableOfContents: (_, { tableOfContents }) => tableOfContents,
-            },
-        ],
         containerSize: [
             'small' as 'small' | 'medium',
             {
@@ -605,19 +1021,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     }
 
-                    const notebook = await migrate(response, { skipApiUpgrade: !!values.isShared })
-
-                    if (
-                        !values.collabEnabled &&
-                        notebook.content &&
-                        (!values.notebook || values.notebook.version !== notebook.version)
-                    ) {
-                        // Push fresh server content into the editor on polling refresh (no-op on first load).
-                        // Collab notebooks update via SSE, not setContent.
-                        values.editor?.setContent(notebook.content)
-                    }
-
-                    return notebook
+                    return await migrate(response, { skipApiUpgrade: !!values.isShared })
                 },
 
                 saveNotebook: async ({ notebook }) => {
@@ -625,221 +1029,114 @@ export const notebookLogic = kea<notebookLogicType>([
                         return values.notebook
                     }
 
-                    // While the stale-conflict modal is open, the user's local content has diverged
-                    // from the server beyond what we can merge. Don't keep retrying saves until
-                    // they choose to discard or force-save — otherwise we'd loop on 410s.
-                    if (values.collabConflict) {
-                        return values.notebook
-                    }
-
                     const notebookContent = notebook.content
+                    const baselineVersion = values.notebook.version
+                    const baseMarkdown = getMarkdownNotebookMarkdown(values.notebook.content)
+                    const nextMarkdown = getMarkdownNotebookMarkdown(notebookContent)
+                    const nodeId = getMarkdownNotebookNodeId(values.notebook.content)
 
-                    if (values.collabEnabled && values.ttEditor) {
-                        const sendable = sendableSteps(values.ttEditor.state)
-                        if (!sendable) {
-                            return values.notebook
-                        }
-                        const stepsJson = sendable.steps.map((s) => s.toJSON())
-
-                        try {
-                            const response = await api.create(
-                                `api/projects/@current/notebooks/${values.notebook.short_id}/collab/save/`,
-                                {
-                                    client_id: sendable.clientID,
-                                    version: sendable.version,
-                                    steps: stepsJson,
-                                    content: values.editor?.getJSON(),
-                                    text_content: getNotebookTextContent(
-                                        values.editor?.getJSON() ?? notebook.content,
-                                        values.editor?.getText() || ''
-                                    ),
-                                    title: notebook.title,
-                                    cursor_head: values.ttEditor.state.selection.head,
-                                }
-                            )
-                            actions.ackLocalSteps(stepsJson, String(sendable.clientID))
-                            refreshTreeItem('notebook', String(values.notebook.short_id))
-                            return response
-                        } catch (error: any) {
-                            if (error.status === 409 && error.data?.steps) {
-                                // prosemirror-collab rebases our pending steps over the missed range.
-                                // If receiveTransaction throws, `rebaseFailed` opens the conflict modal.
-                                const steps = error.data.steps as Record<string, any>[]
-                                const clientIds = error.data.client_ids as string[]
-                                const serverVersion = error.data.version as number
-                                const firstMissedVersion = serverVersion - steps.length + 1
-                                actions.applyRemoteSteps(
-                                    steps.map((step, i) => ({
-                                        step,
-                                        clientId: clientIds[i],
-                                        version: firstMissedVersion + i,
-                                    }))
-                                )
-                                if (values.collabConflict) {
-                                    return values.notebook
-                                }
-                                actions.saveNotebook({
-                                    content: values.editor?.getJSON() ?? notebook.content,
-                                    title: notebook.title,
-                                })
-                                return values.notebook
-                            }
-                            if (error.status === 410) {
-                                // Stream trimmed
-                                actions.rebaseFailed({
-                                    localContent: values.editor?.getJSON() ?? notebook.content ?? {},
-                                    localText: values.editor?.getText() ?? '',
-                                })
-                                return values.notebook
-                            }
-                            throw error
-                        }
-                    }
-
-                    if (values.markdownRealtimeEnabled && isMarkdownNotebookContent(notebookContent)) {
-                        const baselineVersion = values.notebook.version
-                        const baseMarkdown = getMarkdownNotebookMarkdown(values.notebook.content)
-                        const nextMarkdown = getMarkdownNotebookMarkdown(notebookContent)
-                        const nodeId = getMarkdownNotebookNodeId(values.notebook.content)
-
-                        if (nextMarkdown === baseMarkdown) {
-                            if ((notebook.title ?? '') !== (values.notebook.title ?? '')) {
-                                const response = await api.notebooks.update(values.notebook.short_id, {
-                                    title: notebook.title,
-                                })
-                                refreshTreeItem('notebook', String(values.notebook.short_id))
-                                return response
-                            }
-                            return values.notebook
-                        }
-
-                        cache.markdownClientId = cache.markdownClientId || getNotebookMarkdownClientId()
-                        try {
-                            const response = await api.notebooks.markdownSave(values.notebook.short_id, {
-                                client_id: cache.markdownClientId,
-                                version: baselineVersion,
-                                content: notebookContent,
-                                text_content: getNotebookTextContent(notebookContent, ''),
+                    if (nextMarkdown === baseMarkdown) {
+                        if ((notebook.title ?? '') !== (values.notebook.title ?? '')) {
+                            const response = await api.notebooks.update(values.notebook.short_id, {
                                 title: notebook.title,
-                                cursor: cache.lastMarkdownCaret
-                                    ? caretPositionToApiCursor(cache.lastMarkdownCaret)
-                                    : undefined,
                             })
                             refreshTreeItem('notebook', String(values.notebook.short_id))
                             return response
-                        } catch (error: any) {
-                            if (error.status === 409 && error.data?.updates) {
-                                // Fold the missed diffs into our baseline to reconstruct the server
-                                // state, merge our edits over it, and retry against the new version —
-                                // all without refetching the notebook.
-                                const updates = error.data.updates as {
-                                    version: number
-                                    diff: TextChange[]
-                                    base_crc?: number | null
-                                }[]
-                                let serverMarkdown: string | null = baseMarkdown
-                                for (const update of updates) {
-                                    if (
-                                        typeof update.base_crc === 'number' &&
-                                        markdownCrc(serverMarkdown) !== update.base_crc
-                                    ) {
-                                        serverMarkdown = null
-                                        break
-                                    }
-                                    serverMarkdown = tryApplyTextChanges(serverMarkdown, update.diff)
-                                    if (serverMarkdown === null) {
-                                        break
-                                    }
+                        }
+                        return values.notebook
+                    }
+
+                    cache.markdownClientId = cache.markdownClientId || getNotebookMarkdownClientId()
+                    try {
+                        const response = await api.notebooks.markdownSave(values.notebook.short_id, {
+                            client_id: cache.markdownClientId,
+                            version: baselineVersion,
+                            content: notebookContent,
+                            text_content: getNotebookTextContent(notebookContent),
+                            title: notebook.title,
+                            cursor: cache.lastMarkdownCaret
+                                ? caretPositionToApiCursor(cache.lastMarkdownCaret)
+                                : undefined,
+                        })
+                        refreshTreeItem('notebook', String(values.notebook.short_id))
+                        posthog.capture('notebook saved', {
+                            short_id: values.notebook.short_id,
+                            save_path: 'markdown_realtime',
+                            is_markdown: true,
+                        })
+                        return response
+                    } catch (error: any) {
+                        if (error.status === 409 && error.data?.updates) {
+                            // Fold the missed diffs into our baseline to reconstruct the server
+                            // state, merge our edits over it, and retry against the new version —
+                            // all without refetching the notebook.
+                            const updates = error.data.updates as {
+                                version: number
+                                diff: TextChange[]
+                                base_crc?: number | null
+                            }[]
+                            posthog.capture('notebook markdown save conflict retried', {
+                                short_id: values.notebook.short_id,
+                                missed_updates: updates.length,
+                            })
+                            let serverMarkdown: string | null = baseMarkdown
+                            for (const update of updates) {
+                                if (
+                                    typeof update.base_crc === 'number' &&
+                                    markdownCrc(serverMarkdown) !== update.base_crc
+                                ) {
+                                    serverMarkdown = null
+                                    break
                                 }
+                                serverMarkdown = tryApplyTextChanges(serverMarkdown, update.diff)
                                 if (serverMarkdown === null) {
-                                    // Replay didn't fit our baseline — reload; the editor merges
-                                    // local edits over the fresh server state via remoteValue.
-                                    actions.loadNotebook()
-                                    return values.notebook
+                                    break
                                 }
-                                const serverVersion = error.data.version as number
-                                const merge = mergeNotebookMarkdownChanges({
-                                    baseMarkdown,
-                                    localMarkdown: nextMarkdown,
-                                    remoteMarkdown: serverMarkdown,
-                                })
-                                actions.applyRemoteNotebookContent(
-                                    buildMarkdownNotebookContent(serverMarkdown, nodeId),
-                                    serverVersion
-                                )
-                                if (merge.mergedMarkdown !== serverMarkdown) {
-                                    actions.saveNotebook({
-                                        content: buildMarkdownNotebookContent(merge.mergedMarkdown, nodeId),
-                                        title: notebook.title,
-                                    })
-                                }
-                                return values.notebook
                             }
-                            if (error.status === 410) {
-                                // Missed range not replayable (trimmed / mixed writers): full reload,
-                                // the editor merges local edits over the fresh server state.
+                            if (serverMarkdown === null) {
+                                // Replay didn't fit our baseline — reload; the editor merges
+                                // local edits over the fresh server state via remoteValue.
+                                posthog.capture('notebook markdown full reload', {
+                                    short_id: values.notebook.short_id,
+                                    reason: 'save_replay_failed',
+                                })
                                 actions.loadNotebook()
                                 return values.notebook
                             }
-                            throw error
+                            const serverVersion = error.data.version as number
+                            const merge = mergeNotebookMarkdownChanges({
+                                baseMarkdown,
+                                localMarkdown: nextMarkdown,
+                                remoteMarkdown: serverMarkdown,
+                            })
+                            actions.applyRemoteNotebookContent(
+                                buildMarkdownNotebookContent(serverMarkdown, nodeId),
+                                serverVersion
+                            )
+                            if (merge.mergedMarkdown !== serverMarkdown) {
+                                actions.saveNotebook({
+                                    content: buildMarkdownNotebookContent(merge.mergedMarkdown, nodeId),
+                                    title: notebook.title,
+                                })
+                            }
+                            return values.notebook
                         }
-                    }
-
-                    // Legacy path: full-doc PATCH
-                    try {
-                        const response = await api.notebooks.update(values.notebook.short_id, {
-                            version: values.notebook.version,
-                            content: notebookContent,
-                            text_content: getNotebookTextContent(notebookContent, values.editor?.getText() || ''),
-                            title: notebook.title,
+                        if (error.status === 410) {
+                            // Missed range not replayable (trimmed / mixed writers): full reload,
+                            // the editor merges local edits over the fresh server state.
+                            posthog.capture('notebook markdown full reload', {
+                                short_id: values.notebook.short_id,
+                                reason: 'stream_trimmed',
+                            })
+                            actions.loadNotebook()
+                            return values.notebook
+                        }
+                        posthog.capture('notebook save failed', {
+                            short_id: values.notebook.short_id,
+                            save_path: 'markdown_realtime',
+                            is_markdown: true,
+                            status: error.status,
                         })
-
-                        if (
-                            response.content &&
-                            values.editor &&
-                            values.localContent &&
-                            notebookContent === values.localContent
-                        ) {
-                            const currentEditorContent = values.editor.getJSON()
-                            if (JSON.stringify(response.content) !== JSON.stringify(currentEditorContent)) {
-                                const currentPosition = values.editor.getCurrentPosition()
-                                values.editor.setContent(response.content)
-                                values.editor.setTextSelection(currentPosition)
-                            }
-                        }
-
-                        refreshTreeItem('notebook', String(values.notebook.short_id))
-                        return response
-                    } catch (error: any) {
-                        if (error.code === 'conflict') {
-                            const currentLocalContent = values.localContent
-                            const savedContent = values.notebook.content
-                            if (
-                                isMarkdownNotebookContent(savedContent) &&
-                                isMarkdownNotebookContent(currentLocalContent)
-                            ) {
-                                try {
-                                    const freshNotebook = await api.notebooks.get(
-                                        values.notebook.short_id,
-                                        undefined,
-                                        {}
-                                    )
-                                    if (freshNotebook && isMarkdownNotebookContent(freshNotebook.content)) {
-                                        // The markdown editor merges fresh server content into local edits
-                                        // through its remoteValue path and re-emits the merged content,
-                                        // which retries the save against the new version.
-                                        refreshTreeItem('notebook', String(values.notebook.short_id))
-                                        return freshNotebook
-                                    }
-                                } catch {
-                                    // Fall through to the manual conflict path if refreshing content fails.
-                                }
-                            }
-
-                            actions.clearLocalContent()
-                            actions.showConflictWarning()
-                            return null
-                        }
                         throw error
                     }
                 },
@@ -878,7 +1175,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         ? updateContentHeading(values.content, title)
                         : values.content
 
-                    let textContent = getNotebookTextContent(content, values.editor?.getText() || '')
+                    let textContent = getNotebookTextContent(content)
                     if (isRegularNotebookDuplication && textContent.startsWith(values.title)) {
                         textContent = title + textContent.slice(values.title.length)
                     }
@@ -887,6 +1184,9 @@ export const notebookLogic = kea<notebookLogicType>([
                         content,
                         text_content: textContent,
                         title,
+                        // The copied cells keep their `{name}` references, so a duplicate without
+                        // the variables fails every SQL cell that reads one.
+                        ...(values.variables.length ? { variables: values.variables } : {}),
                     })
 
                     posthog.capture(`notebook duplicated`, {
@@ -917,55 +1217,41 @@ export const notebookLogic = kea<notebookLogicType>([
             saveNotebookSuccess: (state, { notebook }) => keepNewestNotebookResponse(state, notebook),
             applyRemoteNotebookContent: (state, { content, version }) =>
                 state && version > state.version ? { ...state, content, version } : state,
+            // A variables-only PATCH leaves `version` alone server-side, so only this field is
+            // newer. Merging it lets the local copy be dropped without the bar snapping back to
+            // the list the notebook was loaded with.
+            notebookVariablesSaved: (state, { variables }) => (state ? { ...state, variables } : state),
         },
     }),
     selectors({
         canvasFiltersOverride: [() => [(_, props) => props], (props) => props.canvasFiltersOverride || []],
-        shortId: [(_, p) => [p.shortId], (shortId) => shortId],
+        shortId: [(_, p) => [p.shortId], (shortId: string) => shortId],
         mode: [() => [(_, props) => props], (props): NotebookLogicMode => props.mode ?? 'notebook'],
-        isTemplate: [(s) => [s.shortId], (shortId): boolean => shortId.startsWith('template-')],
+        isTemplate: [(s) => [s.shortId], (shortId: string): boolean => shortId.startsWith('template-')],
         isLocalOnly: [
             (s) => [(_, props) => props, s.isTemplate],
-            (props, isTemplate): boolean => {
+            (props, isTemplate: boolean): boolean => {
                 return props.shortId === 'scratchpad' || props.mode === 'canvas' || isTemplate
             },
         ],
-        collabEnabled: [
-            (s) => [s.featureFlags, s.isLocalOnly, s.localContent, s.notebook],
-            (
-                featureFlags: Record<string, string | boolean>,
-                isLocalOnly: boolean,
-                localContent: JSONContent | null,
-                notebook: NotebookType | null
-            ): boolean =>
-                !!featureFlags[FEATURE_FLAGS.NOTEBOOKS_COLLABORATION] &&
-                !isLocalOnly &&
-                !isMarkdownNotebookContent(localContent || notebook?.content),
-        ],
         markdownRealtimeEnabled: [
-            (s) => [(_, props) => props, s.mode, s.isLocalOnly, s.content, s.notebook],
+            (s) => [(_, props) => props, s.mode, s.isLocalOnly, s.notebook],
             (
                 props: NotebookLogicProps,
                 mode: NotebookLogicMode,
                 isLocalOnly: boolean,
-                content: JSONContent,
                 notebook: NotebookType | null
-            ): boolean =>
-                mode === 'notebook' &&
-                !props.cachedNotebook &&
-                !isLocalOnly &&
-                !!notebook &&
-                isMarkdownNotebookContent(content),
+            ): boolean => mode === 'notebook' && !props.cachedNotebook && !isLocalOnly && !!notebook,
         ],
         notebookMissing: [
             (s) => [s.notebook, s.notebookLoading, s.mode],
-            (notebook, notebookLoading, mode): boolean => {
+            (notebook: NotebookType | null, notebookLoading: boolean, mode: NotebookLogicMode): boolean => {
                 return (['notebook', 'template'].includes(mode) && !notebook && !notebookLoading) ?? false
             },
         ],
         markdownRemoteCarets: [
             (s) => [s.markdownRemotePresence],
-            (markdownRemotePresence): RemoteNotebookCaret[] => {
+            (markdownRemotePresence: Record<string, NotebookRemotePresenceState>): RemoteNotebookCaret[] => {
                 const carets: RemoteNotebookCaret[] = []
                 for (const presence of Object.values(markdownRemotePresence)) {
                     const position = apiCursorToCaretPosition(presence.cursor)
@@ -984,21 +1270,17 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
         markdownRemoteParticipants: [
             (s) => [s.markdownRemotePresence],
-            (markdownRemotePresence): NotebookRemoteParticipant[] =>
+            (markdownRemotePresence: Record<string, NotebookRemotePresenceState>): NotebookRemoteParticipant[] =>
                 getNotebookRemoteParticipants(markdownRemotePresence),
         ],
         notebookPresenceParticipants: [
-            (s) => [s.user, s.markdownRemoteParticipants, s.remoteParticipants, s.markdownAIPresenceActive],
+            (s) => [s.user, s.markdownRemoteParticipants, s.markdownAIPresenceActive],
             (
-                user,
+                user: null | import('~/types').UserType,
                 markdownRemoteParticipants: NotebookRemoteParticipant[],
-                remoteParticipants: NotebookRemoteParticipant[],
                 markdownAIPresenceActive: boolean
             ): NotebookPresenceParticipant[] => {
-                const participants = getNotebookPresenceParticipants(
-                    user,
-                    markdownRemoteParticipants.length > 0 ? markdownRemoteParticipants : remoteParticipants
-                )
+                const participants = getNotebookPresenceParticipants(user, markdownRemoteParticipants)
                 if (!markdownAIPresenceActive) {
                     return participants
                 }
@@ -1015,32 +1297,64 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
         content: [
             (s) => [s.notebook, s.localContent, s.previewContent],
-            (notebook, localContent, previewContent): JSONContent => {
-                // We use the local content is set otherwise the notebook content
-                return previewContent || localContent || notebook?.content || []
+            (
+                notebook: NotebookType | null,
+                localContent: JSONContent | null,
+                previewContent: JSONContent | null
+            ): JSONContent => {
+                return convertNotebookContentForRender(previewContent || localContent || notebook?.content)
             },
         ],
-        markdownEditorMarkdown: [(s) => [s.content], (content): string => getMarkdownNotebookMarkdown(content)],
-        markdownEditorNodeId: [(s) => [s.content], (content): string => getMarkdownNotebookNodeId(content)],
+        markdownEditorMarkdown: [
+            (s) => [s.content],
+            (content: JSONContent): string => getMarkdownNotebookMarkdown(content),
+        ],
+        markdownEditorNodeId: [
+            (s) => [s.content],
+            (content: JSONContent): string => getMarkdownNotebookNodeId(content),
+        ],
         markdownEditorValue: [
             (s) => [s.markdownEditorDraft, s.markdownEditorMarkdown],
-            (markdownEditorDraft, markdownEditorMarkdown): string => markdownEditorDraft ?? markdownEditorMarkdown,
+            (markdownEditorDraft: string | null, markdownEditorMarkdown: string): string =>
+                markdownEditorDraft ?? markdownEditorMarkdown,
         ],
         title: [
             (s) => [s.notebook, s.content],
-            (notebook, content): string => {
-                const firstTextNode = content?.content?.[0]?.content?.[0]
-                const contentTitle = isMarkdownNotebookContent(content)
-                    ? getMarkdownNotebookTitle(content)
-                    : typeof firstTextNode?.text === 'string'
-                      ? firstTextNode.text
-                      : null
-                return contentTitle || notebook?.title || 'Untitled'
+            (notebook: NotebookType | null, content: JSONContent): string => {
+                return getMarkdownNotebookTitle(content) || notebook?.title || 'Untitled'
             },
         ],
+        /**
+         * Whether the bar holds an edit the server does not have yet. Compared on the savable
+         * declarations only, so a draft row the person has not named cannot leave the notebook
+         * reporting unsaved work forever.
+         */
+        hasUnsavedVariables: [
+            (s) => [s.localVariables, s.notebook],
+            (localVariables: NotebookVariable[] | null, notebook: NotebookType | null): boolean =>
+                localVariables !== null &&
+                !sameNotebookVariables(
+                    getSavableNotebookVariables(localVariables),
+                    parseNotebookVariables(notebook?.variables)
+                ),
+        ],
         syncStatus: [
-            (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly, s.previewContent],
-            (notebook, notebookLoading, localContent, isLocalOnly, previewContent): NotebookSyncStatus => {
+            (s) => [
+                s.notebook,
+                s.notebookLoading,
+                s.localContent,
+                s.isLocalOnly,
+                s.previewContent,
+                s.hasUnsavedVariables,
+            ],
+            (
+                notebook: NotebookType | null,
+                notebookLoading: boolean,
+                localContent: JSONContent | null,
+                isLocalOnly: boolean,
+                previewContent: JSONContent | null,
+                hasUnsavedVariables: boolean
+            ): NotebookSyncStatus => {
                 if (previewContent || notebook?.is_template) {
                     return 'synced'
                 }
@@ -1048,7 +1362,9 @@ export const notebookLogic = kea<notebookLogicType>([
                 if (isLocalOnly) {
                     return 'local'
                 }
-                if (!notebook || !localContent) {
+                // Variables save on their own PATCH, so an edit to them is unsaved work even
+                // when the document itself is clean.
+                if (!notebook || (!localContent && !hasUnsavedVariables)) {
                     return 'synced'
                 }
 
@@ -1061,7 +1377,11 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
         editingNodeLogics: [
             (s) => [s.editingNodeIds, s.nodeLogics, s.isShared],
-            (editingNodeIds, nodeLogics, isShared) => {
+            (
+                editingNodeIds: Record<string, true>,
+                nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>,
+                isShared: boolean
+            ) => {
                 // Editing UI is meaningless for anonymous shared viewers and `editingNodeIds` can
                 // arrive pre-populated from persisted local state — zero it out at the source so
                 // the Settings panel never renders for them.
@@ -1071,23 +1391,9 @@ export const notebookLogic = kea<notebookLogicType>([
                 return Object.values(nodeLogics).filter((nodeLogic) => editingNodeIds[nodeLogic.values.nodeId])
             },
         ],
-        editingNodeLogicsForLeft: [
-            (s) => [s.editingNodeLogics, s.containerSize, s.content],
-            (
-                editingNodeLogics: BuiltLogic<notebookNodeLogicType>[],
-                containerSize: 'small' | 'medium',
-                content: JSONContent
-            ) =>
-                containerSize === 'small' || isMarkdownNotebookContent(content)
-                    ? []
-                    : editingNodeLogics.filter(
-                          (nodeLogic: BuiltLogic<notebookNodeLogicType>) =>
-                              nodeLogic.values.settingsPlacement !== 'inline'
-                      ),
-        ],
         findNodeLogic: [
             (s) => [s.nodeLogics],
-            (nodeLogics) => {
+            (nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>) => {
                 return (type: NotebookNodeType, attributes: Record<string, any>): notebookNodeLogicType | null => {
                     const attrEntries = Object.entries(attributes || {})
                     return (
@@ -1105,7 +1411,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
         findNodeLogicById: [
             (s) => [s.nodeLogics],
-            (nodeLogics) => {
+            (nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>) => {
                 return (id: string) => {
                     return Object.values(nodeLogics).find((nodeLogic) => nodeLogic.values.nodeId === id) ?? null
                 }
@@ -1115,25 +1421,29 @@ export const notebookLogic = kea<notebookLogicType>([
         nodeLogicsWithChildren: [
             (s) => [s.nodeLogics, s.content],
             // oxlint-disable-next-line @typescript-eslint/no-unused-vars
-            (nodeLogics, _content) => {
+            (nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>, _content: JSONContent) => {
                 // NOTE: _content is not but is needed to retrigger as it could mean the children have changed
-                return Object.values(nodeLogics).filter((nodeLogic) => nodeLogic.props.attributes?.children)
+                return Object.values(nodeLogics).filter((nodeLogic) =>
+                    Array.isArray(nodeLogic.props.attributes?.children)
+                )
             },
         ],
 
-        pythonNodeSummaries: [(s) => [s.content], (content) => collectPythonNodes(content)],
-        duckSqlNodeSummaries: [(s) => [s.content], (content) => collectDuckSqlNodes(content)],
-        hogqlSqlNodeSummaries: [(s) => [s.content], (content) => collectHogqlSqlNodes(content)],
-        dependencyGraph: [(s) => [s.content], (content) => buildNotebookDependencyGraph(content)],
+        pythonNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectPythonNodes(content)],
+        duckSqlNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectDuckSqlNodes(content)],
+        hogqlSqlNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectHogqlSqlNodes(content)],
+        sqlV2NodeSummaries: [(s) => [s.content], (content: JSONContent) => collectSqlV2Nodes(content)],
+        frameNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectNotebookFrameNodes(content)],
+        dependencyGraph: [(s) => [s.content], (content: JSONContent) => buildNotebookDependencyGraph(content)],
 
         pythonNodeIndices: [
             (s) => [s.content],
-            (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.Python),
+            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.Python),
         ],
 
         sqlNodeIndices: [
             (s) => [s.content],
-            (content) =>
+            (content: JSONContent) =>
                 collectNodeIndices(
                     content,
                     (node) =>
@@ -1144,52 +1454,65 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
         duckSqlNodeIndices: [
             (s) => [s.content],
-            (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.DuckSQL),
+            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.DuckSQL),
         ],
         hogqlSqlNodeIndices: [
             (s) => [s.content],
-            (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.HogQLSQL),
+            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.HogQLSQL),
         ],
 
-        isShowingLeftColumn: [
-            (s) => [
-                s.editingNodeLogicsForLeft,
-                s.showHistory,
-                s.showTableOfContents,
-                s.showKernelInfo,
-                s.containerSize,
-                s.content,
-            ],
-            (
-                editingNodeLogicsForLeft: BuiltLogic<notebookNodeLogicType>[],
-                showHistory: boolean,
-                showTableOfContents: boolean,
-                showKernelInfo: boolean,
-                containerSize: 'small' | 'medium',
-                content: JSONContent
-            ) => {
-                const isMarkdownNotebook = isMarkdownNotebookContent(content)
-                const shouldShowSettings =
-                    !isMarkdownNotebook && editingNodeLogicsForLeft.length > 0 && containerSize !== 'small'
-                const shouldShowTableOfContents = !isMarkdownNotebook && showTableOfContents
-                const shouldShowKernelInfo = !isMarkdownNotebook && showKernelInfo
+        isShowingLeftColumn: [(s) => [s.showHistory], (showHistory: boolean) => showHistory],
 
-                return showHistory || shouldShowTableOfContents || shouldShowKernelInfo || shouldShowSettings
+        // Local edits win while they exist; otherwise the saved notebook is the source.
+        variables: [
+            (s) => [s.localVariables, s.notebook],
+            (localVariables: NotebookVariable[] | null, notebook: NotebookType | null): NotebookVariable[] =>
+                localVariables ?? parseNotebookVariables(notebook?.variables),
+        ],
+        variableErrors: [
+            (s) => [s.variables, s.content],
+            (variables: NotebookVariable[], content: JSONContent): (string | null)[] => {
+                const errors = getNotebookVariableErrors(variables, getNotebookVariableConflictNames(content))
+                // A row that was just added has no name yet. Reporting that back before the
+                // person can type is noise, not feedback.
+                return errors.map((error, index) => (isNotebookVariableDraft(variables[index]) ? null : error))
             },
+        ],
+        // Only valid, unique declarations are safe to bind into a run.
+        runnableVariables: [
+            (s) => [s.variables, s.content],
+            (variables: NotebookVariable[], content: JSONContent): NotebookVariable[] =>
+                getRunnableNotebookVariables(variables, getNotebookVariableConflictNames(content)),
+        ],
+        // Open by default only once the notebook has variables — an empty bar is noise on a
+        // notebook that does not use them. The toggle overrides in both directions.
+        showVariables: [
+            (s) => [s.showVariablesOverride, s.variables],
+            (showVariablesOverride: boolean | null, variables: NotebookVariable[]): boolean =>
+                showVariablesOverride ?? variables.length > 0,
+        ],
+
+        // Whether this reader may change the notebook at all, independent of the view/edit toggle.
+        // A canvas is local to the reader, so it always qualifies. A history preview never does,
+        // because it shows a version the reader is not editing. Gate a control that has to work in
+        // view mode on this rather than on `isEditable`, which is false whenever the editors are
+        // off screen.
+        canEditNotebook: [
+            (s) => [s.previewContent, s.notebook, s.mode],
+            (previewContent: JSONContent | null, notebook: NotebookType | null, mode: NotebookLogicMode) =>
+                mode === 'canvas' ||
+                (!previewContent &&
+                    !!notebook?.user_access_level &&
+                    accessLevelSatisfied(
+                        AccessControlResourceType.Notebook,
+                        notebook.user_access_level,
+                        AccessControlLevel.Editor
+                    )),
         ],
 
         isEditable: [
-            (s) => [s.shouldBeEditable, s.previewContent, s.notebook, s.mode],
-            (shouldBeEditable, previewContent, notebook, mode) =>
-                shouldBeEditable &&
-                (mode === 'canvas' ||
-                    (!previewContent &&
-                        !!notebook?.user_access_level &&
-                        accessLevelSatisfied(
-                            AccessControlResourceType.Notebook,
-                            notebook.user_access_level,
-                            AccessControlLevel.Editor
-                        ))),
+            (s) => [s.shouldBeEditable, s.canEditNotebook],
+            (shouldBeEditable: boolean, canEditNotebook: boolean) => shouldBeEditable && canEditNotebook,
         ],
 
         isShared: [() => [(_, props) => props.cachedNotebook], (cachedNotebook): boolean => !!cachedNotebook],
@@ -1207,7 +1530,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         getSharedCachedInsight: [
             (s) => [s.isShared, s.cachedInsightsByShortId],
-            (isShared, cachedInsightsByShortId) =>
+            (isShared: boolean, cachedInsightsByShortId: Record<string, InsightModel>) =>
                 (shortId: string | null | undefined): InsightModel | null => {
                     if (!isShared || !shortId) {
                         return null
@@ -1217,37 +1540,13 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
         getSharedCachedInlineQueryResults: [
             (s) => [s.isShared, s.cachedInlineQueryResultsByNodeId],
-            (isShared, cachedInlineQueryResultsByNodeId) =>
+            (isShared: boolean, cachedInlineQueryResultsByNodeId: Record<string, AnyResponseType>) =>
                 (nodeId: string | null | undefined): AnyResponseType | null => {
                     if (!isShared || !nodeId) {
                         return null
                     }
                     return cachedInlineQueryResultsByNodeId[nodeId] ?? null
                 },
-        ],
-
-        insightShortIdsInNotebook: [
-            (s) => [s.content],
-            (content) => {
-                if (!content) {
-                    return []
-                }
-                const insightNodes = content?.content?.filter(
-                    (node) => node.type === NotebookNodeType.Query && isSavedInsightNode(node?.attrs?.query)
-                )
-                return insightNodes?.map((node) => node?.attrs?.query?.shortId)
-            },
-        ],
-
-        experimentIdsInNotebook: [
-            (s) => [s.content],
-            (content): number[] => {
-                if (!content) {
-                    return []
-                }
-                const experimentNodes = content?.content?.filter((node) => node.type === NotebookNodeType.Experiment)
-                return experimentNodes?.map((node) => node?.attrs?.id).filter(Boolean) as number[]
-            },
         ],
 
         personUUIDFromCanvasOverride: [
@@ -1263,7 +1562,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         activeCommentMarkId: [
             (s) => [s.selectedCommentId, s.comments],
-            (selectedCommentId, comments): string | null => {
+            (selectedCommentId: string | null, comments: import('~/types').CommentType[] | null): string | null => {
                 if (!selectedCommentId) {
                     return null
                 }
@@ -1272,7 +1571,88 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions, cache, props, selectors }) => ({
+        // Variables save on their own PATCH rather than through the markdown save path: they are
+        // a notebook property, not document content. Debounced so typing a name is one request.
+        setVariables: async ({ variables }, breakpoint, _action, previousState) => {
+            // Every cell that reads a changed variable now shows a result computed from the old
+            // value, so mark it (and its downstream) stale — the same contract as an upstream
+            // cell's run landing. Diffed against the pre-reducer state so a rename counts as
+            // both halves: the old name disappeared and the new one appeared.
+            const previous = selectors.variables(previousState)
+            const previousByName = new Map(previous.map((variable) => [variable.name, variable.value]))
+            const nextByName = new Map(variables.map((variable) => [variable.name, variable.value]))
+            const affected = new Set<string>()
+            for (const [name, value] of nextByName) {
+                if (!previousByName.has(name) || previousByName.get(name) !== value) {
+                    affected.add(name)
+                }
+            }
+            for (const name of previousByName.keys()) {
+                if (!nextByName.has(name)) {
+                    affected.add(name)
+                }
+            }
+            notebookNodeStalenessLogic
+                .findMounted({ shortId: props.shortId })
+                ?.actions.variablesChanged([...affected].filter(Boolean), values.content)
+
+            if (values.isLocalOnly || !values.notebook) {
+                return
+            }
+            await breakpoint(500)
+
+            // Adding a row, or typing a name the API would reject, changes nothing the server can
+            // store. Saving anyway returned a 400 and an error toast for a row the person had not
+            // finished filling in.
+            if (!values.hasUnsavedVariables) {
+                return
+            }
+
+            // Send only what the API accepts. One unnamed row would fail the whole PATCH and take
+            // the valid declarations with it.
+            const savable = getSavableNotebookVariables(values.variables)
+            const saved = parseNotebookVariables(values.notebook?.variables)
+            const heldBack = savable.length !== values.variables.length
+
+            // A row that is still on screen but too invalid to send is withheld from the payload,
+            // and a PATCH replaces the whole list. Sending it would delete the saved variable
+            // behind that row, so a typo in a name would drop the value it holds. Hold the whole
+            // save instead: the bar keeps the edit and goes on reporting unsaved work. A row the
+            // person actually removed leaves nothing behind, so a real deletion still saves.
+            if (heldBack && droppedSavedNotebookVariables(savable, saved).length > 0) {
+                return
+            }
+
+            let response: NotebookType
+            try {
+                response = await api.notebooks.update(props.shortId, { variables: savable })
+            } catch (error) {
+                // The bar keeps the edit, so the next change retries it. Losing a value silently
+                // would be worse than an error the user can act on.
+                lemonToast.error('Could not save notebook variables')
+                posthog.captureException(error)
+                return
+            }
+
+            // The debounce holds the next request but does not cancel one already in flight, so
+            // two saves can overlap. Applying this older response would revert the bar to the list
+            // the newer save replaced. Outside the catch above: this throws to abort, not to fail.
+            breakpoint()
+
+            actions.receiveNotebookUpdate(response)
+            // notebooksModel only holds list rows, so the notebook this logic renders from needs
+            // the saved list too. Without it the bar drops back to the copy the page loaded with
+            // and the row the person just named disappears. An absent field falls back to what we
+            // sent, which the server accepted, rather than to "no variables".
+            actions.notebookVariablesSaved(response.variables ?? savable)
+            // Only drop the local copy when it still matches what we just saved — a keystroke that
+            // landed during the request is newer and must survive to its own save. A draft that
+            // was held back lives only in the local copy, so that copy has to stay.
+            if (values.localVariables === variables && !heldBack) {
+                actions.clearLocalVariables()
+            }
+        },
         connectMarkdownUpdateStream: () => {
             if (!values.markdownRealtimeEnabled) {
                 return
@@ -1465,6 +1845,16 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
             }
             // Version gap, diff-less ping, or a diff that doesn't fit our base: full reload.
+            if (isMarkdownNotebookContent(notebook.content)) {
+                posthog.capture('notebook markdown full reload', {
+                    short_id: notebook.short_id,
+                    reason: !event.diff
+                        ? 'missing_diff'
+                        : event.version !== notebook.version + 1
+                          ? 'version_gap'
+                          : 'diff_mismatch',
+                })
+            }
             actions.loadNotebook()
         },
         processPendingMarkdownStreamEvents: () => {
@@ -1491,164 +1881,38 @@ export const notebookLogic = kea<notebookLogicType>([
                     toastId: `notebook-merge-conflict-${values.shortId}`,
                     button: {
                         label: 'Review',
-                        action: () => actions.showMarkdownMergeConflictDetails(conflicts),
+                        action: () => {
+                            posthog.capture('notebook markdown merge conflict reviewed', {
+                                short_id: values.notebook?.short_id,
+                                conflict_count: conflicts.length,
+                            })
+                            actions.showMarkdownMergeConflictDetails(conflicts)
+                        },
                     },
                 }
             )
         },
         insertAfterLastNode: async ({ content }) => {
-            await runWhenEditorIsReady(
-                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
+            await runWhenNotebookIsReady(
+                () => values.isLocalOnly || !!values.notebook,
                 () => {
-                    let insertionPosition = 0
-                    let nextNode = values.editor?.nextNode(insertionPosition)
-                    while (nextNode) {
-                        insertionPosition = nextNode.position
-                        nextNode = values.editor?.nextNode(insertionPosition)
+                    const markdownContent = appendContentToMarkdownNotebook(values.content, content)
+                    if (markdownContent) {
+                        actions.setLocalContent(markdownContent)
                     }
-
-                    values.editor?.insertContentAfterNode(insertionPosition, content)
                 }
             )
         },
         pasteAfterLastNode: async ({ content }) => {
-            await runWhenEditorIsReady(
-                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
+            await runWhenNotebookIsReady(
+                () => values.isLocalOnly || !!values.notebook,
                 () => {
-                    const endPosition = values.editor?.getEndPosition() || 0
-                    values.editor?.pasteContent(endPosition, content)
+                    const markdownContent = appendContentToMarkdownNotebook(values.content, content)
+                    if (markdownContent) {
+                        actions.setLocalContent(markdownContent)
+                    }
                 }
             )
-        },
-        insertAfterLastNodeOfType: async ({ content, nodeType, knownStartingPosition }) => {
-            await runWhenEditorIsReady(
-                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
-                () => {
-                    let insertionPosition = knownStartingPosition
-                    let nextNode = values.editor?.nextNode(insertionPosition)
-                    while (nextNode && values.editor?.hasChildOfType(nextNode.node, nodeType)) {
-                        insertionPosition = nextNode.position
-                        nextNode = values.editor?.nextNode(insertionPosition)
-                    }
-
-                    values.editor?.insertContentAfterNode(insertionPosition, content)
-                }
-            )
-        },
-        addSavedInsightToNotebook: async ({ insightShortId, insertionPosition }) => {
-            const content = {
-                type: NotebookNodeType.Query,
-                attrs: {
-                    query: {
-                        kind: NodeKind.SavedInsightNode,
-                        shortId: insightShortId,
-                    },
-                },
-            }
-
-            if (isMarkdownNotebookContent(values.content)) {
-                actions.setLocalContent(
-                    appendMarkdownNotebookBlock(
-                        values.content,
-                        serializeMarkdownNotebookComponent('Query', {
-                            hideFilters: true,
-                            query: {
-                                kind: NodeKind.SavedInsightNode,
-                                shortId: insightShortId,
-                            },
-                        })
-                    )
-                )
-                lemonToast.success('Insight added to notebook')
-                return
-            }
-
-            let inserted = false
-
-            if (insertionPosition !== null && values.editor) {
-                try {
-                    values.editor.insertContentAt(insertionPosition, content)
-                    inserted = true
-                } catch (e) {
-                    console.warn('Failed to insert at position, appending to end instead', e)
-                }
-            }
-
-            if (!inserted) {
-                const result = await runWhenEditorIsReady(
-                    () => !!values.editor && (values.isLocalOnly || !!values.notebook),
-                    () => {
-                        let pos = 0
-                        let nextNode = values.editor?.nextNode(pos)
-                        while (nextNode) {
-                            pos = nextNode.position
-                            nextNode = values.editor?.nextNode(pos)
-                        }
-                        values.editor?.insertContentAfterNode(pos, content)
-                        return true
-                    }
-                )
-                inserted = result === true
-            }
-
-            if (inserted) {
-                lemonToast.success('Insight added to notebook')
-            } else {
-                lemonToast.warning('Could not add insight to notebook')
-            }
-        },
-        addExperimentToNotebook: async ({ experimentId, insertionPosition }) => {
-            const content = {
-                type: NotebookNodeType.Experiment,
-                attrs: {
-                    id: experimentId,
-                },
-            }
-
-            if (isMarkdownNotebookContent(values.content)) {
-                actions.setLocalContent(
-                    appendMarkdownNotebookBlock(
-                        values.content,
-                        serializeMarkdownNotebookComponent('Experiment', { id: experimentId })
-                    )
-                )
-                lemonToast.success('Experiment added to notebook')
-                return
-            }
-
-            let inserted = false
-
-            if (insertionPosition !== null && values.editor) {
-                try {
-                    values.editor.insertContentAt(insertionPosition, content)
-                    inserted = true
-                } catch (e) {
-                    console.warn('Failed to insert at position, appending to end instead', e)
-                }
-            }
-
-            if (!inserted) {
-                const result = await runWhenEditorIsReady(
-                    () => !!values.editor && (values.isLocalOnly || !!values.notebook),
-                    () => {
-                        let pos = 0
-                        let nextNode = values.editor?.nextNode(pos)
-                        while (nextNode) {
-                            pos = nextNode.position
-                            nextNode = values.editor?.nextNode(pos)
-                        }
-                        values.editor?.insertContentAfterNode(pos, content)
-                        return true
-                    }
-                )
-                inserted = result === true
-            }
-
-            if (inserted) {
-                lemonToast.success('Experiment added to notebook')
-            } else {
-                lemonToast.warning('Could not add experiment to notebook')
-            }
         },
         handleMarkdownEditorChange: ({ markdown }) => {
             if (values.markdownEditorInteractionActive) {
@@ -1703,7 +1967,7 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.setLocalContent(buildMarkdownNotebookContent(nextMarkdown, values.markdownEditorNodeId))
         },
 
-        setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {
+        setLocalContent: async ({ jsonContent, skipCapture }, breakpoint) => {
             if (
                 values.mode !== 'canvas' &&
                 !!values.notebook?.user_access_level &&
@@ -1720,9 +1984,6 @@ export const notebookLogic = kea<notebookLogicType>([
             if (values.previewContent) {
                 // We don't want to modify the content if we are viewing a preview
                 return
-            }
-            if (updateEditor) {
-                values.editor?.setContent(jsonContent)
             }
 
             if (values.markdownRealtimeEnabled) {
@@ -1760,6 +2021,7 @@ export const notebookLogic = kea<notebookLogicType>([
             if (!skipCapture) {
                 posthog.capture('notebook content changed', {
                     short_id: values.notebook?.short_id,
+                    is_markdown: isMarkdownNotebookContent(values.content),
                 })
             }
 
@@ -1771,53 +2033,10 @@ export const notebookLogic = kea<notebookLogicType>([
             }
         },
 
-        setPreviewContent: async () => {
-            values.editor?.setContent(values.content)
-        },
-        clearPreviewContent: async () => {
-            values.editor?.setContent(values.content)
-        },
         setShowHistory: async ({ showHistory }) => {
             if (!showHistory) {
                 actions.clearPreviewContent()
             }
-        },
-
-        onEditorUpdate: () => {
-            if (!values.editor) {
-                return
-            }
-            const jsonContent = values.editor.getJSON()
-
-            actions.setLocalContent(jsonContent)
-            // Throttle onUpdateEditor to avoid performance issues with many notebook nodes
-            if (cache.throttledOnUpdateEditorTimeout) {
-                clearTimeout(cache.throttledOnUpdateEditorTimeout)
-            }
-            cache.throttledOnUpdateEditorTimeout = setTimeout(() => {
-                actions.onUpdateEditor()
-                cache.throttledOnUpdateEditorTimeout = null
-            }, 16) // ~60fps throttling
-        },
-        setEditor: () => {
-            // Compute contexts immediately if comments are already loaded when the editor mounts
-            if (values.editor && values.comments) {
-                actions.setCommentContexts(buildCommentContexts(values.editor, values.comments))
-            }
-        },
-        onUpdateEditor: () => {
-            // Re-sync previews so they track edits to text under comment marks.
-            // Skip the dispatch when nothing changed to avoid re-rendering every Comment per keystroke.
-            if (!values.editor || !values.comments) {
-                return
-            }
-            const next = buildCommentContexts(values.editor, values.comments)
-            const prev = values.commentContexts
-            const nextKeys = Object.keys(next)
-            if (nextKeys.length === Object.keys(prev).length && nextKeys.every((k) => prev[k] === next[k])) {
-                return
-            }
-            actions.setCommentContexts(next)
         },
 
         saveNotebookSuccess: ({ payload }) => {
@@ -1833,15 +2052,44 @@ export const notebookLogic = kea<notebookLogicType>([
                 actions.clearLocalContent()
             }
             actions.scheduleNotebookRefresh()
+            if (values.showHistory) {
+                activityLogLogic({ scope: ActivityScope.NOTEBOOK, id: values.shortId }).actions.fetchActivity()
+            }
             actions.processPendingMarkdownStreamEvents()
         },
-        saveNotebookFailure: () => {
+        saveNotebookFailure: ({ error }) => {
+            // Surface hard rejections (e.g. adding a query the editor can't run to a publicly shared notebook)
+            // Otherwise autosave fails silently and edits look saved when they aren't.
+            // Transient/network failures keep the quiet retry behavior.
+            const detail = (error as { status?: number; detail?: unknown } | null)?.detail
+            if ((error as { status?: number } | null)?.status === 400 && typeof detail === 'string') {
+                lemonToast.error(detail)
+            }
             actions.processPendingMarkdownStreamEvents()
         },
-        loadNotebookSuccess: () => {
+        loadNotebookSuccess: ({ notebook }) => {
+            if (
+                notebook &&
+                isMarkdownNotebookContent(notebook.content) &&
+                values.localContent &&
+                !isMarkdownNotebookContent(values.localContent)
+            ) {
+                actions.clearLocalContent()
+            }
             actions.scheduleNotebookRefresh()
             actions.maybeLoadComments()
             actions.processPendingMarkdownStreamEvents()
+
+            // `notebook opened` is a human/browser open — capture once per mount. This listener
+            // also runs on every polling refresh (scheduleNotebookRefresh above), so gate on a
+            // per-instance flag; the flag resets on remount, so revisiting counts as a new open.
+            if (!cache.hasCapturedOpen) {
+                const openedEvent = buildNotebookOpenedEvent(values.notebook, values.user, values.isShared)
+                if (openedEvent) {
+                    cache.hasCapturedOpen = true
+                    posthog.capture('notebook opened', openedEvent)
+                }
+            }
         },
         loadNotebookFailure: () => {
             actions.processPendingMarkdownStreamEvents()
@@ -1849,7 +2097,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         exportJSON: () => {
             const file = new File(
-                [JSON.stringify(values.editor?.getJSON(), null, 2)],
+                [JSON.stringify(values.content, null, 2)],
                 `${slugify(values.title ?? 'untitled')}.ph-notebook.json`,
                 { type: 'application/json' }
             )
@@ -1866,91 +2114,11 @@ export const notebookLogic = kea<notebookLogicType>([
             await copyToClipboard(getMarkdownNotebookMarkdown(values.content), 'markdown')
         },
 
-        discardLocalChanges: () => {
-            // Reload remounts the editor so it re-initialises with the server's content.
-            actions.clearLocalContent()
-            window.location.reload()
-        },
-
-        rebaseFailed: async ({ localContent, localText }) => {
-            // prosemirror-collab couldn't apply a remote step; the modal lets the user copy or discard.
-            if (!values.notebook) {
-                return
-            }
-            // Fetch fresh server content for the side-by-side preview of the changes.
-            let serverContent: JSONContent = {}
-            try {
-                const fresh = await api.notebooks.get(values.notebook.short_id, undefined, {})
-                serverContent = (fresh.content as JSONContent) ?? {}
-            } catch (e) {
-                posthog.captureException(e as Error, { action: 'notebook collab fetch server content' })
-                lemonToast.warning('Could not load the latest saved version.')
-            }
-            actions.showCollabConflict({ serverContent, localContent, localText })
-        },
-
-        copyUnsavedToNewNotebook: async () => {
-            // Save unsaved edits to a fresh notebook, then navigate to it.
-            if (!values.notebook || !values.collabConflict) {
-                return
-            }
-            try {
-                const sourceTitle = values.notebook.title || 'Untitled'
-                const newTitle = `${sourceTitle} (copy)`
-                const created = await api.notebooks.create({
-                    content: updateContentHeading(values.collabConflict.localContent, newTitle),
-                    text_content: values.collabConflict.localText,
-                    title: newTitle,
-                })
-                lemonToast.success('Saved your unsaved changes to a new notebook.')
-                actions.dismissCollabConflict()
-                actions.clearLocalContent()
-                await openNotebook(created.short_id, NotebookTarget.Scene)
-            } catch {
-                lemonToast.error('Could not copy your changes to a new notebook.')
-            }
-        },
-
-        onEditorSelectionUpdate: () => {
-            if (!values.editor) {
-                return
-            }
-            // Sync the active comment to the editor cursor: when the caret enters a comment mark
-            // we highlight the corresponding side-panel comment; when it leaves we clear it.
-            const markId = values.editor.getAttributes('comment').id ?? null
-            const targetSelectedId = markId
-                ? (values.comments?.find((c) => c.item_context?.type === 'mark' && c.item_context?.id === markId)?.id ??
-                  null)
-                : null
-            if (values.selectedCommentId !== targetSelectedId) {
-                actions.setSelectedComment(targetSelectedId)
-            }
-
-            // Throttle this too to avoid excessive calls
-            if (cache.throttledOnUpdateEditorTimeout) {
-                clearTimeout(cache.throttledOnUpdateEditorTimeout)
-            }
-            cache.throttledOnUpdateEditorTimeout = setTimeout(() => {
-                actions.onUpdateEditor()
-                cache.throttledOnUpdateEditorTimeout = null
-            }, 16) // ~60fps throttling
-        },
-        scrollToSelection: () => {
-            if (values.editor) {
-                values.editor.scrollToSelection()
-            }
-        },
         setEditingNodeEditing: ({ nodeId, editing }) => {
             if (!editing) {
                 return
             }
             values.findNodeLogicById(nodeId)?.actions.selectNode(false)
-        },
-
-        setTextSelection: ({ selection }) => {
-            queueMicrotask(() => {
-                values.editor?.setTextSelection(selection)
-            })
         },
 
         scheduleNotebookRefresh: () => {
@@ -1961,8 +2129,8 @@ export const notebookLogic = kea<notebookLogicType>([
             // Remove any existing refresh timeout
             cache.disposables.dispose('refreshTimeout')
 
-            // When collab or markdown realtime is enabled, SSE handles sync.
-            if (values.collabEnabled || values.markdownRealtimeEnabled) {
+            // When markdown realtime is enabled, SSE handles sync.
+            if (values.markdownRealtimeEnabled) {
                 return
             }
 
@@ -1979,14 +2147,7 @@ export const notebookLogic = kea<notebookLogicType>([
         insertComment: ({ context }) => {
             actions.openSidePanel(SidePanelTab.Discussion)
 
-            actions.setItemContext(context, (result) => {
-                if (!result.sent && values.editor) {
-                    const pos = values.editor.findCommentPosition(context.id)
-                    if (pos) {
-                        values.editor.removeComment(pos)
-                    }
-                }
-            })
+            actions.setItemContext(context, () => {})
             if (router.values.currentLocation.pathname !== urls.notebook(values.shortId)) {
                 router.actions.push(urls.notebook(values.shortId))
             }
@@ -2002,7 +2163,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
 
-    subscriptions(({ values, actions }) => ({
+    subscriptions(({ actions }) => ({
         notebook: (notebook?: NotebookType) => {
             // Keep the list logic up to date with any changes
             if (notebook && notebook.short_id !== SCRATCHPAD_NOTEBOOK.short_id) {
@@ -2018,31 +2179,6 @@ export const notebookLogic = kea<notebookLogicType>([
                 actions.disconnectMarkdownUpdateStream()
             }
             actions.scheduleNotebookRefresh()
-        },
-        comments: (comments: CommentType[] | undefined | null) => {
-            if (comments && values.editor) {
-                const { editor } = values
-                const commentMarkIds = comments
-                    .filter((comment) => comment.item_context?.type === 'mark')
-                    .map((comment) => comment.item_context?.id)
-
-                editor.getMarks('comment').forEach((mark) => {
-                    if (!commentMarkIds.includes(mark.id) && values.itemContext?.context?.id !== mark.id) {
-                        editor.removeComment(mark.pos)
-                    }
-                })
-
-                actions.setCommentContexts(buildCommentContexts(editor, comments))
-            }
-        },
-        activeCommentMarkId: (markId: string | null) => {
-            if (!markId || !values.editor) {
-                return
-            }
-            const pos = values.editor.findCommentPosition(markId)
-            if (pos !== null) {
-                values.editor.scrollToPosition(pos)
-            }
         },
     })),
 

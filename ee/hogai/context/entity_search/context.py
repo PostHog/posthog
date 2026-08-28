@@ -17,9 +17,9 @@ from posthog.api.search import (
     search_entities as search_entities_fts,
 )
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
@@ -35,7 +35,7 @@ from products.feature_flags.backend.flag_status import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
 from ee.hogai.artifacts.handlers.base import get_handler_for_content_type
@@ -395,8 +395,8 @@ class EntitySearchContext:
     def _list_feature_flags_sync(
         self, limit: int = 100, offset: int = 0, active_filter: str | None = None
     ) -> tuple[list[dict[str, Any]], int]:
-        # Resource-level gate: filter_queryset_by_access_level only prunes object-level denials, so a
-        # role without feature flag access would still see flags here (also reachable via list_data).
+        # Stricter than filter_queryset_by_access_level's fail-closed baseline: a caller without
+        # feature flag access gets nothing, not even flags they created (also reachable via list_data).
         if not self.user_access_control.check_access_level_for_resource("feature_flag", "viewer"):
             return [], 0
 
@@ -549,7 +549,7 @@ class EntitySearchContext:
             case "error_tracking_issue":
                 return f"{base_url}/error_tracking/{result_id}"
             case "alert_configuration":
-                return f"{base_url}/insights?tab=alerts&alert_id={result_id}"
+                return f"{base_url}/alerts?alert_id={result_id}"
             case "account":
                 # Deep-link to the specific account (filtered + expanded) rather than the bare list.
                 return f"{base_url}{build_account_deeplink(account_id=result_id)}"

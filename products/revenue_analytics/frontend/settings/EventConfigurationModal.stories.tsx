@@ -11,7 +11,7 @@ const meta: Meta<EventConfigurationModalProps> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        pageUrl: urls.revenueAnalytics(),
+        pageUrl: urls.revenueSettings(),
         testOptions: {
             waitForLoadersToDisappear: true,
         },

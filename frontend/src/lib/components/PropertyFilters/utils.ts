@@ -7,15 +7,19 @@ import {
     isOperatorFlag,
     isOperatorMulti,
 } from 'lib/utils/operators'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 
-import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
+import type { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModel'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
+    AccountCustomPropertyFilter,
+    ActionType,
     AnyFilterLike,
     AnyPropertyFilter,
+    BehavioralEventType,
+    BehavioralPropertyFilter,
     BreakdownType,
     CohortPropertyFilter,
     CohortType,
@@ -32,7 +36,10 @@ import {
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
+    PersonMetadataPropertyFilter,
     PersonPropertyFilter,
+    PropertyDefinition,
     PropertyDefinitionType,
     PropertyFilterType,
     PropertyFilterValue,
@@ -44,6 +51,7 @@ import {
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     SpanPropertyFilter,
+    TimeUnitType,
     WorkflowVariablePropertyFilter,
 } from '~/types'
 
@@ -113,9 +121,13 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
         [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
+        [PropertyFilterType.Account]: TaxonomicFilterGroupType.AccountFields,
+        [PropertyFilterType.AccountCustomProperty]: TaxonomicFilterGroupType.AccountCustomProperties,
         [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+        [PropertyFilterType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
         [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
         [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
+        [PropertyFilterType.Behavioral]: TaxonomicFilterGroupType.Events,
         [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
         [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
         [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
@@ -128,6 +140,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+        [PropertyFilterType.MetricAttribute]: TaxonomicFilterGroupType.MetricAttributes,
         [PropertyFilterType.Span]: TaxonomicFilterGroupType.Spans,
         [PropertyFilterType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
         [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
@@ -140,7 +153,8 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
 export function formatPropertyLabel(
     item: AnyPropertyFilter,
     cohortsById: Partial<Record<CohortType['id'], CohortType>>,
-    valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
+    valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)],
+    actionsById: Partial<Record<string | number, ActionType>> = {}
 ): string {
     if (!isValidPropertyFilter(item)) {
         return ''
@@ -148,6 +162,10 @@ export function formatPropertyLabel(
 
     if (isHogQLPropertyFilter(item)) {
         return extractExpressionComment(item.key)
+    }
+
+    if (isBehavioralPropertyFilter(item)) {
+        return formatBehavioralPropertyLabel(item, actionsById)
     }
 
     const { value, key, type } = item
@@ -228,6 +246,62 @@ export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is
     return filter?.type === PropertyFilterType.Cohort
 }
 
+export function isBehavioralPropertyFilter(filter?: AnyFilterLike | null): filter is BehavioralPropertyFilter {
+    return filter?.type === PropertyFilterType.Behavioral
+}
+
+export function newBehavioralFilter(key: string, eventType: 'events' | 'actions'): BehavioralPropertyFilter {
+    return {
+        type: PropertyFilterType.Behavioral,
+        value: BehavioralEventType.PerformEvent,
+        key,
+        event_type: eventType,
+        time_value: 30,
+        time_interval: TimeUnitType.Day,
+    }
+}
+
+export const BEHAVIORAL_COUNT_OPERATOR_LABELS: Partial<Record<PropertyOperator, string>> = {
+    [PropertyOperator.GreaterThanOrEqual]: 'at least',
+    [PropertyOperator.LessThanOrEqual]: 'at most',
+    [PropertyOperator.GreaterThan]: 'more than',
+    [PropertyOperator.LessThan]: 'fewer than',
+    [PropertyOperator.Exact]: 'exactly',
+}
+
+/** Display name for the event or action a behavioral filter targets. An unresolved action falls back
+ * to its id, which is all the filter itself stores. */
+export function behavioralEntityLabel(
+    item: BehavioralPropertyFilter,
+    actionsById: Partial<Record<string | number, ActionType>> = {}
+): string {
+    if (item.event_type === 'actions') {
+        return actionsById[item.key]?.name || `action ${item.key}`
+    }
+    return getCoreFilterDefinition(item.key, TaxonomicFilterGroupType.Events)?.label || item.key
+}
+
+function formatBehavioralPropertyLabel(
+    item: BehavioralPropertyFilter,
+    actionsById: Partial<Record<string | number, ActionType>> = {}
+): string {
+    const eventLabel = behavioralEntityLabel(item, actionsById)
+    const countClause =
+        item.value === BehavioralEventType.PerformMultipleEvents
+            ? ` ${BEHAVIORAL_COUNT_OPERATOR_LABELS[item.operator ?? PropertyOperator.Exact] || 'exactly'} ${pluralize(
+                  item.operator_value ?? 0,
+                  'time'
+              )}`
+            : ''
+    const whereClause = item.event_filters?.length
+        ? ` where ${item.event_filters.map((filter) => formatPropertyLabel(filter, {}).trim()).join(' and ')}`
+        : ''
+    const windowClause = item.explicit_datetime
+        ? ` since ${item.explicit_datetime}`
+        : ` in the last ${pluralize(item.time_value ?? 30, item.time_interval ?? TimeUnitType.Day)}`
+    return `${item.negation ? 'Did not perform' : 'Performed'} ${eventLabel}${countClause}${whereClause}${windowClause}`
+}
+
 // Filter keys whose value we offer a read-only group-info card for on hover.
 // '$group_key' is the group's true identity (always a group key). 'id' is a
 // group *property* that conventionally holds the group key (e.g. CRM-imported
@@ -242,10 +316,16 @@ export function isGroupCardFilterKey(key: string | number | undefined, type: Pro
 export function isEventMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is EventMetadataPropertyFilter {
     return filter?.type === PropertyFilterType.EventMetadata
 }
+export function isPersonMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is PersonMetadataPropertyFilter {
+    return filter?.type === PropertyFilterType.PersonMetadata
+}
 export function isRevenueAnalyticsPropertyFilter(
     filter?: AnyFilterLike | null
 ): filter is RevenueAnalyticsPropertyFilter {
     return filter?.type === PropertyFilterType.RevenueAnalytics
+}
+export function isAccountCustomPropertyFilter(filter?: AnyFilterLike | null): filter is AccountCustomPropertyFilter {
+    return filter?.type === PropertyFilterType.AccountCustomProperty
 }
 export function isPropertyGroupFilterLike(
     filter?: AnyFilterLike | null
@@ -301,6 +381,9 @@ export function isSpanPropertyFilter(filter?: AnyFilterLike | null): filter is S
         filter?.type === PropertyFilterType.SpanResourceAttribute
     )
 }
+export function isMetricPropertyFilter(filter?: AnyFilterLike | null): filter is MetricPropertyFilter {
+    return filter?.type === PropertyFilterType.MetricAttribute
+}
 export function isErrorTrackingIssuePropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.ErrorTrackingIssue
 }
@@ -331,8 +414,10 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
     return (
         isEventPropertyFilter(filter) ||
         isPersonPropertyFilter(filter) ||
+        isPersonMetadataPropertyFilter(filter) ||
         isEventMetadataPropertyFilter(filter) ||
         isRevenueAnalyticsPropertyFilter(filter) ||
+        isAccountCustomPropertyFilter(filter) ||
         isElementPropertyFilter(filter) ||
         isSessionPropertyFilter(filter) ||
         isCohortPropertyFilter(filter) ||
@@ -341,7 +426,9 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isFeaturePropertyFilter(filter) ||
         isFlagPropertyFilter(filter) ||
         isGroupPropertyFilter(filter) ||
+        isErrorTrackingIssuePropertyFilter(filter) ||
         isLogPropertyFilter(filter) ||
+        isMetricPropertyFilter(filter) ||
         isSpanPropertyFilter(filter)
     )
 }
@@ -351,8 +438,10 @@ export function isPropertyFilterWithOperator(
 ): filter is
     | EventPropertyFilter
     | PersonPropertyFilter
+    | PersonMetadataPropertyFilter
     | EventMetadataPropertyFilter
     | RevenueAnalyticsPropertyFilter
+    | AccountCustomPropertyFilter
     | ElementPropertyFilter
     | SessionPropertyFilter
     | RecordingPropertyFilter
@@ -363,14 +452,17 @@ export function isPropertyFilterWithOperator(
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | LogPropertyFilter
+    | MetricPropertyFilter
     | SpanPropertyFilter
     | WorkflowVariablePropertyFilter {
     return (
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
             isPersonPropertyFilter(filter) ||
+            isPersonMetadataPropertyFilter(filter) ||
             isEventMetadataPropertyFilter(filter) ||
             isRevenueAnalyticsPropertyFilter(filter) ||
+            isAccountCustomPropertyFilter(filter) ||
             isElementPropertyFilter(filter) ||
             isSessionPropertyFilter(filter) ||
             isRecordingPropertyFilter(filter) ||
@@ -383,6 +475,7 @@ export function isPropertyFilterWithOperator(
             isDataWarehousePersonPropertyFilter(filter) ||
             isErrorTrackingIssuePropertyFilter(filter) ||
             isLogPropertyFilter(filter) ||
+            isMetricPropertyFilter(filter) ||
             isSpanPropertyFilter(filter) ||
             isWorkflowVariablePropertyFilter(filter))
     )
@@ -405,6 +498,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
     [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+    [PropertyFilterType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
     [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
@@ -414,10 +508,13 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Log]: TaxonomicFilterGroupType.Logs,
     [PropertyFilterType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
     [PropertyFilterType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+    [PropertyFilterType.MetricAttribute]: TaxonomicFilterGroupType.MetricAttributes,
     [PropertyFilterType.Span]: TaxonomicFilterGroupType.Spans,
     [PropertyFilterType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
     [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
     [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+    [PropertyFilterType.Account]: TaxonomicFilterGroupType.AccountFields,
+    [PropertyFilterType.AccountCustomProperty]: TaxonomicFilterGroupType.AccountCustomProperties,
     [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
     [PropertyFilterType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
 }
@@ -460,6 +557,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.Event]: PropertyDefinitionType.Event,
         [PropertyFilterType.EventMetadata]: PropertyDefinitionType.EventMetadata,
         [PropertyFilterType.Person]: PropertyDefinitionType.Person,
+        [PropertyFilterType.PersonMetadata]: PropertyDefinitionType.PersonMetadata,
         [PropertyFilterType.Group]: PropertyDefinitionType.Group,
         [PropertyFilterType.Session]: PropertyDefinitionType.Session,
         [PropertyFilterType.Recording]: PropertyDefinitionType.Session,
@@ -468,10 +566,13 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.Log]: PropertyDefinitionType.Log,
         [PropertyFilterType.LogAttribute]: PropertyDefinitionType.LogAttribute,
         [PropertyFilterType.LogResourceAttribute]: PropertyDefinitionType.LogResourceAttribute,
+        [PropertyFilterType.MetricAttribute]: PropertyDefinitionType.MetricAttribute,
         [PropertyFilterType.Span]: PropertyDefinitionType.Span,
         [PropertyFilterType.SpanAttribute]: PropertyDefinitionType.SpanAttribute,
         [PropertyFilterType.SpanResourceAttribute]: PropertyDefinitionType.SpanResourceAttribute,
         [PropertyFilterType.RevenueAnalytics]: PropertyDefinitionType.RevenueAnalytics,
+        [PropertyFilterType.Account]: PropertyDefinitionType.Account,
+        [PropertyFilterType.AccountCustomProperty]: PropertyDefinitionType.AccountCustomProperty,
         [PropertyFilterType.Flag]: PropertyDefinitionType.FlagValue,
         [PropertyFilterType.WorkflowVariable]: PropertyDefinitionType.WorkflowVariable,
     }
@@ -488,6 +589,9 @@ export function taxonomicFilterTypeToPropertyFilterType(
     if (filterType === TaxonomicFilterGroupType.EventMetadata) {
         return PropertyFilterType.EventMetadata
     }
+    if (filterType === TaxonomicFilterGroupType.PersonMetadata) {
+        return PropertyFilterType.PersonMetadata
+    }
     if (
         filterType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ||
         filterType?.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
@@ -497,6 +601,11 @@ export function taxonomicFilterTypeToPropertyFilterType(
 
     if (filterType === TaxonomicFilterGroupType.EventFeatureFlags) {
         // Feature flags are just subgroup of event properties
+        return PropertyFilterType.Event
+    }
+
+    if (filterType === TaxonomicFilterGroupType.MCPProperties) {
+        // The curated $mcp_* schema is a subgroup of event properties
         return PropertyFilterType.Event
     }
 
@@ -529,6 +638,10 @@ export function taxonomicFilterTypeToPropertyFilterType(
         return PropertyFilterType.LogResourceAttribute
     }
 
+    if (filterType == TaxonomicFilterGroupType.MetricAttributes) {
+        return PropertyFilterType.MetricAttribute
+    }
+
     if (filterType == TaxonomicFilterGroupType.Spans) {
         return PropertyFilterType.Span
     }
@@ -552,6 +665,33 @@ export function taxonomicFilterTypeToPropertyFilterType(
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as
         | PropertyFilterType
         | undefined
+}
+
+/**
+ * Recover a property definition's id. Pinned/default taxonomic items are stored as
+ * `{ name }` with no saved id, so fall back to the canonical `propertyDefinitionsModel`
+ * (keyed by name + type) instead of building a link with an `undefined` id. Returns
+ * `undefined` when the id can't be resolved so callers can hide the link. Shared by the
+ * legacy DefinitionPopover and the quill rebuild's PreviewPane to keep them in lockstep.
+ */
+export function resolvePropertyDefinitionId(
+    definition: Pick<PropertyDefinition, 'id' | 'name'>,
+    taxonomicGroupType: TaxonomicFilterGroupType,
+    getPropertyDefinition: propertyDefinitionsModelType['values']['getPropertyDefinition']
+): PropertyDefinition['id'] | undefined {
+    if (definition.id) {
+        return definition.id
+    }
+    if (!definition.name) {
+        return undefined
+    }
+    const propertyFilterType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroupType)
+    // `null` only when the taxonomic type has no property-filter equivalent;
+    // propertyFilterTypeToPropertyDefinitionType itself is total (defaults to Event).
+    const propertyDefinitionType = propertyFilterType
+        ? propertyFilterTypeToPropertyDefinitionType(propertyFilterType)
+        : null
+    return propertyDefinitionType ? getPropertyDefinition(definition.name, propertyDefinitionType)?.id : undefined
 }
 
 export function isEmptyProperty(property: AnyPropertyFilter): boolean {

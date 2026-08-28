@@ -21,8 +21,8 @@
             "type": "string"
         },
         "feedback_type": {
-            "description": "What this feedback is about. \"product\" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). \"mcp\" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. \"docs\" = PostHog documentation. \"other\" = anything that doesn't fit the above.",
-            "enum": ["product", "mcp", "docs", "other"],
+            "description": "What this feedback is about. \"product\" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). \"mcp\" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. \"docs\" = PostHog documentation. \"scout\" = a canonical PostHog scout skill's content — reserved for scheduled scout runs reporting an improvement opportunity in their own PostHog-authored skill (set `scout_skill_name`, `scout_skill_version`, and `scout_category`). \"other\" = anything that doesn't fit the above.",
+            "enum": ["product", "mcp", "docs", "scout", "other"],
             "type": "string"
         },
         "friction_points": {
@@ -32,6 +32,28 @@
         "product_area": {
             "description": "The PostHog product or area this is about, in free text (e.g. \"session replay\", \"insights\", \"data warehouse\", \"feature flags\", \"docs\"). Most useful for product feedback; for MCP feedback the tool name belongs in `details`/`friction_points` instead.",
             "type": "string"
+        },
+        "scout_category": {
+            "description": "For scout feedback (`feedback_type: \"scout\"`) only: the single category that best describes the skill gap. \"false_positive\" = the skill's detection rules surfaced something that wasn't real; \"missed_detection\" = a real issue the skill's instructions steered you past; \"discriminator_gap\" = the skill's signal-vs-baseline discriminator doesn't hold for a class of projects; \"wasted_investigation\" = an investigation pattern the skill mandates burned budget without payoff; \"instruction_ambiguity\" = an instruction that is ambiguous in practice. Omit for non-scout feedback.",
+            "enum": [
+                "false_positive",
+                "missed_detection",
+                "discriminator_gap",
+                "wasted_investigation",
+                "instruction_ambiguity",
+                "other"
+            ],
+            "type": "string"
+        },
+        "scout_skill_name": {
+            "description": "For scout feedback (`feedback_type: \"scout\"`) only: the canonical scout skill the feedback is about (e.g. \"signals-scout-web-analytics\"), exactly as named in the run identity. Required for scout feedback — without it the feedback cannot be aggregated per skill.",
+            "type": "string"
+        },
+        "scout_skill_version": {
+            "description": "For scout feedback (`feedback_type: \"scout\"`) only: the skill version the run executed (from the run identity). Feedback is only actionable against the version that produced it — the skill may have moved since.",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
         },
         "sentiment": {
             "description": "The overall tone. Use \"negative\" for something broken or blocking, \"mixed\" for mostly-fine-but-with-a-concrete-problem, \"neutral\" for a suggestion or feature request with no strong sentiment, and \"positive\" for praise or something that worked well. All sentiments are welcome — positive feedback is encouraged, not just problems.",

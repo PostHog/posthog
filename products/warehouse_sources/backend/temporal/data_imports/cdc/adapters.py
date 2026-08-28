@@ -40,6 +40,12 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
 
     def create_reader(self, source: ExternalDataSource) -> CDCStreamReader: ...
 
+    def position_to_seq(self, position_serialized: str) -> int:
+        """Convert an event's serialized position to the engine-neutral monotonic
+        integer used for `_ph_cdc_seq` and buffer-file position ranges (PG: the
+        LSN's 64-bit value). Must be strictly order-preserving within one source."""
+        ...
+
     @contextmanager
     def management_connection(self, source: ExternalDataSource, connect_timeout: int = 15) -> Iterator[Any]: ...
 
@@ -68,6 +74,13 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         """Whether the exception means the engine invalidated or dropped the
         change-stream resource (PG: replication slot lost to max_slot_wal_keep_size)
         such that it cannot be resumed and must be recreated."""
+        ...
+
+    def is_connection_error(self, exc: BaseException) -> bool:
+        """Whether the exception is an expected failure to reach the source DB (unreachable
+        host, connect timeout, refused, dropped, or a tunnel that can't be established) rather
+        than a bug in PostHog's own code. Callers use it to avoid capturing expected
+        customer/upstream connection failures as error-tracking noise."""
         ...
 
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
@@ -135,11 +148,12 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
 def _cdc_adapters() -> dict[ExternalDataSourceType, CDCSourceAdapter[CDCConfig]]:
     """Registry of CDC adapters keyed by source type. Adding a new CDC-capable source
     is a single entry here — everything else derives from this map."""
-    # Supabase is Postgres on the wire, so it reuses the Postgres adapter verbatim.
+    # Supabase and Neon are Postgres on the wire, so they reuse the Postgres adapter verbatim.
     postgres_adapter = PostgresCDCAdapter()
     return {
         ExternalDataSourceType.POSTGRES: postgres_adapter,
         ExternalDataSourceType.SUPABASE: postgres_adapter,
+        ExternalDataSourceType.NEON: postgres_adapter,
     }
 
 

@@ -11,6 +11,9 @@ export class LiquidRenderer {
         if (!this._liquid) {
             this._liquid = new Liquid({
                 outputEscape: 'escape',
+                // Render partials from an in-memory map only: this disables LiquidJS's filesystem-backed
+                // partial loading, so user-controlled templates can't read local files via include/render/layout.
+                templates: {},
             })
         }
         return this._liquid

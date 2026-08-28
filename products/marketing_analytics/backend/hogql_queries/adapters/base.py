@@ -579,6 +579,12 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             MarketingAnalyticsDrillDownLevel.AD,
         )
 
+        # Entity and report/stats tables can store the same id with different types
+        # (e.g. Reddit's ad_groups.id vs ad_group_report.ad_group_id), so cast both
+        # join keys to String — otherwise the LEFT JOIN silently matches zero rows.
+        def join_key(table: str, column: str) -> ast.Call:
+            return ast.Call(name="toString", args=[ast.Field(chain=[table, column])])
+
         # entity LEFT JOIN stats ON entity.<pk> = stats.<fk> — skipped in unified mode
         # because entity_table === stats_table (a single performance report).
         stats_join: ast.JoinExpr | None = None
@@ -588,9 +594,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                 join_type="LEFT JOIN",
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
-                        left=ast.Field(chain=[entity_table_name, tables.entity_id_column]),
+                        left=join_key(entity_table_name, tables.entity_id_column),
                         op=ast.CompareOperationOp.Eq,
-                        right=ast.Field(chain=[stats_table_name, tables.stats_entity_id_column]),
+                        right=join_key(stats_table_name, tables.stats_entity_id_column),
                     ),
                     constraint_type="ON",
                 ),
@@ -614,9 +620,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                     join_type="LEFT JOIN",
                     constraint=ast.JoinConstraint(
                         expr=ast.CompareOperation(
-                            left=ast.Field(chain=[entity_table_name, self._ad_adset_fk_column]),
+                            left=join_key(entity_table_name, self._ad_adset_fk_column),
                             op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=[config.adset_table.name, self._adset_pk_column]),
+                            right=join_key(config.adset_table.name, self._adset_pk_column),
                         ),
                         constraint_type="ON",
                     ),
@@ -642,9 +648,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                     join_type="LEFT JOIN",
                     constraint=ast.JoinConstraint(
                         expr=ast.CompareOperation(
-                            left=ast.Field(chain=[campaign_join_table, campaign_fk]),
+                            left=join_key(campaign_join_table, campaign_fk),
                             op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=[config.campaign_table.name, self._campaign_pk_column]),
+                            right=join_key(config.campaign_table.name, self._campaign_pk_column),
                         ),
                         constraint_type="ON",
                     ),
@@ -739,8 +745,12 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     ) -> ast.Expr | None:
         """Wrap value_expr with currency conversion if the currency column exists in the table.
 
-        Returns toFloat(convertCurrency(coalesce(currency_col, base_currency), base_currency, value_expr))
-        or None if the column doesn't exist or can't be checked.
+        Converts at the row's own stats date. Without a date `convertCurrency` falls back to
+        `today()`, which both reprices past spend every time the page loads and puts cost on a
+        different rate than conversion revenue, which converts at the event's timestamp.
+
+        Returns toFloat(convertCurrency(coalesce(currency_col, base_currency), base_currency,
+        value_expr, stats_date)) or None if the column doesn't exist or can't be checked.
         """
         if not self._table_has_column(table, currency_column):
             return None
@@ -748,9 +758,25 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         currency_with_fallback = ast.Call(
             name="coalesce", args=[currency_field, ast.Constant(value=self.context.base_currency)]
         )
+        # Warehouse date columns read back nullable, and `convertCurrency` resolves the rate
+        # through `dictGetOrDefault`, which rejects a Nullable(Date) key outright rather than
+        # returning the default. Falling back to today() for a row with no date is the old
+        # behaviour, kept only for those rows.
+        stats_date = ast.Call(
+            name="coalesce",
+            args=[
+                ast.Call(name="toDate", args=[ast.Field(chain=[table_name, self._stats_date_column])]),
+                ast.Call(name="today", args=[]),
+            ],
+        )
         converted = ast.Call(
             name="convertCurrency",
-            args=[currency_with_fallback, ast.Constant(value=self.context.base_currency), value_expr],
+            args=[
+                currency_with_fallback,
+                ast.Constant(value=self.context.base_currency),
+                value_expr,
+                stats_date,
+            ],
         )
         return ast.Call(name="toFloat", args=[converted])
 

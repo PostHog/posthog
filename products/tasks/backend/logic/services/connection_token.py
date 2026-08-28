@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
@@ -38,12 +38,13 @@ class SandboxEventIngestTokenPayload:
     run_id: str
     task_id: str
     team_id: int
+    sandbox_id: str | None
 
 
 @dataclass(frozen=True)
 class _SandboxJwtKey:
     kid: str
-    private_key_pem: str
+    private_key_pem: str = field(repr=False)
     public_key_pem: str
 
 
@@ -216,7 +217,12 @@ def create_sandbox_connection_token(task_run: TaskRun, user_id: int, distinct_id
     return jwt.encode(payload, key.private_key_pem, algorithm="RS256", headers={"kid": key.kid})
 
 
-def _encode_run_scoped_token(task_run: TaskRun, audience: str, ttl: timedelta) -> str:
+def _encode_run_scoped_token(
+    task_run: TaskRun,
+    audience: str,
+    ttl: timedelta,
+    extra_claims: dict[str, object] | None = None,
+) -> str:
     """Encode a run-scoped JWT carrying no user identity, signed with the run's key.
 
     Shared by the event-ingest and stream-read tokens; they stay distinct capabilities
@@ -232,18 +238,33 @@ def _encode_run_scoped_token(task_run: TaskRun, audience: str, ttl: timedelta) -
         "exp": now + ttl,
         "aud": audience,
     }
+    if extra_claims:
+        payload.update(extra_claims)
     key = _signing_key_for_run(task_run)
     return jwt.encode(payload, key.private_key_pem, algorithm="RS256", headers={"kid": key.kid})
 
 
-def create_sandbox_event_ingest_token(task_run: TaskRun, ttl: timedelta = SANDBOX_EVENT_INGEST_TOKEN_TTL) -> str:
+def create_sandbox_event_ingest_token(
+    task_run: TaskRun,
+    ttl: timedelta = SANDBOX_EVENT_INGEST_TOKEN_TTL,
+    *,
+    sandbox_id: str | None = None,
+) -> str:
     """
     Create a run-scoped JWT token for sandbox-to-Django live event ingest.
 
     This token intentionally carries no user identity and grants one capability:
     appending ordered live events for this task run.
     """
-    return _encode_run_scoped_token(task_run, SANDBOX_EVENT_INGEST_AUDIENCE, ttl)
+    active_sandbox_id = sandbox_id or (task_run.state or {}).get("sandbox_id")
+    if not isinstance(active_sandbox_id, str) or not active_sandbox_id:
+        raise ValueError("Task run has no active sandbox identity")
+    return _encode_run_scoped_token(
+        task_run,
+        SANDBOX_EVENT_INGEST_AUDIENCE,
+        ttl,
+        {"sandbox_id": active_sandbox_id},
+    )
 
 
 def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPayload:
@@ -252,11 +273,19 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
     run_id = payload.get("run_id")
     task_id = payload.get("task_id")
     team_id = payload.get("team_id")
+    sandbox_id = payload.get("sandbox_id")
 
     if not isinstance(run_id, str) or not isinstance(task_id, str) or type(team_id) is not int:
         raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
+    if sandbox_id is not None and (not isinstance(sandbox_id, str) or not sandbox_id):
+        raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
 
-    return SandboxEventIngestTokenPayload(run_id=run_id, task_id=task_id, team_id=team_id)
+    return SandboxEventIngestTokenPayload(
+        run_id=run_id,
+        task_id=task_id,
+        team_id=team_id,
+        sandbox_id=sandbox_id,
+    )
 
 
 def create_stream_read_token(task_run: TaskRun, ttl: timedelta = STREAM_READ_TOKEN_TTL) -> str:

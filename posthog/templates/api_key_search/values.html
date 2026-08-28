@@ -86,6 +86,55 @@
                         </tr>
                     </tbody>
                 </table>
+                {% elif project_secret_api_key_object %}
+                <table id="results_list">
+                    <thead>
+                        <tr>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Type" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Label" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Team" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Scopes" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Created By" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Created" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Last Used" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Last Rolled" %}</span></div>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><a href="/admin/posthog/projectsecretapikey/{{ project_secret_api_key_object.id }}/change/">Project Secret API Key</a></td>
+                            <td><a href="/admin/posthog/projectsecretapikey/{{ project_secret_api_key_object.id }}/change/">{{ project_secret_api_key_object.label }}</a></td>
+                            <td><a href="/admin/posthog/team/{{ project_secret_api_key_object.team_id }}/change/">{{ project_secret_api_key_object.team.name }}</a></td>
+                            <td>{{ project_secret_api_key_object.scopes }}</td>
+                            <td>
+                                {% if project_secret_api_key_object.created_by %}
+                                <a href="/admin/posthog/user/{{ project_secret_api_key_object.created_by.id }}/change/">{{ project_secret_api_key_object.created_by.email }}</a>
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td>{{ project_secret_api_key_object.created_at }}</td>
+                            <td>{{ project_secret_api_key_object.last_used_at }}</td>
+                            <td>{{ project_secret_api_key_object.last_rolled_at }}</td>
+                        </tr>
+                    </tbody>
+                </table>
                 {% elif team_object %}
                 <table id="results_list">
                     <thead>

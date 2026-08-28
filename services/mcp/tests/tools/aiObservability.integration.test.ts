@@ -7,11 +7,13 @@ import {
     cleanupResources,
     createTestClient,
     createTestContext,
+    getToolByName,
     parseToolResponse,
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
 import getLLMCostsTool from '@/tools/aiObservability/getLLMCosts'
+import { GENERATED_TOOLS } from '@/tools/generated/ai_observability'
 import type { Context } from '@/tools/types'
 
 describe('AI observability', { concurrent: false }, () => {
@@ -67,6 +69,13 @@ describe('AI observability', { concurrent: false }, () => {
             const costsData = parseToolResponse(result)
             expect(Array.isArray(costsData.results)).toBe(true)
         })
+
+        it('should fall back to the active project when projectId is omitted', async () => {
+            const result = await costsTool.handler(context, {})
+
+            const costsData = parseToolResponse(result)
+            expect(Array.isArray(costsData.results)).toBe(true)
+        })
     })
 
     describe('AI observability workflow', () => {
@@ -88,6 +97,21 @@ describe('AI observability', { concurrent: false }, () => {
 
             const monthData = parseToolResponse(monthResult)
             expect(Array.isArray(monthData.results)).toBe(true)
+        })
+    })
+
+    describe('query-llm-traces-list', () => {
+        it('should execute a traces query and return formatted results', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-llm-traces-list')
+            const result = (await tool.handler(context, {
+                dateRange: { date_from: '-7d' },
+                limit: 10,
+            })) as any
+
+            expect(result).toHaveProperty('results')
+            expect(result).toHaveProperty('_posthogUrl')
+            // TracesQuery may not have a formatter — result could be string or JSON fallback
+            expect(result.results !== undefined).toBe(true)
         })
     })
 })
