@@ -12,17 +12,11 @@ from parameterized import parameterized
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
     CheckType,
-    SubjectRelation,
     SubjectType,
     SuiteRunStatus,
     SuiteRunTrigger,
 )
-from products.data_quality.backend.models import (
-    DataQualityCheck,
-    DataQualityCheckRun,
-    DataQualityCheckRunSubject,
-    DataQualitySuiteRun,
-)
+from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.data_quality.backend.temporal.activities.cleanup import (
     CHECK_RUN_RETENTION_DAYS,
     COMPILED_QUERY_RETENTION_DAYS,
@@ -106,43 +100,15 @@ class TestRetentionSweep(BaseTest):
         assert surviving == {newest.id}
         assert aged.id not in surviving
 
-    def test_the_deleted_run_count_excludes_cascaded_subject_rows(self) -> None:
-        # Deleting a run cascades its subject index rows, so .delete() returns runs + subjects. The
-        # reported count must come from the per-model breakdown, not that combined total.
-        aged = self._run(age_days=CHECK_RUN_RETENTION_DAYS + 1)
-        self._run()  # a newer run for the same check, so the aged one ages out
-        for _ in range(3):
-            DataQualityCheckRunSubject.objects.for_team(self.team.id).create(
-                team=self.team,
-                run=aged,
-                relation=SubjectRelation.REFERENCED,
-                subject_type=SubjectType.VIEW,
-                subject_uuid=uuid4(),
-            )
-
-        outcome = _cleanup()
-
-        assert outcome.check_runs_deleted == 1
-        assert not DataQualityCheckRunSubject.objects.unscoped().filter(run_id=aged.id).exists()
-
     def test_expired_runs_are_deleted_one_batch_at_a_time(self) -> None:
         recent = self._run()
-        aged = [self._run(age_days=CHECK_RUN_RETENTION_DAYS + 1) for _ in range(3)]
-        for run in aged:
-            DataQualityCheckRunSubject.objects.for_team(self.team.id).create(
-                team=self.team,
-                run=run,
-                relation=SubjectRelation.REFERENCED,
-                subject_type=SubjectType.VIEW,
-                subject_uuid=uuid4(),
-            )
+        [self._run(age_days=CHECK_RUN_RETENTION_DAYS + 1) for _ in range(3)]
 
         with patch(BATCH_SIZE, 1), CaptureQueriesContext(connection) as queries:
             outcome = _cleanup()
 
         assert outcome.check_runs_deleted == 3
         assert set(DataQualityCheckRun.objects.unscoped().values_list("id", flat=True)) == {recent.id}
-        assert not DataQualityCheckRunSubject.objects.unscoped().exists()
         run_delete = f'DELETE FROM "{DataQualityCheckRun._meta.db_table}"'
         assert sum(run_delete in query["sql"] for query in queries.captured_queries) == 3
 

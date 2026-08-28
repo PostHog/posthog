@@ -37,7 +37,13 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         )
         flag_patch.start()
         self.addCleanup(flag_patch.stop)
-        self.subject_uuid = uuid4()
+        self.subject = self._view("orders")
+        self.subject_uuid = self.subject.id
+
+    def _view(self, name: str) -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            team=self.team, name=name, query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
 
     def _context(self, denied_tables: set[str] | None = None) -> HogQLContext:
         database = Database.create_for(team=self.team, user=self.user)
@@ -161,9 +167,9 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_a_denied_subject_is_hidden_from_every_data_quality_table(self, _name: str, sql: str) -> None:
-        denied = self._check(subject_name="orders", saved_query_id=uuid4())
+        denied = self._check(subject_name="orders")
         self._run_for(denied)
-        allowed = self._check(subject_name="customers", saved_query_id=uuid4(), column_name="id")
+        allowed = self._check(subject_name="customers", saved_query_id=self._view("customers").id, column_name="id")
         self._run_for(allowed)
 
         rows = self._query(sql, context=self._context(denied_tables={"orders"}))
@@ -181,10 +187,7 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
     def test_a_denied_subject_renamed_since_its_last_run_stays_hidden(self, _name: str, sql: str) -> None:
         # The name on the check is only rewritten when the check runs, so matching denial against it
         # serves the subject's rows for the whole window between a rename and the next run.
-        renamed = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
-        )
-        stale = self._check(subject_name="orders_legacy", saved_query_id=renamed.id)
+        stale = self._check(subject_name="orders_legacy")
         self._run_for(stale)
 
         rows = self._query(sql, context=self._context(denied_tables={"orders"}))
@@ -203,7 +206,7 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         # answers questions about the rows behind it.
         reader = self._check(
             subject_name="customers",
-            saved_query_id=uuid4(),
+            saved_query_id=self._view("customers").id,
             check_type=CheckType.CUSTOM_SQL,
             column_name="",
             config={"query": "SELECT 1 FROM orders"},
@@ -224,14 +227,12 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         # A check row is not only a definition: last_status is the verdict of its last run, over
         # whatever that run read. Once the subject it read is deleted and its name taken by something
         # the caller may read, the definition stops naming anything denied while the verdict remains.
-        original = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="orders_original", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
-        )
+        original = self._view("orders_original")
         original_id = original.id
         original.delete()
         reader = self._check(
             subject_name="customers",
-            saved_query_id=self.subject_uuid,
+            saved_query_id=self._view("customers").id,
             check_type=CheckType.CUSTOM_SQL,
             column_name="",
             config={"query": "SELECT 1 FROM orders"},
@@ -251,14 +252,12 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         # Deleting a warehouse object frees its name for anyone to take. Matched by the names in its
         # definition, the run that read the original would be served here the moment something the
         # caller can read answers to that name -- with its failed-row count over the original's rows.
-        original = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="orders_original", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
-        )
+        original = self._view("orders_original")
         original_id = original.id
         original.delete()
         reader = self._check(
             subject_name="customers",
-            saved_query_id=uuid4(),
+            saved_query_id=self._view("customers").id,
             check_type=CheckType.CUSTOM_SQL,
             column_name="",
             config={"query": "SELECT 1 FROM orders"},
@@ -277,10 +276,19 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
 
         assert rows == []
 
-    def test_a_run_without_a_declared_stamp_is_withheld_from_a_restricted_member(self) -> None:
-        # A run recorded before runs stamped their own subject has no declared row, so what it
-        # touched cannot be established from the stamps. Withheld, never read as touching nothing.
-        check = self._check(subject_name="orders")
+    @parameterized.expand(
+        [
+            ("non_referencing", CheckType.NOT_NULL, {}, ["orders"]),
+            ("referencing", CheckType.CUSTOM_SQL, {"query": "SELECT 1 FROM customers"}, []),
+        ]
+    )
+    def test_a_run_predating_pinned_references_is_judged_by_its_type(
+        self, _name: str, check_type: str, config: dict, expected: list[str]
+    ) -> None:
+        # Nothing backfills the references of a run recorded before they were pinned, so a null column
+        # cannot be read as "touched nothing". A type that cannot reach past its own subject read only
+        # the subject already authorized here; one that can is withheld.
+        check = self._check(check_type=check_type, column_name="", config=config)
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
         DataQualityCheckRun.objects.for_team(self.team.id).create(
             team=self.team,
@@ -289,10 +297,10 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
             subject_type=SubjectType.VIEW,
             subject_uuid=self.subject_uuid,
             subject_name="orders",
-            check_type=check.check_type,
+            check_type=check_type,
             check_fingerprint=check.fingerprint,
             status=CheckRunStatus.FAILED,
-            referenced_subjects=[],
+            referenced_subjects=None,
         )
 
         rows = self._query(
@@ -300,14 +308,13 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
             context=self._context(denied_tables={"secrets"}),
         )
 
-        assert rows == []
+        assert [name for (name,) in rows] == expected
 
-    def test_a_run_whose_declared_subject_was_deleted_and_unclaimed_stays_visible(self) -> None:
-        # History outlives deletions: a run's own subject can be deleted and its name left unclaimed,
-        # and the run stays readable. Only a denied object taking that freed name withholds it.
-        temp = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="temp_orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
-        )
+    def test_a_run_whose_declared_subject_was_deleted_is_withheld_from_a_restricted_member(self) -> None:
+        # Deleting a subject takes its denial with it, so nothing left can show the caller was allowed
+        # it. Hidden until retention deletes the history, rather than served on the strength of a name
+        # anyone can now claim.
+        temp = self._view("temp_orders")
         check = self._check(subject_name="temp_orders", saved_query_id=temp.id)
         self._run_for(check)
         temp.delete()
@@ -317,7 +324,24 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
             context=self._context(denied_tables={"secrets"}),
         )
 
-        assert rows == [("temp_orders",)]
+        assert rows == []
+
+    def test_a_run_referencing_an_unknown_subject_type_is_withheld(self) -> None:
+        # A future subject kind recorded before this gate learns it matches no readable branch, so it
+        # is contained in nothing and the run falls out -- the fail-closed answer, not the reverse.
+        check = self._check(check_type=CheckType.CUSTOM_SQL, column_name="", config={"query": "SELECT 1"})
+        self._run_for(
+            check,
+            check_type=CheckType.CUSTOM_SQL,
+            referenced_subjects=[{"subject_type": "dashboard", "subject_uuid": str(self.subject_uuid)}],
+        )
+
+        rows = self._query(
+            "SELECT subject_name FROM system.information_schema.data_quality_check_runs",
+            context=self._context(denied_tables={"secrets"}),
+        )
+
+        assert rows == []
 
     def test_the_tables_are_absent_when_the_catalog_flag_is_off(self) -> None:
         with patch("products.data_quality.backend.facade.flags.is_data_quality_checks_enabled", return_value=False):

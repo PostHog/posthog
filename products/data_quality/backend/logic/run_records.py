@@ -1,52 +1,61 @@
-"""Write a run down, together with the subjects it touched.
+"""Write one check execution down.
 
-One entry point, because the two cannot be created apart. The history gates probe the stamp rows,
-and a run missing its declared stamp is withheld from a restricted member rather than served. A
-caller that could insert the run alone would strand its own history behind that gate.
+The columns a run records are what every history gate later judges it by, so the field list is
+spelled out here rather than forwarded as ``**kwargs``: a caller that omits the declared subject or
+misspells ``referenced_subjects`` would strand its own history behind a fail-closed gate.
 """
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from django.db import transaction
-
-from ..facade.enums import SubjectRelation
-from ..models import DataQualityCheckRun, DataQualityCheckRunSubject
-from .subject_access import pinned_subjects
+from ..facade.enums import CheckRunStatus, CheckSeverity
+from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 
 
-def record_check_run(team_id: int, **fields: Any) -> DataQualityCheckRun:
-    """Record one check execution, stamping the subjects it touched beside it."""
-    with transaction.atomic():
-        run = DataQualityCheckRun.objects.for_team(team_id).create(team_id=team_id, **fields)
-        _stamp_subjects(run)
-    return run
-
-
-def _stamp_subjects(run: DataQualityCheckRun) -> None:
-    rows = [
-        DataQualityCheckRunSubject(
-            team_id=run.team_id,
-            run=run,
-            relation=SubjectRelation.DECLARED,
-            subject_type=run.subject_type,
-            subject_uuid=run.subject_uuid,
-            subject_name=run.subject_name,
-        )
-    ]
-    # None (recorded before runs pinned this) and an empty list (read nothing beyond its subject)
-    # both stamp no referenced row; the recorded column is what tells those two apart.
-    # A query can name one object two ways (a dotted "stripe.charges" and the "stripe_charges" row it
-    # resolves to), which pins the same id twice; dict.fromkeys keeps one, so the unique index does
-    # not reject the repeat and roll the whole run back.
-    for subject in dict.fromkeys(pinned_subjects(run.referenced_subjects) or []):
-        rows.append(
-            DataQualityCheckRunSubject(
-                team_id=run.team_id,
-                run=run,
-                relation=SubjectRelation.REFERENCED,
-                subject_type=subject.subject_type,
-                subject_uuid=UUID(subject.subject_uuid),
-            )
-        )
-    DataQualityCheckRunSubject.objects.for_team(run.team_id).bulk_create(rows)
+def record_check_run(
+    team_id: int,
+    *,
+    suite_run: DataQualitySuiteRun,
+    subject_type: str,
+    subject_uuid: str | UUID,
+    subject_name: str,
+    check_type: str,
+    check_fingerprint: str,
+    status: CheckRunStatus | str,
+    quality_check: DataQualityCheck | None = None,
+    column_name: str = "",
+    check_config: dict[str, Any] | None = None,
+    check_severity: CheckSeverity | str | None = None,
+    referenced_subjects: list[dict[str, str]] | None = None,
+    failed_row_count: int | None = None,
+    observed_value: float | None = None,
+    compiled_query: str = "",
+    error: str = "",
+    duration_ms: int | None = None,
+    started_at: datetime | None = None,
+    finished_at: datetime | None = None,
+) -> DataQualityCheckRun:
+    """Record one check execution."""
+    return DataQualityCheckRun.objects.for_team(team_id).create(
+        team_id=team_id,
+        suite_run=suite_run,
+        subject_type=subject_type,
+        subject_uuid=subject_uuid,
+        subject_name=subject_name,
+        check_type=check_type,
+        check_fingerprint=check_fingerprint,
+        status=status,
+        quality_check=quality_check,
+        column_name=column_name,
+        check_config=check_config,
+        check_severity=check_severity,
+        referenced_subjects=referenced_subjects,
+        failed_row_count=failed_row_count,
+        observed_value=observed_value,
+        compiled_query=compiled_query,
+        error=error,
+        duration_ms=duration_ms,
+        started_at=started_at,
+        finished_at=finished_at,
+    )

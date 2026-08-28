@@ -929,34 +929,77 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [row["check_type"] for row in response.json()] == [CheckType.CUSTOM_SQL]
 
-    def test_a_suite_whose_run_was_never_indexed_is_withheld(self) -> None:
-        # The suite lists exclude in SQL, so they read the index rather than each run's recording.
-        # A run written without index rows -- the state every run recorded before the index existed
-        # is in, since nothing backfills them -- reads there as one that referenced nothing, which
-        # is the fail-open answer. Deliberately not through record_check_run.
-        allowed = self._make_view("customers")
-        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
-            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
-        )
-        DataQualityCheckRun.objects.for_team(self.team.id).create(
+    def test_a_deleted_declared_subject_withholds_its_history_from_a_restricted_member(self) -> None:
+        # Deleting a subject takes its denial with it, so nothing left can show the caller was
+        # allowed it. The run, its suite, and the check all fall out until retention deletes them.
+        temp = self._make_view("temp_orders")
+        check = DataQualityCheck.objects.for_team(self.team.id).create(
             team=self.team,
-            suite_run=suite,
             subject_type=SubjectType.VIEW,
-            subject_uuid=allowed.id,
-            subject_name="customers",
-            check_type=CheckType.CUSTOM_SQL,
-            check_config={"query": "SELECT 1 FROM customers"},
-            referenced_subjects=self._pinned(allowed),
-            check_fingerprint=uuid4().hex,
+            saved_query_id=temp.id,
+            subject_name="temp_orders",
+            check_type=CheckType.NOT_NULL,
+            column_name="id",
+            fingerprint=uuid4().hex,
+        )
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=temp.id
+        )
+        api.record_check_run(
+            self.team.id,
+            suite_run=suite,
+            quality_check=check,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=temp.id,
+            subject_name="temp_orders",
+            check_type=CheckType.NOT_NULL,
+            check_config={},
+            referenced_subjects=[],
+            check_fingerprint=check.fingerprint,
             status=CheckRunStatus.FAILED,
             failed_row_count=3,
         )
         self._deny_the_view()
+        temp.delete()
 
-        listed = self.client.get(f"{self._suite_runs_url(allowed.id)}/")
+        assert self.client.get(f"{self._checks_url(temp.id)}/").status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.get(f"{self._suite_runs_url(temp.id)}/").status_code == status.HTTP_403_FORBIDDEN
 
-        assert listed.status_code == status.HTTP_200_OK
+    def test_a_restricted_member_loses_an_orphaned_checks_row_from_the_project_list(self) -> None:
+        # An orphan has no subject left to prove access against, so it fails closed for a member who
+        # can be object-denied -- even when nothing is currently denied to them.
+        temp = self._make_view("temp_orders")
+        DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.VIEW,
+            saved_query_id=temp.id,
+            subject_name="temp_orders",
+            check_type=CheckType.NOT_NULL,
+            column_name="id",
+            fingerprint=uuid4().hex,
+        )
+        self._deny_the_view()
+        self.view.delete()
+        temp.delete()
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/data_quality_checks/")
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
         assert listed.json()["results"] == []
+
+    def test_a_failure_building_the_readable_set_refuses_rather_than_leaks(self) -> None:
+        # The snapshot walks every saved query; one malformed definition must not 500 the surface,
+        # and must not fall through to serving rows it could not authorize.
+        self._create_check()
+        self._deny_the_view()
+
+        with patch(
+            "products.data_quality.backend.logic.subject_access.readable_subjects",
+            side_effect=RuntimeError("boom"),
+        ):
+            response = self.client.get(f"{self.url}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [

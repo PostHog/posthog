@@ -14,19 +14,12 @@ from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
     CheckSeverity,
     CheckType,
-    SubjectRelation,
     SubjectStatus,
     SubjectType,
     SuiteRunTrigger,
 )
-from products.data_quality.backend.logic.run_records import record_check_run
 from products.data_quality.backend.logic.runner import run_check
-from products.data_quality.backend.models import (
-    DataQualityCheck,
-    DataQualityCheckRun,
-    DataQualityCheckRunSubject,
-    DataQualitySuiteRun,
-)
+from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
 
@@ -305,40 +298,11 @@ class TestCheckRunner(BaseTest):
 
         run = DataQualityCheckRun.objects.for_team(self.team.id).get(quality_check=check)
         assert run.referenced_subjects == [{"subject_type": SubjectType.VIEW, "subject_uuid": str(target.id)}]
-        # Stamped alongside the run, since the history gates probe the rows rather than the column:
-        # the run's own declared subject beside the one it read.
-        stamps = DataQualityCheckRunSubject.objects.for_team(self.team.id).filter(run=run)
-        assert {(row.relation, str(row.subject_uuid)) for row in stamps} == {
-            (SubjectRelation.DECLARED, str(self.view.id)),
-            (SubjectRelation.REFERENCED, str(target.id)),
-        }
-
-    def test_recording_dedupes_a_subject_pinned_under_two_names(self) -> None:
-        # A query can name one object two ways (a dotted "stripe.charges" and the "stripe_charges"
-        # row it resolves to), which pins the same identity twice. Both rows would violate the
-        # unique index and roll back the run, so recording must index the identity once.
-        check = self._check()
-        subject = {"subject_type": SubjectType.VIEW, "subject_uuid": str(self.view.id)}
-        run = record_check_run(
-            self.team.id,
-            quality_check=check,
-            suite_run=self.suite_run,
-            subject_type=check.subject_type,
-            subject_uuid=self.view.id,
-            subject_name=check.subject_name,
-            check_type=check.check_type,
-            check_fingerprint=check.fingerprint,
-            column_name=check.column_name,
-            referenced_subjects=[subject, subject],
-            status=CheckRunStatus.PASSED,
-        )
-
-        referenced = DataQualityCheckRunSubject.objects.for_team(self.team.id).filter(
-            run=run, relation=SubjectRelation.REFERENCED
-        )
-        assert [(row.subject_type, str(row.subject_uuid)) for row in referenced] == [
-            (SubjectType.VIEW, str(self.view.id))
-        ]
+        # The gate asks whether each entry is contained in the caller's readable set, and an entry
+        # missing a key is contained in more than it should be. Exactly these two keys, both strings.
+        entry = run.referenced_subjects[0]
+        assert set(entry) == {"subject_type", "subject_uuid"}
+        assert all(isinstance(value, str) for value in entry.values())
 
     @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
     def test_an_automated_referencing_check_without_an_author_errors_without_running(

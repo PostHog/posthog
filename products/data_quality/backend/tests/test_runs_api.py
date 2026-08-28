@@ -171,13 +171,17 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert self.client.post(self.url, {}, format="json").status_code == status.HTTP_403_FORBIDDEN
         assert self.client.get(self.url).status_code == status.HTTP_403_FORBIDDEN
 
-    def test_history_serves_the_sweeps_the_per_subject_surfaces_hide(self) -> None:
-        # The nested suite-run lists filter on subject_uuid, so a multi-subject sweep is only
-        # readable here.
+    @parameterized.expand([("unrestricted_member", False), ("restricted_member", True)])
+    def test_history_serves_the_sweeps_the_per_subject_surfaces_hide(self, _name: str, restricted: bool) -> None:
+        # The nested suite-run lists filter on subject_uuid, so a multi-subject sweep is only readable
+        # here. A sweep records no subject of its own, so the subject gate must skip it rather than
+        # read the empty column as a subject nobody may see.
         sweep = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
         scoped = DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger="materialization", subject_type=SubjectType.VIEW, subject_uuid=self.orders.id
         )
+        if restricted:
+            self._deny(self._make_view("secrets"))
 
         listed = self.client.get(self.url)
 
