@@ -3,7 +3,7 @@
 # Compile liquid glass icon to Assets.car
 # Based on: https://www.hendrik-erz.de/post/supporting-liquid-glass-icons-in-apps-without-xcode
 #
-# NOTE: This requires Xcode to be installed (Command Line Tools are not sufficient)
+# NOTE: This requires Xcode 26 on macOS 26 (Command Line Tools are not sufficient)
 # If you don't have Xcode, you can either:
 # 1. Install Xcode from the App Store
 # 2. Manually compile Assets.car on a machine with Xcode and commit it
@@ -21,7 +21,7 @@ skip_with_icns_fallback() {
   # Drop any stale catalog so packaging falls back to the .icns icon
   rm -f "$OUTPUT_PATH"
   if [ -n "${CI:-}" ] && [ "$(uname -s)" = "Darwin" ]; then
-    echo "  macOS CI builds must ship the liquid-glass icon; select an Xcode whose actool can compile .icon bundles"
+    echo "  macOS CI builds must ship the liquid-glass icon; run this job on a macOS 26 runner with Xcode 26"
     exit 1
   fi
   echo "  Skipping compilation (app will use standard .icns icon)"
