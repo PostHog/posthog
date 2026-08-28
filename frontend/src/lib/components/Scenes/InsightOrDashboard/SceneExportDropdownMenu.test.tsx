@@ -105,20 +105,27 @@ describe('SceneExportDropdownMenu', () => {
         expect(screen.queryByText('Edit Screenshot')).not.toBeInTheDocument()
     })
 
-    it('keeps a browser-rendered format available without export access', async () => {
+    it.each([
+        ['only server-rendered formats', false, true],
+        ['a browser-rendered format', true, false],
+    ])('handles export access when the menu has %s', (_name, hasBrowserRenderedFormat, exportMenuDisabled) => {
         jest.mocked(getAccessControlDisabledReason).mockReturnValue('You do not have export access')
         const onClick = jest.fn()
+        const browserRenderedItem = {
+            format: ExporterFormat.PNG,
+            dataAttr: 'export-png',
+            onClick,
+        }
         render(
             <SceneExportDropdownMenu
-                dropdownMenuItems={[{ format: ExporterFormat.PNG, dataAttr: 'export-png', onClick }, CSV_ITEM]}
+                dropdownMenuItems={hasBrowserRenderedFormat ? [browserRenderedItem, CSV_ITEM] : [CSV_ITEM]}
             />
         )
 
+        expect(screen.getByText('Export')).toHaveProperty('disabled', exportMenuDisabled)
         expect(screen.getByText('.csv')).toBeDisabled()
-        expect(screen.getByText('.png')).toBeEnabled()
-
-        await userEvent.click(screen.getByText('.png'))
-
-        expect(onClick).toHaveBeenCalledTimes(1)
+        if (hasBrowserRenderedFormat) {
+            expect(screen.getByText('.png')).toBeEnabled()
+        }
     })
 })

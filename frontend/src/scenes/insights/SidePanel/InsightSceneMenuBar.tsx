@@ -131,7 +131,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const { instanceId: metalyticsInstanceId } = useValues(metalyticsLogic)
 
     // Creating an export requires editor access to the export resource.
-    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+    const exportAssetAccessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Export,
         AccessControlLevel.Editor
     )
@@ -157,6 +157,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
         : insightDataError
           ? 'The insight has no results to capture'
           : undefined
+    const pngExportDisabledReason = canCaptureImage ? captureDisabledReason : exportAssetAccessControlDisabledReason
     const showCohort =
         hogQL != null &&
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
@@ -315,13 +316,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                     {canExport && (
                         <SceneMenuBarSubMenu label="Export">
                             <SceneMenuBarItem
-                                disabled={
-                                    !!exportAccessControlDisabledReason || (canCaptureImage && !!captureDisabledReason)
-                                }
-                                tooltip={
-                                    exportAccessControlDisabledReason ??
-                                    (canCaptureImage ? captureDisabledReason : undefined)
-                                }
+                                disabled={(canCaptureImage && isCapturingImage) || !!pngExportDisabledReason}
+                                tooltip={pngExportDisabledReason}
                                 onClick={() =>
                                     canCaptureImage
                                         ? downloadImage(captureTarget)
@@ -338,8 +334,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                 PNG
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
-                                disabled={!!exportAccessControlDisabledReason}
-                                tooltip={exportAccessControlDisabledReason ?? undefined}
+                                disabled={!!exportAssetAccessControlDisabledReason}
+                                tooltip={exportAssetAccessControlDisabledReason ?? undefined}
                                 onClick={() =>
                                     startExport({
                                         export_format: ExporterFormat.CSV,
@@ -352,8 +348,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                 CSV
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
-                                disabled={!!exportAccessControlDisabledReason}
-                                tooltip={exportAccessControlDisabledReason ?? undefined}
+                                disabled={!!exportAssetAccessControlDisabledReason}
+                                tooltip={exportAssetAccessControlDisabledReason ?? undefined}
                                 onClick={() =>
                                     startExport({
                                         export_format: ExporterFormat.XLSX,

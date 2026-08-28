@@ -60,7 +60,11 @@ export function SceneExportDropdownMenu({
         AccessControlResourceType.Export,
         AccessControlLevel.Editor
     )
-    const resolvedDisabledReasons: DisabledReasonsObject = { ...disabledReasons }
+    const hasBrowserRenderedFormat = dropdownMenuItems.some((item) => !!item.onClick)
+    const resolvedDisabledReasons: DisabledReasonsObject = {
+        ...disabledReasons,
+        ...(!hasBrowserRenderedFormat && accessControlDisabledReason ? { [accessControlDisabledReason]: true } : {}),
+    }
 
     const isDisabled = Object.values(resolvedDisabledReasons).some(Boolean)
 
