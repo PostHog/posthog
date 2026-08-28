@@ -921,11 +921,13 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
         return pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk)
 
-    # Campaign reads one stored property; channel runs the classifier over raw_sessions, which is the
-    # expensive shape. Snapshotting both makes any change to either visible as a SQL diff.
+    # One breakdown per SQL shape. Campaign reads a stored property, and the five breakdowns not listed
+    # here produce the same query with a different column. Source adds the alias normalization, and
+    # channel runs the classifier over raw_sessions.
     @parameterized.expand(
         [
             ("campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN),
+            ("source", MarketingAnalyticsAttributionBreakdown.SOURCE),
             ("channel", MarketingAnalyticsAttributionBreakdown.CHANNEL),
         ]
     )

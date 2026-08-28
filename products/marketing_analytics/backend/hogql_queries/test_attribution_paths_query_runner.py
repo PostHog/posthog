@@ -1,6 +1,8 @@
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from parameterized import parameterized
+
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
@@ -400,11 +402,19 @@ class TestMarketingAnalyticsAttributionPathsQueryRunner(ClickhouseTestMixin, Bas
         assert ctes is not None
         self.assertTrue(ctes["per_conversion_path"].materialized)
 
+    # Same three shapes as the attribution table: direct read, alias normalization, classifier.
+    @parameterized.expand(
+        [
+            ("campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN),
+            ("source", MarketingAnalyticsAttributionBreakdown.SOURCE),
+            ("channel", MarketingAnalyticsAttributionBreakdown.CHANNEL),
+        ]
+    )
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_attribution_paths_sql(self):
+    def test_attribution_paths_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
         query = MarketingAnalyticsAttributionPathsQuery(
             dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
-            breakdownBy=MarketingAnalyticsAttributionBreakdown.CHANNEL,
+            breakdownBy=breakdown,
             conversionGoalId=GOAL_ID,
             properties=[],
         )
