@@ -350,12 +350,14 @@ def get_installations_for_sandbox(
         # A task stamped with a service account runs in the agent lane
         # unconditionally: the stamp is server-side state naming the identity
         # the author chose, and mounting only that account's grants is strictly
-        # narrower than the legacy member resolution.
+        # narrower than the legacy member resolution. Unlike the built-in-agent
+        # mapping above, this isn't gated on the rollout flag — a team without
+        # gateway enforcement must still never fall through to the legacy
+        # team-shared mount for a task the author explicitly scoped down.
         in_agent_lane = agent_key is not None
-        if not in_agent_lane and task_service_account_id is not None and is_builtin_agent_enforcement_enabled(team_id):
-            service_account_id = task_service_account_id
+        if not in_agent_lane and task_service_account_id is not None:
             in_agent_lane = True
-            agent_account = _active_service_account(team_id, service_account_id)
+            agent_account = _active_service_account(team_id, task_service_account_id)
             if agent_account is None:
                 logger.warning(
                     "Refusing MCP installations for a missing or paused service account",

@@ -878,17 +878,32 @@ class TestGetInstallationsForSandbox(BaseTest):
         assert missing_results == []
         assert paused_results == []
 
-    def test_service_account_stamp_ignored_until_gateway_flag_rollout(self) -> None:
+    def test_service_account_stamp_honored_regardless_of_gateway_flag_rollout(self) -> None:
         self.enforcement_enabled_mock.return_value = False
         account = self._create_custom_account()
-        shared = self._create_installation(scope="shared")
+        server = self._create_gateway_server(name="SRE server", url="https://sre.example.com/mcp")
+        grant_installation = self._create_installation(
+            scope="personal", gateway_server=server, url=server.url, display_name="SRE"
+        )
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user=self.user,
+            service_account=account,
+            gateway_server=server,
+            installation=grant_installation,
+            granted_by=self.user,
+            scope="team",
+        )
+        self._create_installation(scope="shared")
 
         results = get_installations_for_sandbox(
             self.team.id, task_service_account_id=str(account.id), user_id=self.user.id
         )
 
-        # Falls back to legacy team-shared resolution instead of the (unrolled-out) agent lane.
-        assert [r.id for r in results] == [str(shared.id)]
+        # A run explicitly scoped to a service account must never widen to the
+        # legacy team-shared mount, even on a team where built-in agent
+        # enforcement hasn't rolled out yet.
+        assert [r.id for r in results] == [str(grant_installation.id)]
 
 
 class TestGetServiceAccountSummary(BaseTest):
