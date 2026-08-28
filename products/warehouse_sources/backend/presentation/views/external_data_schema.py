@@ -62,7 +62,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     source_type_supports_cdc,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataSourceType,
+    IncrementalFieldType,
+    IncrementalSyncBlockedReason,
+)
 from products.warehouse_sources.backend.presentation.views.source_api_versions import (
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
@@ -343,6 +347,22 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         allow_null=True,
         help_text="For CDC syncs: consolidated, cdc_only, or both.",
     )
+    incremental_sync_blocked = serializers.ChoiceField(
+        choices=IncrementalSyncBlockedReason.choices,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why a sync run proved this table's incremental sync can never succeed, or `null` if it "
+            "can. `missing_primary_key`: the table has no primary key to merge rows on. "
+            "`duplicate_primary_key`: the primary key in use does not identify one row. Either way "
+            "the table is disabled, and every retry fails the same way until something changes. To "
+            "resolve it, set `primary_key_columns` to a unique key (accepted even after data has "
+            "synced, as long as no key was set before), or set `sync_type` to `append` (only safe "
+            "for insert-only tables: updated rows arrive as duplicates) or `full_refresh` (re-reads "
+            "the whole table on every sync, and every row is billed). If the table was fixed at the "
+            "source instead, set `should_sync` to true to retry. A successful sync clears this."
+        ),
+    )
     enabled_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -422,6 +442,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "description",
             "primary_key_columns",
             "cdc_table_mode",
+            "incremental_sync_blocked",
             "enabled_columns",
             "row_filters",
             "available_columns",
@@ -440,6 +461,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "last_synced_at",
             "latest_error",
             "status",
+            "incremental_sync_blocked",
             "description",
             "available_columns",
             "source_column_metadata_available",
@@ -837,6 +859,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     f"{resulting_sync_type or 'not set'} on its own. "
                     "Include sync_type in the same request to change the sync type."
                 )
+
+        # A recorded block describes a sync configuration that a run proved unusable, so a request
+        # that changes the sync type or the primary key supersedes it and the next run decides
+        # again. A bare re-enable keeps the same configuration, so its marker stays until a run
+        # succeeds, which is what clears it for a table the customer fixed at the source.
+        if "sync_type" in data or "primary_key_columns" in data:
+            instance.sync_type_config.pop("incremental_sync_blocked", None)
 
         trigger_refresh = False
         # Update the validated_data with incremental fields

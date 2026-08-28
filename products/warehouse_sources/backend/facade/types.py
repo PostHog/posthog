@@ -1507,6 +1507,18 @@ class ExternalDataSchemaSyncType(models.TextChoices):
     XMIN = "xmin", "xmin"
 
 
+class IncrementalSyncBlockedReason(models.TextChoices):
+    """Why a sync run proved a schema's incremental sync can never succeed.
+
+    An incremental sync merges rows on a primary key. Without a key, or with a key that does not
+    identify one row, the merge fails the same way on every run. The customer resolves it by
+    choosing a unique key, changing the sync type, or fixing the table at the source.
+    """
+
+    MISSING_PRIMARY_KEY = "missing_primary_key", "Missing primary key"
+    DUPLICATE_PRIMARY_KEY = "duplicate_primary_key", "Duplicate primary key"
+
+
 class ExternalDataSchemaSyncFrequency(models.TextChoices):
     DAILY = "day", "Daily"
     WEEKLY = "week", "Weekly"

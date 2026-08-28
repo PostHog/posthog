@@ -6626,6 +6626,9 @@ export interface ExternalDataSourceSyncSchema {
     row_filters?: RowFilter[] | null
 }
 
+/** Why a sync run proved a table's incremental sync can never succeed. */
+export type IncrementalSyncBlockedReason = 'missing_primary_key' | 'duplicate_primary_key'
+
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
     incremental: boolean
@@ -6643,6 +6646,11 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     should_sync_default?: boolean
     primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
+    /**
+     * Set when a sync run proved this table's incremental sync can never succeed, `null` otherwise.
+     * Cleared when the sync type or primary key changes, or when a sync succeeds.
+     */
+    incremental_sync_blocked?: IncrementalSyncBlockedReason | null
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.

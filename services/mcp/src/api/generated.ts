@@ -35535,6 +35535,18 @@ export namespace Schemas {
       '30day': '30day',
     } as const;
 
+    /**
+     * * `missing_primary_key` - Missing primary key
+     * * `duplicate_primary_key` - Duplicate primary key
+     */
+    export type IncrementalSyncBlockedEnum = typeof IncrementalSyncBlockedEnum[keyof typeof IncrementalSyncBlockedEnum];
+
+
+    export const IncrementalSyncBlockedEnum = {
+      MissingPrimaryKey: 'missing_primary_key',
+      DuplicatePrimaryKey: 'duplicate_primary_key',
+    } as const;
+
     export interface ExternalDataSourceApiVersionDeprecation {
       /** The deprecated vendor API version this source is pinned to. */
       version: string;
@@ -35630,6 +35642,11 @@ export namespace Schemas {
        * * `cdc_only` - cdc_only
        * * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /** Why a sync run proved this table's incremental sync can never succeed, or `null` if it can. `missing_primary_key`: the table has no primary key to merge rows on. `duplicate_primary_key`: the primary key in use does not identify one row. Either way the table is disabled, and every retry fails the same way until something changes. To resolve it, set `primary_key_columns` to a unique key (accepted even after data has synced, as long as no key was set before), or set `sync_type` to `append` (only safe for insert-only tables: updated rows arrive as duplicates) or `full_refresh` (re-reads the whole table on every sync, and every row is billed). If the table was fixed at the source instead, set `should_sync` to true to retry. A successful sync clears this.
+       *
+       * * `missing_primary_key` - Missing primary key
+       * * `duplicate_primary_key` - Duplicate primary key */
+      readonly incremental_sync_blocked: IncrementalSyncBlockedEnum | null;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
@@ -61812,6 +61829,11 @@ export namespace Schemas {
        * * `cdc_only` - cdc_only
        * * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /** Why a sync run proved this table's incremental sync can never succeed, or `null` if it can. `missing_primary_key`: the table has no primary key to merge rows on. `duplicate_primary_key`: the primary key in use does not identify one row. Either way the table is disabled, and every retry fails the same way until something changes. To resolve it, set `primary_key_columns` to a unique key (accepted even after data has synced, as long as no key was set before), or set `sync_type` to `append` (only safe for insert-only tables: updated rows arrive as duplicates) or `full_refresh` (re-reads the whole table on every sync, and every row is billed). If the table was fixed at the source instead, set `should_sync` to true to retry. A successful sync clears this.
+       *
+       * * `missing_primary_key` - Missing primary key
+       * * `duplicate_primary_key` - Duplicate primary key */
+      readonly incremental_sync_blocked?: IncrementalSyncBlockedEnum | null;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable

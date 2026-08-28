@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalSyncBlockedReason
 
 
 class TestCustomerFacingError(SimpleTestCase):
@@ -258,3 +258,79 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
     assert mock_update_should_sync.called is expect_disabled
     customer_message = mock_update_job_status.call_args.kwargs["latest_error"] or ""
     assert ("tries to write to your database" in customer_message) is expect_disabled
+
+
+# transaction=True for the same reason as the tests above: the activity records the reason through
+# database_sync_to_async_pool, and the pool thread's connection can't see a test transaction.
+@parameterized.expand(
+    [
+        # No key to merge rows on. The customer resolves it by picking one, changing the sync type,
+        # or declaring a key at the source, and each needs the UI to know which table to point at.
+        (
+            "missing_key",
+            "MissingPrimaryKeysException: Primary key required for incremental syncs",
+            IncrementalSyncBlockedReason.MISSING_PRIMARY_KEY.value,
+        ),
+        # A key that does not identify one row. Redshift does not enforce primary keys, so a
+        # declared key can hold duplicates and the merge can never match rows.
+        (
+            "duplicate_key",
+            "DuplicatePrimaryKeysException: The primary keys for this table are not unique. "
+            "Primary keys being used are: ['id']",
+            IncrementalSyncBlockedReason.DUPLICATE_PRIMARY_KEY.value,
+        ),
+        # Any other non-retryable failure disables the schema without a resolution to offer, so
+        # recording one here would label a schema as key-blocked when its key is fine.
+        ("unrelated_non_retryable", "ApplicationError: SSHTunnel auth is not valid", None),
+    ]
+)
+@pytest.mark.django_db(transaction=True)
+def test_non_retryable_failure_records_only_a_proven_incremental_block(
+    _name: str, internal_error: str, expected_reason: str | None
+) -> None:
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    source = ExternalDataSource.objects.create(team=team, source_type=ExternalDataSourceType.POSTGRES.value)
+    schema = ExternalDataSchema.objects.create(
+        team=team,
+        source=source,
+        name="table",
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "updated_at"},
+    )
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+    )
+
+    env = ActivityEnvironment()
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id=str(job.id),
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        status=ExternalDataJob.Status.FAILED,
+        internal_error=internal_error,
+        latest_error=internal_error,
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch("posthoganalytics.capture"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_should_sync"
+        ) as mock_update_should_sync,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+        ),
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    # Every case still disables: the blocked schema is not left running against a failure that
+    # repeats on every schedule.
+    assert mock_update_should_sync.call_args.kwargs["should_sync"] is False
+    schema.refresh_from_db()
+    assert schema.incremental_sync_blocked == expected_reason
+    assert schema.sync_type_config["incremental_field"] == "updated_at"

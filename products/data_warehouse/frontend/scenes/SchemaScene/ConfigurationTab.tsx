@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDialog,
     LemonInput,
@@ -42,6 +43,7 @@ import {
     useSchemaEditorAccess,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import {
+    IncrementalSyncBlockedMessageMap,
     StatusTagSetting,
     SyncFrequencyLabelMap,
     SyncTypeLabelMap,
@@ -194,6 +196,14 @@ function DetailsSection({
                 description="Enable or disable syncing for this schema, see its current state, and trigger a sync on demand."
             />
             <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
+                {schema.incremental_sync_blocked && (
+                    <LemonBanner
+                        type="warning"
+                        action={{ children: 'Change sync method', onClick: onConfigureSyncMethod }}
+                    >
+                        {IncrementalSyncBlockedMessageMap[schema.incremental_sync_blocked]}
+                    </LemonBanner>
+                )}
                 <div className="flex items-start justify-between gap-4">
                     <div className="flex flex-col">
                         <span>Enabled</span>

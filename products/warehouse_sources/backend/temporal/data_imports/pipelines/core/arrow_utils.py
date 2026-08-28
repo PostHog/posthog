@@ -63,12 +63,19 @@ class BillingLimitsWillBeReachedException(NonReportableError):
     and subclassing NonReportableError keeps it out of error tracking."""
 
 
+# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`) and by the
+# import teardown that records why an incremental sync is blocked, so keep the wording in step with
+# them. The raised message continues past this prefix with the keys that were used.
+DUPLICATE_PRIMARY_KEYS_ERROR = "The primary keys for this table are not unique"
+
+
 class DuplicatePrimaryKeysException(Exception):
     pass
 
 
-# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`) and by the
-# v3 load consumer, so both keep recognizing the condition — keep the wording in step with them.
+# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`), by the
+# v3 load consumer, and by the import teardown that records why an incremental sync is blocked, so
+# all three keep recognizing the condition. Keep the wording in step with them.
 MISSING_PRIMARY_KEYS_ERROR = "Primary key required for incremental syncs"
 
 

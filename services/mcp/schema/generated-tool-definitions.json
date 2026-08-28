@@ -4440,7 +4440,7 @@
         }
     },
     "external-data-schemas-list": {
-        "description": "List all table schemas across all data warehouse sources. Each schema represents one table being synced from an external source. Returns the schema name, sync status, sync frequency, incremental field configuration, last_synced_at, and latest error. Use this to see which tables are actively syncing and their health. To check one table's freshness, pass `search` with the table/schema name to narrow to that schema. Column definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns.",
+        "description": "List all table schemas across all data warehouse sources. Each schema represents one table being synced from an external source. Returns the schema name, sync status, sync frequency, incremental field configuration, last_synced_at, and latest error. Use this to see which tables are actively syncing and their health. To check one table's freshness, pass `search` with the table/schema name to narrow to that schema. Column definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns. When a table stopped syncing, check `incremental_sync_blocked`: it is set when a run proved the table's incremental sync can never succeed, and such a table stays disabled and fails the same way on every retry until its sync configuration changes or the table is fixed at the source. That field's description lists the resolutions, which are applied with 'external-data-schemas-partial-update'.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse table schemas (imported tables)",
@@ -4454,7 +4454,7 @@
         }
     },
     "external-data-schemas-partial-update": {
-        "description": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'.",
+        "description": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or should_sync=true to retry a table fixed at the source. Sending primary_key_columns or sync_type clears the recorded block, because the configuration a run proved unusable is no longer the one in force.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Update data warehouse table schema sync config",
@@ -4496,7 +4496,7 @@
         }
     },
     "external-data-schemas-retrieve": {
-        "description": "Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental field, latest error, and the associated source and table metadata.",
+        "description": "Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental field, primary key columns, latest error, `incremental_sync_blocked`, and the associated source and table metadata. Read `incremental_sync_blocked` before diagnosing a table that stopped syncing: it names a sync configuration that a run proved unusable, and its description lists the resolutions.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Get data warehouse table schema",

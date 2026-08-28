@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
     ExternalDataSchema,
     update_should_sync,
+    update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
@@ -54,6 +55,10 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
     get_v3_lock_skipped_metric,
     get_version_check_skipped_metric,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    DUPLICATE_PRIMARY_KEYS_ERROR,
+    MISSING_PRIMARY_KEYS_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
     PostImportWorkflow,
@@ -103,7 +108,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     RepartitionActivityInputs,
     maybe_repartition_table_activity,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalSyncBlockedReason
 
 LOGGER = get_logger(__name__)
 
@@ -124,11 +129,11 @@ Any_Source_Errors: dict[str, str | None] = {
         "(private key, passphrase, or username and password) on the source's SSH tunnel "
         "configuration, then re-enable the sync."
     ),
-    "Primary key required for incremental syncs": (
+    MISSING_PRIMARY_KEYS_ERROR: (
         "This table needs a primary key to sync incrementally, but none is set. Choose a primary key "
         "for the table in its sync settings, or switch it to full table replication, then re-enable the sync."
     ),
-    "The primary keys for this table are not unique": (
+    DUPLICATE_PRIMARY_KEYS_ERROR: (
         "The primary key set for this table isn't unique, so incremental syncing can't reliably match "
         "rows to update. Choose a unique primary key in the table's sync settings, or switch it to full "
         "table replication, then re-enable the sync."
@@ -176,6 +181,18 @@ Any_Source_Errors: dict[str, str | None] = {
 }
 
 
+# The two failures that prove an incremental sync can never succeed for a table: it has no primary
+# key to merge rows on, or its primary key does not identify one row. Both are raised only on the
+# incremental write path. The schema is disabled the same way every other non-retryable error
+# disables it, and the reason is recorded so the UI and the API can offer the resolutions the
+# customer has: choose a unique primary key, change the sync type, or fix the table at the source
+# and re-enable.
+INCREMENTAL_SYNC_BLOCKED_ERRORS: dict[str, IncrementalSyncBlockedReason] = {
+    MISSING_PRIMARY_KEYS_ERROR: IncrementalSyncBlockedReason.MISSING_PRIMARY_KEY,
+    DUPLICATE_PRIMARY_KEYS_ERROR: IncrementalSyncBlockedReason.DUPLICATE_PRIMARY_KEY,
+}
+
+
 UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
 
 CANCELLED_RUN_MESSAGE = (
@@ -206,6 +223,17 @@ def _customer_facing_error(cause: BaseException | None) -> str:
         return CANCELLED_RUN_MESSAGE
     message = getattr(cause, "message", None)
     return message or str(cause)
+
+
+def _incremental_sync_blocked_reason(internal_error_normalized: str) -> IncrementalSyncBlockedReason | None:
+    return next(
+        (
+            reason
+            for error, reason in INCREMENTAL_SYNC_BLOCKED_ERRORS.items()
+            if error_message_matches(internal_error_normalized, [error])
+        ),
+        None,
+    )
 
 
 def _is_app_db_failure(internal_error: str) -> bool:
@@ -378,6 +406,23 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 disable_error_message=inputs.latest_error or AUTO_DISABLED_JOB_ERROR,
                 disable_exclude_workflow_id=activity.info().workflow_id,
             )
+
+            # Recorded after the disable so the merge lands on the row the disable just wrote.
+            # `latest_error` carries the same failure as prose, but it is cleared by the next
+            # successful run and overwritten by any later failure, so it cannot tell a reader
+            # whether the sync config itself is still unusable.
+            blocked_reason = _incremental_sync_blocked_reason(internal_error_normalized)
+            if blocked_reason is not None:
+                await database_sync_to_async_pool(update_sync_type_config_keys)(
+                    inputs.schema_id,
+                    inputs.team_id,
+                    updates={"incremental_sync_blocked": blocked_reason.value},
+                )
+                logger.warning(
+                    "Recorded blocked incremental sync",
+                    schema_id=inputs.schema_id,
+                    reason=blocked_reason.value,
+                )
 
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,

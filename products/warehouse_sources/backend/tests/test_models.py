@@ -796,6 +796,15 @@ class TestCompleteSchemaRun(BaseTest):
                 {"cdc_mode": "streaming"},
             ),
             (
+                # A run that succeeded merged rows on a key, so a table whose primary key the
+                # customer fixed at the source leaves the blocked state without further action.
+                "incremental_block_cleared_on_repaint",
+                {"cdc_mode": "streaming", "incremental_sync_blocked": "missing_primary_key"},
+                True,
+                ExternalDataSchema.Status.COMPLETED,
+                {"cdc_mode": "streaming"},
+            ),
+            (
                 "healthy_schema_repaints",
                 {"cdc_mode": "streaming"},
                 True,
