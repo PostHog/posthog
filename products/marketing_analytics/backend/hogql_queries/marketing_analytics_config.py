@@ -108,6 +108,7 @@ class MarketingAnalyticsConfig:
 
     conversion_goal_precomputation_enabled: bool = False
     costs_precomputation_enabled: bool = False
+    sessions_precomputation_enabled: bool = False
 
     @staticmethod
     def _precompute_flags(team: "Team") -> dict[str, bool]:
@@ -139,6 +140,12 @@ class MarketingAnalyticsConfig:
             ),
             "costs": feature_enabled_or_false(
                 "marketing-analytics-costs-precomputation",
+                str(team.uuid),
+                groups=groups,
+                group_properties=group_properties,
+            ),
+            "sessions": feature_enabled_or_false(
+                "marketing-analytics-sessions-precomputation",
                 str(team.uuid),
                 groups=groups,
                 group_properties=group_properties,
@@ -179,6 +186,7 @@ class MarketingAnalyticsConfig:
         flags = cls._precompute_flags(team)
         config.conversion_goal_precomputation_enabled = flags["conversion"]
         config.costs_precomputation_enabled = flags["costs"]
+        config.sessions_precomputation_enabled = flags["sessions"]
 
         # Gate multi-touch attribution behind its flag; fall back to last-touch when disabled. Evaluated
         # only for multi-touch modes so single-touch never triggers the flag call.

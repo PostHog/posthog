@@ -35,6 +35,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from .attribution_base import PERSON_ARRAYS_CTE, AttributionQueryRunnerBase
+from .attribution_sessions_read import build_reach
 from .attribution_weights import (
     build_first_touch_weights,
     build_last_touch_weights,
@@ -103,6 +104,13 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
         visitors to the display window instead let a conversion be credited to a touch from before the
         range while its person was missing from the denominator, reporting rates above 100%.
         """
+        if self.config.sessions_precomputation_enabled:
+            with self.timings.measure("attribution_sessions_precompute"):
+                precomputed = build_reach(self, date_range)
+            if precomputed is not None:
+                self._sessions_precompute_used = True
+                return precomputed
+
         breakdown = self._breakdown_expr()
         return ast.SelectQuery(
             select=[
@@ -287,7 +295,7 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
         with self.timings.measure("attribution_person_arrays_cte"):
             ctes[PERSON_ARRAYS_CTE] = ast.CTE(
                 name=PERSON_ARRAYS_CTE,
-                expr=self._build_person_arrays_select(date_range),
+                expr=self._person_arrays_select(date_range),
                 cte_type="subquery",
             )
         # Materialized because two CTEs read it, and ClickHouse otherwise re-evaluates a CTE at each
