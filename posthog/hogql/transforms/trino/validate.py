@@ -1,6 +1,8 @@
 from typing import NoReturn
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.trino_locator import resolve_trino_table_locator
 from posthog.hogql.errors import QueryError
 from posthog.hogql.printer.trino_functions import (
     TRINO_FUNCTION_HANDLERS_LOWER,
@@ -96,6 +98,10 @@ _SUPPORTED_CALLS = frozenset(
 
 
 class TrinoReadyValidator(TraversingVisitor):
+    def __init__(self, context: HogQLContext) -> None:
+        super().__init__()
+        self.context = context
+
     def _fail(self, feature_code: str, construct: str, node: ast.Expr | None = None) -> NoReturn:
         raise TrinoLoweringError(feature_code, construct, node)
 
@@ -156,12 +162,15 @@ class TrinoReadyValidator(TraversingVisitor):
         self._fail("TRINO_PROPERTY_NOT_LOWERED", "logical map property access")
 
     def visit_table_type(self, node: ast.TableType) -> None:
-        if not hasattr(node.table, "to_printed_trino"):
+        if (
+            not hasattr(node.table, "to_printed_trino")
+            and resolve_trino_table_locator(node.table, self.context) is None
+        ):
             self._fail(
                 "TRINO_TABLE_LOCATOR_MISSING",
                 f"table {node.table.name or node.table.__class__.__name__}",
             )
 
 
-def validate_trino_ready_ast(node: ast.AST) -> None:
-    TrinoReadyValidator().visit(node)
+def validate_trino_ready_ast(node: ast.AST, context: HogQLContext) -> None:
+    TrinoReadyValidator(context).visit(node)

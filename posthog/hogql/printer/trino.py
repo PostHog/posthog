@@ -4,6 +4,7 @@ from typing import ClassVar, cast
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
+from posthog.hogql.database.trino_locator import resolve_trino_table_locator
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.printer.postgres import PostgresPrinter
@@ -414,6 +415,9 @@ class TrinoPrinter(PostgresPrinter):
             return table.to_printed_trino(self.context)
         if hasattr(table, "to_printed_trino"):
             return table.to_printed_trino(self.context)
+        locator = resolve_trino_table_locator(table, self.context)
+        if locator is not None:
+            return ".".join(escape_trino_identifier(part) for part in locator)
         raise QueryError(f"Table '{table.name or table.__class__.__name__}' has no Trino physical locator.")
 
     def visit_lambda(self, node: ast.Lambda) -> str:

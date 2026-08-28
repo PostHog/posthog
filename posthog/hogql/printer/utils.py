@@ -360,7 +360,7 @@ def prepare_ast_for_printing(
                 resolver_factory=resolver_factory,
             )
         with context.timings.measure("validate_trino_ready_ast"):
-            validate_trino_ready_ast(node)
+            validate_trino_ready_ast(node, context)
 
     # Drop argmax_select's tuple()/tupleElement() wrap for non-nullable columns; runs last so resolved nullability is final. ClickHouse-only.
     if dialect == "clickhouse":
