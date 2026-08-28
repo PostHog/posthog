@@ -1166,11 +1166,11 @@ class TestScannerDuplicateAction(_VisionAPITestCase):
         # resource-level bar itself, exactly as the create action does.
         with (
             patch(
-                "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
                 side_effect=lambda resource, **_: resource != "replay_scanner",
             ),
             patch(
-                "posthog.rbac.user_access_control.UserAccessControl.has_any_specific_access_for_resource",
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.has_any_specific_access_for_resource",
                 return_value=True,
             ),
         ):
