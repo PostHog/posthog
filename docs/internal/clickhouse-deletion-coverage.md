@@ -96,8 +96,12 @@ Each is a decision that erasure may lag by the retention window.
 
 - `sharded_events_recent` — a transient mirror of the last few days of events, 7-day TTL keyed on `inserted_at`. It partitions by day with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real worst case is about 8 days plus TTL-merge lag, not a flat 7. Short enough to accept as the erasure bound, and a sweep would race the TTL for little benefit.
 
-Session recordings, the dead letter queue, and logs are likewise TTL-reclaimed.
+The dead letter queue and logs are likewise TTL-reclaimed.
 That decision predates this document; the older `posthog/models/async_deletion/delete_events.py` records it in a comment, but that module is legacy and is not the source of truth here.
+
+Session recordings are NOT on a TTL: the type-fix migration `0145_session_replay_events_fix_retention_type` removed the table TTL that `0140_session_replay_events_add_ttl` had added, and nothing re-added it.
+Retention is enforced at read time only (`HAVING expiry_time >= now()`).
+Replay metadata is removed by the recording-deletion workflows instead: `delete-recordings-with-team` ends with a `delete-team-metadata` sweep of the team's rows, and the nightly `purge-deleted-recording-metadata` workflow removes the rows of individually shredded sessions once their deletion marker passes the grace period.
 
 ## Known gaps
 

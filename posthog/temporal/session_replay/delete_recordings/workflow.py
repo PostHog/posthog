@@ -9,6 +9,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.session_replay.delete_recordings.activities import (
     cleanup_session_id_chunks,
     delete_recordings,
+    delete_team_metadata,
     load_recordings_with_person,
     load_recordings_with_query,
     load_recordings_with_team_id,
@@ -23,6 +24,7 @@ from posthog.temporal.session_replay.delete_recordings.types import (
     CleanupChunksInput,
     DeleteRecordingsInput,
     DeleteRecordingsResult,
+    DeleteTeamMetadataInput,
     DeletionCertificate,
     DeletionConfig,
     DeletionProgress,
@@ -187,6 +189,20 @@ class DeleteRecordingsWithTeamWorkflow(PostHogWorkflow):
             await _delete_page(page, input.team_id, input.config, progress)
 
             if page.next_cursor is None:
+                # The session loader hides expired and already-marked sessions, so the shred
+                # alone leaves their metadata rows in ClickHouse, and the table has no TTL.
+                # Sweep the whole team once every key is shredded. Ordering matters: the
+                # loader reads these rows, so the sweep must stay after the last page.
+                if workflow.patched("delete-team-metadata") and not input.config.dry_run:
+                    await workflow.execute_activity(
+                        delete_team_metadata,
+                        DeleteTeamMetadataInput(team_id=input.team_id),
+                        start_to_close_timeout=timedelta(hours=1),
+                        retry_policy=common.RetryPolicy(
+                            maximum_attempts=3,
+                            initial_interval=timedelta(minutes=1),
+                        ),
+                    )
                 return _build_certificate(
                     "team",
                     workflow.info().workflow_id,

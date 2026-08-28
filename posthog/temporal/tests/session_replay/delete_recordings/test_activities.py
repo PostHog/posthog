@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
@@ -9,12 +9,15 @@ import httpx
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.temporal.session_replay.delete_recordings.activities import (
+    PURGE_DELETE_BATCH_SIZE,
     _parse_session_recording_list_response,
     delete_recordings,
+    delete_team_metadata,
     purge_deleted_metadata,
 )
 from posthog.temporal.session_replay.delete_recordings.types import (
     DeleteRecordingsInput,
+    DeleteTeamMetadataInput,
     LoadRecordingError,
     PurgeDeletedMetadataInput,
 )
@@ -206,34 +209,91 @@ async def test_delete_recordings_raises_on_http_error():
             await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"], deleted_by="test@posthog.com"))
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "grace_period_days",
-    [
-        pytest.param(1, id="minimum"),
-        pytest.param(10, id="default"),
-        pytest.param(30, id="monthly"),
-        pytest.param(365, id="maximum"),
-    ],
-)
-async def test_purge_deleted_metadata_parameterizes_grace_period(grace_period_days):
+def _mock_clickhouse_client(marker_rows: list[dict]) -> AsyncMock:
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with (
-        patch("posthog.temporal.session_replay.delete_recordings.activities.get_client", return_value=mock_client),
-        patch("posthog.settings.data_stores.CLICKHOUSE_CLUSTER", "posthog"),
-    ):
-        result = await purge_deleted_metadata(PurgeDeletedMetadataInput(grace_period_days=grace_period_days))
+    response = MagicMock()
+    response.content.read = AsyncMock(return_value=json.dumps({"data": marker_rows}).encode())
+    aget_query_ctx = MagicMock()
+    aget_query_ctx.__aenter__ = AsyncMock(return_value=response)
+    aget_query_ctx.__aexit__ = AsyncMock(return_value=False)
+    mock_client.aget_query = MagicMock(return_value=aget_query_ctx)
+
+    return mock_client
+
+
+@pytest.mark.asyncio
+async def test_purge_deleted_metadata_deletes_marked_sessions_by_pair():
+    """The purge must delete the marked sessions' rows by (team_id, session_id).
+
+    A `WHERE is_deleted = 1` predicate only ever matches the marker row: the marker is
+    stamped with the deletion time, so it never merges with the recording's real rows.
+    """
+    marker_rows = [
+        {"team_id": "1", "session_id": "s1"},
+        {"team_id": "1", "session_id": "s2"},
+        {"team_id": "2", "session_id": "s3"},
+    ]
+    mock_client = _mock_clickhouse_client(marker_rows)
+
+    with patch("posthog.temporal.session_replay.delete_recordings.activities.get_client", return_value=mock_client):
+        result = await purge_deleted_metadata(PurgeDeletedMetadataInput(grace_period_days=10))
+
+    select_kwargs = mock_client.aget_query.call_args.kwargs
+    assert select_kwargs["query_parameters"]["grace_period_days"] == 10
+
+    assert mock_client.execute_query.call_count == 2
+    delete_parameters = []
+    for call in mock_client.execute_query.call_args_list:
+        query = call.args[0]
+        assert "team_id = %(team_id)s AND session_id IN %(session_ids)s" in query
+        assert "is_deleted" not in query
+        delete_parameters.append(call.kwargs["query_parameters"])
+    assert {"team_id": 1, "session_ids": ["s1", "s2"]} in delete_parameters
+    assert {"team_id": 2, "session_ids": ["s3"]} in delete_parameters
+
+    assert result.completed_at >= result.started_at
+
+
+@pytest.mark.asyncio
+async def test_purge_deleted_metadata_issues_no_delete_without_markers():
+    mock_client = _mock_clickhouse_client([])
+
+    with patch("posthog.temporal.session_replay.delete_recordings.activities.get_client", return_value=mock_client):
+        await purge_deleted_metadata(PurgeDeletedMetadataInput(grace_period_days=10))
+
+    mock_client.execute_query.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_purge_deleted_metadata_batches_deletes_per_team():
+    marker_rows = [{"team_id": "1", "session_id": f"s{i}"} for i in range(PURGE_DELETE_BATCH_SIZE + 1)]
+    mock_client = _mock_clickhouse_client(marker_rows)
+
+    with patch("posthog.temporal.session_replay.delete_recordings.activities.get_client", return_value=mock_client):
+        await purge_deleted_metadata(PurgeDeletedMetadataInput(grace_period_days=10))
+
+    assert mock_client.execute_query.call_count == 2
+    batch_sizes = [
+        len(call.kwargs["query_parameters"]["session_ids"]) for call in mock_client.execute_query.call_args_list
+    ]
+    assert batch_sizes == [PURGE_DELETE_BATCH_SIZE, 1]
+
+
+@pytest.mark.asyncio
+async def test_delete_team_metadata_deletes_by_team_id():
+    mock_client = _mock_clickhouse_client([])
+
+    with patch("posthog.temporal.session_replay.delete_recordings.activities.get_client", return_value=mock_client):
+        await delete_team_metadata(DeleteTeamMetadataInput(team_id=123))
 
     mock_client.execute_query.assert_called_once()
-    call_kwargs = mock_client.execute_query.call_args
-    assert call_kwargs.kwargs["query_parameters"] == {"grace_period_days": grace_period_days}
-    assert "{grace_period_days:Int32}" in call_kwargs.args[0]
-    assert result.started_at is not None
-    assert result.completed_at is not None
-    assert result.completed_at >= result.started_at
+    query = mock_client.execute_query.call_args.args[0]
+    assert "DELETE FROM sharded_session_replay_events" in query
+    assert "team_id = %(team_id)s" in query
+    assert mock_client.execute_query.call_args.kwargs["query_parameters"] == {"team_id": 123}
 
 
 @pytest.mark.asyncio

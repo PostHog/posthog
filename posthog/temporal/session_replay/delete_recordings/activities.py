@@ -15,6 +15,7 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.recordings.recording_api_jwt import recording_api_auth_headers
 from posthog.session_recordings.utils import filter_from_params_to_query
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
@@ -23,6 +24,7 @@ from posthog.temporal.session_replay.delete_recordings.types import (
     CleanupChunksInput,
     DeleteRecordingsInput,
     DeleteRecordingsResult,
+    DeleteTeamMetadataInput,
     LoadChunkInput,
     LoadRecordingError,
     LoadRecordingsPage,
@@ -34,6 +36,51 @@ from posthog.temporal.session_replay.delete_recordings.types import (
 )
 
 LOGGER = get_write_only_logger()
+
+# Bounds one purge run. Markers past the cap wait for the next nightly run.
+PURGE_MARKER_LIMIT = 100_000
+# Bounds one DELETE statement, to keep the query under the ClickHouse query-size limit.
+PURGE_DELETE_BATCH_SIZE = 1_000
+
+
+def purge_select_markers_query() -> str:
+    """Find the (team_id, session_id) pairs whose deletion marker is past the grace period.
+
+    Reads the distributed table: the marker is written with an empty distinct_id, and the
+    Distributed engine shards on sipHash64(distinct_id), so the marker usually lands on a
+    different shard than the recording's other rows. A shard-local subquery would miss it.
+    """
+    return """
+        SELECT DISTINCT team_id, session_id
+        FROM session_replay_events
+        WHERE is_deleted = 1
+          AND _timestamp < now() - INTERVAL %(grace_period_days)s DAY
+        LIMIT %(limit)s
+    """
+
+
+def purge_delete_sessions_query() -> str:
+    """Delete every stored row of the marked sessions, in one team's batch.
+
+    The marker carries min_first_timestamp = deletion time, so it sits in a different
+    partition and sort-key range than the recording's real rows and never merges with
+    them. Deleting by (team_id, session_id) removes the recording's rows and the marker;
+    a `WHERE is_deleted = 1` predicate would only ever match the marker.
+    """
+    return f"""
+        DELETE FROM sharded_session_replay_events
+        ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        WHERE team_id = %(team_id)s AND session_id IN %(session_ids)s
+    """
+
+
+def delete_team_metadata_query() -> str:
+    """Delete all replay metadata for a team. The table has no TTL, so nothing else removes it."""
+    return f"""
+        DELETE FROM sharded_session_replay_events
+        ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        WHERE team_id = %(team_id)s
+    """
 
 
 def _parse_session_recording_list_response(raw_response: bytes) -> list[str]:
@@ -141,16 +188,27 @@ async def load_recordings_with_query(input: RecordingsWithQueryInput) -> LoadRec
     return LoadRecordingsPage(session_ids=session_ids, next_cursor=next_cursor)
 
 
+def _parse_marker_pairs(raw_response: bytes) -> list[tuple[int, str]]:
+    if len(raw_response) == 0:
+        raise LoadRecordingError("Got empty response from ClickHouse.")
+
+    try:
+        rows = json.loads(raw_response)["data"]
+        return [(int(row["team_id"]), row["session_id"]) for row in rows]
+    except json.JSONDecodeError as e:
+        raise LoadRecordingError("Unable to parse JSON response from ClickHouse.") from e
+    except KeyError as e:
+        raise LoadRecordingError("Got malformed JSON response from ClickHouse.") from e
+
+
 @activity.defn(name="purge-deleted-metadata")
 async def purge_deleted_metadata(input: PurgeDeletedMetadataInput) -> PurgeDeletedMetadataResult:
     """Purge metadata from ClickHouse for recordings that have been deleted.
 
-    This runs nightly to clean up metadata.
-    Uses lightweight DELETE to remove rows where is_deleted=1 and older than the grace period.
+    This runs nightly. It finds sessions whose deletion marker is older than the grace
+    period, then deletes every stored row of those sessions by (team_id, session_id).
     The grace period provides a safety buffer for recovery if needed.
     """
-    from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
-
     started_at = datetime.now(UTC)
     logger = LOGGER.bind()
     logger.info(
@@ -158,29 +216,41 @@ async def purge_deleted_metadata(input: PurgeDeletedMetadataInput) -> PurgeDelet
         grace_period_days=input.grace_period_days,
     )
 
-    query_id = str(uuid4())
-
     if not (1 <= input.grace_period_days <= 365):
         raise ValueError(f"grace_period_days must be between 1 and 365, got {input.grace_period_days}")
 
-    delete_query = f"""
-        DELETE FROM sharded_session_replay_events
-        ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-        WHERE is_deleted = 1
-          AND _timestamp < now() - INTERVAL {{grace_period_days:Int32}} DAY
-    """
+    select_query = purge_select_markers_query() + " FORMAT JSON"
+    select_parameters = {"grace_period_days": input.grace_period_days, "limit": PURGE_MARKER_LIMIT}
 
-    logger.info("Executing delete query", query_id=query_id)
     async with get_client() as client:
-        await client.execute_query(
-            delete_query,
-            query_id=query_id,
-            query_parameters={"grace_period_days": input.grace_period_days},
-        )
+        raw_response: bytes = b""
+        async with client.aget_query(
+            query=select_query, query_parameters=select_parameters, query_id=str(uuid4())
+        ) as ch_response:
+            raw_response = await ch_response.content.read()
+
+        pairs = _parse_marker_pairs(raw_response)
+        if len(pairs) >= PURGE_MARKER_LIMIT:
+            logger.warning("Marker limit reached; remaining markers wait for the next run", limit=PURGE_MARKER_LIMIT)
+
+        sessions_by_team: dict[int, list[str]] = {}
+        for team_id, session_id in pairs:
+            sessions_by_team.setdefault(team_id, []).append(session_id)
+
+        for team_id, session_ids in sessions_by_team.items():
+            for start in range(0, len(session_ids), PURGE_DELETE_BATCH_SIZE):
+                batch = session_ids[start : start + PURGE_DELETE_BATCH_SIZE]
+                await client.execute_query(
+                    purge_delete_sessions_query(),
+                    query_id=str(uuid4()),
+                    query_parameters={"team_id": team_id, "session_ids": batch},
+                )
 
     completed_at = datetime.now(UTC)
     logger.info(
         "Metadata purge completed",
+        session_count=len(pairs),
+        team_count=len(sessions_by_team),
         duration_seconds=(completed_at - started_at).total_seconds(),
     )
 
@@ -188,6 +258,23 @@ async def purge_deleted_metadata(input: PurgeDeletedMetadataInput) -> PurgeDelet
         started_at=started_at,
         completed_at=completed_at,
     )
+
+
+@activity.defn(name="delete-team-metadata")
+async def delete_team_metadata(input: DeleteTeamMetadataInput) -> None:
+    """Delete all ClickHouse replay metadata for a team, after its recordings are shredded."""
+    bind_contextvars(team_id=input.team_id)
+    logger = LOGGER.bind()
+    logger.info("Deleting all replay metadata for team")
+
+    async with get_client() as client:
+        await client.execute_query(
+            delete_team_metadata_query(),
+            query_id=str(uuid4()),
+            query_parameters={"team_id": input.team_id},
+        )
+
+    logger.info("Replay metadata deleted for team")
 
 
 @activity.defn(name="delete-recordings")

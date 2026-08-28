@@ -12,6 +12,7 @@ from posthog.temporal.session_replay.delete_recordings.types import (
     CleanupChunksInput,
     DeleteRecordingsInput,
     DeleteRecordingsResult,
+    DeleteTeamMetadataInput,
     DeletionCertificate,
     DeletionConfig,
     LoadChunkInput,
@@ -32,6 +33,14 @@ from posthog.temporal.session_replay.delete_recordings.workflow import (
 )
 
 TEST_CONFIG = DeletionConfig(deleted_by="test@posthog.com")
+
+
+def make_delete_team_metadata_mock(swept_teams: list[int]):
+    @activity.defn(name="delete-team-metadata")
+    async def delete_team_metadata_mocked(input: DeleteTeamMetadataInput) -> None:
+        swept_teams.append(input.team_id)
+
+    return delete_team_metadata_mocked
 
 
 @pytest.mark.asyncio
@@ -142,6 +151,7 @@ async def test_delete_recordings_with_person_workflow_dry_run():
 @pytest.mark.asyncio
 async def test_delete_recordings_with_no_sessions_found():
     TEST_TEAM_ID: int = 77777
+    swept_teams: list[int] = []
 
     delete_called = False
 
@@ -165,6 +175,7 @@ async def test_delete_recordings_with_no_sessions_found():
             activities=[
                 load_recordings_with_team_id_mocked,
                 delete_recordings_mocked,
+                make_delete_team_metadata_mock(swept_teams),
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -193,6 +204,7 @@ async def test_delete_recordings_with_team_workflow():
     ]
 
     deleted_sessions: list[str] = []
+    swept_teams: list[int] = []
 
     @activity.defn(name="load-recordings-with-team-id")
     async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
@@ -215,6 +227,7 @@ async def test_delete_recordings_with_team_workflow():
             activities=[
                 load_recordings_with_team_id_mocked,
                 delete_recordings_mocked,
+                make_delete_team_metadata_mock(swept_teams),
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -226,6 +239,7 @@ async def test_delete_recordings_with_team_workflow():
             )
 
     assert sorted(deleted_sessions) == sorted(TEST_SESSION_IDS)
+    assert swept_teams == [TEST_TEAM_ID]
 
     certificate = DeletionCertificate.model_validate(result)
     assert certificate.workflow_type == "team"
@@ -239,6 +253,7 @@ async def test_delete_recordings_with_team_workflow():
 async def test_delete_recordings_with_team_workflow_dry_run():
     TEST_TEAM_ID: int = 44444
     TEST_SESSION_IDS = ["dry-run-session-1", "dry-run-session-2"]
+    swept_teams: list[int] = []
 
     @activity.defn(name="load-recordings-with-team-id")
     async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
@@ -260,6 +275,7 @@ async def test_delete_recordings_with_team_workflow_dry_run():
             activities=[
                 load_recordings_with_team_id_mocked,
                 delete_recordings_mocked,
+                make_delete_team_metadata_mock(swept_teams),
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -271,6 +287,8 @@ async def test_delete_recordings_with_team_workflow_dry_run():
                 id=workflow_id,
                 task_queue=task_queue_name,
             )
+
+    assert swept_teams == []
 
     certificate = DeletionCertificate.model_validate(result)
     assert certificate.workflow_type == "team"
@@ -390,6 +408,7 @@ async def test_delete_recordings_with_batching():
     TEST_SESSION_IDS = [f"session-{i}" for i in range(250)]
 
     batch_calls: list[list[str]] = []
+    swept_teams: list[int] = []
 
     @activity.defn(name="load-recordings-with-team-id")
     async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
@@ -410,6 +429,7 @@ async def test_delete_recordings_with_batching():
             activities=[
                 load_recordings_with_team_id_mocked,
                 delete_recordings_mocked,
+                make_delete_team_metadata_mock(swept_teams),
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -443,6 +463,7 @@ async def test_delete_recordings_certificate_with_mixed_results():
     """Test that the certificate correctly captures mixed results (deleted and failed)."""
     TEST_TEAM_ID: int = 55555
     TEST_SESSION_IDS = ["session-1", "session-2", "session-3", "session-4"]
+    swept_teams: list[int] = []
 
     @activity.defn(name="load-recordings-with-team-id")
     async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
@@ -465,6 +486,7 @@ async def test_delete_recordings_certificate_with_mixed_results():
             activities=[
                 load_recordings_with_team_id_mocked,
                 delete_recordings_mocked,
+                make_delete_team_metadata_mock(swept_teams),
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -492,6 +514,7 @@ async def test_delete_recordings_with_pagination():
 
     deleted_sessions: list[str] = []
     load_call_count = 0
+    swept_teams: list[int] = []
 
     @activity.defn(name="load-recordings-with-team-id")
     async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
@@ -518,6 +541,7 @@ async def test_delete_recordings_with_pagination():
             activities=[
                 load_recordings_with_team_id_mocked,
                 delete_recordings_mocked,
+                make_delete_team_metadata_mock(swept_teams),
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -550,6 +574,7 @@ async def test_rate_limiting_sleeps_when_execution_is_fast(num_sessions, max_per
     """When batch execution is instant (frozen time), sleep = num_sessions / max_per_second."""
     TEST_TEAM_ID = 11111
     session_ids = [f"s-{i}" for i in range(num_sessions)]
+    swept_teams: list[int] = []
 
     @activity.defn(name="load-recordings-with-team-id")
     async def load_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
@@ -567,7 +592,7 @@ async def test_rate_limiting_sleeps_when_execution_is_fast(num_sessions, max_per
             env.client,
             task_queue=task_queue_name,
             workflows=[DeleteRecordingsWithTeamWorkflow],
-            activities=[load_mocked, delete_mocked],
+            activities=[load_mocked, delete_mocked, make_delete_team_metadata_mock(swept_teams)],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             with patch("posthog.temporal.session_replay.delete_recordings.workflow.asyncio.sleep", mock_sleep):
@@ -591,6 +616,7 @@ async def test_rate_limiting_disabled_when_zero():
     """No sleep when max_deletions_per_second=0."""
     TEST_TEAM_ID = 22222
     session_ids = [f"s-{i}" for i in range(50)]
+    swept_teams: list[int] = []
 
     @activity.defn(name="load-recordings-with-team-id")
     async def load_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
@@ -608,7 +634,7 @@ async def test_rate_limiting_disabled_when_zero():
             env.client,
             task_queue=task_queue_name,
             workflows=[DeleteRecordingsWithTeamWorkflow],
-            activities=[load_mocked, delete_mocked],
+            activities=[load_mocked, delete_mocked, make_delete_team_metadata_mock(swept_teams)],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             with patch("posthog.temporal.session_replay.delete_recordings.workflow.asyncio.sleep", mock_sleep):
