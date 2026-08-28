@@ -136,10 +136,11 @@ export class RequestContext {
 
     getDistinctId(): Promise<string> {
         if (!this.distinctIdPromise) {
-            // Don't keep a rejected promise: a transient failure (e.g. a gateway
-            // timeout on session init) must not replay the same error for the whole
-            // session. Clear it on rejection so the next call retries. Concurrent
-            // callers still share the one in-flight promise.
+            // Don't memoize a rejected promise. This memo lives on the per-request
+            // context, so a failure cannot persist across requests, but caching the
+            // rejection would make every later call within this request replay it
+            // instead of retrying. Clear it on rejection so a subsequent call re-runs.
+            // Concurrent callers still share the one in-flight promise.
             this.distinctIdPromise = this.resolveDistinctId().catch((error) => {
                 this.distinctIdPromise = undefined
                 throw error
