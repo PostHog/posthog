@@ -30,7 +30,6 @@ export interface ExperimentVariantResultPresentation {
   outcome: string;
   sampleContext: string;
   uplift: string | null;
-  /** Raw uplift and interval bounds, as fractions, for the delta chart. */
   upliftValue: number | null;
   intervalBounds: [number, number] | null;
   upliftDirection: "positive" | "negative" | null;
@@ -48,9 +47,7 @@ export interface ExperimentMetricResultPresentation {
   state: "ready" | "error" | "insufficient_data";
   error: string | null;
   outcomeLabel: string;
-  /** Half-width of the shared delta axis, as a fraction. Null hides the chart. */
   axisRange: number | null;
-  /** Strongest test variant by uplift, so collapsed metric rows stay scannable. */
   bestVariant: {
     key: string;
     uplift: string;
@@ -662,8 +659,6 @@ function hasInsufficientData(
   );
 }
 
-// The delta axis is symmetric, and clamped so one wild interval cannot squash
-// every other bar to a hairline.
 const MIN_AXIS_RANGE = 0.05;
 const MAX_AXIS_RANGE = 1.5;
 

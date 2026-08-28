@@ -3,7 +3,6 @@ import type { ExperimentVariantResultPresentation } from "@posthog/api-client/ev
 import { Text, Tooltip, TooltipContent, TooltipTrigger } from "@posthog/quill";
 import type { ReactElement } from "react";
 
-// Both edges keep a margin so a bar that hits the axis limit stays visible.
 const EDGE_MARGIN_PERCENT = 3;
 
 function toPercent(value: number, axisRange: number): number {
@@ -12,7 +11,6 @@ function toPercent(value: number, axisRange: number): number {
   return EDGE_MARGIN_PERCENT + fraction * (100 - 2 * EDGE_MARGIN_PERCENT);
 }
 
-/** Ticks on a round unit, matching the axis PostHog draws for experiments. */
 function deltaTicks(axisRange: number): number[] {
   const max = Math.ceil(axisRange * 10) / 10;
   const magnitude = Math.floor(Math.log10(max));
@@ -37,7 +35,6 @@ function deltaTicks(axisRange: number): number[] {
   return ticks;
 }
 
-// Thin the labels on a dense axis so they never collide; the grid lines stay.
 function labelledTicks(axisRange: number): number[] {
   const ticks = deltaTicks(axisRange);
   if (ticks.length <= 7) return ticks;
@@ -67,7 +64,6 @@ function GridLines({ axisRange }: { axisRange: number }): ReactElement {
   );
 }
 
-/** Column header: what the chart shows, over the shared scale's tick labels. */
 export function ExperimentDeltaAxis({
   axisRange,
 }: {
@@ -119,10 +115,6 @@ function TooltipRow({
   );
 }
 
-/**
- * One variant's uplift as a dot on its 95% interval. The interval crossing the
- * zero line is the verdict, so the shape reads before the numbers do.
- */
 export function ExperimentDeltaBar({
   variant,
   axisRange,

@@ -6531,12 +6531,6 @@ export class PostHogAPIClient {
     return { results: data.results ?? [], columns: data.columns ?? [] };
   }
 
-  /**
-   * Runs an arbitrary typed query node (TrendsQuery, HogQLQuery, ...) against
-   * the team's project and returns the raw response. Blocking refresh is the
-   * default because report charts need a complete response. Callers can use the
-   * existing cache when result freshness is part of the presentation.
-   */
   async runQuery(
     query: Record<string, unknown>,
     options?: { refresh?: "blocking" | false },
