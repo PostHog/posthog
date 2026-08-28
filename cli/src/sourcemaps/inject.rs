@@ -41,6 +41,15 @@ pub struct InjectArgs {
         default_value = "symbol-set"
     )]
     pub release_mode: ReleaseMode,
+
+    /// In `event` release mode, do not embed `_posthogReleaseId` into the chunks. The injected
+    /// bytes then depend only on the content-addressed chunk id, so identical input produces
+    /// identical output on every deploy. Use this for content-hashed bundles, where a per-release
+    /// id rewrites unchanged chunks and poisons caches. The server still rebuilds the release from
+    /// the `$app_namespace` / `$app_version` / `$app_build` on each event, and symbolication is
+    /// unaffected because frames resolve by chunk id. No effect in `symbol-set` mode.
+    #[arg(long)]
+    pub no_embed_release: bool,
 }
 
 impl InjectArgs {
@@ -73,7 +82,16 @@ pub fn inject_impl(
         public_path_prefix,
         release,
         release_mode,
+        no_embed_release,
     } = args;
+
+    // `--no-embed-release` forces the release id out of the chunks, the same as the
+    // `AppMetadata` source, so deterministic output survives regardless of the runtime source.
+    let event_release_source = if *no_embed_release {
+        EventReleaseSource::AppMetadata
+    } else {
+        event_release_source
+    };
 
     info!("injecting selection: {}", file_selection);
 
@@ -417,6 +435,70 @@ mod tests {
             .first()
             .and_then(SourcePair::get_chunk_id)
             .expect("injected pair carries a chunk id")
+    }
+
+    fn inject_args_for(dir: &Path, no_embed_release: bool) -> InjectArgs {
+        InjectArgs {
+            file_selection: FileSelectionArgs {
+                directory: vec![dir.to_path_buf()],
+                stdin: false,
+                exclude: vec![],
+                include: vec![],
+            },
+            public_path_prefix: None,
+            release: release_args(None, None),
+            release_mode: ReleaseMode::Event,
+            no_embed_release,
+        }
+    }
+
+    fn write_bundle(dir: &Path) {
+        fs::write(
+            dir.join("app.js"),
+            "console.log(1);\n//# sourceMappingURL=app.js.map\n",
+        )
+        .expect("failed to write source");
+        fs::write(
+            dir.join("app.js.map"),
+            r#"{"version":3,"sources":["app.ts"],"sourcesContent":["console.log(1)\n"],"mappings":"AAAA","names":[]}"#,
+        )
+        .expect("failed to write sourcemap");
+    }
+
+    fn injected_pair(dir: &Path) -> SourcePair {
+        let selection = FileSelection::from_roots(vec![dir.to_path_buf()])
+            .include(vec![])
+            .expect("failed to build selection")
+            .exclude(vec![])
+            .expect("failed to build selection");
+        read_pairs(selection.into_iter().filter(is_javascript_file), &None)
+            .into_iter()
+            .next()
+            .expect("a source pair on disk")
+    }
+
+    #[test]
+    fn no_embed_release_keeps_the_release_out_of_event_mode_chunks() {
+        let dir = tempfile::tempdir().expect("failed to create temporary directory");
+        write_bundle(dir.path());
+        let release = Release {
+            id: uuid::Uuid::parse_str("00000000-0000-0000-0000-0000000000aa").unwrap(),
+            hash_id: "hash".to_string(),
+            version: "1.0.0".to_string(),
+            project: "app".to_string(),
+        };
+
+        inject_impl(
+            &inject_args_for(dir.path(), true),
+            is_javascript_file,
+            Some(&release),
+            EventReleaseSource::EmbeddedInChunk,
+        )
+        .expect("inject should succeed");
+
+        let pair = injected_pair(dir.path());
+        assert!(pair.get_chunk_id().is_some());
+        assert_eq!(pair.get_injected_release_id(), None);
     }
 
     #[test]
