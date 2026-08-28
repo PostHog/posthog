@@ -441,6 +441,11 @@ export const EventDefinitionUpdateSchema = z.object({
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
 })
 
+export const EventDefinitionCreateSchema = z.object({
+    eventName: z.string().describe('The name of the event to create (e.g. "user_signed_up")'),
+    data: EventDefinitionUpdateInputSchema.optional().describe('Optional metadata for the new event definition'),
+})
+
 export const PropertyDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining what the property represents'),
     tags: z
