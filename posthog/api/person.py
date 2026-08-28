@@ -42,7 +42,7 @@ from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
-from posthog.errors import QueryErrorCategory, classify_query_error
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.metrics import LABEL_TEAM_ID
@@ -956,7 +956,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             execution_mode = execution_mode_from_refresh(refresh)
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:
                 execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-            result = runner.run(execution_mode, user=user, analytics_props=get_request_analytics_properties(request))
+            # Convert here rather than in the runner, so QueryRunner.run() sees the original
+            # ClickHouse error and can classify it and record it in the failure cache.
+            # The failure cache serves remembered failures as APIException subclasses with
+            # their own status codes, so they pass through uncaught. Matches /api/query.
+            try:
+                result = runner.run(
+                    execution_mode, user=user, analytics_props=get_request_analytics_properties(request)
+                )
+            except ExposedCHQueryError as e:
+                raise ValidationError(str(e), e.code_name)
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (
                 isinstance(result, CachedPropertyValuesQueryResponse)

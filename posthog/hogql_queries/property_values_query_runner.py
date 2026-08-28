@@ -7,7 +7,6 @@ from typing import Optional, cast
 from django.utils import timezone
 
 import posthoganalytics
-from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CachedPropertyValuesQueryResponse,
@@ -26,8 +25,6 @@ from posthog.caching.utils import (
     ThresholdMode,
     cache_target_age as _cache_target_age,
 )
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import PropertyDefinition
 from posthog.models.event.new_events_schema import use_new_events_schema
@@ -153,24 +150,24 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
                 timings=self.timings.to_list(),
                 modifiers=self.modifiers,
             )
+        # query_type must go through execute_hogql_query: the executor re-tags it right
+        # before execution, so a tag_queries() call here would be overwritten.
         if self.query.property_key == "distinct_id":
-            tag_queries(query_type="get_person_distinct_id_values")
+            query_type = "get_person_distinct_id_values"
         elif self.query.search_value:
-            tag_queries(query_type="get_person_property_values_with_value")
+            query_type = "get_person_property_values_with_value"
         else:
-            tag_queries(query_type="get_person_property_values")
-        try:
-            result = execute_hogql_query(
-                self.to_query(),
-                team=self.team,
-                user=self.user,
-                context=HogQLContext(team_id=self.team.pk, user=self.user),
-                timings=self.timings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-            )
-        except ExposedCHQueryError as e:
-            raise ValidationError(str(e), e.code_name)
+            query_type = "get_person_property_values"
+        result = execute_hogql_query(
+            self.to_query(),
+            query_type=query_type,
+            team=self.team,
+            user=self.user,
+            context=HogQLContext(team_id=self.team.pk, user=self.user),
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
         return PropertyValuesQueryResponse(
             results=self._format_person_results(result.results),
             timings=self.timings.to_list(),
