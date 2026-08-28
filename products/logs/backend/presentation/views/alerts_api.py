@@ -45,7 +45,6 @@ from products.alerts.backend.facade.api import (
     validate_and_normalize_schedule_restriction,
     validate_destination_data,
 )
-from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
@@ -177,12 +176,25 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
             "to after repeated failures still reads as true."
         )
     )
+
     slack_workspace_id = serializers.IntegerField(required=False)
     slack_channel_id = serializers.CharField(required=False)
     webhook_url = serializers.CharField(
         required=False,
         help_text="Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret.",
     )
+
+
+class LogsAlertUpdateDestinationSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(required=False)
+    name = serializers.CharField(required=False, max_length=400)
+    description = serializers.CharField(required=False, allow_blank=True)
+    inputs = serializers.DictField(required=False)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not attrs:
+            raise serializers.ValidationError("Provide at least one destination field to update.")
+        return attrs
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -1052,7 +1064,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 description="ID of the lifecycle HogFunction to update.",
             )
         ],
-        request=HogFunctionSerializer,
+        request=LogsAlertUpdateDestinationSerializer,
         responses={204: None},
         description=(
             "Update one HogFunction belonging to this alert destination. The destination's payload, "
@@ -1074,6 +1086,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if "deleted" in request.data:
             raise ValidationError({"deleted": "Use the destination delete endpoint to remove a destination."})
 
+        update_serializer = LogsAlertUpdateDestinationSerializer(data=request.data)
+        update_serializer.is_valid(raise_exception=True)
+
         with transaction.atomic():
             alert = self._get_locked_alert()
             update_alert_destination_hog_function(
@@ -1081,7 +1096,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 alert_id=str(alert.id),
                 hog_function_id=hog_function_id or "",
                 allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-                data=dict(request.data),
+                data=update_serializer.validated_data,
                 request=request,
             )
 

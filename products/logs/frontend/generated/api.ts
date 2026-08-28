@@ -48,8 +48,8 @@ import type {
     PaginatedLogsRetentionRuleListApi,
     PaginatedLogsSamplingRuleListApi,
     PaginatedLogsViewListApi,
-    PatchedHogFunctionApi,
     PatchedLogsAlertConfigurationApi,
+    PatchedLogsAlertUpdateDestinationApi,
     PatchedLogsMetricRuleApi,
     PatchedLogsRetentionRuleApi,
     PatchedLogsSamplingRuleApi,
@@ -231,14 +231,14 @@ export const logsAlertsDestinationsUpdate = async (
     projectId: string,
     id: string,
     hogFunctionId: string,
-    patchedHogFunctionApi?: NonReadonly<PatchedHogFunctionApi>,
+    patchedLogsAlertUpdateDestinationApi?: PatchedLogsAlertUpdateDestinationApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getLogsAlertsDestinationsUpdateUrl(projectId, id, hogFunctionId), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedHogFunctionApi),
+        body: JSON.stringify(patchedLogsAlertUpdateDestinationApi),
     })
 }
 

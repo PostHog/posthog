@@ -286,11 +286,16 @@ def update_alert_destination_hog_function(
     be made independently, while the ownership and event binding are checked under the same row
     lock as the write.
     """
+    try:
+        destination_id = UUID(str(hog_function_id))
+    except ValueError as error:
+        raise ValidationError({"hog_function_id": "A valid UUID is required."}) from error
+
     with transaction.atomic():
         destination = (
             owned_alert_destinations_qs(team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
             .select_for_update()
-            .filter(id=hog_function_id)
+            .filter(id=destination_id)
             .first()
         )
         if destination is None:

@@ -1079,6 +1079,44 @@ class TestLogsAlertAPI(APIBaseTest):
         assert "does not belong to this alert" in response.json()["detail"]
         assert HogFunction.objects.get(id=a_ids[0]).enabled is True
 
+    @parameterized.expand([("invalid_id", "not-a-uuid"), ("json_array", None)])
+    def test_update_destination_rejects_invalid_input(self, case: str, hog_function_id: str | None) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        destination_id = (
+            hog_function_id
+            or self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})[
+                0
+            ]
+        )
+        payload: object = {"enabled": False} if case == "invalid_id" else []
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/destinations/{destination_id}/", payload, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand([("hog", "return 'changed'"), ("template_id", "template-slack"), ("filters", {})])
+    def test_update_destination_rejects_execution_or_ownership_changes(
+        self, _name: str, field: str, value: Any
+    ) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        destination_id = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )[0]
+        before = HogFunction.objects.get(id=destination_id)
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/destinations/{destination_id}/", {field: value}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        after = HogFunction.objects.get(id=destination_id)
+        assert after.hog == before.hog
+        assert after.filters == before.filters
+
     def test_update_destination_cannot_retarget_the_alert_event(self):
         self._sync_destination_templates()
         created = self._create_via_api()
