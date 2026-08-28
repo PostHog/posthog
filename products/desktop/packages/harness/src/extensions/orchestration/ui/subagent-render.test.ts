@@ -51,6 +51,19 @@ function successResult(
   };
 }
 
+// A pre-upgrade persisted result: numeric `exitCode`, no `state`.
+function legacyResult(
+  exitCode: number,
+  overrides: Partial<SingleRunResult> = {},
+): SingleRunResult {
+  const result: Record<string, unknown> = {
+    ...successResult(overrides),
+    exitCode,
+  };
+  delete result.state;
+  return result as unknown as SingleRunResult;
+}
+
 describe("formatUsageStats", () => {
   it("formats a full set of usage fields", () => {
     const text = formatUsageStats(
@@ -253,6 +266,25 @@ describe("renderSubagentResult", () => {
     expect(text).toContain("Failed");
     expect(text).toContain("boom");
     expect(text).toContain("Running");
+  });
+
+  it("derives status from a legacy exitCode when state is absent", () => {
+    const component = renderSubagentResult(
+      {
+        content: [{ type: "text", text: "..." }],
+        details: {
+          mode: "parallel",
+          results: [legacyResult(0), legacyResult(1, { errorMessage: "boom" })],
+        },
+      },
+      { expanded: false, isPartial: false },
+      theme,
+    );
+    const text = component.render(80).join("\n");
+    // exitCode 0 counts as success; exitCode 1 renders as a failure, not Done.
+    expect(text).toContain("1/2 succeeded");
+    expect(text).toContain("Failed");
+    expect(text).toContain("boom");
   });
 
   it("never exceeds the given width, even for a very long task or error message", () => {

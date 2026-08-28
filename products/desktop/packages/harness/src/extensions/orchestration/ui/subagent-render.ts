@@ -20,6 +20,7 @@ import {
   Text,
   truncateToWidth,
 } from "@earendil-works/pi-tui";
+import type { AgentRunState } from "@posthog/shared";
 import { getFinalOutput } from "../format";
 import {
   isFailedResult,
@@ -202,6 +203,22 @@ function renderSingle(
   return container;
 }
 
+/**
+ * Pre-upgrade `hog` sessions persisted subagent results with a numeric
+ * `exitCode` and no `state`. Replayed history runs through this renderer, so
+ * derive `state` when it is missing — matching the desktop mapping in
+ * `piOrchestrationDetails.ts`.
+ */
+function normalizeResult(result: SingleRunResult): SingleRunResult {
+  if (result.state) {
+    return result;
+  }
+  const exitCode = (result as { exitCode?: number }).exitCode ?? -1;
+  const state: AgentRunState =
+    exitCode === -1 ? "running" : exitCode === 0 ? "completed" : "failed";
+  return { ...result, state };
+}
+
 export function renderSubagentResult(
   result: AgentToolResult<SubagentRenderDetails>,
   options: ToolRenderResultOptions,
@@ -216,21 +233,23 @@ export function renderSubagentResult(
     );
   }
 
+  const results = details.results.map(normalizeResult);
+
   if (details.mode === "single") {
-    return widthSafe(renderSingle(details.results[0], theme, options.expanded));
+    return widthSafe(renderSingle(results[0], theme, options.expanded));
   }
 
   const label = "parallel";
-  const successCount = details.results.filter(
+  const successCount = results.filter(
     (result) => result.state === "completed",
   ).length;
-  const running = details.results.filter(
+  const running = results.filter(
     (result) => result.state === "running",
   ).length;
   const status =
     running > 0
-      ? `${successCount}/${details.results.length} done, ${running} running`
-      : `${successCount}/${details.results.length} succeeded`;
+      ? `${successCount}/${results.length} done, ${running} running`
+      : `${successCount}/${results.length} succeeded`;
 
   if (!options.expanded) {
     // Positionally aligned with the call slot's numbered task list above —
@@ -238,7 +257,7 @@ export function renderSubagentResult(
     // stating parameters once in the call header rather than in every
     // result line (e.g. bash never repeats its command in its output).
     let text = `${theme.fg("toolTitle", theme.bold(`${label} `))}${theme.fg("accent", status)}`;
-    for (const [i, r] of details.results.entries()) {
+    for (const [i, r] of results.entries()) {
       text += `\n${theme.fg("dim", `${i + 1}. `)}${formatCompactStatus(theme, r)}`;
     }
     if (running === 0) {
@@ -255,7 +274,7 @@ export function renderSubagentResult(
       0,
     ),
   );
-  for (const r of details.results) {
+  for (const r of results) {
     container.addChild(new Spacer(1));
     container.addChild(renderSingle(r, theme, true));
   }
