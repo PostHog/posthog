@@ -378,6 +378,11 @@ describe('pydantic-ai middleware', () => {
                 'content_filter',
             ],
             ['nothing when no message names one', [{ role: 'assistant', content: 'only' }], undefined],
+            [
+                'nothing when the only named reason is longer than any real value',
+                [{ role: 'assistant', content: 'only', finish_reason: 'x'.repeat(65) }],
+                undefined,
+            ],
         ])('reads %s', (_label, outputChoices, expected) => {
             const event = createEvent('$ai_generation', {
                 'logfire.msg': 'chat',

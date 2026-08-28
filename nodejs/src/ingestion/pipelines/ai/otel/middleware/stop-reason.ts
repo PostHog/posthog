@@ -2,12 +2,19 @@
 // than as its own span attribute. The generic mapping (or traceloop's reassembly) lands those
 // messages in `$ai_output_choices`, so the reason has to be lifted out to survive as a property.
 
+// Real finish reasons are short enum-like strings. The cap keeps a malformed or hostile attribute
+// from landing a blob in $ai_stop_reason, matching the size guards on other parsed OTel payloads.
+const MAX_STOP_REASON_LENGTH = 64
+
+export function usableStopReason(value: unknown): string | undefined {
+    return typeof value === 'string' && value !== '' && value.length <= MAX_STOP_REASON_LENGTH ? value : undefined
+}
+
 function finishReasonOf(message: unknown): string | undefined {
     if (typeof message !== 'object' || message === null) {
         return undefined
     }
-    const reason = (message as { finish_reason?: unknown }).finish_reason
-    return typeof reason === 'string' && reason !== '' ? reason : undefined
+    return usableStopReason((message as { finish_reason?: unknown }).finish_reason)
 }
 
 export function liftStopReasonFromOutputChoices(props: Record<string, unknown>): void {

@@ -255,6 +255,17 @@ describe('traceloop middleware', () => {
             ])
         })
 
+        it('ignores an oversized stop reason and falls through to the next source', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'llm.response.stop_reason': 'x'.repeat(65),
+                'gen_ai.response.finish_reasons': ['stop'],
+            })
+            traceloop.process(event, () => mapOtelAttributes(event))
+
+            expect(event.properties!['$ai_stop_reason']).toBe('stop')
+        })
+
         it('maps gen_ai.response.finish_reasons when the llm.* names are absent', () => {
             const event = createEvent('$ai_generation', {
                 'llm.request.type': 'chat',
