@@ -102,7 +102,7 @@ function LiveActivityCard(): JSX.Element {
                     query={activityQuery}
                     setQuery={setActivityQuery}
                     context={{
-                        dataTableMaxPaginationLimit: MCP_ACTIVITY_MAX_ROWS,
+                        dataTableMaxPaginationRows: MCP_ACTIVITY_MAX_ROWS,
                         compactDataTableToolbar: true,
                         hideRecordingButton: true,
                         columns: {

@@ -137,6 +137,8 @@ export interface DataNodeLogicProps {
     autoLoad?: boolean
     /** Override the maximum pagination limit. */
     maxPaginationLimit?: number
+    /** Stop pagination after this many accumulated rows. */
+    maxPaginationRows?: number
     /** Limit context sent to the /query endpoint */
     limitContext?: 'posthog_ai'
 }
@@ -1497,6 +1499,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 s.dataLoading,
                 s.isShowingCachedResults,
                 (_, props) => props.maxPaginationLimit,
+                (_, props) => props.maxPaginationRows,
             ],
             (
                 query: DataNode<Record<string, any>>,
@@ -1518,7 +1521,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 responseError: string | null,
                 dataLoading: boolean,
                 isShowingCachedResults: boolean,
-                maxPaginationLimit
+                maxPaginationLimit: number | undefined,
+                maxPaginationRows: number | undefined
             ): DataNode | null => {
                 if (isShowingCachedResults) {
                     return null
@@ -1540,22 +1544,28 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     !responseError &&
                     !dataLoading
                 ) {
-                    if (
-                        (
-                            response as
-                                | EventsQueryResponse
-                                | ActorsQueryResponse
-                                | GroupsQueryResponse
-                                | ErrorTrackingQueryResponse
-                                | TracesQueryResponse
-                                | SessionQueryResponse
-                                | SessionsQueryResponse
-                                | MarketingAnalyticsTableQueryResponse
-                                | AccountsQueryResponse
-                                | AccountsTableQueryResponse
-                                | WebStatsTableQueryResponse
-                        )?.hasMore
-                    ) {
+                    const paginatedResponse = response as
+                        | EventsQueryResponse
+                        | ActorsQueryResponse
+                        | GroupsQueryResponse
+                        | ErrorTrackingQueryResponse
+                        | TracesQueryResponse
+                        | SessionQueryResponse
+                        | SessionsQueryResponse
+                        | MarketingAnalyticsTableQueryResponse
+                        | AccountsQueryResponse
+                        | AccountsTableQueryResponse
+                        | WebStatsTableQueryResponse
+
+                    if (paginatedResponse?.hasMore) {
+                        const remainingPaginationRows =
+                            maxPaginationRows === undefined
+                                ? undefined
+                                : maxPaginationRows - (paginatedResponse.results?.length ?? 0)
+                        if (remainingPaginationRows !== undefined && remainingPaginationRows <= 0) {
+                            return null
+                        }
+
                         const sortKey =
                             isTracesQuery(query) || isSessionQuery(query) || isAccountsTableQuery(query)
                                 ? null
@@ -1575,9 +1585,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                     const newQuery: EventsQuery = {
                                         ...query,
                                         before: lastUuid ? `${lastTimestamp}|${lastUuid}` : lastTimestamp,
-                                        limit: Math.max(
-                                            100,
-                                            Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
+                                        limit: Math.min(
+                                            remainingPaginationRows ?? Number.POSITIVE_INFINITY,
+                                            Math.max(
+                                                100,
+                                                Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
+                                            )
                                         ),
                                     }
                                     return newQuery
@@ -1602,6 +1615,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 ...query,
                                 offset: typedResults?.length || 0,
                                 limit: Math.min(
+                                    remainingPaginationRows ?? Number.POSITIVE_INFINITY,
                                     effectivePaginationLimit,
                                     Math.max(100, 2 * (typedResults?.length || 100))
                                 ),

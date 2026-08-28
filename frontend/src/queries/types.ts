@@ -57,6 +57,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataNodeLogicKey?: string
     /** Override the maximum pagination limit for Data Tables. */
     dataTableMaxPaginationLimit?: number
+    /** Stop Data Table pagination after this many accumulated rows. */
+    dataTableMaxPaginationRows?: number
     compactDataTableToolbar?: boolean
     hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */
