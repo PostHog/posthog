@@ -1,4 +1,7 @@
-{% extends "email/base.html" %} {% block section %}
+{% extends "email/base.html" %}
+{% load posthog_assets %}
+{% load posthog_filters %}
+{% block section %}
 <p>
     As requested, we've deleted your organization <strong>{{ organization_name }}</strong>{% if project_names %} and its project{{ project_names|length|pluralize }}: <strong>{{ project_names|join:", " }}</strong>{% endif %}.
 </p>

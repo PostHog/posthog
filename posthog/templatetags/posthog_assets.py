@@ -1,3 +1,7 @@
+# Tags for building URLs in the email templates under posthog/templates/email.
+# Every one of those templates loads this library, even when it extends email/base.html,
+# because Django resolves {% load %} per file rather than through template inheritance.
+
 import re
 
 from django.conf import settings

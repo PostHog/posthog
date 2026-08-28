@@ -1,4 +1,6 @@
-{% extends "email/base.html" %} {% load posthog_assets %}
+{% extends "email/base.html" %}
+{% load posthog_assets %}
+{% load posthog_filters %}
 {% block heading %}Email sending has been suspended{% endblock %}
 {% block section %}
 <!-- prettier-ignore -->

@@ -1,6 +1,6 @@
 {% extends "email/base.html" %}
 {% load posthog_assets %}
-
+{% load posthog_filters %}
 {% block preheader %}Materialized view failures in {{ team.name }}{% endblock %}
 
 {% block heading %}Materialized view failures{% endblock %}
