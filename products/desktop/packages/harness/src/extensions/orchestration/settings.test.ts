@@ -129,6 +129,29 @@ describe("loadSubagentSettings", () => {
     expect(untrustedSettings.agentOverrides?.worker).toBeUndefined();
   });
 
+  it("keeps a valid enforced modelScope when a sibling override is invalid", () => {
+    const userDir = path.join(tmpHome, ".pi", "agent");
+    fs.mkdirSync(userDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(userDir, "settings.json"),
+      JSON.stringify({
+        subagents: {
+          modelScope: { enforce: true, allow: ["anthropic/*"] },
+          // `tools` must be a string; the invalid value must not take the
+          // sibling modelScope down with it.
+          agentOverrides: { worker: { tools: ["bash"] } },
+        },
+      }),
+    );
+
+    const settings = loadSubagentSettings(tmpProject, true);
+    expect(settings.modelScope).toEqual({
+      enforce: true,
+      allow: ["anthropic/*"],
+    });
+    expect(settings.agentOverrides).toEqual({});
+  });
+
   it("never reads project settings.json when the project isn't trusted, even without a user settings file", () => {
     const projectConfigDir = path.join(tmpProject, ".pi");
     fs.mkdirSync(projectConfigDir, { recursive: true });

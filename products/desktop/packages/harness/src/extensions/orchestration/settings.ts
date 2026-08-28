@@ -65,11 +65,28 @@ function findNearestProjectSettingsFile(cwd: string): string | null {
   }
 }
 
+function parseField<T>(schema: z.ZodType<T>, value: unknown): T | undefined {
+  const parsed = schema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
 function extractSubagentSettings(
   raw: Record<string, unknown> | undefined,
 ): SubagentSettings {
-  const parsed = subagentSettingsSchema.safeParse(raw?.subagents);
-  return parsed.success ? parsed.data : {};
+  const section = jsonObjectSchema.safeParse(raw?.subagents);
+  if (!section.success) return {};
+
+  // Parse each field on its own so one invalid field cannot discard the
+  // others. A mistyped agentOverride must not silently drop a valid enforced
+  // modelScope and disable the allow-list.
+  return {
+    disableThinking: parseField(z.boolean(), section.data.disableThinking),
+    agentOverrides: parseField(
+      z.record(z.string(), agentOverrideSchema),
+      section.data.agentOverrides,
+    ),
+    modelScope: parseField(modelScopeConfigSchema, section.data.modelScope),
+  };
 }
 
 function mergeSettings(
