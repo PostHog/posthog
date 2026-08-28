@@ -3,12 +3,13 @@
 import json
 from datetime import datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.contrib.postgres.fields import ArrayField
-from django.db.models import JSONField
+from django.db.models import JSONField, Model
 
 from dagster import build_asset_context, build_op_context
 from parameterized import parameterized
@@ -17,6 +18,7 @@ from posthog.dags.postgres_to_clickhouse_etl import (
     TABLE_CONFIGS,
     IncrementalState,
     PostgresToClickHouseETLConfig,
+    TableConfig,
     _sync_table,
     create_clickhouse_tables,
     feature_flags_in_clickhouse,
@@ -30,6 +32,39 @@ from posthog.dags.postgres_to_clickhouse_etl import (
     verify_sync,
 )
 from posthog.models import Organization, Team
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+_MIRRORED_TABLES = [
+    ("posthog_organization", Organization),
+    ("posthog_team", Team),
+    ("posthog_featureflag", FeatureFlag),
+]
+
+
+def _fields_by_column(model: type[Model]) -> dict[str, Any]:
+    fields_by_column: dict[str, Any] = {}
+    for model_field in model._meta.get_fields():
+        column = getattr(model_field, "column", None)
+        if column:
+            fields_by_column[column] = model_field
+    return fields_by_column
+
+
+def _composite_columns(cfg: TableConfig, model: type[Model]) -> list[tuple[str, Any]]:
+    fields_by_column = _fields_by_column(model)
+    return [
+        (col, fields_by_column[col])
+        for col in cfg.select_columns
+        if isinstance(fields_by_column.get(col), ArrayField | JSONField)
+    ]
+
+
+def _post_transform_serializes(table_name: str, column: str, model_field: Any) -> bool:
+    # posthog_featureflag serializes `filters` inside its post_transform instead of declaring the
+    # column on the config, so ask the transform what it emits rather than restating that here.
+    probe = [{"probe": 1}] if isinstance(model_field, ArrayField) else {"probe": 1}
+    return isinstance(transform_row(table_name, {column: probe}).get(column), str)
 
 
 def _config(**overrides) -> PostgresToClickHouseETLConfig:
@@ -203,39 +238,29 @@ class TestTransformations:
 
 
 class TestConfigCoversPostgresCompositeTypes:
-    # Every mirrored column that psycopg2 hands over as a Python list or dict must have an
-    # adaptation on its TableConfig. Without one the value reaches a ClickHouse String column
-    # unserialized and the driver raises AttributeError instead of inserting.
-    @parameterized.expand(
-        [
-            ("posthog_organization", Organization),
-            ("posthog_team", Team),
-        ]
-    )
+    # Every mirrored column that psycopg2 hands over as a Python list or dict must be adapted before
+    # the insert, either by a TableConfig field list or by the table's post_transform. Without an
+    # adaptation the value reaches a ClickHouse String column unserialized and the driver raises
+    # AttributeError instead of inserting.
+    @parameterized.expand(_MIRRORED_TABLES)
     def test_every_array_and_json_column_has_an_adaptation(self, table_name, model):
         cfg = TABLE_CONFIGS[table_name]
-        fields_by_column = {f.column: f for f in model._meta.get_fields() if getattr(f, "column", None)}
-        serialized = set(cfg.jsonb_text_cast) | set(cfg.array_fields) | set(cfg.json_dumps_fields)
+        declared = set(cfg.jsonb_text_cast) | set(cfg.array_fields) | set(cfg.json_dumps_fields)
 
         unhandled = [
             col
-            for col in cfg.select_columns
-            if isinstance(fields_by_column.get(col), ArrayField | JSONField) and col not in serialized
+            for col, model_field in _composite_columns(cfg, model)
+            if col not in declared and not _post_transform_serializes(table_name, col, model_field)
         ]
 
         assert unhandled == []
 
-    @parameterized.expand(
-        [
-            ("posthog_organization", Organization),
-            ("posthog_team", Team),
-        ]
-    )
+    @parameterized.expand(_MIRRORED_TABLES)
     def test_array_columns_are_never_cast_to_text(self, table_name, model):
         # `col::text` on an ArrayField renders Postgres array literal syntax, which JSONExtract*
         # cannot read. Those columns must go through json_dumps_fields or array_fields instead.
         cfg = TABLE_CONFIGS[table_name]
-        fields_by_column = {f.column: f for f in model._meta.get_fields() if getattr(f, "column", None)}
+        fields_by_column = _fields_by_column(model)
 
         miscast = [col for col in cfg.jsonb_text_cast if isinstance(fields_by_column.get(col), ArrayField)]
 
