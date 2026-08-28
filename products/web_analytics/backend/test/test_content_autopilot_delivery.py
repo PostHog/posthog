@@ -86,6 +86,7 @@ class TestContentAutopilotDelivery(BaseTest):
             "success": True,
             "pr_url": "https://github.com/example/site/pull/7",
         }
+        github.find_pull_request_for_branch.return_value = {"success": True, "pr_url": ""}
 
         with patch(
             "products.web_analytics.backend.content_autopilot.delivery.GitHubIntegration.first_for_team_repository",
@@ -106,6 +107,7 @@ class TestContentAutopilotDelivery(BaseTest):
         proposal = self._github_profile_and_proposal(file_path=".github/workflows/publish.yml")
         github = MagicMock()
         github.organization.return_value = "example"
+        github.find_pull_request_for_branch.return_value = {"success": True, "pr_url": ""}
 
         with (
             patch(
@@ -138,6 +140,10 @@ class TestContentAutopilotDelivery(BaseTest):
             "created_branch": created_branch,
         }
         github.create_pull_request.side_effect = RuntimeError("GitHub unavailable")
+        github.find_pull_request_for_branch.side_effect = [
+            {"success": True, "pr_url": ""},
+            {"success": True, "pr_url": ""},
+        ]
 
         with (
             patch(
@@ -155,6 +161,96 @@ class TestContentAutopilotDelivery(BaseTest):
                 github.commit_files_to_branch.call_args.args[1],
                 expected_sha="abc123",
             )
+
+    def test_existing_pull_request_is_reconciled_after_refreshing_its_branch(self) -> None:
+        proposal = self._github_profile_and_proposal()
+        github = MagicMock()
+        github.organization.return_value = "example"
+        github.commit_files_to_branch.return_value = {
+            "success": True,
+            "commit_sha": "abc123",
+            "created_branch": False,
+        }
+        github.find_pull_request_for_branch.return_value = {
+            "success": True,
+            "pr_url": "https://github.com/example/site/pull/7",
+        }
+
+        with patch(
+            "products.web_analytics.backend.content_autopilot.delivery.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            pull_request_url, _ = open_pull_request(team_id=self.team.id, proposal_ids=[str(proposal.id)])
+
+        self.assertEqual(pull_request_url, "https://github.com/example/site/pull/7")
+        self.assertEqual(
+            github.commit_files_to_branch.call_args.args[3],
+            {"content/guides/example.md": proposal.proposed_markdown},
+        )
+        github.create_pull_request.assert_not_called()
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.PR_OPENED)
+
+    def test_ambiguous_pull_request_failure_reconciles_the_created_pull_request(self) -> None:
+        proposal = self._github_profile_and_proposal()
+        github = MagicMock()
+        github.organization.return_value = "example"
+        github.commit_files_to_branch.return_value = {
+            "success": True,
+            "commit_sha": "abc123",
+            "created_branch": True,
+        }
+        github.create_pull_request.side_effect = RuntimeError("Connection closed")
+        github.find_pull_request_for_branch.side_effect = [
+            {"success": True, "pr_url": ""},
+            {"success": True, "pr_url": "https://github.com/example/site/pull/7"},
+        ]
+
+        with patch(
+            "products.web_analytics.backend.content_autopilot.delivery.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            pull_request_url, _ = open_pull_request(team_id=self.team.id, proposal_ids=[str(proposal.id)])
+
+        self.assertEqual(pull_request_url, "https://github.com/example/site/pull/7")
+        github.delete_branch.assert_not_called()
+
+    def test_delivery_uses_the_run_snapshot_after_profile_settings_change(self) -> None:
+        proposal = self._github_profile_and_proposal()
+        run = proposal.run
+        run.input_snapshot = {
+            "delivery_mode": "github",
+            "github_repository": "example/site",
+            "base_branch": "release",
+            "content_directories": ["content"],
+        }
+        run.save(update_fields=["input_snapshot"])
+        profile = run.profile
+        profile.github_repository = "example/other"
+        profile.base_branch = "main"
+        profile.content_directories = ["other"]
+        profile.save(update_fields=["github_repository", "base_branch", "content_directories"])
+        github = MagicMock()
+        github.organization.return_value = "example"
+        github.find_pull_request_for_branch.return_value = {"success": True, "pr_url": ""}
+        github.commit_files_to_branch.return_value = {
+            "success": True,
+            "commit_sha": "abc123",
+            "created_branch": True,
+        }
+        github.create_pull_request.return_value = {
+            "success": True,
+            "pr_url": "https://github.com/example/site/pull/7",
+        }
+
+        with patch(
+            "products.web_analytics.backend.content_autopilot.delivery.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ) as integration_lookup:
+            open_pull_request(team_id=self.team.id, proposal_ids=[str(proposal.id)])
+
+        integration_lookup.assert_called_once_with(self.team.id, "example/site", source="content_autopilot")
+        self.assertEqual(github.commit_files_to_branch.call_args.args[2], "release")
 
     def test_integration_lookup_failure_is_recorded_as_retryable_delivery_state(self) -> None:
         proposal = self._github_profile_and_proposal()

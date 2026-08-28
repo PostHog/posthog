@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from pathlib import PurePosixPath
 
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 
@@ -18,6 +19,24 @@ logger = structlog.get_logger(__name__)
 
 class ContentAutopilotDeliveryError(Exception):
     pass
+
+
+def _record_open_pull_request(*, team_id: int, proposal_ids: list[str], branch: str, pull_request_url: str) -> None:
+    with transaction.atomic():
+        ContentAutopilotProposal.objects.for_team(team_id).filter(id__in=proposal_ids).update(
+            lifecycle_status=ContentAutopilotProposal.LifecycleStatus.PR_OPENED,
+            delivery_state=ContentAutopilotProposal.DeliveryState.DELIVERED,
+            delivery_reference=branch,
+            pull_request_url=pull_request_url,
+            updated_at=timezone.now(),
+        )
+
+
+def _existing_pull_request_url(*, github: GitHubIntegration, repository: str, branch: str, base_branch: str) -> str:
+    result = github.find_pull_request_for_branch(repository, branch, base_branch)
+    if not result.get("success"):
+        raise ContentAutopilotDeliveryError(str(result.get("error") or "Could not check for an existing pull request."))
+    return str(result.get("pr_url") or "")
 
 
 def _cleanup_created_branch(
@@ -85,60 +104,98 @@ def open_pull_request(*, team_id: int, proposal_ids: Iterable[str]) -> tuple[str
     ids = [str(proposal.id) for proposal in proposals]
     try:
         profile = proposals[0].run.profile
-        repository_path = profile.github_repository.strip()
-        if profile.delivery_mode != profile.DeliveryMode.GITHUB or not repository_path:
+        run_snapshot = proposals[0].run.input_snapshot
+        delivery_mode = str(run_snapshot.get("delivery_mode") or profile.delivery_mode)
+        repository_path = str(run_snapshot.get("github_repository") or profile.github_repository).strip()
+        base_branch = str(run_snapshot.get("base_branch") or profile.base_branch).strip()
+        content_directories = run_snapshot.get("content_directories") or profile.content_directories
+        if not isinstance(content_directories, list) or any(not isinstance(path, str) for path in content_directories):
+            raise ContentAutopilotDeliveryError("The saved content directory settings are invalid.")
+        if delivery_mode != profile.DeliveryMode.GITHUB or not repository_path:
             raise ContentAutopilotDeliveryError("Configure GitHub delivery before opening a pull request.")
 
         github = GitHubIntegration.first_for_team_repository(team_id, repository_path, source="content_autopilot")
         if github is None:
-            raise ContentAutopilotDeliveryError("PostHog cannot access the configured GitHub repository.")
+            raise ContentAutopilotDeliveryError(
+                "Connect a GitHub integration with access to the configured repository, then try again."
+            )
 
         owner, repository = repository_path.split("/", 1)
         if owner.lower() != github.organization().lower():
-            raise ContentAutopilotDeliveryError("The configured repository does not match the GitHub integration.")
+            raise ContentAutopilotDeliveryError(
+                "Select a repository owned by the organization connected through the GitHub integration."
+            )
 
+        digest = hashlib.sha256(":".join(sorted(ids)).encode()).hexdigest()[:10]
+        branch = f"posthog/content-autopilot-{digest}"
         files: dict[str, str] = {}
         for proposal in proposals:
-            file_path = _validated_file_path(
-                str(proposal.content_package.get("file_path") or ""), profile.content_directories
-            )
+            file_path = _validated_file_path(str(proposal.content_package.get("file_path") or ""), content_directories)
             if file_path in files:
                 raise ContentAutopilotDeliveryError("Selected proposals must write to different content files.")
             files[file_path] = proposal.proposed_markdown or str(proposal.content_package.get("markdown") or "")
         if any(not content.strip() for content in files.values()):
             raise ContentAutopilotDeliveryError("Every proposal must contain Markdown before delivery.")
 
-        digest = hashlib.sha256(":".join(sorted(ids)).encode()).hexdigest()[:10]
-        branch = f"posthog/content-autopilot-{digest}"
         new_content = proposals[0].proposal_type == ContentAutopilotProposal.ProposalType.NEW_CONTENT
-        title = proposals[0].title if new_content else "Improve site content from Search & AI insights"
+        title = proposals[0].title if new_content else "Improve site content from web analytics insights"
         title = re.sub(r"\s+", " ", title).strip()[:240]
         commit_result = github.commit_files_to_branch(
             repository,
             branch,
-            profile.base_branch,
+            base_branch,
             files,
-            "content: apply approved Search & AI proposal",
+            "content: apply approved web analytics proposal",
         )
         if not commit_result.get("success"):
             raise ContentAutopilotDeliveryError(str(commit_result.get("error") or "Could not commit the content."))
 
+        existing_pull_request_url = _existing_pull_request_url(
+            github=github,
+            repository=repository,
+            branch=branch,
+            base_branch=base_branch,
+        )
+        if existing_pull_request_url:
+            _record_open_pull_request(
+                team_id=team_id,
+                proposal_ids=ids,
+                branch=branch,
+                pull_request_url=existing_pull_request_url,
+            )
+            return existing_pull_request_url, branch
+
         body = "This pull request contains content approved in PostHog's Content autopilot workspace."
+        create_error: Exception | None = None
+        pull_request_url = ""
         try:
-            pull_request_result = github.create_pull_request(repository, title, body, branch, profile.base_branch)
-            if not pull_request_result.get("success"):
-                raise ContentAutopilotDeliveryError(
+            pull_request_result = github.create_pull_request(repository, title, body, branch, base_branch)
+        except Exception as error:
+            create_error = error
+        else:
+            if pull_request_result.get("success"):
+                pull_request_url = str(pull_request_result["pr_url"])
+            else:
+                create_error = ContentAutopilotDeliveryError(
                     str(pull_request_result.get("error") or "Could not open the pull request.")
                 )
-        except Exception:
-            _cleanup_created_branch(
+
+        if create_error is not None:
+            reconciled_url = _existing_pull_request_url(
                 github=github,
                 repository=repository,
                 branch=branch,
-                commit_result=commit_result,
+                base_branch=base_branch,
             )
-            raise
-        pull_request_url = str(pull_request_result["pr_url"])
+            if not reconciled_url:
+                _cleanup_created_branch(
+                    github=github,
+                    repository=repository,
+                    branch=branch,
+                    commit_result=commit_result,
+                )
+                raise create_error
+            pull_request_url = reconciled_url
     except Exception as error:
         failure_message = (
             str(error)
@@ -150,11 +207,10 @@ def open_pull_request(*, team_id: int, proposal_ids: Iterable[str]) -> tuple[str
             raise
         raise ContentAutopilotDeliveryError(failure_message) from error
 
-    with transaction.atomic():
-        ContentAutopilotProposal.objects.for_team(team_id).filter(id__in=ids).update(
-            lifecycle_status=ContentAutopilotProposal.LifecycleStatus.PR_OPENED,
-            delivery_state=ContentAutopilotProposal.DeliveryState.DELIVERED,
-            delivery_reference=branch,
-            pull_request_url=pull_request_url,
-        )
+    _record_open_pull_request(
+        team_id=team_id,
+        proposal_ids=ids,
+        branch=branch,
+        pull_request_url=pull_request_url,
+    )
     return pull_request_url, branch
