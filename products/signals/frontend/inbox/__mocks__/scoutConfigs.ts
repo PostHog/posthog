@@ -165,4 +165,21 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         description: 'experiments with unexpected or inconclusive results',
         emit: false,
     }),
+    makeMockScout({
+        id: 'scout-broken',
+        skill_name: 'signals-scout-logs',
+        description: 'error spikes and new failure patterns in application logs',
+        enabled: false,
+        status: 'paused_by_system',
+        pause_reason: 'repeated_failures',
+        consecutive_failure_count: 3,
+        status_changed_at: '2026-06-10T08:00:00Z',
+    }),
+    makeMockScout({
+        id: 'scout-warned',
+        skill_name: 'signals-scout-surveys',
+        description: 'survey responses that point at a product problem',
+        status: 'pending_pause',
+        pause_reason: 'ignored',
+    }),
 ]
