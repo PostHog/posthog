@@ -33,12 +33,17 @@ export const piWorkflowAgentDetailsSchema = z.object({
   label: z.string(),
   agent: z.string(),
   status: workflowAgentStateSchema,
+  phase: z.string().optional(),
   objective: z.string().optional(),
+  produces: z.string().optional(),
+  resultPreview: z.string().optional(),
 });
 
 export const piWorkflowToolDetailsSchema = z.object({
   name: z.string().optional(),
+  phases: z.array(z.string()).optional(),
   currentPhase: z.string().optional(),
+  done: z.boolean().optional(),
   agents: z.array(piWorkflowAgentDetailsSchema),
 });
 export type PiWorkflowToolDetails = z.infer<typeof piWorkflowToolDetailsSchema>;

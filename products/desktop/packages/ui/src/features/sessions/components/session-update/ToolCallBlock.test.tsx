@@ -132,7 +132,8 @@ describe("ToolCallBlock routing", () => {
           },
         ],
       },
-      expectedTitle: "Workflow · release-check",
+      expectedTitle: "Workflow · Release check",
+      expectedSummary: "Running: Review API (Explore)",
       expectedStep: "Review API",
     },
     {
@@ -149,11 +150,12 @@ describe("ToolCallBlock routing", () => {
         ],
       },
       expectedTitle: "Subagent",
+      expectedSummary: "Explore: Inspect the API",
       expectedStep: "Explore",
     },
   ])(
     "renders structured Pi $title updates with the session tool style",
-    ({ title, details, expectedTitle, expectedStep }) => {
+    ({ title, details, expectedTitle, expectedSummary, expectedStep }) => {
       renderBlock(
         {
           toolCallId: `tc-${title}`,
@@ -167,9 +169,93 @@ describe("ToolCallBlock routing", () => {
       );
 
       expect(screen.getByText(expectedTitle)).toBeInTheDocument();
+      expect(screen.getByText(`· ${expectedSummary}`)).toBeInTheDocument();
       expect(screen.getByText(expectedStep)).toBeInTheDocument();
     },
   );
+
+  it("summarizes a completed workflow while its details are collapsed", () => {
+    renderBlock({
+      toolCallId: "tc-completed-workflow",
+      title: "workflow",
+      kind: "other",
+      status: "completed",
+      details: {
+        name: "authorization-review",
+        done: true,
+        agents: [
+          {
+            id: 1,
+            label: "API review",
+            agent: "Explore",
+            objective: "Check auth routes",
+            status: "done",
+          },
+          {
+            id: 2,
+            label: "UI review",
+            agent: "Explore",
+            objective: "Check permission controls",
+            status: "done",
+          },
+        ],
+      },
+    });
+
+    expect(
+      screen.getByText(
+        "· Completed: API review: Check auth routes; UI review: Check permission controls",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    ["in_progress" as const, "Stopped before any agent started"],
+    ["completed" as const, "No agent work reported"],
+  ])(
+    "explains a %s workflow with no agent details in its collapsed header",
+    (status, expectedSummary) => {
+      renderBlock({
+        toolCallId: `tc-empty-${status}-workflow`,
+        title: "workflow",
+        kind: "other",
+        status,
+        details: {
+          name: "authorization-review",
+          agents: [],
+        },
+      });
+
+      expect(screen.getByText(`· ${expectedSummary}`)).toBeInTheDocument();
+    },
+  );
+
+  it("shows the workflow failure in its collapsed header", () => {
+    renderBlock({
+      toolCallId: "tc-failed-workflow",
+      title: "workflow",
+      kind: "other",
+      status: "failed",
+      details: {
+        name: "authorization-review",
+        done: true,
+        agents: [],
+      },
+      content: [
+        {
+          type: "content",
+          content: {
+            type: "text",
+            text: "Workflow failed: Missing synthesis output",
+          },
+        },
+      ],
+    });
+
+    expect(
+      screen.getByText("· Workflow failed: Missing synthesis output"),
+    ).toBeInTheDocument();
+  });
 
   it("renders Codex orchestration calls as operations rather than subagents", () => {
     renderBlock({
