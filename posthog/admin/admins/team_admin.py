@@ -951,9 +951,19 @@ class TeamAdmin(admin.ModelAdmin):
         tier = config.email_sending_tier if config else 0
         limits = get_email_sending_tier_limits(tier)
         updated_at = config.email_sending_tier_updated_at if config else None
+        allowlist_note = ""
+        if team.pk in settings.HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS:
+            # A saved tier changes nothing while the team sits on the legacy allowlist, which the
+            # limit resolution checks first. Say so here rather than letting a staff tier write
+            # look effective when it is not.
+            allowlist_note = (
+                "<br><strong>Note:</strong> this team is on the legacy elevated allowlist "
+                "(HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS), which overrides the tier until the "
+                "team is removed from it."
+            )
         return format_html(
             "<strong>Tier {}</strong> of {} — {} emails/hour, {} emails/day, "
-            "{} max batch audience<br>Set at: {}<br>Pinned: {}<br>Rollout mode: <code>{}</code>",
+            "{} max batch audience<br>Set at: {}<br>Pinned: {}<br>Rollout mode: <code>{}</code>{}",
             tier,
             max_email_sending_tier(),
             f"{limits.per_hour:,}",
@@ -962,6 +972,7 @@ class TeamAdmin(admin.ModelAdmin):
             updated_at.isoformat() if updated_at else "never (team has not been evaluated yet)",
             "yes" if config and config.email_sending_tier_pinned else "no",
             settings.WORKFLOWS_EMAIL_TIER_MODE,
+            mark_safe(allowlist_note),  # noqa: S308 - static admin-only string, no user input
         )
 
     @admin.display(description="Email sending tier actions")
@@ -1018,7 +1029,10 @@ class TeamAdmin(admin.ModelAdmin):
             previous_tier = config.email_sending_tier
             config.email_sending_tier = tier
             config.email_sending_tier_pinned = pinned
-            config.email_sending_tier_updated_at = timezone.now()
+            if tier != previous_tier:
+                # Only a real tier change restarts the dwell clock. Toggling the pin alone must not
+                # push the next earned promotion out by the full dwell.
+                config.email_sending_tier_updated_at = timezone.now()
             config.save(
                 update_fields=[
                     "email_sending_tier",

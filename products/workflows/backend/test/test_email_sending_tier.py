@@ -41,7 +41,7 @@ TIER_SETTINGS = {
     "WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP": 3,
     "WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS": 200,
     "WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS": 7,
-    "WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS": 3,
+    "WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS": 7,
     "WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS": 30,
     "WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES": [],
 }
@@ -66,11 +66,11 @@ def history(
     )
 
 
-def clean_days(count: int, sent_per_day: int) -> dict[str, int]:
+def clean_days(count: int, sent_per_day: int, *, days_ago: int = 0) -> dict[str, int]:
     # Relative to today, because only days after the team's tier_updated_at count toward the use
     # bar. Absolute dates would drift out of every window as wall-clock time moves past them.
     today = timezone.now().date()
-    return {(today - timedelta(days=offset)).strftime("%Y-%m-%d"): sent_per_day for offset in range(count)}
+    return {(today - timedelta(days=offset + days_ago)).strftime("%Y-%m-%d"): sent_per_day for offset in range(count)}
 
 
 @override_settings(**TIER_SETTINGS)
@@ -149,17 +149,52 @@ class TestEmailSendingTierDecision(BaseTest):
         )
         assert decision.new_tier == 0
 
-    def test_dirty_rates_inside_the_cooldown_hold_instead_of_demoting_again(self) -> None:
-        # The sweep runs daily and one incident stays in the demotion window for days, so without
-        # the cooldown the same incident would demote the team on every run until it hits tier 0.
+    # The cooldown must be armed only by a prior rate demotion: with the cooldown at the window
+    # length, one incident demotes exactly once, and a fresh promotion must not shield a team from
+    # its first real demotion.
+    @parameterized.expand(
+        [
+            ("a recent rate demotion holds further demotion", 1, 2, "demotion_cooldown"),
+            ("an expired cooldown lets new evidence demote", 8, 1, "rates_above_threshold"),
+            ("no prior rate demotion demotes immediately", None, 1, "rates_above_threshold"),
+        ]
+    )
+    def test_the_demotion_cooldown_is_armed_by_rate_demotions_only(
+        self, _name: str, demoted_days_ago: int | None, expected_tier: int, expected_reason: str
+    ) -> None:
         decision = decide_tier(
             history=history(sent=10_000, complained=50),
             current_tier=2,
+            # A fresh tier write (a promotion or a staff change) must not block the demotion.
             tier_updated_at=timezone.now() - timedelta(days=1),
+            last_rate_demotion_at=(
+                timezone.now() - timedelta(days=demoted_days_ago) if demoted_days_ago is not None else None
+            ),
             suspended=False,
         )
-        assert decision.new_tier == 2
-        assert decision.reason == "demotion_cooldown"
+        assert decision.new_tier == expected_tier
+        assert decision.reason == expected_reason
+
+    @parameterized.expand(
+        [
+            ("complaints at the backstop demote a silent window", 3, 1, "rates_above_threshold"),
+            ("fewer complaints than the backstop stay clean", 2, 2, "tier_not_used_enough"),
+        ]
+    )
+    def test_delayed_complaints_count_even_when_the_window_has_no_sends(
+        self, _name: str, complained: int, expected_tier: int, expected_reason: str
+    ) -> None:
+        # Feedback lags sends, so a window can hold the complaints from sends made just before it
+        # opened. Zero sends must not make those complaints invisible. The anchor stays inside the
+        # inactivity decay period so the clean case is not demoted for dormancy instead.
+        decision = decide_tier(
+            history=history(sent=0, complained=complained),
+            current_tier=2,
+            tier_updated_at=timezone.now() - timedelta(days=10),
+            suspended=False,
+        )
+        assert decision.new_tier == expected_tier
+        assert decision.reason == expected_reason
 
     # Demotion reads the short recent window and promotion the full window, so an aged-out
     # incident stops demoting but still blocks the climb until the full window is clean.
@@ -283,10 +318,19 @@ class TestEmailSendingTierDecision(BaseTest):
         assert decision.new_tier == 2
         assert decision.reason == "workflow_auto_paused"
 
-    def test_backfill_mode_jumps_straight_to_the_earned_tier(self) -> None:
-        # An established sender must land on its real tier at once. Walking it up one step per
-        # daily run would throttle a healthy customer for weeks.
-        used = clean_days(5, TIER_DAILY_CAPS[3])
+    # An established sender must land on its real tier at once, but only recent volume counts:
+    # two high-volume days months ago must not grant a dormant team an allowance the inactivity
+    # decay exists to remove, with a freshly stamped decay clock on top.
+    @parameterized.expand(
+        [
+            ("recent volume earns the real tier", 0, 4),
+            ("volume older than the decay period earns nothing", 60, 0),
+        ]
+    )
+    def test_backfill_mode_jumps_straight_to_the_recently_earned_tier(
+        self, _name: str, days_ago: int, expected_tier: int
+    ) -> None:
+        used = clean_days(5, TIER_DAILY_CAPS[3], days_ago=days_ago)
         decision = decide_tier(
             history=history(sent=sum(used.values()), daily_sends=used),
             current_tier=0,
@@ -295,7 +339,7 @@ class TestEmailSendingTierDecision(BaseTest):
             require_time_at_tier=False,
             single_step=False,
         )
-        assert decision.new_tier == 4
+        assert decision.new_tier == expected_tier
 
     def test_sends_before_a_midday_tier_change_do_not_count(self) -> None:
         # The tier change stamps a mid-day anchor, but metrics are day-grained. The anchor day's

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from django.conf import settings
 from django.utils import timezone
@@ -29,6 +29,9 @@ HARD_BOUNCE_METRIC = "email_bounced_hard"
 # worker), so a complaint rate reads `email_blocked`, not a metric called "complaint".
 COMPLAINT_METRIC = "email_blocked"
 
+# Decision reasons that count as a rate-driven demotion and therefore arm the demotion cooldown.
+RATE_DEMOTION_REASONS = frozenset({"rates_above_threshold", "workflow_auto_paused", "ses_reputation_high"})
+
 
 @frozen
 class TeamSendingHistory:
@@ -54,9 +57,11 @@ class TeamSendingHistory:
     @property
     def rates_are_clean(self) -> bool:
         if self.sent == 0:
-            # Nothing sent means nothing measured, so the rates neither pass nor fail. Callers pair
-            # this with the volume bar, which a team that sent nothing cannot clear.
-            return True
+            # Nothing sent means no rate to measure, and callers pair this with the volume bar,
+            # which a team that sent nothing cannot clear. Complaints still count through the
+            # absolute backstop: feedback lags sends by hours or days, so a window can hold the
+            # complaints from sends that happened just before it opened.
+            return self.complained < settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP
         # A rate needs a denominator to mean anything: at the 0.1% complaint threshold, one
         # complaint per 1,000 sends is exactly the line, so on a smaller window a single complaint
         # would read as dirty. Below the floor, complaints only count through the absolute
@@ -144,6 +149,7 @@ def decide_tier(
     suspended: bool,
     recent_history: Optional[TeamSendingHistory] = None,
     tenant_state: Optional[SesTenantState] = None,
+    last_rate_demotion_at: Optional[datetime] = None,
     now: Optional[datetime] = None,
     require_time_at_tier: bool = True,
     single_step: bool = True,
@@ -191,9 +197,12 @@ def decide_tier(
     if recent.auto_paused or not recent.rates_are_clean or tenant.impact == "HIGH":
         # One incident stays inside the demotion window for days and the sweep runs daily, so
         # without a cooldown the same incident would demote the team again on every run and
-        # cascade it to the bottom. One step per cooldown period keeps the response proportionate.
+        # cascade it to the bottom. The anchor is the last rate demotion, not the last tier write:
+        # a promotion or staff change must not shield a team from its first real demotion. With the
+        # cooldown at least as long as the demotion window, the evidence behind the last demotion
+        # has aged out by the time demotions resume, so a second step needs new evidence.
         cooldown = timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS)
-        if tier_updated_at is not None and now - tier_updated_at < cooldown:
+        if last_rate_demotion_at is not None and now - last_rate_demotion_at < cooldown:
             return TierDecision(
                 team_id=history.team_id,
                 previous_tier=current_tier,
@@ -262,8 +271,15 @@ def decide_tier(
             )
 
     # Only days spent at the current tier count toward its use bar, so a demotion does not carry the
-    # previous tier's volume forward as evidence.
-    since = tier_updated_at if require_time_at_tier else None
+    # previous tier's volume forward as evidence. The backfill has no tier anchor, but its long
+    # history must still qualify on recent days: without the cutoff, two high-volume days months ago
+    # would grant a dormant team a tier the inactivity decay exists to remove, and the write would
+    # restart the decay clock on top.
+    if require_time_at_tier:
+        since = tier_updated_at
+    else:
+        decay_days = settings.WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS
+        since = now - timedelta(days=decay_days) if decay_days > 0 else None
     earned = highest_qualifying_tier(history.daily_sends, since=since)
     if earned <= current_tier:
         return TierDecision(
@@ -369,15 +385,21 @@ def apply_tier_decision(config: TeamWorkflowsConfig, decision: TierDecision) -> 
     # tier set that lands in that gap must not be clobbered by a stale computed value. Every admin
     # writer of this row locks it; the sweep instead conditions the write, so it no-ops when the
     # row moved underneath and the next run recomputes from the new state.
+    fields: dict[str, Any] = {
+        "email_sending_tier": decision.new_tier,
+        "email_sending_tier_updated_at": timezone.now(),
+    }
+    if decision.reason in RATE_DEMOTION_REASONS:
+        # Only rate-driven demotions arm the demotion cooldown. Promotions, decay, suspensions,
+        # and staff writes share the dwell anchor above but must not delay a real demotion.
+        fields["email_sending_tier_demoted_at"] = timezone.now()
+
     updated = TeamWorkflowsConfig.objects.filter(
         team_id=decision.team_id,
         email_sending_tier=decision.previous_tier,
         email_sending_tier_pinned=False,
         email_sending_suspended_at__isnull=config.email_sending_suspended_at is None,
-    ).update(
-        email_sending_tier=decision.new_tier,
-        email_sending_tier_updated_at=timezone.now(),
-    )
+    ).update(**fields)
     if not updated:
         return False
 
@@ -451,6 +473,7 @@ def recompute_email_sending_tiers(team_ids: Optional[list[int]] = None) -> list[
                 sending_status=config.ses_tenant_sending_status,
                 reputation_impact=config.ses_tenant_reputation_impact,
             ),
+            last_rate_demotion_at=config.email_sending_tier_demoted_at,
         )
         if apply_tier_decision(config, decision):
             decisions.append(decision)
