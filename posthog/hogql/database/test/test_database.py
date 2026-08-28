@@ -1,5 +1,6 @@
 import io
 import json
+import time
 import pickle
 import dataclasses
 from typing import Any, cast
@@ -10,7 +11,9 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from django.conf import settings
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from pydantic import BaseModel
@@ -57,6 +60,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from posthog.hogql.database.sources_cache import SOURCES_CACHE_TTL_SECONDS
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -69,6 +73,7 @@ from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
+from posthog.synthetic_user import SyntheticUser
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -1106,6 +1111,78 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert db.has_table("whatever_endpoint")
         assert "some_field" in db.get_table("events").fields
         assert "timestamp" in db.get_table("whatever0").fields
+
+    @staticmethod
+    def _ran_source_fetch_queries(ctx: CaptureQueriesContext) -> bool:
+        return any("datawarehouse" in query["sql"].lower() for query in ctx.captured_queries)
+
+    def test_cached_sources_warm_build_runs_no_queries(self):
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="cached_table", team=self.team, columns={"id": "String"}, credential=credential, url_pattern=""
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="cached_view",
+            query={"query": "SELECT id FROM cached_table"},
+            columns={"id": "String"},
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+
+        cold = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+        with self.assertNumQueries(0):
+            warm = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        cold_serialized = cold.serialize(HogQLContext(team_id=self.team.pk, database=cold))
+        warm_serialized = warm.serialize(HogQLContext(team_id=self.team.pk, database=warm))
+        assert warm_serialized.keys() == cold_serialized.keys()
+        assert warm.has_table("cached_table")
+        assert warm.has_table("cached_view")
+
+    def test_cached_sources_not_shared_across_users(self):
+        other_user = self._create_user("other-user@posthog.com")
+        Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        with CaptureQueriesContext(connection) as ctx:
+            Database.create_for(team=self.team, user=other_user, use_cached_sources=True)
+
+        assert self._ran_source_fetch_queries(ctx)
+
+    def test_sources_not_cached_by_default(self):
+        Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        with CaptureQueriesContext(connection) as ctx:
+            Database.create_for(team=self.team, user=self.user)
+
+        assert self._ran_source_fetch_queries(ctx)
+
+    def test_cached_sources_bypassed_for_synthetic_users(self):
+        Database.create_for(team=self.team, user=SyntheticUser(self.team, "synthetic-1"), use_cached_sources=True)
+
+        with CaptureQueriesContext(connection) as ctx:
+            Database.create_for(team=self.team, user=SyntheticUser(self.team, "synthetic-2"), use_cached_sources=True)
+
+        assert self._ran_source_fetch_queries(ctx)
+
+    def test_cached_sources_expire_and_pick_up_new_views(self):
+        Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="view_created_after_warm",
+            query={"query": "SELECT event FROM events"},
+            columns={"event": "String"},
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+
+        within_ttl = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+        assert not within_ttl.has_table("view_created_after_warm")
+
+        with patch(
+            "posthog.hogql.database.sources_cache._time_source",
+            new=lambda: time.monotonic() + SOURCES_CACHE_TTL_SECONDS + 1,
+        ):
+            after_ttl = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+        assert after_ttl.has_table("view_created_after_warm")
 
     def test_materialized_backing_filter_keeps_source_tables_but_hides_backing_tables(self):
         credential = DataWarehouseCredential.objects.create(

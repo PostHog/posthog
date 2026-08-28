@@ -80,6 +80,8 @@ def get_hogql_metadata(
             user=user,
             modifiers=query_modifiers,
             connection_id=str(source.id),
+            # Editor-assist only: query execution never reads cached sources.
+            use_cached_sources=True,
         )
 
     heuristic_warnings: list[HogQLNotice] = []
@@ -88,10 +90,14 @@ def get_hogql_metadata(
     try:
         context = HogQLContext(
             team_id=team.pk,
+            # The team object itself, so the lazy database build can key the sources cache.
+            team=team,
             user=user,
             database=database,
             modifiers=query_modifiers,
             enable_select_queries=True,
+            # Editor-assist only: query execution never reads cached sources.
+            use_cached_sources=True,
             # A resolved direct-connection source prints with its engine dialect (below), so the
             # context must be marked direct — otherwise the ClickHouse printer's direct-table guard
             # fires and metadata/autocomplete reports a false "can only be queried through its direct
