@@ -4,6 +4,10 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ownerrez import (
     OwnerrezSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.ownerrez import (
+    OWNERREZ_API_VERSION_V1,
+    OWNERREZ_API_VERSION_V2_0,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.source import OwnerrezSource
 
@@ -39,6 +43,40 @@ class TestOwnerrezSource:
     def test_non_retryable_errors_do_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    def test_version_metadata_declares_v1_deprecation(self):
+        # The client only ever built /v2 paths, so both pins are request-identical; the metadata is
+        # what drives the deprecation banner and the source-level repin migration.
+        assert self.source.supported_versions == (OWNERREZ_API_VERSION_V1, OWNERREZ_API_VERSION_V2_0)
+        assert self.source.default_version == OWNERREZ_API_VERSION_V2_0
+
+        deprecation = self.source.get_version_deprecation(OWNERREZ_API_VERSION_V1)
+        assert deprecation is not None
+        # OwnerRez has published no sunset date, so this stays an advisory deprecation.
+        assert deprecation.sunset_at is None
+        # The current default must never be flagged deprecated.
+        assert self.source.get_version_deprecation(OWNERREZ_API_VERSION_V2_0) is None
+
+    def test_get_schemas_match_endpoints_with_correct_sync_modes(self):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        assert set(schemas) == set(ENDPOINTS)
+        for name in _INCREMENTAL_ENDPOINTS:
+            assert schemas[name].supports_incremental is True
+            assert schemas[name].supports_append is True
+            assert [f["field"] for f in schemas[name].incremental_fields] == ["updated_utc"]
+        for name in _FULL_REFRESH_ENDPOINTS:
+            assert schemas[name].supports_incremental is False
+            assert schemas[name].supports_append is False
+            assert schemas[name].incremental_fields == []
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["Bookings"])
+        assert len(schemas) == 1
+        assert schemas[0].name == "Bookings"
+
+    def test_get_schemas_filtered_unknown_name_returns_empty(self):
+        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     def test_lists_tables_without_credentials_publishes_catalog(self):
         # Static endpoint catalog (no I/O) — the public docs table list should render.
