@@ -141,15 +141,6 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
-@pytest.fixture(autouse=True)
-def _stub_sync_teardown_dispatch():
-    # transaction=True plus eager Celery makes a real auto-disable run the
-    # disable-teardown task inline, reaching for the queue DB and Temporal.
-    # Tests that assert the dispatch layer their own patch over this one.
-    with mock.patch("products.warehouse_sources.backend.tasks.cleanup_disabled_external_data_schema.delay"):
-        yield
-
-
 def _create_schema(schema_name: str, source: ExternalDataSource, team: Team, table_id: Optional[str] = None):
     return ExternalDataSchema.objects.create(
         name=schema_name,
@@ -246,10 +237,11 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
 )
 @pytest.mark.django_db(transaction=True)
 def test_create_external_job_activity_emit_signals_respects_ai_consent(
-    activity_environment, team, organization, ai_consent, source_config_enabled, expected
+    activity_environment, team, ai_consent, source_config_enabled, expected
 ):
     from products.signals.backend.models import SignalSourceConfig
 
+    organization = team.organization
     organization.is_ai_data_processing_approved = ai_consent
     organization.save()
     if source_config_enabled is not None:
@@ -286,8 +278,9 @@ def test_create_external_job_activity_emit_signals_respects_ai_consent(
 )
 @pytest.mark.django_db(transaction=True)
 def test_create_external_job_activity_enrichment_enabled_gates_on_flag_and_consent(
-    activity_environment, team, organization, flag_enabled, ai_consent, expected
+    activity_environment, team, flag_enabled, ai_consent, expected
 ):
+    organization = team.organization
     organization.is_ai_data_processing_approved = ai_consent
     organization.save()
     new_source = ExternalDataSource.objects.create(

@@ -18,6 +18,7 @@ import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
+  type AcpMcpServer,
   type Adapter,
   buildPrOutput,
   getErrorMessage,
@@ -29,6 +30,7 @@ import {
   readMcpToolDescriptor,
   readPrUrls,
   sleepWithBackoff,
+  toAcpMcpServers,
 } from "@posthog/shared";
 import {
   buildPosthogPropertiesHeaderLines,
@@ -1590,7 +1592,7 @@ export class AgentServer {
 
         return await this.session.clientConnection.extMethod(
           POSTHOG_METHODS.REFRESH_SESSION,
-          { mcpServers: refreshedMcpServers },
+          { mcpServers: toAcpMcpServers(refreshedMcpServers) },
         );
       }
 
@@ -2065,10 +2067,10 @@ export class AgentServer {
             sessionCwd,
             initialPermissionMode,
           );
-          const preparedMcpServers: McpServerConnection[] = [
+          const preparedMcpServers: AcpMcpServer[] = toAcpMcpServers([
             ...(this.config.mcpServers ?? []),
             ...(await this.startMcpRelayServer()),
-          ];
+          ]);
           return [preparedNativeResume, preparedMcpServers] as const;
         } finally {
           if (existingPrCheckoutPromise) {
@@ -2132,7 +2134,6 @@ export class AgentServer {
         return sessionId;
       },
     );
-
     this.evaluatedPrUrls.clear();
     this.prAttributionChain = Promise.resolve();
 
@@ -2876,7 +2877,7 @@ export class AgentServer {
     try {
       const response = await this.session.clientConnection.newSession({
         cwd: this.config.repositoryPath ?? "/tmp/workspace",
-        mcpServers: this.config.mcpServers ?? [],
+        mcpServers: toAcpMcpServers(this.config.mcpServers ?? []),
         _meta: this.session.sessionMeta,
       });
       this.session.acpSessionId = response.sessionId;

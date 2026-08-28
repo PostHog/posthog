@@ -409,7 +409,6 @@ export const mcpServerInstallationsCreateBodyUrlMax = 2048
 export const McpServerInstallationsCreateBody = /* @__PURE__ */ zod.object({
     display_name: zod.string().max(mcpServerInstallationsCreateBodyDisplayNameMax).optional(),
     url: zod.url().max(mcpServerInstallationsCreateBodyUrlMax).optional(),
-    description: zod.string().optional(),
     auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
     is_enabled: zod.boolean().optional(),
 })
@@ -421,7 +420,6 @@ export const mcpServerInstallationsUpdateBodyUrlMax = 2048
 export const McpServerInstallationsUpdateBody = /* @__PURE__ */ zod.object({
     display_name: zod.string().max(mcpServerInstallationsUpdateBodyDisplayNameMax).optional(),
     url: zod.url().max(mcpServerInstallationsUpdateBodyUrlMax).optional(),
-    description: zod.string().optional(),
     auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
     is_enabled: zod.boolean().optional(),
 })
@@ -459,7 +457,6 @@ export const mcpServerInstallationsProxyCreateBodyUrlMax = 2048
 export const McpServerInstallationsProxyCreateBody = /* @__PURE__ */ zod.object({
     display_name: zod.string().max(mcpServerInstallationsProxyCreateBodyDisplayNameMax).optional(),
     url: zod.url().max(mcpServerInstallationsProxyCreateBodyUrlMax).optional(),
-    description: zod.string().optional(),
     auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
     is_enabled: zod.boolean().optional(),
 })
@@ -478,7 +475,6 @@ export const mcpServerInstallationsToolsRefreshCreateBodyUrlMax = 2048
 export const McpServerInstallationsToolsRefreshCreateBody = /* @__PURE__ */ zod.object({
     display_name: zod.string().max(mcpServerInstallationsToolsRefreshCreateBodyDisplayNameMax).optional(),
     url: zod.url().max(mcpServerInstallationsToolsRefreshCreateBodyUrlMax).optional(),
-    description: zod.string().optional(),
     auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
     is_enabled: zod.boolean().optional(),
 })

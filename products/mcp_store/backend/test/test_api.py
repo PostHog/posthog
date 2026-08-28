@@ -2464,6 +2464,29 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         assert response.json()["results"][0]["icon_domain"] == "notion.example"
         assert response.json()["results"][0]["icon_key"] == "posthog_mcp"
 
+    def test_list_installation_description_falls_back_to_template(self):
+        template = MCPServerTemplate.objects.create(
+            name="Linear",
+            url="https://mcp.linear.example/mcp",
+            description="Manage issues and projects",
+            auth_type="api_key",
+            is_active=True,
+        )
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            display_name="",
+            description="",
+            url=template.url,
+            auth_type="api_key",
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_server_installations/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["description"] == "Manage issues and projects"
+
     def test_uninstall_server(self):
         installation = MCPServerInstallation.objects.create(
             team=self.team,

@@ -516,6 +516,10 @@ if DEBUG:
 
 SPECTACULAR_SETTINGS = {
     "OAS_VERSION": "3.1.0",
+    "SERVERS": [
+        {"url": "https://us.posthog.com", "description": "PostHog Cloud US"},
+        {"url": "https://eu.posthog.com", "description": "PostHog Cloud EU"},
+    ],
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
     "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
@@ -782,6 +786,7 @@ SPECTACULAR_SETTINGS = {
         "LoopTriggerTypeEnum": ["schedule", "github", "api"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
+            "link",
             "number",
             "currency",
             "percent",

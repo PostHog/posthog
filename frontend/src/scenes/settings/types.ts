@@ -200,6 +200,7 @@ export type SettingId =
     | 'mcp-hints'
     | 'mcp-servers-manage'
     | 'members'
+    | 'member-notifications'
     | 'notifications'
     | 'optout'
     | 'organization-admin-notice'

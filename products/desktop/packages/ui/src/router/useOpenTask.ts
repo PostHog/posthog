@@ -1,3 +1,4 @@
+import type { EditorContent } from "@posthog/core/message-editor/content";
 import { resolveService, resolveServiceOptional } from "@posthog/di/container";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
@@ -96,6 +97,14 @@ export interface TaskInputNavigationOptions {
    */
   folderRepository?: string;
   initialPrompt?: string;
+  /**
+   * Full editor content to restore (chips + attachments), preferred over
+   * initialPrompt. Used when recovering an interrupted prompt so nothing but
+   * the plain text is lost.
+   */
+  initialContent?: EditorContent;
+  /** Pending-prompt record key being recovered; the composer clears it once applied. */
+  recoveredFromKey?: string;
   initialCloudRepository?: string;
   initialModel?: string;
   initialMode?: string;
@@ -134,6 +143,8 @@ export function openTaskInput(
     !!options.folderId ||
     !!options.folderRepository ||
     !!options.initialPrompt ||
+    !!options.initialContent ||
+    !!options.recoveredFromKey ||
     !!options.initialCloudRepository ||
     !!options.initialModel ||
     !!options.initialMode ||
@@ -144,6 +155,8 @@ export function openTaskInput(
       folderId: options.folderId,
       folderRepository: options.folderRepository,
       initialPrompt: options.initialPrompt,
+      initialContent: options.initialContent,
+      recoveredFromKey: options.recoveredFromKey,
       initialCloudRepository: options.initialCloudRepository,
       initialModel: options.initialModel,
       initialMode: options.initialMode,
