@@ -15,11 +15,16 @@ describe('hogQLMetadataProvider', () => {
         return starts
     }
 
-    const codeActionsAt = (markers: ModelMarker[], activeMarker: ModelMarker): languagesCodeAction[] => {
+    const codeActionsAt = (
+        markers: ModelMarker[],
+        activeMarker: ModelMarker,
+        metadataLoading = false
+    ): languagesCodeAction[] => {
         const starts = lineStarts(SCRIPT)
         const model = {
             uri: 'inmemory://model/1',
-            codeEditorLogic: { isMounted: () => true, values: { modelMarkers: markers } },
+            codeEditorLogic: { isMounted: () => true, values: { modelMarkers: markers, metadataLoading } },
+            getVersionId: () => 7,
             getOffsetAt: ({ lineNumber, column }: { lineNumber: number; column: number }) =>
                 starts[lineNumber - 1] + column - 1,
             getValue: () => SCRIPT,
@@ -59,6 +64,15 @@ describe('hogQLMetadataProvider', () => {
         const actions = codeActionsAt([marker], marker)
 
         expect(actions.map((action) => action.title)).toEqual(["Replace with: '$pageview'"])
+    })
+
+    it('offers nothing while the metadata reload is in flight', () => {
+        const marker = taxonomyMarker()
+
+        // The markers still describe the previous query text, so their ranges may be stale.
+        const actions = codeActionsAt([marker], marker, true)
+
+        expect(actions).toEqual([])
     })
 
     it('does not offer a quick fix when the caret is on an unrelated marker', () => {

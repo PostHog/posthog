@@ -36,6 +36,17 @@ class TestFindUnprunedEventsScans(SimpleTestCase):
             ("ordering cannot stop at the limit", "SELECT * FROM events ORDER BY timestamp DESC", 1),
             ("a filter defeats early termination", "SELECT * FROM events WHERE event = 'never_matches' LIMIT 1", 1),
             ("an offset still reads what it skips", "SELECT * FROM events LIMIT 10 OFFSET 500", 1),
+            ("an inline window orders the partition first", "SELECT count() OVER () FROM events LIMIT 1", 1),
+            (
+                "a join can exhaust its input before a row matches",
+                "SELECT * FROM events JOIN persons ON persons.id = events.person_id LIMIT 1",
+                1,
+            ),
+            (
+                "a cte body reads the real table it shadows",
+                "WITH events AS (SELECT count() FROM events) SELECT * FROM events",
+                1,
+            ),
             ("ordering off the sort key", "SELECT * FROM events ORDER BY event DESC", 1),
             ("outer bound reaches the scan", "SELECT count() FROM (SELECT * FROM events) WHERE timestamp > now()", 0),
             ("subquery under an aggregate", "SELECT count() FROM (SELECT * FROM events)", 1),
@@ -116,6 +127,11 @@ class TestUnprunedScanQuickFix(SimpleTestCase):
                 "SELECT count() FROM persons JOIN events ON persons.id = events.person_id",
                 "SELECT count() FROM persons JOIN events ON persons.id = events.person_id"
                 " WHERE events.timestamp > now() - INTERVAL 30 DAY",
+            ),
+            (
+                "an alias needing escapes is quoted",
+                'SELECT count() FROM events AS "e-x"',
+                'SELECT count() FROM events AS "e-x" WHERE `e-x`.timestamp > now() - INTERVAL 30 DAY',
             ),
             (
                 "using lists columns, so no conjunct fits",

@@ -20,6 +20,7 @@ which would cost it the cheap pre-resolution property this relies on.
 """
 
 from posthog.hogql import ast
+from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.helpers.timestamp_visitor import is_time_or_interval_constant
 from posthog.hogql.visitor import TraversingVisitor
@@ -128,17 +129,17 @@ def _collect_scans(
     if not isinstance(node, ast.SelectQuery):
         return
 
-    # A CTE named `events` hides the real table from every scan in this query and below it.
-    if node.ctes:
-        shadowed = shadowed | set(node.ctes)
-
     bounded_here = bounded or _query_bounds_timestamp(node)
     # A row limit only caps the read when the scan can stop early. The enclosing limit carries into such
     # a query because ClickHouse stops reading the source once the outer limit is satisfied.
     capped_here = _terminates_early(node) and (capped or node.limit is not None)
 
-    for cte in (node.ctes or {}).values():
+    # A CTE named `events` hides the real table, but only from the scopes that can see the name. The
+    # resolver reads a CTE's own body before registering it, so `WITH events AS (SELECT ... FROM
+    # events)` reads the physical table inside that body.
+    for name, cte in (node.ctes or {}).items():
         _collect_scans(cte.expr, bounded=bounded_here, capped=capped_here, shadowed=shadowed, scans=scans)
+        shadowed = shadowed | {name}
 
     join = node.select_from
     while join is not None:
@@ -196,7 +197,7 @@ def _bound_edits(query: ast.SelectQuery, events_join: ast.JoinExpr) -> tuple[Que
 def _timestamp_column(query: ast.SelectQuery, events_join: ast.JoinExpr) -> str:
     """How to name the events timestamp so it stays unambiguous next to any joined table."""
     if events_join.alias:
-        return f"{events_join.alias}.timestamp"
+        return f"{escape_hogql_identifier(events_join.alias)}.timestamp"
     if query.select_from is not None and query.select_from.next_join is not None:
         return f"{EVENTS_TABLE_NAME}.timestamp"
     return "timestamp"
@@ -324,12 +325,18 @@ def _terminates_early(query: ast.SelectQuery) -> bool:
         return False
     if query.where is not None or query.prewhere is not None:
         return False
+    # A join can consume its whole input before it produces a row, because a limited result says
+    # nothing about how many rows had to be probed to find a match.
+    if query.select_from is not None and query.select_from.next_join is not None:
+        return False
     if query.order_by:
         return False
     # An offset still has to read and discard the rows it skips.
     if query.offset is not None:
         return False
-    return not any(_contains_aggregation(expr) for expr in query.select)
+    # An inline `OVER (...)` is a WindowFunction in the select list and leaves window_exprs unset, so
+    # the clause check above does not see it. A window still orders the whole partition first.
+    return not any(_contains_aggregation(expr) or _contains_window_function(expr) for expr in query.select)
 
 
 class _AggregationFinder(TraversingVisitor):
@@ -352,6 +359,27 @@ class _AggregationFinder(TraversingVisitor):
 
 def _contains_aggregation(expr: ast.Expr) -> bool:
     finder = _AggregationFinder()
+    finder.visit(expr)
+    return finder.found
+
+
+class _WindowFunctionFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.found = False
+
+    def visit_window_function(self, node: ast.WindowFunction) -> None:
+        self.found = True
+
+    # A window inside a subquery belongs to that subquery.
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        pass
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        pass
+
+
+def _contains_window_function(expr: ast.Expr) -> bool:
+    finder = _WindowFunctionFinder()
     finder.visit(expr)
     return finder.found
 
