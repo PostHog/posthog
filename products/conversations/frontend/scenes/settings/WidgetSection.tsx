@@ -19,7 +19,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 export function WidgetSection(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const {
         generateNewToken,
@@ -218,6 +218,7 @@ export function WidgetSection(): JSX.Element {
                                         <LemonButton
                                             type="primary"
                                             onClick={saveTicketRecoveryText}
+                                            loading={currentTeamLoading}
                                             disabledReason={
                                                 !ticketRecoveryTextValue ? 'Enter ticket recovery text' : undefined
                                             }
@@ -248,6 +249,7 @@ export function WidgetSection(): JSX.Element {
                                         <LemonButton
                                             type="primary"
                                             onClick={saveTicketRecoveryLinkText}
+                                            loading={currentTeamLoading}
                                             disabledReason={
                                                 !ticketRecoveryLinkTextValue
                                                     ? 'Enter ticket recovery link text'
