@@ -8,7 +8,7 @@ import { Team } from '~/types'
 
 import { createContext, createNewChunkPipeline, createOkContext } from './helpers'
 import { IngestionWarningHandlingChunkPipeline } from './ingestion-warning-handling-chunk-pipeline'
-import { ok } from './results'
+import { ok, timeout } from './results'
 
 jest.mock('~/ingestion/common/ingestion-warnings')
 
@@ -165,6 +165,35 @@ describe('IngestionWarningHandlingChunkPipeline', () => {
                 type: 'ignored_invalid_timestamp',
                 details: { error: 'something' },
             })
+        })
+
+        it('abandons warnings on a timed-out element instead of emitting them', async () => {
+            const message = createTestMessage()
+            const team = createTestTeam()
+            const previous = {
+                feed: jest.fn(),
+                next: jest.fn().mockResolvedValue([
+                    {
+                        result: timeout('budget exceeded before emitEvent'),
+                        context: {
+                            message,
+                            team,
+                            lastStep: undefined,
+                            sideEffects: [],
+                            warnings: [{ type: 'client_ingestion_warning', details: { field: 'value' } }],
+                        },
+                    },
+                ]),
+            }
+            const pipeline = new IngestionWarningHandlingChunkPipeline(mockOutputs, previous as any)
+
+            pipeline.feed([])
+            const results = await pipeline.next()
+
+            expect(results).toHaveLength(1)
+            expect(results![0].context.warnings).toEqual([])
+            expect(results![0].context.sideEffects).toHaveLength(0)
+            expect(mockEmitIngestionWarning).not.toHaveBeenCalled()
         })
 
         it('should handle warning with alwaysSend flag', async () => {

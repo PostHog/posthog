@@ -132,7 +132,7 @@ Callers with no time policy (tests, the non-gRPC pipelines) pass nothing.
 Sub-contexts created by `fanOut` and `filterMap` copy it the way they copy `debugContext`.
 The gRPC driver builds the budget at its feed call as a pure function of the wire: `soft_budget_ms` maps to `0 → unlimited`, else a soft deadline at `armedAt + budget`, with `armedAt` stamped by the server at frame read — so time parked in the admission queue counts against the deadline.
 There is no worker-side sizing knob: budget policy belongs to the consumer.
-Result handling treats a timeout as a no-op (metric, no produce).
+Result handling treats a timeout as a no-op (metric, no produce), and a timed-out element's accumulated ingestion warnings are abandoned rather than emitted — the redelivery reprocesses the element from the top and emits them then.
 
 ### Steps stay one-argument
 
