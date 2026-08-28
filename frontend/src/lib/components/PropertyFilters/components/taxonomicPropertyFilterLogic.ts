@@ -234,7 +234,14 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     featureFilter.label = item.key
                 }
 
-                if (propertyType === PropertyFilterType.EventMetadata && item.id.startsWith('$group_')) {
+                // Rows promoted from recents carry only a name, so read the group column from
+                // `propertyKey`, which is set for every row, instead of `item.id`, which they lack.
+                if (
+                    propertyType === PropertyFilterType.EventMetadata &&
+                    typeof propertyKey === 'string' &&
+                    propertyKey.startsWith('$group_') &&
+                    item?.name
+                ) {
                     const eventMetadataFilter = filter as EventMetadataPropertyFilter
                     eventMetadataFilter.label = item.name
                 }

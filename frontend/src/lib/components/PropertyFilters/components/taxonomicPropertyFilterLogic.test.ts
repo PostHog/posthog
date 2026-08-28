@@ -193,6 +193,36 @@ describe('taxonomicPropertyFilterLogic', () => {
             )
         })
 
+        // A row promoted from recents carries only `{ name }`, so the group-column check must not
+        // read `item.id`. A bare dereference throws before `setFilter` runs, which leaves the
+        // filter unapplied and the dropdown open.
+        it.each([
+            { rowCase: 'event name', key: 'event', item: { name: 'event' }, expectedLabel: undefined },
+            {
+                rowCase: 'group column',
+                key: '$group_0',
+                item: { name: 'Organization' },
+                expectedLabel: 'Organization',
+            },
+        ])('creates an EventMetadata $rowCase filter from a recent row with no id', ({ key, item, expectedLabel }) => {
+            const group = logic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.EventMetadata)!
+
+            logic.actions.selectItem(group, key, PropertyFilterType.EventMetadata, {
+                ...item,
+                _recentContext: {
+                    sourceGroupType: TaxonomicFilterGroupType.EventMetadata,
+                    sourceGroupName: 'Event metadata',
+                    sourceValue: key,
+                },
+            })
+
+            expect(setFilterSpy).toHaveBeenCalledWith(
+                0,
+                expect.objectContaining({ key, type: PropertyFilterType.EventMetadata })
+            )
+            expect(setFilterSpy.mock.calls[0][1].label).toBe(expectedLabel)
+        })
+
         it('closes the dropdown after selecting an item', () => {
             const group = logic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.EventProperties)!
             logic.actions.openDropdown()
