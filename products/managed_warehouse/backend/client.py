@@ -9,7 +9,13 @@ import psycopg
 from psycopg import sql as psql
 from psycopg.conninfo import make_conninfo
 
-from posthog.hogql.database.s3_table import S3Table, parse_duckdb_s3_source
+from posthog.hogql.database.s3_table import (
+    DUCKDB_SELF_MANAGED_SUPPORTED_FORMATS,
+    S3Table,
+    build_duckdb_azure_connection_string,
+    parse_duckdb_azure_source,
+    parse_duckdb_s3_source,
+)
 
 from products.managed_warehouse.backend.common import (
     get_duckgres_config_for_org,
@@ -17,7 +23,9 @@ from products.managed_warehouse.backend.common import (
     sanitize_ducklake_identifier,
 )
 from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeAzureSecret,
     DuckLakeCompiledQuery,
+    DuckLakeObjectStorageSecret,
     DuckLakeQueryResult,
     DuckLakeS3Secret,
     DuckLakeTableResult,
@@ -122,8 +130,8 @@ def _set_search_path(conn: psycopg.Connection[Any], extra_schemas: list[str] | N
     conn.execute(sql)
 
 
-def _s3_secrets_for_database(database: Database) -> tuple[DuckLakeS3Secret, ...]:
-    """Collect the S3 secrets the self-managed tables of a built HogQL database need.
+def _object_storage_secrets_for_database(database: Database) -> tuple[DuckLakeObjectStorageSecret, ...]:
+    """Collect the secrets the self-managed tables of a built HogQL database need.
 
     The table set comes from the database the query was compiled against, so warehouse access
     control has already pruned anything the querier may not read. Reading it from the team's
@@ -131,7 +139,7 @@ def _s3_secrets_for_database(database: Database) -> tuple[DuckLakeS3Secret, ...]
     matches a secret on its ``s3://bucket/key`` scope alone, ignoring the endpoint, and breaks
     a scope tie by picking the lexicographically smaller secret name.
     """
-    secrets: list[DuckLakeS3Secret] = []
+    secrets: list[DuckLakeObjectStorageSecret] = []
     for table_name in database.get_warehouse_table_names():
         try:
             table = database.get_table(table_name)
@@ -140,50 +148,78 @@ def _s3_secrets_for_database(database: Database) -> tuple[DuckLakeS3Secret, ...]
         # Connector-synced tables are rebound to their DuckLake copy and read no object storage.
         if not isinstance(table, S3Table) or table.external_data_source_id or table.table_id is None:
             continue
-        if table.format != "Parquet" or not table.access_key or not table.access_secret:
+        if table.format not in DUCKDB_SELF_MANAGED_SUPPORTED_FORMATS or not table.access_key or not table.access_secret:
             continue
-        source = parse_duckdb_s3_source(table.url)
-        if source is None:
-            continue
-        secrets.append(
-            DuckLakeS3Secret(
-                name=f"self_managed_{str(table.table_id).replace('-', '')}",
-                key_id=table.access_key,
-                secret=table.access_secret,
-                region=source.region,
-                scope=source.scope,
-                use_ssl=source.use_ssl,
-                url_style=source.url_style,
-                endpoint=source.endpoint,
+        name = f"self_managed_{str(table.table_id).replace('-', '')}"
+        azure_source = parse_duckdb_azure_source(table.url)
+        if azure_source is not None:
+            connection_string = build_duckdb_azure_connection_string(
+                azure_source,
+                table.access_key,
+                table.access_secret,
             )
-        )
+            if connection_string is None:
+                continue
+            secrets.append(
+                DuckLakeAzureSecret(
+                    name=name,
+                    connection_string=connection_string,
+                    scope=azure_source.scope,
+                )
+            )
+            continue
+
+        s3_source = parse_duckdb_s3_source(table.url)
+        if s3_source is not None:
+            secrets.append(
+                DuckLakeS3Secret(
+                    name=name,
+                    key_id=table.access_key,
+                    secret=table.access_secret,
+                    region=s3_source.region,
+                    scope=s3_source.scope,
+                    use_ssl=s3_source.use_ssl,
+                    url_style=s3_source.url_style,
+                    endpoint=s3_source.endpoint,
+                )
+            )
     return tuple(secrets)
 
 
-def _configure_s3_secrets(conn: psycopg.Connection[Any], secrets: Sequence[DuckLakeS3Secret]) -> None:
+def _configure_object_storage_secrets(
+    conn: psycopg.Connection[Any], secrets: Sequence[DuckLakeObjectStorageSecret]
+) -> None:
     if not secrets:
         return
 
     with conn.cursor() as cur:
         for secret in secrets:
-            secret_options = [
-                psql.SQL("TYPE S3"),
-                psql.SQL("KEY_ID %s"),
-                psql.SQL("SECRET %s"),
-                psql.SQL("REGION %s"),
-            ]
-            values: list[object] = [secret.key_id, secret.secret, secret.region]
-            if secret.endpoint is not None:
-                secret_options.append(psql.SQL("ENDPOINT %s"))
-                values.append(secret.endpoint)
-            secret_options.extend(
-                [
-                    psql.SQL("USE_SSL %s"),
-                    psql.SQL("URL_STYLE %s"),
+            if isinstance(secret, DuckLakeS3Secret):
+                secret_options = [
+                    psql.SQL("TYPE S3"),
+                    psql.SQL("KEY_ID %s"),
+                    psql.SQL("SECRET %s"),
+                    psql.SQL("REGION %s"),
+                ]
+                values: list[object] = [secret.key_id, secret.secret, secret.region]
+                if secret.endpoint is not None:
+                    secret_options.append(psql.SQL("ENDPOINT %s"))
+                    values.append(secret.endpoint)
+                secret_options.extend(
+                    [
+                        psql.SQL("USE_SSL %s"),
+                        psql.SQL("URL_STYLE %s"),
+                        psql.SQL("SCOPE %s"),
+                    ]
+                )
+                values.extend([secret.use_ssl, secret.url_style, secret.scope])
+            else:
+                secret_options = [
+                    psql.SQL("TYPE AZURE"),
+                    psql.SQL("CONNECTION_STRING %s"),
                     psql.SQL("SCOPE %s"),
                 ]
-            )
-            values.extend([secret.use_ssl, secret.url_style, secret.scope])
+                values = [secret.connection_string, secret.scope]
             statement = psql.SQL("CREATE OR REPLACE TEMPORARY SECRET {} ({})").format(
                 psql.Identifier(secret.name),
                 psql.SQL(", ").join(secret_options),
@@ -194,7 +230,7 @@ def _configure_s3_secrets(conn: psycopg.Connection[Any], secrets: Sequence[DuckL
                 # A secret duckgres rejects only breaks the table it belongs to, so keep going
                 # and let the query fail on that table instead of on every other one too.
                 conn.rollback()
-                logger.warning("Could not configure DuckLake S3 access for %s", secret.name, exc_info=True)
+                logger.warning("Could not configure DuckLake object storage access for %s", secret.name, exc_info=True)
 
 
 def compile_hogql_to_ducklake_sql(
@@ -210,8 +246,8 @@ def compile_hogql_to_ducklake_sql(
     The returned ``values`` hold parameter bindings for ``psycopg``'s ``%(name)s``
     placeholders embedded in ``sql``; callers must pass them to
     ``cursor.execute(sql, values)`` or the query will fail with an
-    unbound-placeholder error. ``s3_secrets`` must be installed on the connection
-    before the query runs, or its self-managed tables cannot be read.
+    unbound-placeholder error. ``object_storage_secrets`` must be installed on the
+    connection before the query runs, or its self-managed tables cannot be read.
     """
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.database.database import Database
@@ -256,7 +292,7 @@ def compile_hogql_to_ducklake_sql(
         sql=postgres_sql,
         values=dict(postgres_context.values),
         hogql=hogql_pretty,
-        s3_secrets=_s3_secrets_for_database(database),
+        object_storage_secrets=_object_storage_secrets_for_database(database),
     )
 
 
@@ -283,7 +319,7 @@ def execute_ducklake_query(
     must compile without a user, such as materialization.
 
     Only the `query` form can read self-managed object storage — raw `sql` carries no
-    compiled schema, so no S3 secrets are installed for it.
+    compiled schema, so no object storage secrets are installed for it.
     """
     if sql and query:
         raise ValueError("Provide either sql or query, not both")
@@ -292,7 +328,7 @@ def execute_ducklake_query(
 
     hogql_pretty: str | None = None
     values: dict[str, object] = {}
-    s3_secrets: Sequence[DuckLakeS3Secret] = ()
+    object_storage_secrets: Sequence[DuckLakeObjectStorageSecret] = ()
     if query:
         compiled = compile_hogql_to_ducklake_sql(
             team_id,
@@ -304,7 +340,7 @@ def execute_ducklake_query(
         sql = compiled.sql
         values = compiled.values
         hogql_pretty = compiled.hogql
-        s3_secrets = compiled.s3_secrets
+        object_storage_secrets = compiled.object_storage_secrets
 
     assert sql is not None
 
@@ -312,7 +348,7 @@ def execute_ducklake_query(
     _connect_start = time.monotonic()
     with psycopg.connect(conninfo) as conn:
         connect_ms = (time.monotonic() - _connect_start) * 1000
-        _configure_s3_secrets(conn, s3_secrets)
+        _configure_object_storage_secrets(conn, object_storage_secrets)
         _set_search_path(conn)
         with conn.cursor() as cur:
             _query_start = time.monotonic()
@@ -360,7 +396,7 @@ def execute_ducklake_create_table(
     values: dict[str, object] | None = None,
     *,
     organization_id: str | None = None,
-    s3_secrets: Sequence[DuckLakeS3Secret] = (),
+    object_storage_secrets: Sequence[DuckLakeObjectStorageSecret] = (),
 ) -> DuckLakeTableResult:
     """Execute a query via duckgres and materialize the result as a DuckLake table.
 
@@ -373,7 +409,7 @@ def execute_ducklake_create_table(
     ``values`` carries parameter bindings for any ``%(name)s`` placeholders in ``sql``
     (as produced by ``compile_hogql_to_ducklake_sql``). It is passed through to
     ``psycopg`` so the SELECT body is executed with safe parameter binding. Pass that
-    same compilation's ``s3_secrets`` so the SELECT can read self-managed object storage.
+    same compilation's ``object_storage_secrets`` so the SELECT can read self-managed object storage.
     """
     safe_schema = sanitize_ducklake_identifier(schema_name, default_prefix="shadow")
     safe_table = sanitize_ducklake_identifier(table_name, default_prefix="model")
@@ -382,7 +418,7 @@ def execute_ducklake_create_table(
     # capture previous table size before replacing — best-effort, don't block materialization
     previous_file_size_bytes = _calculate_table_size(conninfo, safe_schema, safe_table)
     with psycopg.connect(conninfo) as conn:
-        _configure_s3_secrets(conn, s3_secrets)
+        _configure_object_storage_secrets(conn, object_storage_secrets)
         conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(safe_schema)))
         # duckgres SET seems to only accept a single comma-separated string value with single quotes
         _set_search_path(conn, extra_schemas=[safe_schema])

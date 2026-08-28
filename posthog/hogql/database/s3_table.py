@@ -15,15 +15,19 @@ from posthog.clickhouse.client.escape import substitute_params
 
 _AWS_S3_ENDPOINT_RE = re.compile(r"s3(?:[.-][a-z0-9-]+)*\.amazonaws\.com(?:\.cn)?")
 _AWS_S3_VIRTUAL_HOST_RE = re.compile(r"(?P<bucket>.+)\.(?P<endpoint>s3(?:[.-][a-z0-9-]+)*\.amazonaws\.com(?:\.cn)?)")
-_AWS_REGION_RE = re.compile(r"(?:^|[.-])(?P<region>[a-z]{2,4}(?:-[a-z0-9]+)+-\d)(?:\.|$)")
+_S3_REGION_RE = re.compile(r"(?:^|[.-])(?P<region>[a-z]{2,4}(?:-[a-z0-9]+)+-\d+)(?:\.|$)")
+_NON_AWS_S3_VIRTUAL_HOST_RES = (
+    re.compile(r"(?P<bucket>.+)\.(?P<endpoint>storage\.googleapis\.com)"),
+    re.compile(r"(?P<bucket>.+)\.(?P<endpoint>[a-z0-9-]+\.digitaloceanspaces\.com)"),
+    re.compile(r"(?P<bucket>.+)\.(?P<endpoint>s3(?:\.[a-z0-9-]+)?\.wasabisys\.com)"),
+    re.compile(r"(?P<bucket>.+)\.(?P<endpoint>s3\.[a-z0-9-]+\.backblazeb2\.com)"),
+)
 _AZURE_BLOB_HOST_SUFFIX = ".blob.core.windows.net"
-_FORMAT_LABELS = {
-    "CSV": "CSV",
-    "CSVWithNames": "CSV with headers",
-    "JSONEachRow": "JSON",
-    "Delta": "Delta",
-    "DeltaS3Wrapper": "Delta",
-}
+_AZURE_ACCOUNT_NAME_RE = re.compile(r"[a-z0-9]{3,24}")
+_AZURE_ACCOUNT_KEY_RE = re.compile(r"[A-Za-z0-9+/]+={0,2}")
+DUCKDB_SELF_MANAGED_SUPPORTED_FORMATS: frozenset[str] = frozenset(
+    {"CSV", "CSVWithNames", "Delta", "JSONEachRow", "Parquet"}
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -34,6 +38,13 @@ class DuckDBS3Source:
     region: str
     use_ssl: bool
     url_style: Literal["path", "vhost"]
+
+
+@dataclass(frozen=True, kw_only=True)
+class DuckDBAzureSource:
+    uri: str
+    scope: str
+    account_name: str
 
 
 def _split_bucket_and_key(path: str) -> tuple[str, str] | None:
@@ -48,9 +59,67 @@ def _scope_for_s3_uri(uri: str) -> str:
     return uri[: min(wildcard_positions)] if wildcard_positions else uri
 
 
-def _region_for_aws_endpoint(endpoint: str) -> str:
-    match = _AWS_REGION_RE.search(endpoint)
+def _region_for_s3_endpoint(endpoint: str) -> str:
+    match = _S3_REGION_RE.search(endpoint)
     return match.group("region") if match else "us-east-1"
+
+
+def _parse_s3_virtual_host(hostname: str) -> tuple[str, str] | None:
+    match = _AWS_S3_VIRTUAL_HOST_RE.fullmatch(hostname)
+    if match is not None:
+        return match.group("bucket"), match.group("endpoint")
+    for pattern in _NON_AWS_S3_VIRTUAL_HOST_RES:
+        match = pattern.fullmatch(hostname)
+        if match is not None:
+            return match.group("bucket"), match.group("endpoint")
+    return None
+
+
+def _scope_for_azure_uri(uri: str) -> str:
+    prefix = _scope_for_s3_uri(uri)
+    if prefix.endswith("/"):
+        return prefix
+    parent, separator, _ = prefix.rpartition("/")
+    return f"{parent}/" if separator else f"{prefix}/"
+
+
+def parse_duckdb_azure_source(url: str) -> DuckDBAzureSource | None:
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname is None:
+        return None
+
+    hostname = parsed.hostname.lower()
+    if not hostname.endswith(_AZURE_BLOB_HOST_SUFFIX):
+        return None
+    account_name = hostname.removesuffix(_AZURE_BLOB_HOST_SUFFIX)
+    if _AZURE_ACCOUNT_NAME_RE.fullmatch(account_name) is None:
+        return None
+
+    location = _split_bucket_and_key(parsed.path)
+    if location is None:
+        return None
+    container, key = location
+    uri = f"az://{hostname}/{container}/{key}"
+    return DuckDBAzureSource(
+        uri=uri,
+        scope=_scope_for_azure_uri(uri),
+        account_name=account_name,
+    )
+
+
+def build_duckdb_azure_connection_string(
+    source: DuckDBAzureSource,
+    account_name: str,
+    account_key: str,
+) -> str | None:
+    if account_name != source.account_name or _AZURE_ACCOUNT_KEY_RE.fullmatch(account_key) is None:
+        return None
+    return (
+        "DefaultEndpointsProtocol=https;"
+        f"AccountName={source.account_name};"
+        f"AccountKey={account_key};"
+        "EndpointSuffix=core.windows.net"
+    )
 
 
 def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
@@ -77,20 +146,19 @@ def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
 
     endpoint = hostname if parsed.port is None else f"{hostname}:{parsed.port}"
     key = parsed.path.lstrip("/")
-    virtual_host_match = _AWS_S3_VIRTUAL_HOST_RE.fullmatch(hostname)
-    if virtual_host_match is not None:
-        bucket = virtual_host_match.group("bucket")
-        aws_endpoint = virtual_host_match.group("endpoint")
-        endpoint = aws_endpoint if parsed.port is None else f"{aws_endpoint}:{parsed.port}"
+    virtual_host = _parse_s3_virtual_host(hostname)
+    if virtual_host is not None:
+        bucket, virtual_host_endpoint = virtual_host
+        endpoint = virtual_host_endpoint if parsed.port is None else f"{virtual_host_endpoint}:{parsed.port}"
         url_style: Literal["path", "vhost"] = "vhost"
-        region = _region_for_aws_endpoint(aws_endpoint)
+        region = _region_for_s3_endpoint(virtual_host_endpoint)
     else:
         location = _split_bucket_and_key(parsed.path)
         if location is None:
             return None
         bucket, key = location
         url_style = "path"
-        region = _region_for_aws_endpoint(hostname) if _AWS_S3_ENDPOINT_RE.fullmatch(hostname) else "us-east-1"
+        region = _region_for_s3_endpoint(hostname) if _AWS_S3_ENDPOINT_RE.fullmatch(hostname) else "us-east-1"
 
     if not key:
         return None
@@ -264,6 +332,7 @@ class S3Table(FunctionCallTable):
     access_key: Optional[str] = None
     access_secret: Optional[str] = None
     structure: Optional[str] = None
+    column_names: tuple[str, ...] = ()
     table_id: Optional[str] = None
     table_size_mib: Optional[float] = None
     # Set for connector-synced warehouse tables (backed by an ExternalDataSource); None for self-managed S3 tables.
@@ -287,29 +356,47 @@ class S3Table(FunctionCallTable):
         )
 
     def to_printed_duckdb(self, context: HogQLContext) -> str:
-        if self.format != "Parquet":
-            format_label = _FORMAT_LABELS.get(self.format, self.format)
+        if self.format not in DUCKDB_SELF_MANAGED_SUPPORTED_FORMATS:
             raise ExposedHogQLError(
-                "DuckLake currently supports Parquet self-managed tables only. "
-                f"Support for {format_label} is coming soon. "
-                "Use Parquet or run the query without DuckLake for now."
+                "DuckLake can't read this self-managed table format. "
+                "Use Parquet, CSV, JSON, or Delta, or run the query without DuckLake."
             )
 
-        source = parse_duckdb_s3_source(self.url)
+        source = parse_duckdb_azure_source(self.url) or parse_duckdb_s3_source(self.url)
         if source is None:
-            hostname = urlparse(self.url).hostname
-            if hostname is not None and hostname.lower().endswith(_AZURE_BLOB_HOST_SUFFIX):
-                raise ExposedHogQLError(
-                    "DuckLake currently supports S3-compatible self-managed sources only. "
-                    "Support for Azure Blob Storage is coming soon. "
-                    "Run the query without DuckLake for now."
-                )
             raise ExposedHogQLError(
-                "DuckLake currently supports S3-compatible self-managed sources only. "
-                "Use an S3-compatible URL or run the query without DuckLake for now."
+                "DuckLake can't read this self-managed table URL. "
+                "Use an S3-compatible or Azure Blob Storage URL, or run the query without DuckLake."
+            )
+        if not self.access_key or not self.access_secret:
+            raise ExposedHogQLError(
+                "DuckLake can't read this self-managed table because its object storage credentials are missing. "
+                "Add an access key and secret to the table, or run the query without DuckLake."
+            )
+        if (
+            isinstance(source, DuckDBAzureSource)
+            and build_duckdb_azure_connection_string(source, self.access_key, self.access_secret) is None
+        ):
+            raise ExposedHogQLError(
+                "DuckLake can't use these Azure Blob Storage credentials. "
+                "Make sure the storage account name matches the table URL and the account key is valid, "
+                "or run the query without DuckLake."
             )
 
-        return f"read_parquet({context.add_value(source.uri)}, hive_partitioning = false)"
+        uri = context.add_value(source.uri)
+        if self.format == "Parquet":
+            return f"read_parquet({uri}, hive_partitioning = false)"
+        if self.format == "CSVWithNames":
+            return f"read_csv({uri}, header = true, hive_partitioning = false)"
+        if self.format == "CSV":
+            names = ""
+            if self.column_names:
+                column_names = ", ".join(context.add_value(name) for name in self.column_names)
+                names = f", names = [{column_names}]"
+            return f"read_csv({uri}, header = false{names}, hive_partitioning = false)"
+        if self.format == "JSONEachRow":
+            return f"read_json({uri}, format = 'newline_delimited', hive_partitioning = false)"
+        return f"delta_scan({uri})"
 
 
 class DataWarehouseTable(S3Table):

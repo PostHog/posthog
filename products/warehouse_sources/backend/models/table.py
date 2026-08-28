@@ -731,6 +731,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         columns = self.columns or {}
 
         fields, structure = hogql_fields_and_structure_for_columns(columns, modifiers, column_order=self.column_order)
+        column_names = tuple(name for name, _ in reconstruct_ordered_columns(columns, self.column_order))
 
         if self.external_data_source and self.external_data_source.is_direct_postgres:
             postgres_catalog = (
@@ -965,6 +966,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_secret=self.credential.access_secret if self.credential else None,
             fields=fields,
             structure=", ".join(structure),
+            column_names=column_names,
             table_id=str(self.id),
             external_data_source_id=str(self.external_data_source_id) if self.external_data_source_id else None,
             source_type=self.external_data_source.source_type if self.external_data_source else None,

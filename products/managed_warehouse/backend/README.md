@@ -94,11 +94,11 @@ For local dev the defaults are:
 
 ## Self-managed object storage reads
 
-The DuckLake query path can read credentialed self-managed Parquet tables directly from S3-compatible object storage. HogQL compiles these tables to DuckDB's `read_parquet` function. Before each query, the Duckgres client creates a temporary secret from the table's `DataWarehouseCredential`. Secrets cover only the tables the compiled query's schema still exposes after warehouse access control, so a query cannot borrow credentials from a table it may not read. Each secret is scoped to the table's object path and disappears when the connection closes. Credentials use query parameters and never appear in the compiled SQL.
+The DuckLake query path can read credentialed self-managed Parquet, CSV, newline-delimited JSON, and Delta tables directly from S3-compatible object storage and Azure Blob Storage. HogQL compiles each table to the matching DuckDB reader. CSV files without headers use the saved warehouse column order. Before each query, the Duckgres client creates a temporary secret from the table's `DataWarehouseCredential`. Secrets cover only the tables the compiled query's schema still exposes after warehouse access control, so a query cannot borrow credentials from a table it may not read. Each secret is scoped to the table's object path and disappears when the connection closes. Credentials use bound parameters and never appear in the compiled SQL.
 
-Supported URL forms include AWS S3, Google Cloud Storage with HMAC credentials, Cloudflare R2, and other path-style S3-compatible HTTPS endpoints. Local HTTP endpoints such as SeaweedFS are also supported. AWS regions are inferred from regional endpoints. Other providers use `us-east-1` for S3 request signing.
+Supported URL forms include AWS S3, Google Cloud Storage with HMAC credentials, Cloudflare R2, Azure Blob Storage, and path-style S3-compatible HTTPS endpoints. Virtual-host URLs are also supported for Google Cloud Storage, DigitalOcean Spaces, Wasabi, and Backblaze B2. Local HTTP endpoints such as SeaweedFS are supported. AWS-style regions are inferred from recognized regional endpoints. Providers without a region in the endpoint use `us-east-1` for S3 request signing.
 
-This path currently supports Parquet only. Support for Azure Blob Storage, CSV, JSON, and Delta will follow. Until then, these sources continue to use the existing non-DuckLake query path.
+Duckgres must load the `delta` extension before it reads Delta tables and the `azure` extension before it reads Azure Blob Storage.
 
 ## Feature flag gating
 

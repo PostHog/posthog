@@ -25,8 +25,10 @@ __all__ = [
     "DuckgresQueryServerConfig",
     "DuckgresStoredBucketConfig",
     "DuckgresStoredServerConfig",
+    "DuckLakeAzureSecret",
     "DuckLakeCatalogConnectionConfig",
     "DuckLakeCompiledQuery",
+    "DuckLakeObjectStorageSecret",
     "DuckLakeQueryResult",
     "DuckLakeS3Secret",
     "DuckLakeTableResult",
@@ -269,18 +271,30 @@ class DuckLakeS3Secret:
 
 
 @dataclass(frozen=True, kw_only=True)
+class DuckLakeAzureSecret:
+    """One temporary DuckDB Azure secret, scoped to a self-managed table's object path."""
+
+    name: str
+    connection_string: str = field(repr=False)
+    scope: str
+
+
+DuckLakeObjectStorageSecret = DuckLakeS3Secret | DuckLakeAzureSecret
+
+
+@dataclass(frozen=True, kw_only=True)
 class DuckLakeCompiledQuery:
     """A HogQL query compiled to DuckDB SQL, with the secrets its self-managed tables need.
 
-    ``s3_secrets`` covers only the self-managed tables the compiled schema still exposed after
-    warehouse access control, so a caller cannot install credentials for a table its query was
-    not allowed to read.
+    ``object_storage_secrets`` covers only the self-managed tables the compiled schema still
+    exposed after warehouse access control, so a caller cannot install credentials for a table
+    its query was not allowed to read.
     """
 
     sql: str
     values: dict[str, Any]
     hogql: str
-    s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
+    object_storage_secrets: tuple[DuckLakeObjectStorageSecret, ...] = ()
 
 
 @dataclass

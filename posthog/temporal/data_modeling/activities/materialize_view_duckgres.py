@@ -26,7 +26,7 @@ from products.managed_warehouse.backend.facade.api import (
     has_provisioned_warehouse,
     is_dev_mode,
 )
-from products.managed_warehouse.backend.facade.contracts import DuckLakeCompiledQuery, DuckLakeS3Secret
+from products.managed_warehouse.backend.facade.contracts import DuckLakeCompiledQuery, DuckLakeObjectStorageSecret
 
 from ..metrics import get_node_suspended_metric
 from .utils import (
@@ -183,7 +183,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     start_time = time.monotonic()
     sql: str = ""
     values: dict[str, object] = {}
-    s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
+    object_storage_secrets: tuple[DuckLakeObjectStorageSecret, ...] = ()
     try:
         if inputs.dangerously_execute_raw_sql:
             sql = hogql_query
@@ -191,13 +191,13 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
             compiled = await database_sync_to_async_pool(_compile_hogql_for_ducklake)(hogql_query, team.pk)
             sql = compiled.sql
             values = compiled.values
-            s3_secrets = compiled.s3_secrets
+            object_storage_secrets = compiled.object_storage_secrets
         await logger.adebug("Duckgres shadow SQL generated", sql=sql)
 
         from products.managed_warehouse.backend.facade.client import execute_ducklake_create_table
 
         result = await database_sync_to_async_pool(execute_ducklake_create_table)(
-            team.pk, sql, schema_name, table_name, values, s3_secrets=s3_secrets
+            team.pk, sql, schema_name, table_name, values, object_storage_secrets=object_storage_secrets
         )
         duration = time.monotonic() - start_time
 

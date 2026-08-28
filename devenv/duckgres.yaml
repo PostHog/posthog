@@ -7,9 +7,11 @@ users:
     posthog: 'posthog'
 
 extensions:
+    - azure
     - ducklake
     - postgres_scanner
     - httpfs
+    - delta
 
 ducklake:
     metadata_store: 'postgres:dbname=ducklake host=db port=5432 user=posthog password=posthog'

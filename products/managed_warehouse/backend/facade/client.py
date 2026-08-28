@@ -30,8 +30,8 @@ if TYPE_CHECKING:
 
     from products.managed_warehouse.backend.facade.contracts import (
         DuckLakeCompiledQuery,
+        DuckLakeObjectStorageSecret,
         DuckLakeQueryResult,
-        DuckLakeS3Secret,
         DuckLakeTableResult,
     )
     from products.managed_warehouse.backend.service_credentials import ServiceCredential
@@ -109,7 +109,7 @@ def execute_ducklake_create_table(
     values: dict[str, object] | None = None,
     *,
     organization_id: str | None = None,
-    s3_secrets: Sequence[DuckLakeS3Secret] = (),
+    object_storage_secrets: Sequence[DuckLakeObjectStorageSecret] = (),
 ) -> DuckLakeTableResult:
     return client.execute_ducklake_create_table(
         team_id,
@@ -118,5 +118,5 @@ def execute_ducklake_create_table(
         table_name,
         values,
         organization_id=organization_id,
-        s3_secrets=s3_secrets,
+        object_storage_secrets=object_storage_secrets,
     )

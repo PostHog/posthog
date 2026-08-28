@@ -10,14 +10,14 @@ from posthog.schema import HogQLQuery, HogQLVariable
 
 from products.managed_warehouse.backend.client import (
     _SEARCH_PATH_SCHEMAS,
-    _configure_s3_secrets,
-    _s3_secrets_for_database,
+    _configure_object_storage_secrets,
+    _object_storage_secrets_for_database,
     compile_hogql_to_ducklake_sql,
     execute_ducklake_create_table,
     execute_ducklake_query,
     make_duckgres_conninfo,
 )
-from products.managed_warehouse.backend.facade.contracts import DuckLakeCompiledQuery
+from products.managed_warehouse.backend.facade.contracts import DuckLakeCompiledQuery, DuckLakeS3Secret
 
 
 @pytest.fixture(autouse=True)
@@ -191,7 +191,7 @@ class TestDuckLakeModelRedirect:
         assert "access-secret" not in compiled.values.values()
 
 
-class TestSelfManagedS3Secrets:
+class TestSelfManagedObjectStorageSecrets:
     def test_credentials_are_bound_to_a_path_scoped_secret(self) -> None:
         from posthog.models import Organization, Team
 
@@ -218,7 +218,7 @@ class TestSelfManagedS3Secrets:
         connection.cursor.return_value.__exit__ = mock.Mock(return_value=False)
 
         compiled = compile_hogql_to_ducklake_sql(team.pk, HogQLQuery(query="SELECT id FROM self_managed_orders"))
-        _configure_s3_secrets(connection, compiled.s3_secrets)
+        _configure_object_storage_secrets(connection, compiled.object_storage_secrets)
 
         statement, values = cursor.execute.call_args.args
         rendered_statement = statement.as_string()
@@ -236,6 +236,48 @@ class TestSelfManagedS3Secrets:
             False,
             "path",
             "s3://my-bucket/data/",
+        ]
+
+    def test_azure_credentials_are_bound_to_a_path_scoped_secret(self) -> None:
+        from posthog.models import Organization, Team
+
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+        org = Organization.objects.create(name="ducklake-self-managed-azure-secret")
+        team = Team.objects.create(organization=org)
+        credential = DataWarehouseCredential.objects.create(
+            team=team,
+            access_key="storageaccount",
+            access_secret="ZmFrZS1hY2NvdW50LWtleQ==",
+        )
+        table = DataWarehouseTable.objects.create(
+            name="self_managed_orders",
+            format="Parquet",
+            team=team,
+            credential=credential,
+            url_pattern="https://storageaccount.blob.core.windows.net/container/data/*.parquet",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        cursor = mock.MagicMock()
+        connection = mock.MagicMock()
+        connection.cursor.return_value.__enter__ = mock.Mock(return_value=cursor)
+        connection.cursor.return_value.__exit__ = mock.Mock(return_value=False)
+
+        compiled = compile_hogql_to_ducklake_sql(team.pk, HogQLQuery(query="SELECT id FROM self_managed_orders"))
+        _configure_object_storage_secrets(connection, compiled.object_storage_secrets)
+
+        statement, values = cursor.execute.call_args.args
+        rendered_statement = statement.as_string()
+        assert rendered_statement.startswith(f'CREATE OR REPLACE TEMPORARY SECRET "self_managed_{table.id.hex}"')
+        assert "TYPE AZURE" in rendered_statement
+        assert "CONNECTION_STRING %s" in rendered_statement
+        assert "SCOPE %s" in rendered_statement
+        assert "storageaccount" not in rendered_statement
+        assert "ZmFrZS1hY2NvdW50LWtleQ==" not in rendered_statement
+        assert values == [
+            "DefaultEndpointsProtocol=https;AccountName=storageaccount;"
+            "AccountKey=ZmFrZS1hY2NvdW50LWtleQ==;EndpointSuffix=core.windows.net",
+            "az://storageaccount.blob.core.windows.net/container/data/",
         ]
 
     def test_a_table_access_control_removed_gets_no_secret(self) -> None:
@@ -279,10 +321,11 @@ class TestSelfManagedS3Secrets:
         # Access control prunes the schema through this same entry point.
         database.prune_to_table_names({"allowed_orders"})
 
-        secrets = _s3_secrets_for_database(database)
+        secrets = _object_storage_secrets_for_database(database)
 
         assert [secret.name for secret in secrets] == [f"self_managed_{allowed.id.hex}"]
-        assert [secret.key_id for secret in secrets] == ["allowed-key"]
+        assert isinstance(secrets[0], DuckLakeS3Secret)
+        assert secrets[0].key_id == "allowed-key"
 
 
 class TestDuckgresShadowCompilation:
