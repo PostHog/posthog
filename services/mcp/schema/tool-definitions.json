@@ -15,7 +15,7 @@
         "feature_flag": "posthog-connect"
     },
     "generate-app-url": {
-        "description": "Build a correct, clickable PostHog app URL for any page or entity — run `info generate-app-url` for the full catalog of path templates.\nALWAYS use this (or an existing `_posthogUrl` field on a tool result) instead of writing PostHog links by hand: slugs and project/host prefixes are easy to get wrong (a person UUID lives at `/persons/<uuid>`, not `/person/...`) and IDs must never be retyped into a path. Pass a `url` template from the catalog plus its `{placeholders}` as `params`; returns `{ url }` — surface it verbatim.",
+        "description": "Build a correct, clickable PostHog app URL for any page or entity. Call it with no `url` to list every path template, or run `info generate-app-url` for the same catalog.\nALWAYS use this (or an existing `_posthogUrl` field on a tool result) instead of writing PostHog links by hand: slugs and project/host prefixes are easy to get wrong (a person UUID lives at `/persons/<uuid>`, not `/person/...`) and IDs must never be retyped into a path. Pass a `url` template from the catalog plus its `{placeholders}` as `params`; returns `{ url }` — surface it verbatim.",
         "category": "Utilities",
         "feature": "links",
         "summary": "Build a correct PostHog app URL for a page or entity.",
