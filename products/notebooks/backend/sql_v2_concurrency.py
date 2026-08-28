@@ -25,6 +25,7 @@ from django.utils import timezone
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 
+from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
 from products.notebooks.backend.models import NotebookNodeRun
 
 # One run at a time per notebook, matching what the editor has always shown. A notebook is the
@@ -64,24 +65,6 @@ _RUN_ACTIVE_WINDOW_SECONDS = 25 * 60
 
 _NOTEBOOK_LIMITER: RateLimit | None = None
 _TEAM_LIMITER: RateLimit | None = None
-
-
-class NotebookRunBusy(Exception):
-    """Raised when the notebook already has a cell running.
-
-    Surfaced as 409, not 429. It is a conflict with the notebook's state rather than a rate,
-    and the MCP client rewrites every 429 into its own rate-limit error after retrying with
-    backoff — so a 429 would cost an agent several seconds of pointless waiting and then hide
-    the one sentence telling it what to do.
-    """
-
-
-class TeamRunCapacityFull(Exception):
-    """Raised when the project already has as many notebook cells in flight as it may.
-
-    A rate rather than a state conflict, so this one is a 429: retrying later genuinely helps,
-    which is exactly what the MCP client's backoff does.
-    """
 
 
 def _notebook_key(team_id: int, notebook_short_id: str) -> str:

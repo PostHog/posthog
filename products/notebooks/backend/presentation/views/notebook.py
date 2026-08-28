@@ -64,6 +64,8 @@ from products.notebooks.backend.analytics import (
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
+from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
+from products.notebooks.backend.facade.sql_v2 import acquire_run_slots, release_run_slots
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
@@ -76,12 +78,6 @@ from products.notebooks.backend.sql_v2 import (
     interrupt_sql_v2_run,
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
-)
-from products.notebooks.backend.sql_v2_concurrency import (
-    NotebookRunBusy,
-    TeamRunCapacityFull,
-    acquire_run_slots,
-    release_run_slots,
 )
 from products.notebooks.backend.sql_v2_direct import cancel_direct_run, enqueue_direct_run, sync_direct_run
 from products.notebooks.backend.sql_v2_references import (
