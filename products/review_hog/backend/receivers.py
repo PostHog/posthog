@@ -128,6 +128,7 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
                     user_id=acting_user_id,
                     signal_report_id=str(task.signal_report_id),
                     signal_priority=signal_priority,
+                    repository=repository,
                 ),
                 robust=True,
             )
@@ -260,12 +261,21 @@ def _start_stamphog_review(
 
 
 def _start_review(
-    *, pr_url: str, team_id: int, user_id: int, signal_report_id: str, signal_priority: ReportPriority | None
+    *,
+    pr_url: str,
+    team_id: int,
+    user_id: int,
+    signal_report_id: str,
+    signal_priority: ReportPriority | None,
+    repository: str | None,
 ) -> None:
     """Fire-and-forget the review workflow; Temporal being down must never surface into the saver.
 
-    Honors the busy-guard, the same refusal the trigger/resolve endpoints apply, so an inbox review
-    never starts while this PR's resolution run is still committing to the branch.
+    Binds the PR to the task's own repository: `output.pr_url` is written by whoever controls the
+    run, the sandbox agent included, so an unbound URL could aim the team's GitHub credential at any
+    PR the installation reaches (the stamphog leg applies the same rule). Then honors the busy-guard,
+    the same refusal the trigger/resolve endpoints apply, so an inbox review never starts while this
+    PR's resolution run is still committing to the branch.
     """
     # Function-local: importing the temporal client executes the review_hog temporal package, whose
     # activity registration reaches temporalio, modal, openai, and anthropic — all four forbidden at
@@ -275,11 +285,21 @@ def _start_review(
     from products.review_hog.backend.temporal.types import TRIGGER_INBOX, resolve_pr_workflow_id  # noqa: PLC0415
 
     try:
+        pr_info = PRParser().parse_github_pr_url(pr_url)
+        pr_repository = f"{pr_info['owner']}/{pr_info['repo']}"
+        # GitHub slugs are case-insensitive; the task row lowercases its own.
+        if repository is None or pr_repository.lower() != repository.lower():
+            logger.warning(
+                "review_hog_inbox_review_skipped_repository_mismatch: %s is not in task repository %s (signal report %s)",
+                pr_url,
+                repository,
+                signal_report_id,
+            )
+            return
         # Busy-guard (CONTEXT.md): a published inbox review chains its own resolution, which
         # commits to the branch for minutes — starting a fresh review meanwhile races those
         # pushes and re-reviews threads mid-settlement. The chained hand-off starts resolution
         # as a child workflow, never through this path, so it stays exempt.
-        pr_info = PRParser().parse_github_pr_url(pr_url)
         if workflow_running(
             resolve_pr_workflow_id(
                 team_id=team_id,

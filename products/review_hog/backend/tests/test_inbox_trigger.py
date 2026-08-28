@@ -329,6 +329,10 @@ class TestInboxTrigger(BaseTest):
             # A pushed branch is not a target: a review of a branch whose PR never opens is spend
             # with no reader, and the PR save re-fires the receiver.
             ("pushed_branch_without_a_pr", True, False, ["alice"], True, {"head_branch": _HEAD_BRANCH}, "o/r"),
+            # `output.pr_url` is written by whoever controls the run; a PR outside the task's own
+            # repository must not get the team's GitHub credential pointed at it.
+            ("pr_in_another_repository", True, True, ["alice"], True, {"pr_url": _PR_URL}, "o/r"),
+            ("task_without_a_repository", True, True, ["alice"], True, {"pr_url": _PR_URL}, None),
         ]
     )
     @patch(_START, return_value="wf-1")

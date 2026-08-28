@@ -637,7 +637,8 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 `reviewhog` **label** on a `PostHog/posthog` PR (a thin GitHub Action → `POST /api/review_hog/trigger`), a **UI**
 "Review this PR" field in the Code review scene (any installation-accessible PR), an **inbox** trigger (a
 `TaskRun` receiver auto-reviews self-driving Signals implementations once their PR exists — a pushed branch without
-a PR is not reviewed), and **MCP tools**
+a PR is not reviewed, and the PR must sit in the task's own repository because `output.pr_url` is written by
+whoever controls the run, the sandbox agent included), and **MCP tools**
 (`review-hog-reviews-{trigger,list,get}`, defined in `products/review_hog/mcp/tools.yaml` and gated on the
 `review-hog` feature flag) that drive the same reviews viewset with a personal API key or OAuth token. The UI and
 MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
