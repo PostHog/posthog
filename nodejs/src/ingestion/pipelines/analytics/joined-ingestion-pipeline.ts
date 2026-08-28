@@ -78,9 +78,8 @@ export interface JoinedIngestionPipelineConfig {
     /**
      * Maximum number of batches the BatchingPipeline will accept concurrently.
      * Sourced from `INGESTION_WORKER_CONCURRENT_BATCHES` and MUST match the
-     * Rust consumer's per-worker `Semaphore` capacity — divergence causes
-     * either idle capacity (consumer under-limits) or HTTP 503s
-     * (`ingestion_api_batch_capacity_rejections_total`).
+     * Rust consumer's per-worker stream cap — divergence causes either idle
+     * capacity (consumer under-limits) or stalled stream reads at capacity.
      */
     concurrentBatches: number
     createEventUsageBatch?: () => UsageRecordBatch
@@ -191,9 +190,8 @@ export function createJoinedIngestionPipeline<
             // Batch stores are singleton persistent caches, but each batch receives a
             // batch-bound view so entries can be reference-counted and released after
             // that batch's flush lifecycle completes. The Rust consumer's per-worker
-            // Semaphore caps in-flight batches at the same value
-            // (INGESTION_WORKER_CONCURRENT_BATCHES); divergence shows up as HTTP 503s
-            // in `ingestion_api_batch_capacity_rejections_total`.
+            // stream caps un-acked batches at the same value
+            // (INGESTION_WORKER_CONCURRENT_BATCHES).
             concurrentBatches,
         })
             .beforeBatch((beforeBatch) =>
