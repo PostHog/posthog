@@ -7,13 +7,14 @@ import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link, 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { hasEnded, isLaunched } from 'scenes/experiments/experimentStatus'
 import { urls } from 'scenes/urls'
 
 import { ExperimentMetric, isExperimentRatioMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
-import { EXPERIMENT_RECALCULATION_MAX_AGE_DAYS } from '../../constants'
+import { EXPERIMENT_RECALCULATION_MAX_AGE_DAYS } from 'products/experiments/frontend/constants'
+import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
+
 import { experimentTimeseriesLogic } from '../../experimentTimeseriesLogic'
 import { VariantTag } from '../../ExperimentView/VariantTag'
 import { MetricTitle } from '../shared/MetricTitle'

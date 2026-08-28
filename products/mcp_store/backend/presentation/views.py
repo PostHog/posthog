@@ -279,6 +279,9 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
     needs_reauth = serializers.SerializerMethodField()
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField(
+        help_text="Installation description, falling back to the linked template description."
+    )
     icon_domain = serializers.CharField(
         source="template.icon_domain",
         read_only=True,
@@ -339,6 +342,13 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             return obj.display_name
         if obj.template:
             return obj.template.name
+        return ""
+
+    def get_description(self, obj: MCPServerInstallation) -> str:
+        if obj.description:
+            return obj.description
+        if obj.template:
+            return obj.template.description
         return ""
 
     def get_needs_reauth(self, obj: MCPServerInstallation) -> bool:
