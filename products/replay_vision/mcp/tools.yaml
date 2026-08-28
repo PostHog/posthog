@@ -428,6 +428,9 @@ tools:
     vision-scanners-draft-create:
         operation: vision_scanners_draft_create
         enabled: false
+    vision-scanners-duplicate-create:
+        operation: vision_scanners_duplicate_create
+        enabled: false
     vision-scanners-estimate-create:
         operation: vision_scanners_estimate_create
         enabled: true
