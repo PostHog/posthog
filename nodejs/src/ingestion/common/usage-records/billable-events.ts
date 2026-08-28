@@ -17,6 +17,7 @@ const NON_BILLABLE_EVENTS = new Set([
     'survey shown',
     'survey dismissed',
     '$exception',
+    '$llm_prompt_fetched',
     '$conversations_loaded',
     '$conversations_widget_loaded',
     '$conversations_message_sent',

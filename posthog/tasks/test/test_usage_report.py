@@ -6631,8 +6631,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             "a later generation does not replenish the per-trace allowance",
         )
 
-    def test_conversations_events_excluded_from_billable_count(self) -> None:
-        """Test that Conversations widget events are excluded from billable event counts."""
+    def test_events_owned_by_other_products_excluded_from_billable_count(self) -> None:
+        """Test that Conversations widget and prompt management events are excluded from billable event counts."""
         from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
 
         billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
@@ -6646,6 +6646,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             "$conversations_restore_link_requested",
             "$conversations_widget_state_changed",
             "$conversations_back_to_tickets",
+            "$llm_prompt_fetched",
         ):
             _create_event(
                 event=event_name,
