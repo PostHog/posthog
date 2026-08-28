@@ -1586,10 +1586,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     def duplicate(self, request: Request, **kwargs: Any) -> Response:
         """Copy a scanner into a new disabled scanner named "<name> (copy)".
 
-        Copies the stored model row rather than the serializer's read representation, which
-        redacts a query that no longer validates and an experiment the caller can't view;
-        duplicating through the create endpoint would silently drop both. Unlike create, no
-        digest is provisioned: the copy starts disabled and unreviewed."""
+        Copies the stored model row rather than the serializer's read representation, so a query
+        that no longer validates survives the copy; duplicating through the create endpoint would
+        silently drop it. Experiment targeting is the exception and follows the read path instead.
+        Unlike create, no digest is provisioned: the copy starts disabled and unreviewed."""
         # An object-level editor grant on one scanner is enough to get past the permission
         # class, but this action creates a new scanner, so it must clear the same
         # resource-level bar the create action enforces.
@@ -1601,6 +1601,16 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "Your organization needs to allow AI analysis before you can create a Replay Vision scanner."
             )
         user = cast(User, request.user)
+        # A scanner is viewable at a coarser grain than its targeted experiment, so the read path
+        # nulls an experiment the caller cannot view. Drop it from the copy for the same reason:
+        # create rejects targeting such an experiment, and duplicate must not be the way around it.
+        experiment_targeting = source.experiment_targeting
+        if experiment_targeting:
+            experiment_id = experiment_targeting.get("experiment_id")
+            if experiment_id is None or not is_experiment_accessible(
+                self.user_access_control, self.team_id, experiment_id
+            ):
+                experiment_targeting = None
         # One transaction so a failed tag write can't leave an untagged copy behind. Side effects stay outside.
         with transaction.atomic():
             try:
@@ -1618,7 +1628,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     provider=source.provider,
                     model=source.model,
                     emits_signals=source.emits_signals,
-                    experiment_targeting=source.experiment_targeting,
+                    experiment_targeting=experiment_targeting,
                     enabled=False,
                 )
             except IntegrityError as e:

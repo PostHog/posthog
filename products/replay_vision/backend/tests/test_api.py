@@ -1150,6 +1150,26 @@ class TestScannerDuplicateAction(_VisionAPITestCase):
         self.assertEqual(copy.created_by_id, self.user.id)
         self.assertEqual(sorted(copy.tagged_items.values_list("tag__name", flat=True)), ["billing", "checkout"])
 
+    def test_duplicate_drops_targeting_for_an_experiment_the_caller_cannot_view(self) -> None:
+        experiment = create_experiment(self.team, "pricing-test")
+        targeting = {"experiment_id": experiment.id, "variant_keys": ["test"], "use_exposure_fallback": False}
+        source = self._create_scanner(name="targeted-source", experiment_targeting=targeting)
+
+        # A scanner is viewable at a coarser grain than its experiment, so this caller reads the
+        # scanner with the targeting already nulled. Copying the stored row instead would hand them
+        # a scanner that scans against an experiment the create path refuses to target.
+        with patch(
+            "products.replay_vision.backend.api.scanners.is_experiment_accessible",
+            return_value=False,
+        ):
+            resp = self._duplicate(source.id)
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        copy = ReplayScanner.objects.get(id=resp.json()["id"])
+        self.assertIsNone(copy.experiment_targeting)
+        source.refresh_from_db()
+        self.assertEqual(source.experiment_targeting, targeting)
+
     def test_duplicate_numbers_the_copy_name_when_taken(self) -> None:
         source = self._create_scanner(name="my-scanner")
         first = self._duplicate(source.id)
