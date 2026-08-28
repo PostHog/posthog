@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -19,7 +20,12 @@ from ...api.community_publish_services import (
     CommunitySkillPublishNotConfiguredError,
     CommunitySkillPublishValidationError,
 )
-from ...api.skill_serializers import DEFAULT_BODY_PAGE_LENGTH
+from ...api.skill_serializers import (
+    DEFAULT_BODY_PAGE_LENGTH,
+    LLMSkillCreateSerializer,
+    LLMSkillListSerializer,
+    LLMSkillSerializer,
+)
 from ...api.skill_services import (
     MAX_SKILL_FILE_COUNT,
     archive_skill,
@@ -1817,3 +1823,12 @@ class TestLLMSkillOwners(APIBaseTest):
 
         assert [o.email for o in resolve_skill_owners(env_a, "shared-name")] == [alice.email]
         assert [o.email for o in resolve_skill_owners(env_b, "shared-name")] == [bob.email]
+
+
+class TestLLMSkillDescriptionCapSplit(SimpleTestCase):
+    def test_write_serializers_cap_at_spec_limit_while_reads_reflect_storage(self) -> None:
+        # The 1024 spec cap gates writes only. Reads expose the 4096 column limit so legacy rows above
+        # the cap serialize out; a read schema capped at 1024 would misdescribe those rows.
+        assert LLMSkillCreateSerializer().fields["description"].max_length == SPEC_DESCRIPTION_MAX_LENGTH
+        assert LLMSkillSerializer().fields["description"].max_length == 4096
+        assert LLMSkillListSerializer().fields["description"].max_length == 4096
