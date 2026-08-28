@@ -408,6 +408,7 @@ while its extra reference files survived as orphans in the other source's direct
 | Tasks sandbox base image              | `.github/workflows/cd-sandbox-base-image.yml`                                                                                 |
 | Tasks golden snapshot                 | `.github/workflows/cd-tasks-golden-snapshot.yml`                                                                              |
 | `PostHog/skills` mirror               | that repo's `.github/workflows/sync-omnibus.yml`                                                                              |
+| `PostHog/ai-plugin` plugin            | that repo's `.github/workflows/sync-skills.yml`                                                                               |
 
 Note what is missing from that list: local builds.
 `LocalSkillsCache.ensure_built()` renders only `products/*/skills/` and wipes the dist dir first,
