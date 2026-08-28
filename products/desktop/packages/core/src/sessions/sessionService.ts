@@ -5911,12 +5911,34 @@ export class SessionService {
     });
     this.d.setPersistedConfigOptions(session.taskRunId, updatedOptions);
 
+    const rollbackConfigOption = (): void => {
+      const latestConfigOptions =
+        this.d.store.getSessionByTaskId(taskId)?.configOptions ?? [];
+      const latestOption = latestConfigOptions.find(
+        (option) => option.id === configId,
+      );
+      if (latestOption?.currentValue !== value) return;
+      const rolledBackOptions = latestConfigOptions.map((option) =>
+        option.id === configId
+          ? ({
+              ...option,
+              currentValue: previousValue,
+            } as SessionConfigOption)
+          : option,
+      );
+      this.d.store.updateSession(session.taskRunId, {
+        configOptions: rolledBackOptions,
+      });
+      this.d.setPersistedConfigOptions(session.taskRunId, rolledBackOptions);
+    };
+
     if (
       !session.isCloud &&
       (session.idleKilled ||
         session.status === "disconnected" ||
         session.status === "connecting")
     ) {
+      rollbackConfigOption();
       return false;
     }
 
@@ -5935,25 +5957,7 @@ export class SessionService {
       }
       return true;
     } catch (error) {
-      const latestConfigOptions =
-        this.d.store.getSessionByTaskId(taskId)?.configOptions ?? [];
-      const latestOption = latestConfigOptions.find(
-        (option) => option.id === configId,
-      );
-      if (latestOption?.currentValue === value) {
-        const rolledBackOptions = latestConfigOptions.map((option) =>
-          option.id === configId
-            ? ({
-                ...option,
-                currentValue: previousValue,
-              } as SessionConfigOption)
-            : option,
-        );
-        this.d.store.updateSession(session.taskRunId, {
-          configOptions: rolledBackOptions,
-        });
-        this.d.setPersistedConfigOptions(session.taskRunId, rolledBackOptions);
-      }
+      rollbackConfigOption();
       this.d.log.error("Failed to set session config option", {
         taskId,
         configId,
