@@ -1031,7 +1031,6 @@ class Database(BaseModel):
         include_hidden_posthog_tables: bool = False,
         include_fields: bool = True,
     ) -> dict[str, DatabaseSchemaTable]:
-        from django.db.models import Prefetch  # noqa: PLC0415
 
         from posthog.schema import (  # noqa: PLC0415
             DatabaseSchemaDataWarehouseTable,
@@ -1049,8 +1048,8 @@ class Database(BaseModel):
         from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView  # noqa: PLC0415
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
             DataWarehouseTable,
-            ExternalDataJob,
             ExternalDataSource,
+            latest_completed_job_prefetch,
         )
 
         tables: dict[str, DatabaseSchemaTable] = {}
@@ -1102,16 +1101,16 @@ class Database(BaseModel):
         warehouse_table_names = self.get_warehouse_table_names()
         views = [] if self._is_direct_query() else self.get_view_names()
 
+        direct_query_source_ids = [self._connection_id] if self._is_direct_query() and self._connection_id else None
         warehouse_tables_query = (
             DataWarehouseTable.raw_objects.select_related("credential", "external_data_source")
             .prefetch_related(
-                Prefetch(
+                latest_completed_job_prefetch(
+                    context.team_id,
                     "external_data_source__jobs",
-                    queryset=ExternalDataJob.objects.filter(status="Completed", team_id=context.team_id).order_by(
-                        "-created_at"
-                    )[:1],
                     to_attr="latest_completed_job",
-                ),
+                    source_ids=direct_query_source_ids,
+                )
             )
             # `queryable()` drops soft-deleted tables and orphans of a soft-deleted source, so an
             # orphan can't shadow the live table sharing its name in the SQL editor catalog.
