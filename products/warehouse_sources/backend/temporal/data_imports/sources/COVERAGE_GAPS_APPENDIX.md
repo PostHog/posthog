@@ -9543,6 +9543,8 @@ Diffed against: <https://developer.zuora.com/yaml/apis/zuora-openapi-full-compac
 
 Note: The connector already uses Zuora's Object Query API (/object-query/<segment>, filtered on updateddate), so every gap listed is a same-shape, same-pagination addition - the spec exposes ~50 object-query collections and the source wires up 8. Also unsynced but lower value: payment-applications, refund-applications, payment-methods, taxation-items, billing-runs, payment-runs, prepaid-balances/prepaid-balance-transactions, invoice-schedules, ramps, summarystatements. Zuora also serves the spec as zuora-openapi-for-otc.yaml (order-to-cash only); I used the full compact build, version 2026-07-24.
 
+Out of scope — the Metering/meters API (`/meters/*`): despite the "Metering/meters endpoints" changelog note, this family exposes no Object Query collection and no plain list-of-meters endpoint. Every path is either an operational action (run/stop/debug a meter, import a definition, truncate or query event stores) or a per-resource fetch (meter summary, run status, audit-trail entries), none of which supports the `updateddate` filter and cursor pagination this source is built on, so there is no incremental table to add.
+
 ## Zylo — gaps
 
 Today (12): `ActivityHistory`, `ApplicationBudgets`, `ApplicationLicenses`, `ApplicationUsers`, `Applications`, `ContractLineItems`, `Contracts`, `POLineItems`, `Payments`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`
