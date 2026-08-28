@@ -2261,6 +2261,23 @@ class TestTicketMessagesAPI(APIBaseTest):
             ),
         ]
     )
+    def test_messages_support_author_uses_full_name(self, mock_on_commit):
+        self.user.first_name = "Adam"
+        self.user.last_name = "Bowker"
+        self.user.save()
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="On it",
+            item_context={"author_type": "support", "is_private": False},
+        )
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["author_name"] == "Adam Bowker"
+
     def test_messages_author_email_only_for_posthog_users(self, mock_on_commit):
         base = timezone.now()
         for offset, (content, author_type, author) in enumerate(
@@ -2410,7 +2427,9 @@ class TestTicketReplyAPI(APIBaseTest):
         assert body["content"] == "A reply"
         assert body["author_type"] == "support"
         assert body["is_private"] is is_private
-        assert body["author_name"] == (self.user.first_name or self.user.email)
+        assert body["author_name"] == (
+            f"{self.user.first_name} {self.user.last_name}".strip() or self.user.email
+        )
 
         comment = Comment.objects.get(id=body["id"])
         assert comment.created_by == self.user

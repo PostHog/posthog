@@ -1305,7 +1305,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         )
 
         if comment.created_by:
-            author_name = comment.created_by.first_name or comment.created_by.email
+            author_name = (
+                f"{comment.created_by.first_name} {comment.created_by.last_name}".strip()
+                or comment.created_by.email
+            )
         elif author_type == "AI":
             author_name = "PostHog Assistant"
         elif context_author_name:
@@ -1322,10 +1325,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             "rich_content": comment.rich_content,
             "author_type": author_type,
             "author_name": author_name,
-            # Only PostHog users get an email: it identifies the author for API
-            # consumers (e.g. avatar lookup) and is already visible to the same
-            # staff audience via the members API. Customer identity stays in
-            # author_name/traits as before.
             "author_email": comment.created_by.email if comment.created_by else None,
             "is_private": item_context.get("is_private") is True,
             "version": comment.version,
