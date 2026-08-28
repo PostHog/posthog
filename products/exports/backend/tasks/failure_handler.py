@@ -79,6 +79,8 @@ SLO_FAILURE_COMPONENT_STORAGE = "object_storage"
 SLO_FAILURE_COMPONENT_DEPENDENCY = "dependency"
 SLO_FAILURE_COMPONENT_EXPORTER = "exporter"
 
+RATE_LIMIT_MESSAGE_PREFIX_CHARS = 8_000
+
 # Video renders fail with a code from the recording rasterizer rather than a Python exception, so they
 # classify by code (RASTERIZATION_ERROR_CODES in
 # nodejs/src/session-replay/recording-rasterizer/errors.ts). A code absent here classifies as
@@ -288,7 +290,7 @@ def export_slo_failure_details(exception: Exception | str) -> dict[str, str | bo
     """
 
     exception_type = type(exception).__name__ if isinstance(exception, Exception) else exception
-    message = str(exception).lower() if isinstance(exception, Exception) else ""
+    message = str(exception)[:RATE_LIMIT_MESSAGE_PREFIX_CHARS].lower() if isinstance(exception, Exception) else ""
 
     if exception_type == BrowserlessUnavailable.__name__:
         if any(marker in message for marker in ("429", "too many requests", "rate limit", "rate_limited")):

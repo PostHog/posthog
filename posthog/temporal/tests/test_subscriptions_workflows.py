@@ -11,6 +11,7 @@ from freezegun import freeze_time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 
 import pytest_asyncio
@@ -96,6 +97,10 @@ _IS_OVER_BUDGET = (
     "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget"
 )
 _CREDIT_LIMITED_EMAIL = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.EmailMessage"
+
+
+class CustomQueryError(QueryError):
+    pass
 
 
 async def test_subscription_workflows_accept_legacy_previous_target_payload() -> None:
@@ -1963,6 +1968,27 @@ async def test_export_error_slo_outcome(
             None,
             None,
             id="user_error_keeps_slo_success",
+        ),
+        pytest.param(
+            lambda: CustomQueryError("Invalid custom query"),
+            SloOutcome.SUCCESS,
+            None,
+            None,
+            id="query_error_subclass_keeps_slo_success",
+        ),
+        pytest.param(
+            lambda: DjangoValidationError("not a query error"),
+            SloOutcome.FAILURE,
+            "PartialExportFailure",
+            "1 export(s) failed: ValidationError",
+            id="django_validation_error_sets_slo_failure",
+        ),
+        pytest.param(
+            lambda: SyntaxError("not a query error"),
+            SloOutcome.FAILURE,
+            "PartialExportFailure",
+            "1 export(s) failed: SyntaxError",
+            id="builtin_syntax_error_sets_slo_failure",
         ),
     ],
 )

@@ -1,3 +1,5 @@
+import pytest
+
 from temporalio.exceptions import (
     ActivityError,
     RetryState,
@@ -5,7 +7,7 @@ from temporalio.exceptions import (
     TimeoutType,
 )
 
-from posthog.temporal.exports.types import extract_error_details
+from posthog.temporal.exports.types import ExportError, extract_error_details, is_user_query_export_error
 
 
 def test_extract_error_details_classifies_temporal_activity_timeout() -> None:
@@ -34,3 +36,47 @@ def test_extract_error_details_classifies_temporal_activity_timeout() -> None:
         "failure_component": "export_worker",
         "failure_retryable": True,
     }
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (
+            ExportError(
+                exception_class="ValidationError",
+                failure_details={
+                    "failure_category": "application",
+                    "failure_component": "exporter",
+                    "failure_retryable": False,
+                },
+            ),
+            False,
+        ),
+        (
+            ExportError(
+                exception_class="SyntaxError",
+                failure_details={
+                    "failure_category": "application",
+                    "failure_component": "exporter",
+                    "failure_retryable": False,
+                },
+            ),
+            False,
+        ),
+        (
+            ExportError(
+                exception_class="ValidationError",
+                failure_details={
+                    "failure_category": "query",
+                    "failure_component": "query",
+                    "failure_retryable": False,
+                },
+            ),
+            True,
+        ),
+        (ExportError(exception_class="ValidationError"), True),
+    ],
+    ids=["django_validation_error", "builtin_syntax_error", "drf_validation_error", "legacy_name_fallback"],
+)
+def test_is_user_query_export_error_uses_failure_metadata(error: ExportError, expected: bool) -> None:
+    assert is_user_query_export_error(error) is expected

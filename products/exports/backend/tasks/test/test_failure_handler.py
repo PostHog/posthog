@@ -16,6 +16,7 @@ from products.exports.backend.tasks.failure_handler import (
     SLO_FAILURE_CATEGORY_QUERY_CAPACITY,
     SLO_FAILURE_CATEGORY_RENDERER_RATE_LIMITED,
     SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT,
+    SLO_FAILURE_CATEGORY_RENDERER_UNAVAILABLE,
     SLO_FAILURE_CATEGORY_STORAGE,
     BrowserlessUnavailable,
     classify_failure_type,
@@ -159,4 +160,13 @@ class TestExportSloFailureDetails(TestCase):
             "failure_category": category,
             "failure_component": component,
             "failure_retryable": retryable,
+        }
+
+    def test_bounds_browserless_rate_limit_message_inspection(self) -> None:
+        exception = BrowserlessUnavailable(f"{'x' * 8_000} 429 Too Many Requests")
+
+        assert export_slo_failure_details(exception) == {
+            "failure_category": SLO_FAILURE_CATEGORY_RENDERER_UNAVAILABLE,
+            "failure_component": "browserless",
+            "failure_retryable": True,
         }

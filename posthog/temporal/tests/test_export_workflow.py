@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 from asgiref.sync import sync_to_async
 from temporalio.testing import WorkflowEnvironment
@@ -22,6 +23,10 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 EXPORT_FORMAT = ExportedAsset.ExportFormat.PNG
+
+
+class CustomQueryError(QueryError):
+    pass
 
 
 async def _run_export_workflow(env, asset, team, mock_exporter, fake_export):
@@ -158,6 +163,13 @@ async def test_transient_error_retries_and_succeeds(
             1,
             SloOutcome.SUCCESS,
         ),
+        (
+            lambda: CustomQueryError("Invalid custom query"),
+            "CustomQueryError",
+            "CustomQueryError: Invalid custom query",
+            1,
+            SloOutcome.SUCCESS,
+        ),
         (lambda: RuntimeError("Chrome crashed"), "RuntimeError", "RuntimeError: Chrome crashed", 1, SloOutcome.FAILURE),
         (
             lambda: CHQueryErrorS3Error("S3 error", code=499),
@@ -166,8 +178,29 @@ async def test_transient_error_retries_and_succeeds(
             10,
             SloOutcome.FAILURE,
         ),
+        (
+            lambda: DjangoValidationError("not a query error"),
+            "ValidationError",
+            "ValidationError: ['not a query error']",
+            1,
+            SloOutcome.FAILURE,
+        ),
+        (
+            lambda: SyntaxError("not a query error"),
+            "SyntaxError",
+            "SyntaxError: not a query error",
+            1,
+            SloOutcome.FAILURE,
+        ),
     ],
-    ids=["non_retryable_user_error", "generic_runtime_error", "retryable_system_error"],
+    ids=[
+        "non_retryable_user_error",
+        "query_error_subclass",
+        "generic_runtime_error",
+        "retryable_system_error",
+        "django_validation_error",
+        "builtin_syntax_error",
+    ],
 )
 @patch("posthog.slo.events.posthoganalytics")
 @patch("posthog.temporal.exports.activities.exporter")

@@ -27,9 +27,9 @@ from posthog.temporal.exports.types import (
     ExportAssetResult,
     ExportError,
     extract_error_details,
+    is_user_query_export_error,
 )
 
-from products.exports.backend.tasks.failure_handler import is_user_query_error_type
 from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
     create_delivery_record,
@@ -461,7 +461,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             total_assets = len(outcome_assets)
             asset_errors = [a.error for a in outcome_assets if a.error]
 
-            non_user_errors = [e for e in asset_errors if not is_user_query_error_type(e.exception_class)]
+            non_user_errors = [e for e in asset_errors if not is_user_query_export_error(e)]
             if inputs.slo and non_user_errors:
                 inputs.slo.outcome = SloOutcome.FAILURE
                 distinct_classes = sorted({e.exception_class for e in non_user_errors})
@@ -631,7 +631,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                                 **e.failure_details,
                             }
                             for e in asset_errors
-                            if not is_user_query_error_type(e.exception_class)
+                            if not is_user_query_export_error(e)
                         ],
                     }
                 )

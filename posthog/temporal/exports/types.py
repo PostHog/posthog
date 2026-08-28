@@ -3,6 +3,8 @@ from typing import Final, Literal, Optional, TypedDict
 
 from posthog.temporal.common.errors import find_temporal_timeout_error, resolve_error_trace, unwrap_temporal_cause
 
+from products.exports.backend.tasks.failure_handler import SLO_FAILURE_CATEGORY_QUERY, is_user_query_error_type
+
 EXPORT_FAILURE_METADATA_KIND: Final[Literal["export_activity_failure"]] = "export_activity_failure"
 
 
@@ -29,6 +31,15 @@ class ExportAssetResult:
     exported_asset_id: int
     success: bool
     error: Optional[ExportError] = None
+
+
+def is_user_query_export_error(error: ExportError) -> bool:
+    """Use activity metadata before falling back to legacy exception names."""
+
+    failure_category = error.failure_details.get("failure_category")
+    if failure_category is not None:
+        return failure_category == SLO_FAILURE_CATEGORY_QUERY
+    return is_user_query_error_type(error.exception_class)
 
 
 def export_failure_metadata(slo_failure_details: dict[str, str | bool]) -> ExportFailureMetadata:
