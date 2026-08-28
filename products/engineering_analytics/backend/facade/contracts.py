@@ -626,7 +626,7 @@ class FlakyTestList:
 
 # How long a Trunk quarantine may stand before the scoreboard calls it overdue. Trunk itself never
 # expires a quarantine, so this deadline is the product's own accountability bar.
-TRUNK_QUARANTINE_TTL_DAYS = 30
+TRUNK_QUARANTINE_TTL_DAYS = 15
 
 
 @dataclass(frozen=True)

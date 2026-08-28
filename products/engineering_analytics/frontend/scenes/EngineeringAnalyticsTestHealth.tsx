@@ -26,7 +26,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
     } = useValues(engineeringAnalyticsLogic)
     const { toggleTrunkQuarantineTeam } = useActions(engineeringAnalyticsLogic)
 
-    const ttlDays = trunkQuarantine?.ttlDays ?? 30
+    const ttlDays = trunkQuarantine?.ttlDays ?? 15
     const overdueCount = trunkQuarantine ? trunkQuarantine.tests.filter((test) => test.overdue).length : null
     const oldestAgeDays = trunkQuarantine?.tests.length ? trunkQuarantine.tests[0].ageDays : null
 
