@@ -64,7 +64,10 @@ const credentialFieldDisplay = (
         help: (
             <div className="flex flex-col gap-1">
                 {caption}
-                <span className="text-xs">Leave blank to keep the saved value, or enter a new one to replace it.</span>
+                <span className="text-xs">
+                    Leave blank to keep the saved value, or enter a new one to replace it. If you change the connection
+                    details or authentication method, you'll need to enter it again.
+                </span>
             </div>
         ),
     }
