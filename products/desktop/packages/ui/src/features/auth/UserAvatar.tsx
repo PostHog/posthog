@@ -55,7 +55,12 @@ export function UserAvatar({
           }}
         />
       ) : null}
+      {/* Base UI reads `delay` once, when the fallback mounts, and never arms the
+          hold again. A surface that keeps one avatar and swaps the person, such as
+          the handoff dialog, must remount the fallback to get the hold for the new
+          image. */}
       <AvatarFallback
+        key={src}
         delay={
           knownStatus === "loaded" ? KNOWN_IMAGE_FALLBACK_DELAY_MS : undefined
         }
