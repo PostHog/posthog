@@ -608,6 +608,11 @@ describe('ConversationMessagesDisplay', () => {
             const explanation = container.querySelector('[data-attr="ai-empty-output-explanation"]')
             if (expected !== null) {
                 expect(explanation).toHaveTextContent(expected)
+                // The notice names a cause and the link carries the fix. A typo'd anchor dead-ends there.
+                expect(explanation!.querySelector('a')).toHaveAttribute(
+                    'href',
+                    'https://posthog.com/docs/ai-observability/troubleshooting#why-does-my-generation-show-no-output'
+                )
             } else {
                 expect(explanation).toBeNull()
             }
