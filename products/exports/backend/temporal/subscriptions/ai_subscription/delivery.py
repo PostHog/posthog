@@ -335,7 +335,10 @@ def _build_ai_slack_message(
     ]
     for chart in charts or []:
         caption = chart.get("title") or "Chart"
-        blocks.append({"type": "image", "image_url": chart["image_url"], "alt_text": caption[:2000]})
+        image_block: dict = {"type": "image", "image_url": chart["image_url"], "alt_text": caption[:2000]}
+        if chart.get("title"):
+            image_block["title"] = {"type": "plain_text", "text": caption[:2000]}
+        blocks.append(image_block)
     if len(sections) > 1:
         blocks.append(
             {"type": "section", "text": {"type": "mrkdwn", "text": "_See thread for the rest of the report._"}}

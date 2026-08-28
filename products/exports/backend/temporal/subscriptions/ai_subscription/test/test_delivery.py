@@ -249,7 +249,7 @@ class TestChartsOnSlackMessages:
         assert message.blocks[1]["text"]["text"] == "A short report."
         assert message.blocks[2]["image_url"] == _CHART["image_url"]
         assert message.blocks[2]["alt_text"] == "signups by day"
-        assert "title" not in message.blocks[2]
+        assert message.blocks[2]["title"] == {"type": "plain_text", "text": "signups by day"}
 
     def test_an_untitled_chart_posts_no_title_block(self) -> None:
         message = _build_ai_slack_message(
