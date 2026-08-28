@@ -95,7 +95,9 @@ export function createCachedImageHandler(
         return stale;
       }
       const contentType = response.headers.get("content-type") ?? "";
-      if (!contentType.startsWith("image/")) return stale;
+      // Media types are case-insensitive (RFC 9110), so a valid header like
+      // "Image/PNG" must pass. Normalize for the check; store the original.
+      if (!contentType.trim().toLowerCase().startsWith("image/")) return stale;
 
       const bytes = await readCapped(response, MAX_IMAGE_BYTES);
       if (!bytes) {

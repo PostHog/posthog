@@ -55,6 +55,16 @@ describe("createCachedImageHandler", () => {
     expect(new Uint8Array(await second.arrayBuffer())).toEqual(PNG);
   });
 
+  it("accepts an image whose media type is not lowercase", async () => {
+    const fetch = vi.fn<FetchLike>(async () => imageResponse(PNG, "Image/PNG"));
+    const handler = createCachedImageHandler(images, fetch, MAX_AGE_MS);
+
+    const response = await handler(request(REMOTE));
+
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(PNG);
+  });
+
   it("shares one fetch between concurrent requests for the same URL", async () => {
     const fetch = vi.fn<FetchLike>(async () => imageResponse(PNG));
     const handler = createCachedImageHandler(images, fetch, MAX_AGE_MS);
