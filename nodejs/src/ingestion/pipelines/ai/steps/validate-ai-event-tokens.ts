@@ -4,7 +4,7 @@ import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PipelineEvent } from '~/types'
 
-import { TOKEN_COUNT_PROPERTIES } from '../costs/token-properties'
+import { TOKEN_COUNT_PROPERTIES } from '../token-properties'
 
 /**
  * Validates that a value can be safely used with js-big-decimal for cost calculations.

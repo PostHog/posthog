@@ -531,6 +531,28 @@ describe('processAiEvent()', () => {
 
             expect(result.properties![costProperty]).toBeGreaterThan(0)
             expect(result.properties!.$ai_total_cost_usd).toBeGreaterThan(0)
+            // Input and output are token costs, so without token counts they are
+            // unknown. Writing them as 0 would show "Input $0.00" in the cost
+            // breakdown for the same class of event this distinction exists for.
+            expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
+            expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+        })
+
+        // A cost the client computed themselves is a cost we know, so absent
+        // token counts must not discard it. One-sided costs never reach the
+        // passthrough early return, which needs both input and output present.
+        it.each([
+            { component: 'input', property: '$ai_input_cost_usd', value: 0.5 },
+            { component: 'per-request', property: '$ai_request_cost_usd', value: 0.25 },
+        ])('keeps a client-supplied $component cost when token counts are absent', ({ property, value }) => {
+            delete event.properties!.$ai_input_tokens
+            delete event.properties!.$ai_output_tokens
+            event.properties![property] = value
+
+            const result = processAiEvent(event)
+
+            expect(result.properties![property]).toBe(value)
+            expect(result.properties!.$ai_total_cost_usd).toBe(value)
         })
     })
 
