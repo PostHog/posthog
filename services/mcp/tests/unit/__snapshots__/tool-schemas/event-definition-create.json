@@ -28,6 +28,8 @@
         },
         "eventName": {
             "description": "The name of the event to create (e.g. \"user_signed_up\")",
+            "maxLength": 400,
+            "minLength": 1,
             "type": "string"
         }
     },
