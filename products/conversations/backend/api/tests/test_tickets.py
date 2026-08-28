@@ -2203,6 +2203,7 @@ class TestTicketMessagesAPI(APIBaseTest):
             "rich_content",
             "author_type",
             "author_name",
+            "author_email",
             "is_private",
             "created_at",
             "version",
@@ -2260,6 +2261,32 @@ class TestTicketMessagesAPI(APIBaseTest):
             ),
         ]
     )
+    def test_messages_author_email_only_for_posthog_users(self, mock_on_commit):
+        base = timezone.now()
+        for offset, (content, author_type, author) in enumerate(
+            [
+                ("Hello from customer", "customer", None),
+                ("Hi there!", "support", self.user),
+                ("Summary", "AI", None),
+            ]
+        ):
+            comment = Comment.objects.create(
+                team=self.team,
+                created_by=author,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                content=content,
+                item_context={"author_type": author_type, "is_private": False},
+            )
+            Comment.objects.filter(id=comment.id).update(created_at=base + timedelta(seconds=offset))
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()["results"]
+        assert body[0]["author_email"] is None
+        assert body[1]["author_email"] == self.user.email
+        assert body[2]["author_email"] is None
+
     def test_messages_author_name_resolution(
         self, mock_on_commit, _name, traits, author_type, extra_context, expected_name
     ):

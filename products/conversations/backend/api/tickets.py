@@ -111,6 +111,14 @@ class TicketMessageSerializer(serializers.Serializer):
     rich_content = serializers.JSONField(read_only=True, allow_null=True, help_text="TipTap rich content JSON, if any.")
     author_type = serializers.CharField(read_only=True, help_text="One of: customer, support, AI.")
     author_name = serializers.CharField(read_only=True, help_text="Display name of the author.")
+    author_email = serializers.EmailField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Email of the authoring PostHog user, when the message was written by one "
+            "(support replies and internal notes). Null for customer and AI messages."
+        ),
+    )
     is_private = serializers.BooleanField(
         read_only=True, help_text="True for internal notes not visible to the customer."
     )
@@ -1314,6 +1322,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             "rich_content": comment.rich_content,
             "author_type": author_type,
             "author_name": author_name,
+            # Only PostHog users get an email: it identifies the author for API
+            # consumers (e.g. avatar lookup) and is already visible to the same
+            # staff audience via the members API. Customer identity stays in
+            # author_name/traits as before.
+            "author_email": comment.created_by.email if comment.created_by else None,
             "is_private": item_context.get("is_private") is True,
             "version": comment.version,
             "created_at": comment.created_at,
