@@ -177,8 +177,23 @@ def _duckdb_csv_type_for_clickhouse_type(clickhouse_type: str) -> str | None:
         return "FLOAT"
     if type_name == "Float64":
         return "DOUBLE"
-    if type_name.startswith("DateTime"):
-        return "TIMESTAMP"
+    if type_name in {"DateTime", "DateTime32"}:
+        return "TIMESTAMP_S"
+    if type_name == "DateTime64":
+        return "TIMESTAMP_MS"
+
+    datetime_match = re.fullmatch(r"DateTime64\((\d+)\)", type_name)
+    if datetime_match is not None:
+        precision = int(datetime_match.group(1))
+        if precision <= 0:
+            return "TIMESTAMP_S"
+        if precision <= 3:
+            return "TIMESTAMP_MS"
+        if precision <= 6:
+            return "TIMESTAMP"
+        if precision <= 9:
+            return "TIMESTAMP_NS"
+        return None
 
     decimal_match = re.fullmatch(r"Decimal\((\d+)\s*,\s*(\d+)\)", type_name)
     if decimal_match is not None:

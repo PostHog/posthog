@@ -395,6 +395,34 @@ class TestS3TableDuckDBPrinting:
 
         assert rows == [(18446744073709551615,)]
 
+    def test_csv_reader_preserves_nanosecond_timestamp_precision(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_path = Path(temp_dir) / "orders"
+            source_path.write_text("created_at\n2021-01-01 00:00:00.123456789\n")
+            context = HogQLContext(team_id=1)
+            table = S3Table(
+                name="orders",
+                url="s3://bucket/orders",
+                format="CSVWithNames",
+                access_key="access-key",
+                access_secret="access-secret",
+                column_names=("created_at",),
+                clickhouse_column_types=("DateTime64(9)",),
+                fields={},
+            )
+
+            sql = table.to_printed_duckdb(context)
+            positional_sql = re.sub(r"%\([^)]+\)s", "?", sql)
+            values = list(context.values.values())
+            values[0] = str(source_path)
+
+            with duckdb.connect() as connection:
+                rows = connection.execute(
+                    f"SELECT typeof(created_at), epoch_ns(created_at) FROM {positional_sql}", values
+                ).fetchall()
+
+        assert rows == [("TIMESTAMP_NS", 1609459200123456789)]
+
     def test_azure_uses_native_reader(self) -> None:
         context = HogQLContext(team_id=1)
         table = S3Table(
