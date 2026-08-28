@@ -92,7 +92,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 3
+FEATURE_SCHEMA_VERSION = 4
 
 # Statuses a report can be authored straight into and still be in the inbox (`create_scout_report`
 # and `create_custom_agent_ready_report`), which is how a report reaches the spine without a
@@ -224,6 +224,7 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("latest_status_event", pa.string()),
     ("latest_status_event_at", _TIMESTAMP),
     ("dismissal_reason", pa.string()),
+    ("wrong_dismissal_count", pa.int32()),
     ("status_event_priority", pa.string()),
     ("status_event_actionability", pa.string()),
     ("status_event_team_id", pa.int64()),
@@ -886,7 +887,22 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and
     # the label windows only grow, since they accumulate from LABELS_EPOCH.
-    tags={**owner_tags, "dagster/max_runtime": str(3 * 60 * 60)},
+    tags={
+        **owner_tags,
+        "dagster/max_runtime": str(3 * 60 * 60),
+        # The state, embeddings, signal-embeddings and labels assets execute as parallel subprocesses
+        # in one run pod, and the embeddings snapshot holds a 1536-float vector per live report, so
+        # the pod's peak memory grows with the inventory. The default 8Gi limit is what a run gets
+        # without this tag, and the peak crossed it (OOMKilled) once the inventory grew enough.
+        "dagster-k8s/config": {
+            "container_config": {
+                "resources": {
+                    "requests": {"memory": "8Gi"},
+                    "limits": {"memory": "16Gi"},
+                }
+            }
+        },
+    },
 )
 
 

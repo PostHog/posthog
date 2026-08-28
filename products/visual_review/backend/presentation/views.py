@@ -51,6 +51,7 @@ from .serializers import (
     CreateRunResultSerializer,
     FinalizeResultSerializer,
     FinalizeRunInputSerializer,
+    FlakinessOverviewSerializer,
     MarkToleratedInputSerializer,
     QuarantinedIdentifierEntrySerializer,
     QuarantineInputSerializer,
@@ -116,6 +117,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "list_quarantined",
         "thumbnail",
         "baselines",
+        "flakiness",
     ]
 
     @extend_schema(responses={200: RepoSerializer(many=True)})
@@ -181,6 +183,16 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         parameters=[
             OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
             OpenApiParameter("identifier", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter(
+                "run_type",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Narrow the lookup to one run type. The same identifier under two run types is "
+                    "two different images, so omit this only when the caller shows one run type."
+                ),
+            ),
         ],
         responses={200: OpenApiResponse(description="WebP thumbnail image")},
     )
@@ -195,7 +207,9 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             patch_cache_control(resp, no_store=True)
             return resp
 
-        thumb_hash = api.get_thumbnail_hash_for_identifier(repo_id, identifier)
+        thumb_hash = api.get_thumbnail_hash_for_identifier(
+            repo_id, identifier, request.query_params.get("run_type") or None
+        )
         if thumb_hash is None:
             resp = HttpResponse(status=404)
             patch_cache_control(resp, no_store=True)
@@ -301,6 +315,32 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         result = api.get_baselines_overview(repo_id)
         return Response(BaselineOverviewSerializer(instance=result).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: FlakinessOverviewSerializer},
+        description=(
+            "Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or "
+            "were absorbed by a toleration on a recent default-branch run, and those under an "
+            "active quarantine. Everything else is omitted, so this is far smaller than the "
+            "baselines universe; `totals.tracked` gives the full denominator. Each entry carries "
+            f"the share of the last {contracts.FLAKINESS_RATE_DAYS} days of default-branch runs "
+            "that failed the gate (`hard_rate`) and the share a toleration absorbed "
+            "(`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst "
+            "absorbed run leaves free. Capped at "
+            f"{contracts.FLAKINESS_MAX_ENTRIES} entries, which sets `truncated`. Filtering, "
+            "faceting and search are done client-side; this endpoint takes no filter query params."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="flakiness")
+    def flakiness(self, request: Request, pk: str, **kwargs) -> Response:
+        repo_id = _parse_uuid(pk)
+        try:
+            api.get_repo(repo_id, team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        result = api.get_flakiness_overview(repo_id)
+        return Response(FlakinessOverviewSerializer(instance=result).data)
 
 
 class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -624,7 +664,9 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Mark snapshots reviewed (DB only).
 
         Records the per-snapshot "Accept change" decision. Does not commit the baseline
-        or change the GitHub gate — call finalize to ship the run.
+        or change the GitHub gate — call finalize to ship the run. Works on a quarantined
+        snapshot too: a quarantined NEW snapshot approved here is committed by finalize,
+        which gives a quarantined story a baseline entry without lifting the quarantine.
         """
         body = request.validated_data
         run_id = _parse_uuid(pk)
@@ -653,8 +695,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
         and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
-        any still-pending changed/new snapshot is approved first. With commit_to_github=false
-        the server returns the signed baseline YAML instead of committing it.
+        any still-pending changed/new snapshot is approved first; quarantined snapshots are
+        skipped, but a quarantined NEW snapshot approved by identifier is still committed.
+        With commit_to_github=false the server returns the signed baseline YAML instead of
+        committing it.
         """
         body = request.validated_data
         run_id = _parse_uuid(pk)

@@ -824,6 +824,11 @@
         "params": ["tab", "reportId"],
         "scope": "project"
     },
+    "inboxRuns": {
+        "template": "/inbox/scouts/runs",
+        "params": [],
+        "scope": "project"
+    },
     "inboxScout": {
         "template": "/inbox/scouts/{skillName}",
         "params": ["skillName"],
@@ -831,6 +836,11 @@
     },
     "inboxScratchpad": {
         "template": "/inbox/scouts/scratchpad",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxTriage": {
+        "template": "/inbox/reports/triage",
         "params": [],
         "scope": "project"
     },
@@ -1329,6 +1339,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "replayVisionScannerOverview": {
+        "template": "/replay-vision/{id}/overview",
+        "params": ["id"],
+        "scope": "project"
+    },
     "replayVisionScannerSelfDriving": {
         "template": "/replay-vision/{id}/self-driving",
         "params": ["id"],
@@ -1634,6 +1649,11 @@
         "params": [],
         "scope": "project"
     },
+    "visualReviewFlakiness": {
+        "template": "/visual_review/repos/{repoId}/flakiness",
+        "params": ["repoId"],
+        "scope": "project"
+    },
     "visualReviewRepoRuns": {
         "template": "/visual_review/repos/{repoId}/runs",
         "params": ["repoId"],
@@ -1671,6 +1691,11 @@
     },
     "webAnalytics": {
         "template": "/web",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsAgents": {
+        "template": "/web/agents",
         "params": [],
         "scope": "project"
     },

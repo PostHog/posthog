@@ -2,9 +2,9 @@ import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 
 import { parseLogBodyForIngestion } from './log-body-parse'
 
-export const PATTERN_VERSION = 1
+export const PATTERN_VERSION = 3
 
-export type MaskRuleName = 'timestamp' | 'uuid' | 'email' | 'hex0x' | 'hex' | 'ipv4' | 'num'
+export type MaskRuleName = 'timestamp' | 'klogtime' | 'uuid' | 'email' | 'host' | 'hex0x' | 'hex' | 'ipv4' | 'num'
 
 export type MaskRule = {
     name: MaskRuleName
@@ -18,12 +18,44 @@ export const MASK_RULES: readonly MaskRule[] = [
         pattern: '\\b\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?',
         replacement: '<TIMESTAMP>',
     },
+    // klog / glog headers ("I0827 11:39:40.307946") carry no year and no separators, so the
+    // timestamp rule above misses them and `\b\d+` cannot reach the date either — there is no word
+    // boundary between the severity letter and the digits, so the date survives as a literal and
+    // the pattern changes every midnight.
+    //
+    // One rule per severity letter, rather than one rule with a lookbehind. The letter is content,
+    // not a variable, so it has to survive into the output; replacements are constant strings, so
+    // the only way to keep it is to consume it and write it back. Lookbehind and backreferences are
+    // both unavailable — RE2 lacks the first, and the rule-fire attribution in MASK_COMBINED_RE
+    // indexes capture groups positionally, so a rule may not add one.
+    //
+    // The letter also guards the match. Without it, `\d{4} \d{2}:\d{2}:\d{2}` would claim any count
+    // followed by a time of day.
+    //
+    // The date is spelled out as a real MMDD rather than `\d{4}`, because the letter alone is a weak
+    // guard: the rule reaches text that `\b\d+` cannot (there is no boundary between the letter and
+    // the digits), so a bare `\d{4}` masks any letter-prefixed 4-digit token that happens to precede
+    // a time — collapsing `E2024 10:20:30` and `E2025 10:20:30`, which are distinct today. A month of
+    // 01-12 and a day of 01-31 rejects those while accepting every date klog can print. The match
+    // cannot be anchored to the line start instead: Kubernetes CRI lines carry a container prefix
+    // ("<time> stderr F I0827 ..."), so the header is mid-string in the most common real source.
+    ...(['I', 'W', 'E', 'F'] as const).map((letter) => ({
+        name: 'klogtime' as const,
+        pattern: `\\b${letter}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01]) \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?`,
+        replacement: `${letter}<KLOGTIME>`,
+    })),
     {
         name: 'uuid',
         pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
         replacement: '<UUID>',
     },
     { name: 'email', pattern: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}', replacement: '<EMAIL>' },
+    {
+        name: 'host',
+        pattern:
+            '\\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\\.){1,8}(?:ai|app|aws|bot|cloud|co|com|de|dev|eu|fr|gg|internal|io|jp|local|me|net|nl|org|sh|so|tv|uk|us|xyz)\\b',
+        replacement: '<HOST>',
+    },
     { name: 'hex0x', pattern: '\\b0x[0-9a-fA-F]+\\b', replacement: '<HEX>' },
     { name: 'hex', pattern: '\\b[0-9a-fA-F]{16,}\\b', replacement: '<HEX>' },
     { name: 'ipv4', pattern: '\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b', replacement: '<IP>' },
@@ -59,7 +91,7 @@ export function maskString(input: string): MaskResult {
     return { masked, ruleFires }
 }
 
-export type PatternBodyKind = 'empty' | 'invalid_json' | 'json_object_or_array' | 'json_string' | 'primitive'
+export type PatternBodyKind = 'empty' | 'plaintext' | 'json_object_or_array' | 'json_string' | 'primitive'
 
 export type LogPatternResult = {
     pattern: string
@@ -104,7 +136,8 @@ export function computeLogPattern(
     const inputCapped = body.length > maxInputChars
     const cappedBody = inputCapped ? body.slice(0, maxInputChars) : body
     const parsed = parseLogBodyForIngestion(cappedBody)
-    const bodyKind: PatternBodyKind = parsed.kind === 'json_primitive' ? 'primitive' : parsed.kind
+    const bodyKind: PatternBodyKind =
+        parsed.kind === 'json_primitive' ? 'primitive' : parsed.kind === 'invalid_json' ? 'plaintext' : parsed.kind
 
     let maskInput: string
     switch (parsed.kind) {

@@ -7,7 +7,9 @@ import {
   EmptyTitle,
 } from "@posthog/quill";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { useInboxActivityPreview } from "@posthog/ui/features/canvas/hooks/useInboxActivityPreview";
 import { useActivitySelection } from "@posthog/ui/features/canvas/stores/activityDetailStore";
+import { ReportDetail } from "@posthog/ui/features/inbox/components/ReportDetail";
 import { TaskDetail } from "@posthog/ui/features/task-detail/components/TaskDetail";
 import { useResolvedTask } from "@posthog/ui/features/tasks/useResolvedTask";
 import { TaskDetailSkeleton } from "@posthog/ui/router/routeSkeletons";
@@ -15,8 +17,11 @@ import { TaskDetailSkeleton } from "@posthog/ui/router/routeSkeletons";
 /** What the Activity destination shows beside its feed. */
 export function ActivityDetailPane() {
   const selected = useActivitySelection();
-  const task = useResolvedTask(selected?.taskId);
+  const selectedTaskId =
+    selected?.kind === "task" ? selected.taskId : undefined;
+  const task = useResolvedTask(selectedTaskId);
   const { channels } = useChannels();
+  const { reports } = useInboxActivityPreview();
 
   if (!selected) {
     return (
@@ -32,6 +37,23 @@ export function ActivityDetailPane() {
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
+      </div>
+    );
+  }
+
+  if (selected.kind === "report") {
+    const cachedReport = reports.find(
+      (report) => report.id === selected.reportId,
+    );
+    return (
+      <div className="h-full min-w-0">
+        <ReportDetail
+          reportId={selected.reportId}
+          cachedReport={cachedReport}
+          backTo="/activity"
+          backLabel="Back to activity"
+          statusRedirect={false}
+        />
       </div>
     );
   }

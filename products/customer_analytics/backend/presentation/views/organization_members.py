@@ -1,12 +1,14 @@
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet, Value
+from django.db.models.functions import Concat
 
 from drf_spectacular.utils import extend_schema
-from rest_framework import mixins, viewsets
+from rest_framework import mixins, serializers, viewsets
 
 from posthog.api.organization_member import organization_members_base_queryset
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, normalize_search_term
 from posthog.models import OrganizationMembership
 from posthog.permissions import IsStaffUserOrImpersonating, PostHogFeatureFlagPermission
 
@@ -41,4 +43,19 @@ class OrganizationMembersForAccountViewSet(
             return OrganizationMembership.objects.none()
         # Ordering kept (not removed): pagination needs a stable, index-backed order; `-joined_at`
         # is served by the (organization, -joined_at) composite index when filtering by organization_id.
-        return organization_members_base_queryset().filter(organization_id=organization_id).order_by("-joined_at")
+        queryset = organization_members_base_queryset().filter(organization_id=organization_id).order_by("-joined_at")
+        search = self.request.query_params.get("search", "")
+        if len(search) > MAX_SEARCH_LENGTH:
+            raise serializers.ValidationError(
+                {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+            )
+        if normalized_search := normalize_search_term(search):
+            return queryset.annotate(
+                account_member_full_name=Concat("user__first_name", Value(" "), "user__last_name")
+            ).filter(
+                Q(user__first_name__icontains=normalized_search)
+                | Q(user__last_name__icontains=normalized_search)
+                | Q(user__email__icontains=normalized_search)
+                | Q(account_member_full_name__icontains=normalized_search)
+            )
+        return queryset

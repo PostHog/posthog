@@ -176,6 +176,12 @@ class TestBuildQuery:
         _, params = _build_query("DB", "PUBLIC", "t", True, "created_at", IncrementalFieldType.DateTime, None)
         assert params[1] is not None
 
+    def test_incremental_field_with_space_is_quoted_not_rejected(self):
+        # Real Snowflake column names can contain spaces (e.g. "Date Established").
+        sql, _ = _build_query("DB", "PUBLIC", "t", True, "Date Established", IncrementalFieldType.DateTime, None)
+        assert 'WHERE "Date Established"' in sql
+        assert 'ORDER BY "Date Established" ASC' in sql
+
 
 class TestBuildQueryRowFilters:
     def _filter(self, column, operator, value, category=ColumnTypeCategory.INTEGER):
