@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import * as heartPng from '@posthog/brand/hoggies/png/heart'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -23,8 +24,17 @@ const HedgehogHeart = pngHoggie(heartPng)
 export function CredentialReview(): JSX.Element {
     const { markComplete } = useActions(credentialReviewLogic)
     const { keysLoading } = useValues(personalAPIKeysLogic)
+    const { loadKeys } = useActions(personalAPIKeysLogic)
     const { passkeysLoading } = useValues(passkeySettingsLogic)
+    const { loadPasskeys } = useActions(passkeySettingsLogic)
     const { connectedAppsLoading } = useValues(connectedAppsLogic)
+
+    // Load the credential lists here, once useValues above has mounted both logics.
+    // connectedAppsLogic loads itself on mount.
+    useEffect(() => {
+        loadKeys()
+        loadPasskeys()
+    }, [loadKeys, loadPasskeys])
 
     const loading = keysLoading || passkeysLoading || connectedAppsLoading
 
