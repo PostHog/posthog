@@ -42,7 +42,7 @@ const RESOURCE_TYPE = 'insight'
 
 export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     const theInsightLogic = insightLogic(insightLogicProps)
-    const { insightProps, insight, hasDashboardItemId } = useValues(theInsightLogic)
+    const { insightProps, insight, hasDashboardItemId, insightDuplicating } = useValues(theInsightLogic)
     const { duplicateInsight, setInsightMetadata } = useActions(theInsightLogic)
 
     const theInsightDataLogic = insightDataLogic(insightProps)
@@ -75,6 +75,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
         <ScenePanelActionsSection>
             <SceneDuplicate
                 dataAttrKey={RESOURCE_TYPE}
+                loading={insightDuplicating}
                 onClick={() => duplicateInsight(insight as QueryBasedInsightModel, true)}
             />
             {isSavedInsight && canCopyToProject && (

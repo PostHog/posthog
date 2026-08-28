@@ -287,6 +287,14 @@ export const manifest: ProductManifest = {
         '/llm-observability/playground': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityPlayground(), searchParams, hashParams).url,
     },
+    // Keep the event list and staleness window in sync with the in-scene check
+    // (`hasRecentAIEvents` in frontend/utils/aiEvents.ts) - string literals here
+    // because the probe is cloned into the eager generated products.tsx.
+    setupProbe: {
+        productKey: ProductKey.AI_OBSERVABILITY,
+        hasDataEvents: ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding'],
+        staleAfterDays: 90,
+    },
     urls: {
         aiObservabilityDashboard: (): string => '/ai-observability/dashboard',
         aiObservabilitySelfDriving: (): string => '/ai-observability/self-driving',

@@ -237,7 +237,7 @@ export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object
     value: zod
         .union([zod.string(), zod.number(), zod.boolean()])
         .describe(
-            "Value to store, matching the definition's type: a number for number\/currency\/percent, a boolean for boolean, an ISO-8601 string for date\/datetime, or text for text properties."
+            "Value to store, matching the definition's type: a number for number\/currency\/percent, a boolean for boolean, an ISO-8601 string for date\/datetime, an HTTP or HTTPS URL for link properties, or text for text properties."
         ),
 })
 
@@ -553,12 +553,12 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
             .describe('Human-readable name of the custom property. Unique within the team.'),
         description: zod.string().nullish().describe('Optional description of what the property represents.'),
         display_type: zod
-            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
+            .enum(['text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
             .describe(
-                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
+                '\* `text` - text\n\* `link` - link\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
             )
             .describe(
-                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+                "How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL.\n\n\* `text` - text\n\* `link` - link\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
             ),
         target_type: zod
             .enum(['account', 'person', 'group'])
@@ -658,13 +658,13 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Human-readable name of the custom property. Unique within the team.'),
         description: zod.string().nullish().describe('Optional description of what the property represents.'),
         display_type: zod
-            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
+            .enum(['text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
             .describe(
-                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
+                '\* `text` - text\n\* `link` - link\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
             )
             .optional()
             .describe(
-                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+                "How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL.\n\n\* `text` - text\n\* `link` - link\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
             ),
         target_type: zod
             .enum(['account', 'person', 'group'])
@@ -1235,7 +1235,7 @@ export const FeatureRequestsListQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .default(featureRequestsListQueryRequestOrderingDefault)
         .describe(
-            'Stable ordering for the result list.\n\n\* `-updated_at` - Last updated: newest\n\* `updated_at` - Last updated: oldest\n\* `-created_at` - Date created: newest\n\* `created_at` - Date created: oldest\n\* `-priority` - Priority: high to low\n\* `priority` - Priority: low to high\n\* `title` - Title: A to Z\n\* `-title` - Title: Z to A'
+            'Stable ordering for the result list.\n\n\* `-updated_at` - Last updated: newest\n\* `updated_at` - Last updated: oldest\n\* `-created_at` - Date created: newest\n\* `created_at` - Date created: oldest\n\* `-priority` - Priority: high to low\n\* `priority` - Priority: low to high\n\* `title` - Title: A to Z\n\* `-title` - Title: Z to A\n\* `account` - Accounts: A to Z\n\* `-account` - Accounts: Z to A\n\* `product_area` - Product areas: A to Z\n\* `-product_area` - Product areas: Z to A\n\* `status` - Status: A to Z\n\* `-status` - Status: Z to A\n\* `created_by` - Created by: A to Z\n\* `-created_by` - Created by: Z to A\n\* `evidence_count` - Evidence: low to high\n\* `-evidence_count` - Evidence: high to low'
         ),
     search: zod.string().optional().describe('Case-insensitive text to find in request titles and descriptions.'),
     statuses: zod

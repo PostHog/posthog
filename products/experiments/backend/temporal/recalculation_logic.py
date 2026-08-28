@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import close_old_connections, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -172,6 +173,43 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
 # Progress (start / finish only — per-metric progress is folded into the calc step)
 # ---------------------------------------------------------------------------
 
+# Triggers that keep the prior window so unchanged metrics hit the (experiment, metric, query_to, fingerprint)
+# cache and only new or changed metrics recompute. Every other trigger advances the window to now.
+_REUSE_WINDOW_TRIGGERS = frozenset({ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE})
+
+
+def _resolve_query_to(experiment: Experiment, trigger: str | None) -> datetime:
+    """Window end for a starting run: reuse the latest terminal run's for metric-scoped changes, else advance.
+
+    A stopped experiment has a fixed window (experiment_window_end always returns end_date), so reuse is moot
+    and we skip the lookup. archived is orthogonal: it never affects the window, which reads only end_date.
+    """
+    now = timezone.now()
+    if experiment.is_stopped or trigger not in _REUSE_WINDOW_TRIGGERS:
+        return experiment_window_end(experiment, now)
+
+    # Any terminal run is a valid anchor, not only COMPLETED: a partial-failure run is marked FAILED yet its
+    # succeeded metrics hold result rows at that (newer) query_to. Mirror get_latest_recalculation so reuse
+    # picks the newest real window instead of falling back to an older one and moving results backward.
+    latest_query_to = (
+        ExperimentMetricsRecalculation.objects.filter(experiment=experiment, query_to__isnull=False)
+        .filter(
+            Q(status=ExperimentMetricsRecalculation.Status.COMPLETED)
+            | (Q(status=ExperimentMetricsRecalculation.Status.FAILED) & Q(completed_at__isnull=False))
+        )
+        .order_by("-query_to")
+        .values_list("query_to", flat=True)
+        .first()
+    )
+    if latest_query_to is None:
+        return experiment_window_end(experiment, now)
+
+    # A reset+relaunch leaves the prior run's rows behind with a query_to from before the new start_date.
+    # Never reuse a cutoff below start_date, or the window would begin before the experiment exists.
+    if experiment.start_date is not None and latest_query_to < experiment.start_date:
+        return experiment_window_end(experiment, now)
+    return experiment_window_end(experiment, latest_query_to)
+
 
 @database_sync_to_async_pool
 def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> str | None:
@@ -193,7 +231,7 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # calc activities still in flight from the prior attempt).
         if update.mark_started:
             experiment = Experiment.objects.get(id=state.experiment_id)
-            proposed_query_to = experiment_window_end(experiment, timezone.now())
+            proposed_query_to = _resolve_query_to(experiment, state.trigger)
 
             won = (
                 ExperimentMetricsRecalculation.objects.filter(
@@ -784,14 +822,17 @@ def _calculate_experiment_metric_for_recalculation_sync(
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             error_type = classify_experiment_query_error(e)
             is_permanent = error_type in NON_RETRYABLE_ERROR_TYPES or isinstance(e, ValueError)
-            capture_exception(
-                e,
-                additional_properties={
-                    "experiment_id": experiment_id,
-                    "metric_uuid": metric_uuid,
-                    "recalculation_id": recalculation_id,
-                },
-            )
+            # validation_error = the user's metric config is broken (e.g. HogQL referencing a
+            # column outside an aggregate) — a stored failure, not a platform error to track.
+            if error_type != "validation_error":
+                capture_exception(
+                    e,
+                    additional_properties={
+                        "experiment_id": experiment_id,
+                        "metric_uuid": metric_uuid,
+                        "recalculation_id": recalculation_id,
+                    },
+                )
             if is_final_attempt or is_permanent:
                 _store_result(
                     experiment_id=experiment_id,

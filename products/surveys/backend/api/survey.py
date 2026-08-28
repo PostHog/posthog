@@ -1031,6 +1031,24 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         return value
 
+    def validate_targeting_flag_filters(self, value):
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("targeting_flag_filters must be an object")
+
+        return value
+
+    def validate_form_content(self, value):
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("form_content must be an object")
+
+        return value
+
     def _resolve_base_language(self) -> str:
         """Resolve the survey's base language from incoming data, falling back to the instance, then 'en'."""
         initial_data = getattr(self, "initial_data", None)
@@ -3516,7 +3534,11 @@ def get_surveys_response(team: Team) -> dict[str, Any]:
         # external_survey case in their type enums at all.
         .exclude(type=Survey.SurveyType.EXTERNAL_SURVEY)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
-        .prefetch_related("actions"),
+        .prefetch_related("actions")
+        # SDKs display one popover at a time and break appearance-delay ties by payload
+        # order, so this ordering decides which of two colliding surveys a user sees.
+        # Launch order (oldest first) keeps that winner deterministic across cache rebuilds.
+        .order_by("start_date", "created_at", "id"),
         many=True,
     ).data
 
