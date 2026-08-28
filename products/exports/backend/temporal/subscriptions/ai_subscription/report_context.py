@@ -548,6 +548,10 @@ def _dashboard_status(insights: Sequence[InsightReportProvenance]) -> ReportCont
     return "success"
 
 
+def _status_after_evidence_truncation(status: ReportContextStatus) -> ReportContextStatus:
+    return "truncated" if status == "success" else status
+
+
 def _truncate_content(content: str, remaining: int) -> tuple[str, bool]:
     if len(content) <= remaining:
         return content, False
@@ -604,7 +608,7 @@ def _bound_dashboard(
         if len(bounded_content) > remaining:
             continue
         bounded_provenance = tuple(
-            item if index < included_count else replace(item, status="truncated")
+            item if index < included_count else replace(item, status=_status_after_evidence_truncation(item.status))
             for index, item in enumerate(provenance)
         )
         return DashboardReportEvidence(
@@ -621,7 +625,7 @@ def _bound_dashboard(
         id=dashboard.id,
         name=dashboard.name,
         status="truncated",
-        insights=tuple(replace(item, status="truncated") for item in provenance),
+        insights=tuple(replace(item, status=_status_after_evidence_truncation(item.status)) for item in provenance),
         content=bounded_content,
     )
 
@@ -653,7 +657,9 @@ def _bound_evidence(
                 id=executed_insight.saved.id,
                 name=executed_insight.saved.name,
                 events=executed_insight.saved.events,
-                status="truncated" if truncated else executed_insight.status,
+                status=(
+                    _status_after_evidence_truncation(executed_insight.status) if truncated else executed_insight.status
+                ),
                 content=bounded_content,
             )
         )

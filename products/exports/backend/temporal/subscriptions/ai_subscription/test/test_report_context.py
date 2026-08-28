@@ -741,6 +741,89 @@ class TestResolveReportContext(BaseTest):
         assert "A" * 100 in dashboard_evidence.content
         assert "B" * 100 not in dashboard_evidence.content
 
+    def test_budget_omission_preserves_failed_dashboard_tile_status(self) -> None:
+        subscription = self._subscription()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="Failed tile budget")
+        self._add_dashboard_context(subscription, dashboard)
+        succeeded = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Succeeded tile",
+            query=_trends_query("succeeded tile event"),
+        )
+        failed = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Failed tile",
+            query=_trends_query("failed tile event"),
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=succeeded, layouts={"sm": {"y": 0, "x": 0}})
+        DashboardTile.objects.create(dashboard=dashboard, insight=failed, layouts={"sm": {"y": 1, "x": 0}})
+
+        async def execute(_team: object, _query: object, **kwargs: object) -> str:
+            if kwargs["insight_id"] == failed.id:
+                raise RuntimeError("failed tile query")
+            return "A" * 200
+
+        budget = len("…(context evidence truncated)")
+
+        with (
+            patch(f"{_MODULE}.DASHBOARD_CONTEXT_CHAR_BUDGET", budget),
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(_EXECUTOR, side_effect=execute),
+        ):
+            evidence = async_to_sync(resolve_report_context)(subscription)
+
+        dashboard_evidence = evidence.dashboards[0]
+        assert dashboard_evidence.status == "truncated"
+        assert [item.status for item in dashboard_evidence.insights] == ["truncated", "failed"]
+        assert "Insight context unavailable." not in dashboard_evidence.content
+        assert len(evidence.formatted_evidence) <= budget
+
+    def test_budget_omission_preserves_failed_standalone_status(self) -> None:
+        subscription = self._subscription()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="Budget consumer")
+        self._add_dashboard_context(subscription, dashboard)
+        tile = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Successful tile",
+            query=_trends_query("successful tile event"),
+        )
+        standalone = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Failed standalone",
+            query=_trends_query("failed standalone event"),
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=tile)
+        self._add_insight_context(subscription, standalone)
+
+        async def execute(_team: object, _query: object, **kwargs: object) -> str:
+            if kwargs["insight_id"] == standalone.id:
+                raise RuntimeError("failed standalone query")
+            return "dashboard evidence"
+
+        with (
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(_EXECUTOR, side_effect=execute),
+        ):
+            full_evidence = async_to_sync(resolve_report_context)(subscription)
+
+        budget = len(full_evidence.dashboards[0].content)
+        with (
+            patch(f"{_MODULE}.DASHBOARD_CONTEXT_CHAR_BUDGET", budget),
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(_EXECUTOR, side_effect=execute),
+        ):
+            evidence = async_to_sync(resolve_report_context)(subscription)
+
+        assert evidence.dashboards[0].status == "success"
+        assert [item.status for item in evidence.dashboards[0].insights] == ["success"]
+        assert evidence.insights[0].status == "failed"
+        assert evidence.insights[0].content == ""
+        assert len(evidence.formatted_evidence) <= budget
+
     def test_aggregate_budget_bounds_output_and_contract_never_carries_raw_response(self) -> None:
         subscription = self._subscription()
         for index in range(2):
