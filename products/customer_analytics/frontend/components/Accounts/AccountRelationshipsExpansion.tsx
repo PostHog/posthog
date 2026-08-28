@@ -95,7 +95,7 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
                                 data-attr="account-relationships-unassign-button"
                                 onClick={() => endRelationship(relationship)}
                             >
-                                Unassigned
+                                Unassign
                             </LemonButton>
                         )}
                         {canDeleteRelationships && (
