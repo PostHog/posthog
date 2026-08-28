@@ -63,7 +63,6 @@ import {
 import { useStore } from "zustand";
 import { PiExtensionDialog } from "./PiExtensionDialog";
 import { PiExtensionStatuses, PiExtensionWidgets } from "./PiExtensionSurfaces";
-import { PiProjectTrustBanner } from "./PiProjectTrustBanner";
 import { PiQueuedMessagesDock } from "./PiQueuedMessagesDock";
 import { PiMessagingModeSelector } from "./PiSessionControls";
 import { PiSessionModelControls } from "./PiSessionModelControls";
@@ -417,32 +416,6 @@ function usePiRestart(
   }, [controller, taskId]);
 }
 
-function usePiProjectTrustChange(
-  controller: PiSessionController,
-  taskId: string,
-) {
-  const [pending, setPending] = useState(false);
-  const change = useCallback(
-    async (trusted: boolean) => {
-      setPending(true);
-      try {
-        await controller.setProjectTrusted(taskId, trusted);
-        toast.success(
-          trusted
-            ? "Repository trusted and Pi restarted"
-            : "Repository trust revoked and Pi restarted",
-        );
-      } catch (error) {
-        handleControllerError(error, "Failed to change repository trust");
-      } finally {
-        setPending(false);
-      }
-    },
-    [controller, taskId],
-  );
-  return { change, pending };
-}
-
 function usePiEditQueue(
   controller: PiSessionController,
   taskId: string,
@@ -561,8 +534,6 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
   const cancelPrompt = usePiCancel(piSessionController, taskId, isBashRunning);
   const retry = usePiRetry(piSessionController, taskId);
   const restart = usePiRestart(piSessionController, taskId);
-  const { change: changeProjectTrust, pending: projectTrustPending } =
-    usePiProjectTrustChange(piSessionController, taskId);
   const handleQueueForEditing = useCallback(
     (queue: PiQueueSnapshot) => applyQueueToDraft(queue, draftActions, taskId),
     [draftActions, taskId],
@@ -716,17 +687,6 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
               widgets={currentExtensionState.widgets}
               placement="aboveEditor"
             />
-            {session.projectTrust?.hasProjectResources && (
-              <PiProjectTrustBanner
-                trusted={session.projectTrust.trusted}
-                disabled={
-                  controlsPending || session.connectionState !== "connected"
-                }
-                pending={projectTrustPending}
-                onTrust={() => changeProjectTrust(true)}
-                onRevoke={() => changeProjectTrust(false)}
-              />
-            )}
           </>
         )}
         {mcpPermission ? (
