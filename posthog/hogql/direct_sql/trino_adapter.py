@@ -72,7 +72,7 @@ class _CancelWatchdog:
 
 class TrinoAdapter:
     engine = "trino"
-    dialect: HogQLDialect | None = None
+    dialect: HogQLDialect | None = "trino"
 
     def validate_source_config(self, source: ExternalDataSource, team: Team) -> tuple[TrinoSource, TrinoSourceConfig]:
         from products.warehouse_sources.backend.facade.source_management import (
@@ -120,9 +120,14 @@ class TrinoAdapter:
                     cursor = connection.cursor()
                     with _CancelWatchdog(cursor, timeout_seconds) as watchdog:
                         try:
-                            cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- direct SQL is intentionally user-authored and SELECT-gated
-                                request.sql
-                            )
+                            if request.values:
+                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- printer-generated SQL uses qmark placeholders
+                                    request.sql, tuple(request.values.values())
+                                )
+                            else:
+                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- direct SQL is intentionally user-authored and SELECT-gated
+                                    request.sql
+                                )
                             results = cursor.fetchmany(DIRECT_TRINO_MAX_ROWS + 1)
                         except Exception as error:
                             if watchdog.fired:

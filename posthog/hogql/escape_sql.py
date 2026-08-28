@@ -276,6 +276,14 @@ def escape_snowflake_identifier(v: str) -> str:
     return '"' + v.replace('"', '""') + '"'
 
 
+def escape_trino_identifier(v: str) -> str:
+    if "?" in v:
+        raise QueryError(f'The Trino identifier "{v}" is not permitted as it contains the "?" character')
+    if "\0" in v:
+        raise QueryError(f'The Trino identifier "{v}" is not permitted as it contains a NUL character')
+    return '"' + v.replace('"', '""') + '"'
+
+
 def _quote_postgres_wire_identifier(v: str, extra_reserved_keywords: set[str] | None) -> str:
     # Reject ``%`` for parity with the HogQL and ClickHouse escape paths. psycopg
     # interprets ``%`` as the start of a parameter placeholder when scanning SQL

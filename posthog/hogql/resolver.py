@@ -163,6 +163,12 @@ assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
 # DuckDB is Postgres-wire compatible and accepts nearly all PG-specific constructs, so it
 # takes the PG code path in the resolver.
 _POSTGRES_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb"})
+_TRINO_DIALECTS: frozenset[HogQLDialect] = frozenset({"trino"})
+_CLICKHOUSE_AND_TRINO_DIALECTS: frozenset[HogQLDialect] = frozenset({"clickhouse", "trino"})
+_TRY_CAST_DIALECTS: frozenset[HogQLDialect] = _POSTGRES_FAMILY | _TRINO_DIALECTS
+_ARRAY_SLICE_DIALECTS: frozenset[HogQLDialect] = _POSTGRES_FAMILY | _CLICKHOUSE_AND_TRINO_DIALECTS
+_STANDARD_COLUMN_ALIAS_DIALECTS: frozenset[HogQLDialect] = _POSTGRES_FAMILY | _TRINO_DIALECTS
+_POSITIONAL_REFERENCE_DIALECTS: frozenset[HogQLDialect] = _POSTGRES_FAMILY | _TRINO_DIALECTS
 
 # Dialects with native PIVOT/UNPIVOT support. Snowflake speaks the same standard-SQL
 # `PIVOT (agg FOR col IN (...))` shape, so it joins the Postgres family here even though it
@@ -1529,7 +1535,7 @@ class Resolver(CloningVisitor):
                 # For non-postgres dialects, bake column aliases into the inner
                 # SELECT as AS aliases so ClickHouse/HogQL (which don't support
                 # the ``AS t(col1, col2)`` syntax) get correct column names.
-                if self.dialect not in _POSTGRES_FAMILY:
+                if self.dialect not in _STANDARD_COLUMN_ALIAS_DIALECTS:
                     inner_query = cast(ast.SelectQuery, inner_select)
                     new_select: list[ast.Expr] = []
                     for i, expr in enumerate(inner_query.select):
@@ -2139,7 +2145,7 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_try_cast(self, node: ast.TryCast):
-        if self.dialect not in _POSTGRES_FAMILY:
+        if self.dialect not in _TRY_CAST_DIALECTS:
             raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
         node = cast(ast.TryCast, clone_expr(node))
         node.expr = self.visit(node.expr)
@@ -2154,14 +2160,14 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_positional_ref(self, node: ast.PositionalRef):
-        if self.dialect not in _POSTGRES_FAMILY:
+        if self.dialect not in _POSITIONAL_REFERENCE_DIALECTS:
             raise QueryError(f"Positional references are not allowed in {self.dialect} dialect")
         node = cast(ast.PositionalRef, clone_expr(node))
         node.type = ast.UnknownType()
         return node
 
     def visit_array_slice(self, node: ast.ArraySlice):
-        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "clickhouse":
+        if self.dialect not in _ARRAY_SLICE_DIALECTS:
             raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
         node = cast(ast.ArraySlice, clone_expr(node))
         node.array = self.visit(node.array)
