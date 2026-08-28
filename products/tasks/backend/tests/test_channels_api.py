@@ -405,6 +405,32 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(renamed.status_code, status.HTTP_200_OK, renamed.content)
         self.assertEqual(Channel.objects.unscoped().get(id=channel_id).name, "renamed")
 
+    def test_project_member_can_configure_shared_space_auto_archive(self):
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+
+        configured = other_client.patch(
+            f"{self._channels_url()}{channel_id}/", {"auto_archive_after_days": 7}, format="json"
+        )
+
+        self.assertEqual(configured.status_code, status.HTTP_200_OK, configured.content)
+        self.assertEqual(configured.json()["auto_archive_after_days"], 7)
+        listed = self.client.get(self._channels_url())
+        self.assertEqual(listed.json()[0]["auto_archive_after_days"], 7)
+
+        invalid = self.client.patch(
+            f"{self._channels_url()}{channel_id}/", {"auto_archive_after_days": 2}, format="json"
+        )
+        self.assertEqual(invalid.status_code, status.HTTP_400_BAD_REQUEST, invalid.content)
+        self.assertEqual(Channel.objects.unscoped().get(id=channel_id).auto_archive_after_days, 7)
+
+        disabled = self.client.patch(
+            f"{self._channels_url()}{channel_id}/", {"auto_archive_after_days": None}, format="json"
+        )
+        self.assertEqual(disabled.status_code, status.HTTP_200_OK, disabled.content)
+        self.assertIsNone(disabled.json()["auto_archive_after_days"])
+
     def test_public_channel_task_is_readable_but_not_controllable_by_teammates(self):
         channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
         created = self.client.post(
