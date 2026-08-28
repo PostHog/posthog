@@ -117,11 +117,16 @@ test('the backend test selector routes files with the same partition', () => {
 // Core's pool therefore runs in the legacy mode only, so a regression under the
 // mode customers use goes uncaught. Product tests belong in the product's own
 // turbo lane, which is where that path would otherwise be reaching for coverage.
+// An include Core also ignores is no better than one it never listed, so both
+// halves have to hold. A Core ignore NESTED inside a CorePOE path needs no check:
+// CorePOE's ignores are Core's plus its own, so that subtree is out of both legs.
 test("the safeguard allowlist stays inside Core's pool", () => {
     for (const prefix of DJANGO_SEGMENTS.CorePOE.include) {
+        const included = DJANGO_SEGMENTS.Core.include.some((include) => prefix.startsWith(include))
+        const excluded = DJANGO_SEGMENTS.Core.exclude.some((exclude) => prefix.startsWith(exclude))
         assert.ok(
-            DJANGO_SEGMENTS.Core.include.some((include) => prefix.startsWith(include)),
-            `${prefix} is in CorePOE but not under any Core include, so it never runs in the default person mode`
+            included && !excluded,
+            `${prefix} is in CorePOE but Core does not run it, so it never runs in the default person mode`
         )
     }
 })
