@@ -85,6 +85,9 @@ jobs:
                         # so no app image is built here. Dockerfile.node is gated separately in
                         # ci-nodejs-container.yml.
                         - 'docker*.yml'
+                        # The compose stack mounts this ClickHouse config; the Kafka engine settings
+                        # in it set how long every ClickHouse-backed Jest test waits for a row.
+                        - 'docker/clickhouse/**'
                       rust:
                         - 'rust/**'
                         - 'proto/**'
