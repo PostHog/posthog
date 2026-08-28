@@ -1,6 +1,7 @@
 import { ResolutionError, SecureRequestError, StreamedResponse, fetchStreamed } from '~/common/utils/request'
 
 import { HttpImageFetcher, ImageFetchOptions, RedirectPolicy } from './image-fetcher'
+import { ImageFetchRequestMetrics } from './metrics'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 
 jest.mock('~/common/utils/request', () => ({
@@ -53,6 +54,7 @@ describe('HttpImageFetcher', () => {
     beforeEach(() => {
         fetchStreamedMock.mockReset()
     })
+    afterEach(() => jest.restoreAllMocks())
 
     it('identifies every request as PostHogImageFetcherBot', async () => {
         fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
@@ -68,6 +70,15 @@ describe('HttpImageFetcher', () => {
                 }),
             })
         )
+    })
+
+    it('attributes image requests to the source partition', async () => {
+        const observeRequest = jest.spyOn(ImageFetchRequestMetrics, 'observeRequest')
+        fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
+
+        await fetcher().fetch('https://cdn.example.com/a.png', { ...OPTIONS, sourcePartitions: [7, 42] })
+
+        expect(observeRequest).toHaveBeenCalledWith('2xx', expect.any(Number), [7, 42])
     })
 
     it('returns the bytes of an image whose payload matches its declared type', async () => {

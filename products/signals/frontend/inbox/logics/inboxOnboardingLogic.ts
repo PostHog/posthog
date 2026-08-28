@@ -306,7 +306,7 @@ export interface inboxOnboardingLogicValues {
 export interface inboxOnboardingLogicActions {
     loadPullsCount: () => any // reportListLogic
     loadReportsCount: () => any // reportListLogic
-    loadScoutConfigs: () => any // scoutFleetLogic
+    loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
     loadSourceConfigs: () => any // signalSourcesLogic
     checkWizardSession: () => {
         value: true

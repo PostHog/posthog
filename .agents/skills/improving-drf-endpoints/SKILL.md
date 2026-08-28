@@ -5,6 +5,8 @@ description: Use when editing, reviewing, or auditing DRF viewsets and serialize
 
 # Improving DRF Endpoints
 
+Before you propose a contract test against the generated OpenAPI schema, check [things already tried](../../../docs/internal/ci-things-already-tried.md). Six PRs took that idea, and none merged.
+
 ## Overview
 
 Serializer fields are the source of truth for PostHog's entire type pipeline:

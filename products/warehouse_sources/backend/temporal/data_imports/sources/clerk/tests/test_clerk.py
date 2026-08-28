@@ -524,6 +524,8 @@ class TestClerkFeatureGatedEndpoints:
             ("oauth_applications", 404, {"errors": [{"code": "resource_not_found"}]}),
             # Domains feature off: the list endpoint answers the same 404 resource_not_found.
             ("domains", 404, {"errors": [{"code": "resource_not_found"}]}),
+            # Organizations off: the invitations list answers the same 404 resource_not_found.
+            ("organization_invitations", 404, {"errors": [{"code": "resource_not_found"}]}),
         ],
     )
     def test_feature_not_enabled_syncs_no_rows_instead_of_failing(

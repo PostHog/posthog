@@ -35,6 +35,7 @@ import {
   type CommandMenuAction,
 } from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { useTaskArchive } from "@posthog/ui/features/archive/useTaskArchive";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import {
   EDITOR_TEXT_CLASS,
@@ -219,7 +220,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   // With channel reports on, spaces own reports and the inbox entry goes away.
   const channelReportsEnabled = useChannelReportsEnabled();
   const spendAnalysisEnabled = useSpendAnalysisEnabled();
@@ -291,6 +292,13 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       setReviewMode(reviewTaskId, getDefaultReviewMode());
     }
   }, [reviewTaskId, getReviewMode, setReviewMode]);
+
+  // Archiving acts on the open task, so the command needs the task itself and
+  // drops out of the list when the palette can't find it.
+  const openedTask = tasks.find((task) => task.id === reviewTaskId);
+  const { requestArchive, dialog: archiveDialog } = useTaskArchive(openedTask, {
+    navigateUnscoped: !openedTask?.channel,
+  });
 
   useEffect(() => {
     if (open) {
@@ -487,6 +495,19 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             },
           ]
         : []),
+      ...(openedTask
+        ? [
+            {
+              id: "archive-task",
+              label: "Archive task",
+              keywords: "archive close remove",
+              icon: <ArchiveIcon size={12} className="text-gray-11" />,
+              action: "archive-task" as CommandMenuAction,
+              shortcut: SHORTCUTS.ARCHIVE_TASK,
+              onRun: requestArchive,
+            },
+          ]
+        : []),
       // Last, because the first row is what a stray Enter runs.
       ...themeOptions,
     ];
@@ -594,6 +615,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     toggleLeftSidebar,
     openReviewPanel,
     reviewTaskId,
+    openedTask,
+    requestArchive,
     canSearchFiles,
     openFilePicker,
     loopsEnabled,
@@ -1009,6 +1032,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         surface="command_menu"
         onCreated={(feed) => navigateToFeed(feed.id)}
       />
+      {/* Outlives the palette, which closes as the command runs. */}
+      {archiveDialog}
     </>
   );
 }

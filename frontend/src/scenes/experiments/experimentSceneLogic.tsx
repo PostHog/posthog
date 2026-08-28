@@ -25,8 +25,10 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, Experiment, ProjectTreeRef } from '~/types'
+import type { ExperimentIdType } from '~/types'
 
-import type { ExperimentIdType } from '../../types'
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+
 import { NEW_EXPERIMENT } from './constants'
 import {
     type ExperimentLogicProps,
@@ -35,7 +37,6 @@ import {
     type FormModes,
     experimentLogic,
 } from './experimentLogic'
-import { isLaunched } from './experimentStatus'
 import { stepStorageKey } from './ExperimentWizard/experimentWizardLogic'
 import { isLegacyExperiment } from './utils'
 

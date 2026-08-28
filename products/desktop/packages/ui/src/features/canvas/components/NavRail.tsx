@@ -13,6 +13,7 @@ import {
 import { DESKTOP_HOME_FLAG, LOOPS_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
+import { useSpacesTabs } from "@posthog/ui/features/browser-tabs/useSpacesTabs";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
 import {
   pickRailDestination,
@@ -32,15 +33,10 @@ import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/use
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
-import { useSpacesTabs } from "@posthog/ui/features/feature-flags/useSpacesTabs";
 import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
-import {
-  isNavItemVisible,
-  NAV_RAIL_WIDTH,
-} from "@posthog/ui/features/sidebar/constants";
-import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { track } from "@posthog/ui/shell/analytics";
 import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
@@ -91,7 +87,7 @@ function NavIcon({
       />
       <TooltipContent side="right">
         {label}
-        {shortcut && <Kbd className="ml-1.5">{shortcut}</Kbd>}
+        {shortcut && <Kbd>{shortcut}</Kbd>}
       </TooltipContent>
     </Tooltip>
   );
@@ -185,7 +181,7 @@ function ActivityNavItem({
  */
 export function NavRail() {
   const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   const contextEnabled = useContextLayerFlag();
   const channelReportsEnabled = useChannelReportsEnabled();
   const reportsInboxEnabled = useReportsInboxEnabled();
@@ -195,12 +191,8 @@ export function NavRail() {
     (state) => state.mentionsEnabled,
   );
 
-  const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
-  const navItemOrder = useSidebarStore((s) => s.navItemOrder);
   const inboxAvailable = !channelReportsEnabled || reportsInboxEnabled;
   const destinations = visibleRailDestinations({
-    overrides: navItemOverrides,
-    order: navItemOrder,
     home: homeEnabled,
     inbox: inboxAvailable,
     loops: loopsEnabled,
@@ -224,7 +216,6 @@ export function NavRail() {
   // light a destination the screen isn't on.
   const railPane = useRailPane();
   const toggleCommandMenu = useCommandMenuStore((s) => s.toggle);
-  const settingsVisible = isNavItemVisible(navItemOverrides, "configure");
 
   const pick =
     (destination: RailDestination): MouseEventHandler<HTMLButtonElement> =>
@@ -313,21 +304,20 @@ export function NavRail() {
             isActive={false}
             onClick={toggleCommandMenu}
           />
-          {settingsVisible && (
-            <NavIcon
-              icon={<GearSix size={16} />}
-              label="Settings"
-              isActive={false}
-              onClick={() => {
-                track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
-                  item: "configure",
-                  in_more: false,
-                  layout: "channels",
-                });
-                openSettings();
-              }}
-            />
-          )}
+          <NavIcon
+            icon={<GearSix size={16} />}
+            label="Settings"
+            shortcut={formatHotkey(SHORTCUTS.SETTINGS)}
+            isActive={false}
+            onClick={() => {
+              track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
+                item: "configure",
+                in_more: false,
+                layout: "channels",
+              });
+              openSettings();
+            }}
+          />
           <div className="my-0.5 w-5 shrink-0 border-border border-t" />
           <ProjectSwitcher appearance="icon" />
         </div>

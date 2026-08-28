@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { ApiError } from '~/lib/api-error'
+import { ApiError, NetworkError } from '~/lib/api-error'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -310,6 +310,60 @@ describe('llmSkillLogic', () => {
             expect(jest.mocked(lemonToast.error)).toHaveBeenCalledWith(
                 "Some files weren't added: a skill can have at most 200 bundled files"
             )
+        })
+    })
+
+    describe('load failures', () => {
+        let logic: ReturnType<typeof llmSkillLogic.build>
+
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        it.each([
+            ['a 404', new ApiError('Not found', 404), { missing: true, accessDenied: false, loadError: false }],
+            [
+                'a permission-denied 403',
+                new ApiError('Forbidden', 403, undefined, { code: 'permission_denied' }),
+                { missing: false, accessDenied: true, loadError: false },
+            ],
+            [
+                'a 403 that is not about object access',
+                new ApiError('Forbidden', 403),
+                { missing: false, accessDenied: false, loadError: true },
+            ],
+            ['a 500', new ApiError('Server error', 500), { missing: false, accessDenied: false, loadError: true }],
+            [
+                'a dropped connection',
+                new NetworkError('network'),
+                { missing: false, accessDenied: false, loadError: true },
+            ],
+        ])('resolves %s to its own state', async (_label, error, expected) => {
+            mockResolve.mockRejectedValue(error)
+
+            logic = llmSkillLogic({ skillName: 'my-test-skill' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSkillFailure'])
+
+            expect(logic.values.isSkillMissing).toBe(expected.missing)
+            expect(logic.values.isSkillAccessDenied).toBe(expected.accessDenied)
+            expect(logic.values.hasSkillLoadError).toBe(expected.loadError)
+            expect(logic.values.breadcrumbs.at(-1)?.name).toBe('my-test-skill')
+
+            mockResolve.mockResolvedValue(resolveResponse(mockSkill))
+            mockFilesRetrieve.mockResolvedValue(MOCK_FILE)
+            logic.actions.loadSkill()
+            expect(logic.values.hasSkillLoadError).toBe(false)
+            await expectLogic(logic).toDispatchActions(['loadSkillSuccess'])
+
+            expect(logic.values.isSkillMissing).toBe(false)
+            expect(logic.values.isSkillAccessDenied).toBe(false)
+            expect(logic.values.hasSkillLoadError).toBe(false)
         })
     })
 })

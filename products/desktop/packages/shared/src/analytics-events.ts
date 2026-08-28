@@ -50,6 +50,7 @@ export type CommandMenuAction =
   | "toggle-theme"
   | "toggle-left-sidebar"
   | "open-review-panel"
+  | "archive-task"
   | "go-back"
   | "go-forward"
   | "open-task"
@@ -100,6 +101,7 @@ export interface TaskCreateProperties {
   /** Worktree mode: repo has a non-empty .worktreeinclude file */
   uses_worktree_include?: boolean;
   adapter?: Adapter;
+  codex_model_access?: "posthog-gateway" | "own-subscription";
 }
 
 export interface TaskViewProperties {
@@ -275,10 +277,10 @@ export type SidebarNavItem =
   | "command_center"
   | "contexts"
   | "activity"
+  | "canvases"
   | "configure"
   | "loops"
-  | "more"
-  | "customize_sidebar";
+  | "more";
 
 /** Which sidebar shell the click came from, so the two can be compared. */
 export type SidebarLayout = "code" | "channels";
@@ -293,18 +295,6 @@ export interface SidebarNavItemClickedProperties {
    * them is the whole point of running one behind a flag.
    */
   layout?: SidebarLayout;
-}
-
-export interface SidebarCustomizedProperties {
-  item: SidebarNavItem;
-  /** True when the item was promoted to the top level, false when moved under More. */
-  visible: boolean;
-}
-
-export interface SidebarReorderedProperties {
-  item: SidebarNavItem;
-  /** Zero-based position of the item in the nav after the drag. */
-  to_index: number;
 }
 
 export interface TaskListGroupingChangedProperties {
@@ -409,6 +399,19 @@ export interface SessionConfigChangedProperties {
   to_value: string;
 }
 
+export interface ModelSwitchWarningShownProperties {
+  task_id?: string;
+  from_model: string;
+  to_model: string;
+  context_tokens?: number;
+}
+
+export interface ModelSwitchWarningActionProperties
+  extends ModelSwitchWarningShownProperties {
+  action: "cancel" | "copy_handoff_summary" | "switch_now";
+  result?: "failed" | "succeeded";
+}
+
 // Tour events
 type TourAction = "started" | "step_advanced" | "dismissed" | "completed";
 
@@ -479,20 +482,37 @@ export interface DeepLinkChannelProperties {
   task_id?: string;
 }
 
-// Feedback events
-export interface TaskFeedbackProperties {
-  task_id: string;
+// PostHog's reserved LLM analytics feedback events, same shape as the PostHog AI
+// web client (products/posthog_ai/frontend/utils/feedbackEvents.ts).
+// `$ai_session_id` is the task id because every `$ai_generation` of a run
+// carries it as `task_id`; `$ai_trace_id` is null until the sandbox exposes
+// per-turn trace ids.
+export type AiFeedbackProduct = "posthog_code";
+export type AiQualityRating = "good" | "bad";
+
+export interface AiFeedbackContextProperties {
+  $ai_session_id: string | null;
+  $ai_trace_id: null;
+  ai_product: AiFeedbackProduct;
+  task_id: string | null;
   task_run_id?: string;
-  log_url?: string;
-  event_count: number;
-  feedback_type: FeedbackType;
-  feedback_comment?: string;
+  turn_id?: string;
+  feedback_type?: FeedbackType;
+  event_count?: number;
+}
+
+export interface AiMetricProperties extends AiFeedbackContextProperties {
+  $ai_metric_name: "quality";
+  $ai_metric_value: AiQualityRating;
+}
+
+export interface AiFeedbackProperties extends AiFeedbackContextProperties {
+  $ai_feedback_text: string;
 }
 
 // Onboarding events
 export type OnboardingStepId =
   | "project-select"
-  | "invite-code"
   | "consent"
   | "connect-github"
   | "install-cli"
@@ -530,11 +550,6 @@ export interface OnboardingSignInInitiatedProperties {
 export interface OnboardingProjectSelectedProperties {
   had_multiple_orgs: boolean;
   had_multiple_projects: boolean;
-}
-
-export interface OnboardingInviteCodeSubmittedProperties {
-  success: boolean;
-  error_type?: string;
 }
 
 export interface OnboardingFolderSelectedProperties {
@@ -995,7 +1010,8 @@ export type ChannelsSurface =
   | "context"
   | "thread_panel"
   | "activity_panel"
-  | "activity";
+  | "activity"
+  | "canvases_pane";
 
 export type ChannelActionType =
   | "enter_space"
@@ -1137,6 +1153,8 @@ export interface CanvasRuntimeErrorProperties {
    * source fragments, query results, or secrets that must not cross into analytics.
    */
   error_type: string;
+  /** CSP directive only; blocked URLs never cross into analytics. */
+  csp_directive?: string;
 }
 
 export type ContextActionType = "save_version" | "generate_started" | "discard";
@@ -1369,6 +1387,26 @@ export interface AnnouncementProperties {
   announcement_style: "banner" | "modal";
 }
 
+// Privacy: these events never carry the referenced id, name, query text, or
+// result data. For a hogql reference the id is the SQL itself.
+export interface EvidencePreviewShownProperties {
+  kind: string;
+  cache: "hit" | "miss";
+}
+
+export interface EvidencePreviewReadyProperties {
+  kind: string;
+  source: "hover" | "prefetch";
+  latency_ms: number;
+  has_preview: boolean;
+}
+
+export interface EvidencePreviewFailedProperties {
+  kind: string;
+  source: "hover" | "prefetch";
+  latency_ms: number;
+}
+
 export interface AnnouncementCtaClickedProperties
   extends AnnouncementProperties {
   cta_type: "external" | "deeplink" | "update";
@@ -1439,8 +1477,6 @@ export const ANALYTICS_EVENTS = {
   BRAINROT_PLAYER_ERROR: "Brainrot player error",
   POSTHOG_WEB_OPENED: "PostHog web opened",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
-  SIDEBAR_CUSTOMIZED: "Sidebar customized",
-  SIDEBAR_REORDERED: "Sidebar reordered",
   TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
   TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
 
@@ -1450,14 +1486,19 @@ export const ANALYTICS_EVENTS = {
 
   // Session config events
   SESSION_CONFIG_CHANGED: "Session config changed",
+  MODEL_SWITCH_WARNING_SHOWN: "Model switch warning shown",
+  MODEL_SWITCH_WARNING_ACTION: "Model switch warning action",
 
   // Settings events
   SETTING_CHANGED: "Setting changed",
   CUSTOM_SOUND_ADDED: "Custom sound added",
   CUSTOM_SOUND_RECORDING_SILENT: "Custom sound recording silent",
+  CODEX_SUBSCRIPTION_CONNECTED: "Codex subscription connected",
+  CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
 
   // Feedback events
-  TASK_FEEDBACK: "Task feedback",
+  AI_METRIC: "$ai_metric",
+  AI_FEEDBACK: "$ai_feedback",
 
   // Branch mismatch events
   BRANCH_MISMATCH_WARNING_SHOWN: "Branch mismatch warning shown",
@@ -1473,7 +1514,6 @@ export const ANALYTICS_EVENTS = {
   ONBOARDING_STEP_SKIPPED: "Onboarding step skipped",
   ONBOARDING_SIGN_IN_INITIATED: "Onboarding sign in initiated",
   ONBOARDING_PROJECT_SELECTED: "Onboarding project selected",
-  ONBOARDING_INVITE_CODE_SUBMITTED: "Onboarding invite code submitted",
   ONBOARDING_FOLDER_SELECTED: "Onboarding folder selected",
   ONBOARDING_GITHUB_CONNECT_STARTED: "Onboarding github connect started",
   ONBOARDING_GITHUB_CONNECT_FAILED: "Onboarding github connect failed",
@@ -1562,6 +1602,11 @@ export const ANALYTICS_EVENTS = {
   AUTORESEARCH_RUN_STARTED: "Autoresearch run started",
   TASK_ANALYSIS_REQUESTED: "Task analysis requested",
 
+  // Evidence (insight link) preview events
+  EVIDENCE_PREVIEW_SHOWN: "Evidence preview shown",
+  EVIDENCE_PREVIEW_READY: "Evidence preview ready",
+  EVIDENCE_PREVIEW_FAILED: "Evidence preview failed",
+
   // Remote in-app announcement events
   ANNOUNCEMENT_SHOWN: "Announcement shown",
   ANNOUNCEMENT_DISMISSED: "Announcement dismissed",
@@ -1633,8 +1678,6 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR]: BrainrotPlayerErrorProperties;
   [ANALYTICS_EVENTS.POSTHOG_WEB_OPENED]: never;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
-  [ANALYTICS_EVENTS.SIDEBAR_CUSTOMIZED]: SidebarCustomizedProperties;
-  [ANALYTICS_EVENTS.SIDEBAR_REORDERED]: SidebarReorderedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
 
@@ -1644,14 +1687,19 @@ export type EventPropertyMap = {
 
   // Session config events
   [ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED]: SessionConfigChangedProperties;
+  [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_SHOWN]: ModelSwitchWarningShownProperties;
+  [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION]: ModelSwitchWarningActionProperties;
 
   // Settings events
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
+  [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;
+  [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT]: never;
 
   // Feedback events
-  [ANALYTICS_EVENTS.TASK_FEEDBACK]: TaskFeedbackProperties;
+  [ANALYTICS_EVENTS.AI_METRIC]: AiMetricProperties;
+  [ANALYTICS_EVENTS.AI_FEEDBACK]: AiFeedbackProperties;
 
   // Branch mismatch events
   [ANALYTICS_EVENTS.BRANCH_MISMATCH_WARNING_SHOWN]: BranchMismatchWarningShownProperties;
@@ -1667,7 +1715,6 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.ONBOARDING_STEP_SKIPPED]: OnboardingStepSkippedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_SIGN_IN_INITIATED]: OnboardingSignInInitiatedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_PROJECT_SELECTED]: OnboardingProjectSelectedProperties;
-  [ANALYTICS_EVENTS.ONBOARDING_INVITE_CODE_SUBMITTED]: OnboardingInviteCodeSubmittedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_FOLDER_SELECTED]: OnboardingFolderSelectedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_STARTED]: OnboardingGithubConnectStartedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_FAILED]: OnboardingGithubConnectFailedProperties;
@@ -1758,6 +1805,11 @@ export type EventPropertyMap = {
     run_id: string;
     created: boolean;
   };
+
+  // Evidence (insight link) preview events
+  [ANALYTICS_EVENTS.EVIDENCE_PREVIEW_SHOWN]: EvidencePreviewShownProperties;
+  [ANALYTICS_EVENTS.EVIDENCE_PREVIEW_READY]: EvidencePreviewReadyProperties;
+  [ANALYTICS_EVENTS.EVIDENCE_PREVIEW_FAILED]: EvidencePreviewFailedProperties;
 
   // Remote in-app announcement events
   [ANALYTICS_EVENTS.ANNOUNCEMENT_SHOWN]: AnnouncementProperties;

@@ -28,14 +28,15 @@ import type {
     PaginatedTicketMessageListApi,
     PaginatedTicketViewListApi,
     PatchedConversationApi,
-    PatchedTicketApi,
     PatchedTicketNoteUpdateRequestApi,
+    PatchedTicketUpdateRequestApi,
     PatchedTicketViewApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
     TicketApi,
     TicketMessageApi,
     TicketReplyRequestApi,
+    TicketUpdateRequestApi,
     TicketViewApi,
     ZendeskImportJobApi,
     ZendeskImportStartApi,
@@ -350,14 +351,14 @@ export const getConversationsTicketsUpdateUrl = (projectId: string, id: string) 
 export const conversationsTicketsUpdate = async (
     projectId: string,
     id: string,
-    ticketApi?: NonReadonly<TicketApi>,
+    ticketUpdateRequestApi?: TicketUpdateRequestApi,
     options?: RequestInit
 ): Promise<TicketApi> => {
     return apiMutator<TicketApi>(getConversationsTicketsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(ticketApi),
+        body: JSON.stringify(ticketUpdateRequestApi),
     })
 }
 
@@ -368,14 +369,14 @@ export const getConversationsTicketsPartialUpdateUrl = (projectId: string, id: s
 export const conversationsTicketsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedTicketApi?: NonReadonly<PatchedTicketApi>,
+    patchedTicketUpdateRequestApi?: PatchedTicketUpdateRequestApi,
     options?: RequestInit
 ): Promise<TicketApi> => {
     return apiMutator<TicketApi>(getConversationsTicketsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedTicketApi),
+        body: JSON.stringify(patchedTicketUpdateRequestApi),
     })
 }
 

@@ -29,7 +29,6 @@ export type ShedReason =
     | 'connection_limit'
     | 'origin_map_full'
     | 'registrable_domain_map_full'
-    | 'low_origin_diversity'
 export const HOPS_EXHAUSTED = 'hops_exhausted'
 export const DELAY_TOO_LONG = 'delay_too_long'
 export type AttemptOutcome =
@@ -52,9 +51,6 @@ export interface FetchAttempt {
 export interface FetchRunnerOptions {
     maxConcurrentPerRegistrableDomain: number
     maxInFlightRequests: number
-    lowOriginDiversityMinimumRequestSlots: number
-    lowOriginDiversityRepublishThreshold: number
-    lowOriginDiversityProgress: number
     batchBudgetMs: number
     maxBytes: number
     requestTimeoutMs: number
@@ -118,18 +114,6 @@ export class FetchRunner implements FetchPass {
         requirePositiveSafeInteger(
             'SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS',
             options.maxInFlightRequests
-        )
-        requirePositiveSafeInteger(
-            'SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS',
-            options.lowOriginDiversityMinimumRequestSlots
-        )
-        requirePositiveSafeInteger(
-            'SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD',
-            options.lowOriginDiversityRepublishThreshold
-        )
-        requirePositiveSafeInteger(
-            'SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS',
-            options.lowOriginDiversityProgress
         )
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES', options.maxBytes)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS', options.requestTimeoutMs)
@@ -218,13 +202,6 @@ export class FetchRunner implements FetchPass {
                 return
             }
             try {
-                if (lease.lowOriginDiversityStarted) {
-                    ImageFetchRequestMetrics.observeLowOriginDiversity(
-                        lease.lowOriginDiversityStarted.origins,
-                        lease.lowOriginDiversityStarted.candidates,
-                        lease.lowOriginDiversityStarted.requestSlots
-                    )
-                }
                 attempts.push(
                     await this.processLease(
                         lease,
@@ -258,16 +235,6 @@ export class FetchRunner implements FetchPass {
         const candidate = lease.candidate
         if (candidate.remainingHops === 0) {
             return this.terminal(candidate, HOPS_EXHAUSTED, undefined, [])
-        }
-        if (lease.action === 'republish_low_origin_diversity') {
-            return await this.republish(
-                republishBatch,
-                candidate,
-                'low_origin_diversity',
-                'low_origin_diversity',
-                0,
-                []
-            )
         }
         if (Date.now() > deadlineMs) {
             return await this.republish(republishBatch, candidate, 'deadline', 'pass_deadline', 0, [])
@@ -360,6 +327,7 @@ export class FetchRunner implements FetchPass {
         const previous = stored.get(candidate.originalRef)
         const previousUrl = previous?.kind === 'url' ? previous : undefined
         const result = await this.fetcher.fetch(candidate.currentUrl, {
+            sourcePartitions: candidate.sourcePartitions,
             maxBytes: this.options.maxBytes,
             timeoutMs: this.options.requestTimeoutMs,
             maxRedirects: Math.min(this.options.maxRedirects, candidate.remainingHops),
@@ -368,7 +336,12 @@ export class FetchRunner implements FetchPass {
             onRedirectResponse: () => this.budget.recordCompletedResponse(candidate.registrableDomain, Date.now()),
             isDifferentOrigin: (url) => url.origin !== candidate.origin,
             scheduleRequest: (url, requestDeadlineMs, request) =>
-                this.scheduler.runImage(url, Math.min(deadlineMs, requestDeadlineMs), request),
+                this.scheduler.runImage(
+                    url,
+                    Math.min(deadlineMs, requestDeadlineMs),
+                    request,
+                    candidate.sourcePartitions
+                ),
             checkRedirectPolicy: async (url) => {
                 const redirectPolicy = await configurationPolicy.check(url, configurationItems, Date.now())
                 for (const update of redirectPolicy.updates) {

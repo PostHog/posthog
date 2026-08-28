@@ -386,6 +386,7 @@ class TestBasetenModelAdvertising:
         [
             ("deepseek-ai/deepseek-v4-flash-0731", 1_048_000, ("review_hog", "posthog_code")),
             ("zai-org/glm-5.3", 200_000, ("review_hog", "posthog_code")),
+            ("zai-org/glm-5.3-flash", 1_000_000, ("review_hog", "posthog_code")),
         ],
     )
     def test_baseten_exclusive_models_advertised_per_product(

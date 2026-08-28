@@ -13,16 +13,7 @@ from posthog.storage import object_storage
 
 from . import loop_service
 from .loop_lifecycle import DISABLED_REASON_ADMIN_PAUSED, pause_loop
-from .models import (
-    CodeInvite,
-    CodeInviteQuerySet,
-    CodeInviteRedemption,
-    Loop,
-    LoopTrigger,
-    SandboxSnapshot,
-    Task,
-    TaskRun,
-)
+from .models import Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun
 from .visibility import task_run_visibility_q, task_visibility_q
 
 logger = logging.getLogger(__name__)
@@ -135,66 +126,6 @@ class SandboxSnapshotAdmin(admin.ModelAdmin):
         ("Metadata", {"fields": ("metadata",)}),
         ("Dates", {"fields": ("created_at", "updated_at")}),
     )
-
-
-class CodeInviteRedemptionInline(admin.TabularInline):
-    model = CodeInviteRedemption
-    extra = 0
-    can_delete = False
-    readonly_fields = ("id", "user", "organization", "redeemed_at")
-
-
-@admin.register(CodeInvite)
-class CodeInviteAdmin(admin.ModelAdmin):
-    list_display = (
-        "code",
-        "description",
-        "is_active",
-        "redemption_count",
-        "max_redemptions",
-        "expires_at",
-        "created_at",
-    )
-    list_filter = ("is_active", "created_at")
-    search_fields = ("code", "description")
-    readonly_fields = ("id", "redemption_count", "created_at")
-    autocomplete_fields = ("created_by",)
-    inlines = []
-    actions = ["expire_invites"]
-
-    @admin.action(description="Expire selected invites")
-    def expire_invites(self, request: HttpRequest, queryset: CodeInviteQuerySet) -> None:
-        selected = queryset.count()
-        expired = queryset.expire()
-        message = f"Expired {expired} of {selected} selected invite(s)."
-        if expired < selected:
-            message += " Invites that were already expired were left unchanged."
-        self.message_user(request, message)
-
-    def get_fieldsets(self, request, obj=None):
-        if obj:
-            return (
-                (None, {"fields": ("id", "code", "description")}),
-                ("Limits", {"fields": ("is_active", "max_redemptions", "redemption_count", "expires_at")}),
-                ("Metadata", {"fields": ("created_by", "created_at")}),
-            )
-        # On add, code may be set manually or left blank to auto-generate on save
-        return (
-            (None, {"fields": ("id", "code", "description")}),
-            ("Limits", {"fields": ("is_active", "max_redemptions", "expires_at")}),
-            ("Metadata", {"fields": ("created_by",)}),
-        )
-
-    def get_inlines(self, request, obj=None):
-        return [CodeInviteRedemptionInline]
-
-
-@admin.register(CodeInviteRedemption)
-class CodeInviteRedemptionAdmin(admin.ModelAdmin):
-    list_display = ("invite_code", "user", "organization", "redeemed_at")
-    list_filter = ("redeemed_at",)
-    search_fields = ("user__email", "invite_code__code")
-    readonly_fields = ("id", "invite_code", "user", "organization", "redeemed_at")
 
 
 @admin.register(Loop)
