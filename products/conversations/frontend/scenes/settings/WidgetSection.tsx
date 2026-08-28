@@ -148,9 +148,12 @@ export function WidgetSection(): JSX.Element {
                                 </div>
                                 <LemonDivider />
                                 <div className="flex items-center gap-4 py-2 justify-between">
-                                    <label className="w-40 shrink-0 font-medium">Greeting message</label>
+                                    <label htmlFor="widget-greeting-message" className="w-40 shrink-0 font-medium">
+                                        Greeting message
+                                    </label>
                                     <div className="flex gap-2 flex-1">
                                         <LemonInput
+                                            id="widget-greeting-message"
                                             value={
                                                 greetingInputValue ??
                                                 currentTeam?.conversations_settings?.widget_greeting_text ??
@@ -163,6 +166,7 @@ export function WidgetSection(): JSX.Element {
                                         <LemonButton
                                             type="primary"
                                             onClick={saveGreetingText}
+                                            aria-label="Save greeting message"
                                             disabledReason={
                                                 !greetingInputValue ? 'Enter a greeting message' : undefined
                                             }
@@ -173,9 +177,12 @@ export function WidgetSection(): JSX.Element {
                                 </div>
                                 <LemonDivider />
                                 <div className="flex items-center gap-4 py-2 justify-between">
-                                    <label className="w-40 shrink-0 font-medium">Placeholder text</label>
+                                    <label htmlFor="widget-placeholder-text" className="w-40 shrink-0 font-medium">
+                                        Placeholder text
+                                    </label>
                                     <div className="flex gap-2 flex-1">
                                         <LemonInput
+                                            id="widget-placeholder-text"
                                             value={
                                                 placeholderTextValue ??
                                                 currentTeam?.conversations_settings?.widget_placeholder_text ??
@@ -188,6 +195,7 @@ export function WidgetSection(): JSX.Element {
                                         <LemonButton
                                             type="primary"
                                             onClick={savePlaceholderText}
+                                            aria-label="Save placeholder text"
                                             disabledReason={
                                                 !placeholderTextValue ? 'Enter placeholder text' : undefined
                                             }
@@ -198,9 +206,17 @@ export function WidgetSection(): JSX.Element {
                                 </div>
                                 <LemonDivider />
                                 <div className="flex items-center gap-4 py-2 justify-between">
-                                    <label className="w-40 shrink-0 font-medium">Ticket recovery text</label>
+                                    <div className="w-40 shrink-0">
+                                        <label htmlFor="widget-ticket-recovery-text" className="font-medium">
+                                            Ticket recovery text
+                                        </label>
+                                        <p className="text-xs text-muted-alt mb-2">
+                                            Only shown to visitors who aren't identified.
+                                        </p>
+                                    </div>
                                     <div className="flex gap-2 flex-1">
                                         <LemonInput
+                                            id="widget-ticket-recovery-text"
                                             value={
                                                 ticketRecoveryTextValue ??
                                                 currentTeam?.conversations_settings?.widget_ticket_recovery_text ??
@@ -213,6 +229,7 @@ export function WidgetSection(): JSX.Element {
                                         <LemonButton
                                             type="primary"
                                             onClick={saveTicketRecoveryText}
+                                            aria-label="Save ticket recovery text"
                                             disabledReason={
                                                 !ticketRecoveryTextValue ? 'Enter ticket recovery text' : undefined
                                             }
@@ -223,9 +240,17 @@ export function WidgetSection(): JSX.Element {
                                 </div>
                                 <LemonDivider />
                                 <div className="flex items-center gap-4 py-2 justify-between">
-                                    <label className="w-40 shrink-0 font-medium">Ticket recovery link</label>
+                                    <div className="w-40 shrink-0">
+                                        <label htmlFor="widget-ticket-recovery-link-text" className="font-medium">
+                                            Ticket recovery link text
+                                        </label>
+                                        <p className="text-xs text-muted-alt mb-2">
+                                            The clickable part of the ticket recovery message.
+                                        </p>
+                                    </div>
                                     <div className="flex gap-2 flex-1">
                                         <LemonInput
+                                            id="widget-ticket-recovery-link-text"
                                             value={
                                                 ticketRecoveryLinkTextValue ??
                                                 currentTeam?.conversations_settings?.widget_ticket_recovery_link_text ??
@@ -238,6 +263,7 @@ export function WidgetSection(): JSX.Element {
                                         <LemonButton
                                             type="primary"
                                             onClick={saveTicketRecoveryLinkText}
+                                            aria-label="Save ticket recovery link text"
                                             disabledReason={
                                                 !ticketRecoveryLinkTextValue
                                                     ? 'Enter ticket recovery link text'
@@ -296,9 +322,15 @@ export function WidgetSection(): JSX.Element {
                                         </div>
                                         <LemonDivider />
                                         <div className="flex items-center gap-4 py-2 justify-between">
-                                            <label className="w-40 shrink-0 font-medium">Form title</label>
+                                            <label
+                                                htmlFor="widget-identification-form-title"
+                                                className="w-40 shrink-0 font-medium"
+                                            >
+                                                Form title
+                                            </label>
                                             <div className="flex gap-2 flex-1">
                                                 <LemonInput
+                                                    id="widget-identification-form-title"
                                                     value={
                                                         identificationFormTitleValue ??
                                                         currentTeam?.conversations_settings
@@ -312,6 +344,7 @@ export function WidgetSection(): JSX.Element {
                                                 <LemonButton
                                                     type="primary"
                                                     onClick={saveIdentificationFormTitle}
+                                                    aria-label="Save form title"
                                                     disabledReason={
                                                         !identificationFormTitleValue ? 'Enter form title' : undefined
                                                     }
@@ -322,9 +355,15 @@ export function WidgetSection(): JSX.Element {
                                         </div>
                                         <LemonDivider />
                                         <div className="flex items-center gap-4 py-2 justify-between">
-                                            <label className="w-40 shrink-0 font-medium">Form description</label>
+                                            <label
+                                                htmlFor="widget-identification-form-description"
+                                                className="w-40 shrink-0 font-medium"
+                                            >
+                                                Form description
+                                            </label>
                                             <div className="flex gap-2 flex-1">
                                                 <LemonInput
+                                                    id="widget-identification-form-description"
                                                     value={
                                                         identificationFormDescriptionValue ??
                                                         currentTeam?.conversations_settings
@@ -338,6 +377,7 @@ export function WidgetSection(): JSX.Element {
                                                 <LemonButton
                                                     type="primary"
                                                     onClick={saveIdentificationFormDescription}
+                                                    aria-label="Save form description"
                                                     disabledReason={
                                                         !identificationFormDescriptionValue
                                                             ? 'Enter form description'
@@ -355,13 +395,16 @@ export function WidgetSection(): JSX.Element {
                         <div className="pt-8">
                             <div className="flex items-center gap-4 py-2 justify-between">
                                 <div>
-                                    <label className="w-40 shrink-0 font-medium">Public token</label>
+                                    <label htmlFor="widget-public-token" className="w-40 shrink-0 font-medium">
+                                        Public token
+                                    </label>
                                     <p className="text-xs text-muted-alt mb-2">
                                         Automatically generated token used to authenticate widget requests.
                                     </p>
                                 </div>
                                 <div className="flex gap-2 flex-1">
                                     <LemonInput
+                                        id="widget-public-token"
                                         value={
                                             currentTeam?.conversations_settings?.widget_public_token ||
                                             'Token will be auto-generated on save'
