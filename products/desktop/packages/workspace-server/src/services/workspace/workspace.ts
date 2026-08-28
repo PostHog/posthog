@@ -1270,6 +1270,13 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
     const linkedBranchByTaskId = new Map(
       dbRows.map((row) => [row.taskId, row.linkedBranch ?? null]),
     );
+    // Resolve every folder path from the database before the first await below.
+    // The loop awaits git calls, and a shutdown can close the database during
+    // one of them, so a per-item repository read inside the loop would throw the
+    // same "Database not initialized" error the guard above prevents.
+    const folderPathById = new Map(
+      this.repositoryRepo.findAll().map((repo) => [repo.id, repo.path]),
+    );
     const workspaces: Record<string, Workspace> = {};
 
     for (const assoc of associations) {
@@ -1289,7 +1296,7 @@ export class WorkspaceService extends TypedEventEmitter<WorkspaceServiceEvents> 
         continue;
       }
 
-      const folderPath = this.getFolderPath(assoc.folderId);
+      const folderPath = folderPathById.get(assoc.folderId) ?? null;
       if (!folderPath) continue;
 
       let worktreePath: string | null = null;
