@@ -18,6 +18,11 @@ This skill is the repeatable evaluation that runs where CI cannot.
 It was distilled from a month of shipped fixes; [references/defect-catalog.md](references/defect-catalog.md) records each one with the check that would have caught it.
 Read the catalog once to calibrate suspicion, then run the tiers below.
 
+**This is an opt-in toolkit, not a gate.**
+Nothing in CI or review requires it, and no tier is a precondition for merging.
+Each tier stands alone, so partial adoption is coherent: run only the claims ledger, or only the invariants after a sync you were doing anyway, and skip the rest.
+The catalog is what makes the choice informed — it shows what each skipped tier has historically let through.
+
 ## The five escape classes
 
 | Class                                                                                                                                                    | Example PRs                            | What CI lacked                                 |
@@ -30,7 +35,9 @@ Read the catalog once to calibrate suspicion, then run the tiers below.
 
 ## Scope the evaluation to the change
 
-- **New source or new table**: all four tiers. Tier 1 is what `releaseStatus` gates on — see "Record the verdict".
+The map from change type to the tiers that historically would have caught its defect class — a spending guide, not a set of requirements.
+
+- **New source or new table**: all four tiers pay for themselves here. A passing Tier 1 is the natural bar for promoting a source past `ReleaseStatus.ALPHA` — see "Record the verdict".
 - **Pagination, cursor, incremental, resume changes**: Tiers 0, 1 (probes + double sync + kill/resume), 3 (exhaustion + resume fixtures).
 - **Auth, scopes, key handling, OAuth manifest changes**: Tiers 0 and 1 with the credential matrix.
 - **Parser / report-file changes**: Tiers 0, 3 (malformed-body and format-era fixtures), 2 after any live sync.
@@ -38,7 +45,7 @@ Read the catalog once to calibrate suspicion, then run the tiers below.
 - **SQL-database source introspection**: Tier 1 against a real cluster of that engine, plus the restricted-role fixtures in Tier 3.
 - **Schema/settings APIs that mutate existing rows** (bulk updates, migrations): Tier 3 brownfield checks — assert post-call state, never just HTTP status (#82273).
 
-## Tier 0 — contract-assumption audit (every PR, no credentials)
+## Tier 0 — contract-assumption audit (cheapest, no credentials)
 
 **1. Write the claims ledger.**
 List every assumption the diff makes about vendor behavior: endpoint paths exist, required params, response envelope/wrapper keys, cursor field names and termination signal, sort order (and that `sort_mode` matches it), primary-key uniqueness scope, whether the server-side filter actually filters, field- or scope-gated attributes, rate-limit headers, domain topology (regions, sandbox domains), API version behavior.
@@ -135,7 +142,7 @@ python manage.py warehouse_sources_capture_http_samples enable --source-type <ty
 (gRPC variant: `warehouse_sources_capture_grpc_samples`.)
 Replayed as fixtures, these are the cheapest way to stop tests re-asserting the author's model — the Checkout.com zero-row tables existed precisely because fixtures contained ids the live API never sends (#82961).
 
-## Record the verdict, gate the release
+## Record the verdict
 
 - The PR's **"How did you test this code?"** section is the eval report: which tiers ran, which credential instance (plan/scopes/key type — never secrets), and the claims ledger entries still unverified. An explicit "Not verified" list is the house convention — keep it, it seeds the next person's Tier 1.
 - **Unverified tables ship defensive**: `releaseStatus=ReleaseStatus.ALPHA`, `should_sync_default=False` for tables whose shape, volume, or gating is unconfirmed, and conservative parse/merge semantics. That's the posture, not a waiver — pair it with the self-driving handoff above.
