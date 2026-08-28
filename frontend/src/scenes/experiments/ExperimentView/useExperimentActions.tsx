@@ -118,7 +118,6 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
         isExperimentLaunched &&
             (exposureCohortId
                 ? {
-                      // TODO: add custom back button to the destination page
                       label: 'View exposure cohort',
                       icon: <IconPeople />,
                       sideIcon: <IconExternal />,
