@@ -995,6 +995,32 @@ mod tests {
         assert!(diff_live_entry(&built, &cached).is_empty());
     }
 
+    /// Pinned so a change to the hashed parts, the marker bytes, or the digest has
+    /// to be made on purpose. The value is written to Redis and compared by a later
+    /// process, so its encoding is a cross-process contract like the key string. A
+    /// silent change stops every team's pending state from matching for one TTL
+    /// window after the deploy, and confirmations drop to zero with nothing saying
+    /// why. Called with literal parts rather than through `diff_live_entry`, so a
+    /// new field on `FeatureFlag` does not fail it.
+    #[test]
+    fn fingerprint_encoding_is_pinned() {
+        assert_eq!(
+            fingerprint(
+                ShadowIssueType::FieldMismatch,
+                Some("flag 1 (flag-1)"),
+                Some(&json!({"has_experiment": false})),
+                Some(&json!({"has_experiment": true})),
+            ),
+            0x3e37_1bcf_8d31_4c14
+        );
+
+        // The all-absent shape, which exercises the other marker byte.
+        assert_eq!(
+            fingerprint(ShadowIssueType::MissingEvaluationMetadata, None, None, None),
+            0xdcb8_1973_c8ce_a9d4
+        );
+    }
+
     fn mismatch_diffs() -> Vec<ShadowDiff> {
         let built = wrapper(vec![flag_from_json(base_flag_json(1))]);
         let mut cached_json = base_flag_json(1);
