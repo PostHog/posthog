@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -8,6 +9,11 @@ pub struct LatencyRecorder {
     histogram: Mutex<Histogram<u64>>,
     successes: AtomicU64,
     failures: AtomicU64,
+    /// Refusals the stack is required to give: writes to a person a
+    /// lifecycle op has fenced or already destroyed. Counted apart from
+    /// failures so a merge run's expected rejections do not read as a
+    /// broken stack.
+    lifecycle_rejections: AtomicU64,
     start_time: Instant,
 }
 
@@ -17,6 +23,7 @@ impl LatencyRecorder {
             histogram: Mutex::new(Histogram::new_with_max(60_000_000, 3).unwrap()),
             successes: AtomicU64::new(0),
             failures: AtomicU64::new(0),
+            lifecycle_rejections: AtomicU64::new(0),
             start_time: Instant::now(),
         }
     }
@@ -33,11 +40,16 @@ impl LatencyRecorder {
         self.failures.fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn record_lifecycle_rejection(&self) {
+        self.lifecycle_rejections.fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn snapshot(&self) -> StatsSnapshot {
         let h = self.histogram.lock().unwrap();
         let successes = self.successes.load(Ordering::Relaxed);
         let failures = self.failures.load(Ordering::Relaxed);
-        let total = successes + failures;
+        let lifecycle_rejections = self.lifecycle_rejections.load(Ordering::Relaxed);
+        let total = successes + failures + lifecycle_rejections;
         let elapsed = self.start_time.elapsed();
         let throughput_rps = if elapsed.as_secs_f64() > 0.0 {
             total as f64 / elapsed.as_secs_f64()
@@ -49,6 +61,7 @@ impl LatencyRecorder {
             total,
             successes,
             failures,
+            lifecycle_rejections,
             p50_us: h.value_at_quantile(0.50),
             p95_us: h.value_at_quantile(0.95),
             p99_us: h.value_at_quantile(0.99),
@@ -62,6 +75,7 @@ pub struct StatsSnapshot {
     pub total: u64,
     pub successes: u64,
     pub failures: u64,
+    pub lifecycle_rejections: u64,
     pub p50_us: u64,
     pub p95_us: u64,
     pub p99_us: u64,
@@ -72,6 +86,14 @@ pub struct StatsSnapshot {
 pub struct StatsCollector {
     pub writes: LatencyRecorder,
     pub reads: LatencyRecorder,
+    /// MergePersons calls: one call is one saga (or one inline
+    /// settlement), so its latency is the end-to-end merge cost.
+    pub merges: LatencyRecorder,
+    /// Merge calls involving a fat person (many distinct ids), kept
+    /// apart so the pathological cost does not hide in the median.
+    pub fat_merges: LatencyRecorder,
+    /// Per-source merge outcomes, by the wire outcome's name.
+    merge_outcomes: Mutex<BTreeMap<&'static str, u64>>,
 }
 
 impl StatsCollector {
@@ -79,6 +101,22 @@ impl StatsCollector {
         Self {
             writes: LatencyRecorder::new(),
             reads: LatencyRecorder::new(),
+            merges: LatencyRecorder::new(),
+            fat_merges: LatencyRecorder::new(),
+            merge_outcomes: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    pub fn record_merge_outcome(&self, outcome: &'static str) {
+        if let Ok(mut outcomes) = self.merge_outcomes.lock() {
+            *outcomes.entry(outcome).or_default() += 1;
+        }
+    }
+
+    pub fn merge_outcomes(&self) -> BTreeMap<&'static str, u64> {
+        self.merge_outcomes
+            .lock()
+            .map(|outcomes| outcomes.clone())
+            .unwrap_or_default()
     }
 }

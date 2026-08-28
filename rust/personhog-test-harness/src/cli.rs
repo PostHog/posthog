@@ -333,6 +333,51 @@ pub struct GateArgs {
     #[arg(long)]
     pub external_identity_url: Option<String>,
 
+    /// Concurrent merge workers running alongside the blast traffic and
+    /// probers: each repeatedly picks two live persons and merges one
+    /// into the other through MergePersons on the identity service, so
+    /// every merged pair runs the durable saga under concurrent writes
+    /// to both. Merged sources are retired from the traffic pool; their
+    /// acked writes are asserted on the survivor, and their rows must
+    /// end as tombstones above every acked version. Implies
+    /// --create-via-identity (persons need distinct ids). 0 disables.
+    #[arg(long, default_value_t = 0)]
+    pub merge_concurrency: usize,
+
+    /// Combined merge rate across the merge workers (merges/second).
+    /// Unset runs them flat out — the throughput ceiling — at the cost of
+    /// draining the pool fast: every merge retires one person, so size
+    /// --persons for rate × duration.
+    #[arg(long)]
+    pub merge_rate: Option<f64>,
+
+    /// Persons created with --merge-fat-distinct-ids extra distinct ids
+    /// each, on top of --persons. The merge lane pairs them per
+    /// --merge-fat-role, so the pathological merges — a source whose
+    /// every mapping the flip must repoint — get their own latency row
+    /// (`merges_fat`). Requires --merge-concurrency.
+    #[arg(long, default_value_t = 0)]
+    pub merge_fat_persons: u32,
+
+    /// Extra distinct ids per fat person (the identity service caps a
+    /// create entry at 5000).
+    #[arg(long, default_value_t = 1000)]
+    pub merge_fat_distinct_ids: u32,
+
+    /// Which side of a merge the fat persons take: `source` (every
+    /// mapping repoints — the expensive flip), `target` (the survivor
+    /// is fat; the flip is cheap but the survivor keeps growing), or
+    /// `both` (fat into fat).
+    #[arg(long, default_value = "source", value_parser = ["source", "target", "both"])]
+    pub merge_fat_role: String,
+
+    /// Merge identified sources ($merge_dangerously semantics). A
+    /// survivor becomes identified, so with this off it can never be a
+    /// source again and the lane degrades to skipped_already_identified
+    /// once every live person has survived a merge.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub merge_identified_sources: bool,
+
     /// Leave the spawned stack running after the gate finishes (for
     /// poking at it manually). Ignored with --external-router-url.
     #[arg(long, default_value_t = false)]
