@@ -54,11 +54,11 @@ Clients registered directly against a region keep their own `redirect_uri` and f
 
 ## KV keys
 
-| Key                 | TTL    | Value                                                       |
-| ------------------- | ------ | ----------------------------------------------------------- |
+| Key                 | TTL    | Value                                                           |
+| ------------------- | ------ | --------------------------------------------------------------- |
 | `client:<proxy_id>` | none   | US and EU `client_id`s, secrets, and registered `redirect_uris` |
-| `region:<sha256>`   | 1 hour | `us` or `eu`, stored under both `state` and `client_id`     |
-| `callback:<sha256>` | 1 hour | The client's original `redirect_uri`                        |
+| `region:<sha256>`   | 1 hour | `us` or `eu`, stored under both `state` and `client_id`         |
+| `callback:<sha256>` | 1 hour | The client's original `redirect_uri`                            |
 
 Key material is SHA-256 hashed because `state` is opaque and can exceed Cloudflare's 512 byte key limit.
 
