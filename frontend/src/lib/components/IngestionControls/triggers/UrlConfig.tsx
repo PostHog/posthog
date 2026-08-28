@@ -83,7 +83,7 @@ export function UrlConfig({
                 />
             )}
 
-            {!props.isAddFormVisible && props.config && props.config.length > 0 && (
+            {props.config && props.config.length > 0 && (
                 <div className="border rounded p-3 bg-surface-primary">
                     <LemonLabel className="text-sm font-medium mb-2 block">
                         Test a URL against these patterns:
