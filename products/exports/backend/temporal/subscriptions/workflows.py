@@ -597,9 +597,15 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
-                except Exception as e:
-                    _record_subscription_failure(inputs.slo, SubscriptionFailureStage.SCHEDULE_UPDATE, e)
-                    raise
+                except Exception as schedule_error:
+                    temporalio.workflow.logger.exception(
+                        "advance_next_delivery_date failed (schedule update is best-effort when a prior error exists)"
+                    )
+                    if caught_error is None:
+                        _record_subscription_failure(
+                            inputs.slo, SubscriptionFailureStage.SCHEDULE_UPDATE, schedule_error
+                        )
+                        raise
 
             # Enrich SLO event with per-insight detail (non-user errors only).
             if inputs.slo:
@@ -817,9 +823,15 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
-                except Exception as e:
-                    _record_subscription_failure(inputs.slo, SubscriptionFailureStage.SCHEDULE_UPDATE, e)
-                    raise
+                except Exception as schedule_error:
+                    temporalio.workflow.logger.exception(
+                        "advance_next_delivery_date failed (schedule update is best-effort when a prior error exists)"
+                    )
+                    if caught_error is None:
+                        _record_subscription_failure(
+                            inputs.slo, SubscriptionFailureStage.SCHEDULE_UPDATE, schedule_error
+                        )
+                        raise
 
             # Auto-disable aborts (consent revoked / prompt invalid) return normally rather
             # than raising, so they record delivery status FAILED but keep the SLO outcome
