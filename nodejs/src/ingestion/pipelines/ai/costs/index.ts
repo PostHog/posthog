@@ -96,20 +96,26 @@ const hasAnyTokenCount = (properties: Properties): boolean => {
 }
 
 const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): void => {
-    // A rate multiplied by no usage is 0, which reads as "this call was free"
-    // rather than "we never learned what this call used". The two are different
-    // facts, and only one of them is true here — an aborted stream is billed for
-    // the tokens it consumed, we just never received the count. Leave the cost
-    // properties unset so downstream can say it does not know.
-    if (!hasAnyTokenCount(event.properties)) {
+    // Neither of these reads a token count. A per-request charge bills for the
+    // call itself, and a web search charge bills a count the provider reported,
+    // so both stay known when the token counts are not.
+    const requestCost = calculateRequestCost(event, cost)
+    const webSearchCost = calculateWebSearchCost(event, cost)
+    const hasNonTokenCost = parseFloat(requestCost) > 0 || parseFloat(webSearchCost) > 0
+
+    // A token rate multiplied by no usage is 0, which reads as "this call was
+    // free" rather than "we never learned what this call used". The two are
+    // different facts, and only one of them is true for an aborted stream: it is
+    // billed for the tokens it consumed, we just never received the count. Leave
+    // the costs unset so downstream can say it does not know — but only when
+    // nothing at all priced this call.
+    if (!hasAnyTokenCount(event.properties) && !hasNonTokenCost) {
         aiCostTotalOutcomeCounter.labels({ outcome: 'unknown' }).inc()
         return
     }
 
     const inputCost = calculateInputCost(event, cost)
     const outputCost = calculateOutputCost(event, cost)
-    const requestCost = calculateRequestCost(event, cost)
-    const webSearchCost = calculateWebSearchCost(event, cost)
 
     setPropertyIfValidOrMissing(event.properties, '$ai_input_cost_usd', parseFloat(inputCost))
     setPropertyIfValidOrMissing(event.properties, '$ai_output_cost_usd', parseFloat(outputCost))

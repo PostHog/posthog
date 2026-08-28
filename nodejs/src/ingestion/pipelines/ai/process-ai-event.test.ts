@@ -499,6 +499,34 @@ describe('processAiEvent()', () => {
 
             expect(result.properties!.$ai_total_cost_usd).toBeGreaterThan(0)
         })
+
+        // Request and web search charges are computed without reading a token
+        // count, so absent token counts must not discard a cost we do know.
+        it.each([
+            {
+                charge: 'per-request',
+                model: 'model-with-request-only',
+                provider: 'custom',
+                extra: {},
+                costProperty: '$ai_request_cost_usd',
+            },
+            {
+                charge: 'web search',
+                model: 'perplexity/sonar-pro',
+                provider: 'perplexity',
+                extra: { $ai_web_search_count: 3 },
+                costProperty: '$ai_web_search_cost_usd',
+            },
+        ])('prices a $charge charge when token counts are absent', ({ model, provider, extra, costProperty }) => {
+            delete event.properties!.$ai_input_tokens
+            delete event.properties!.$ai_output_tokens
+            Object.assign(event.properties!, { $ai_model: model, $ai_provider: provider }, extra)
+
+            const result = processAiEvent(event)
+
+            expect(result.properties![costProperty]).toBeGreaterThan(0)
+            expect(result.properties!.$ai_total_cost_usd).toBeGreaterThan(0)
+        })
     })
 
     describe('provider handling', () => {
