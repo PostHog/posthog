@@ -1,8 +1,10 @@
 import abc
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from functools import partial
 
 from django.conf import settings
 from django.db.models import Q
@@ -842,6 +844,38 @@ def _delete_predicate_params(
     }
 
 
+def _rows_from_any_host(cluster: ClickhouseCluster, query: Query) -> list:
+    return [cluster.any_host_by_role(query, NodeRole.DATA).result()]
+
+
+def _rows_per_shard(cluster: ClickhouseCluster, query: Query) -> list:
+    return list(cluster.map_one_host_per_shard(query).result().values())
+
+
+def _count_through(
+    context: dagster.OpExecutionContext,
+    runner: Callable[[Query], list],
+    table: str,
+    params: dict[str, str | int],
+    max_execution_time: int,
+) -> int | None:
+    """Survivors on ``table``, or None when the count could not be taken.
+
+    None is deliberately not zero: a count that errored or ran out of time says nothing about
+    whether rows remain, and reporting it as clean is the mistake worth avoiding here.
+    """
+    query = Query(
+        surviving_rows_sql(table, _DELETE_PREDICATE),
+        params,
+        settings={"max_execution_time": str(max_execution_time)},
+    )
+    try:
+        return sum(int(rows[0][0]) if rows else 0 for rows in runner(query))
+    except Exception as e:
+        context.log.warning(f"Could not count what survived the sweep in {table}: {e}")
+        return None
+
+
 def _count_unswept_rows(
     context: dagster.OpExecutionContext,
     cluster: ClickhouseCluster,
@@ -851,32 +885,39 @@ def _count_unswept_rows(
 ) -> dict[str, int | None]:
     """Count rows this run was supposed to remove and that are still readable, per table.
 
-    Counts through the Distributed proxies, so it also covers rows no mutation reached: a shard the
-    handle does not enumerate, or a storage table on another cluster. ``None`` means the count did
-    not finish, which is reported as unknown rather than as zero.
+    Two counts, because neither alone is trustworthy.
 
-    Proving zero survivors is a full scan of the events tables, so the count is bounded rather than
-    left to run for as long as it takes.
+    The Distributed proxy sees rows no mutation reached, including a shard this handle does not
+    enumerate. But it only reads the cluster its engine names, and this repo builds the events_json
+    proxy against CLICKHOUSE_CLUSTER, so on a deployment whose storage moved elsewhere the proxy
+    can read an empty table and report a clean sweep.
+
+    So a target stored on another cluster is also counted on its storage table, through the handle
+    that holds it. That answers "did the mutation we dispatched actually remove these" without
+    depending on how the proxy is defined. Targets on the job's own cluster skip it, since there
+    the proxy already names the cluster the rows are on.
+
+    Proving zero survivors is a full scan of the events tables, so each count is bounded rather
+    than left to run for as long as it takes.
     """
     params = _delete_predicate_params(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
     counts: dict[str, int | None] = {}
     for placement in resolve_placements(cluster):
-        table = placement.target.read_table
-        query = Query(
-            surviving_rows_sql(table, _DELETE_PREDICATE),
+        counts[placement.target.read_table] = _count_through(
+            context,
+            partial(_rows_from_any_host, cluster),
+            placement.target.read_table,
             params,
-            settings={"max_execution_time": str(max_execution_time)},
+            max_execution_time,
         )
-        try:
-            # The job's own handle, not placement.cluster: `table` is the Distributed proxy, which
-            # routes to whichever cluster its engine names. That is what lets one query see rows on
-            # a cluster this handle cannot dispatch a mutation to, which is the whole point of
-            # counting here rather than on the storage tables.
-            rows = cluster.any_host_by_role(query, NodeRole.DATA).result()
-            counts[table] = int(rows[0][0]) if rows else 0
-        except Exception as e:
-            context.log.warning(f"Could not count what survived the sweep in {table}: {e}")
-            counts[table] = None
+        if placement.cluster is not cluster:
+            counts[placement.target.data_table] = _count_through(
+                context,
+                partial(_rows_per_shard, placement.cluster),
+                placement.target.data_table,
+                params,
+                max_execution_time,
+            )
     return counts
 
 
