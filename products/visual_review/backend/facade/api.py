@@ -695,6 +695,7 @@ def _to_quarantined_entry(
         identifier=q.identifier,
         run_type=q.run_type,
         reason=q.reason,
+        source=q.source,
         expires_at=q.expires_at,
         created_at=q.created_at,
         updated_at=q.updated_at,
@@ -710,6 +711,7 @@ def _to_baseline_quarantine_summary(
     return contracts.BaselineQuarantineSummary(
         id=q.id,
         reason=q.reason,
+        source=q.source,
         expires_at=q.expires_at,
         created_at=q.created_at,
         created_by=created_by,

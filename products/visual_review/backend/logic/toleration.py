@@ -57,6 +57,10 @@ def mark_snapshot_as_tolerated(
             "created_by_id": user_id,
             "diff_percentage": snapshot.diff_percentage,
             "expires_at": None,
+            # created_at is auto_now_add, so it only fills on insert and a revived row
+            # would keep the old date. The tolerate windows in baseline_overview select
+            # on it, so today's decision would land outside them and read as history.
+            "created_at": timezone.now(),
         },
     )
 
