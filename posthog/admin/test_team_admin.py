@@ -717,8 +717,9 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         assert 'nonce="test-nonce-value"' in html
 
     def test_recompute_creates_a_missing_workflows_config(self) -> None:
-        # A team that only sent through the API can have no config row, and the sweep skips a rowless
-        # team, so the recompute action must create the row before it runs.
+        # A team that predates the extension signal can have no config row, and the sweep skips a
+        # rowless team, so the recompute action must create the row before it runs.
+        TeamWorkflowsConfig.objects.filter(team_id=self.team.pk).delete()
         assert self._config() is None
         with patch(
             "posthog.admin.admins.team_admin.recompute_email_sending_tier_for_team", return_value=None
