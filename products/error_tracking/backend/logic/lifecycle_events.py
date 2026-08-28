@@ -70,9 +70,11 @@ def _current_assignee_property(issue: ErrorTrackingIssue) -> Optional[str]:
 
 
 def _issue_fingerprint_for_links(issue: ErrorTrackingIssue) -> Optional[str]:
-    # Legacy destination templates deep-link issues through the fingerprint
-    # redirect page, which resolves to the fingerprint's current owner. Any
-    # attached fingerprint works; the ordering only keeps the pick deterministic.
+    # Existing Error Tracking destination templates expect `fingerprint`. Manual
+    # transitions have no triggering exception, so include one currently attached
+    # fingerprint for compatibility. Fingerprint routes follow current ownership
+    # after merges/splits; `distinct_id` identifies the issue that emitted the
+    # event. The ordering only keeps the pick deterministic.
     return (
         ErrorTrackingIssueFingerprintV2.objects.filter(team_id=issue.team_id, issue_id=issue.id)
         .order_by("first_seen", "id")
