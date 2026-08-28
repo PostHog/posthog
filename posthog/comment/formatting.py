@@ -3,7 +3,7 @@
 import re
 import html as html_mod
 import unicodedata
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
@@ -918,6 +918,32 @@ def _escape_html(text: str) -> str:
     return html_mod.escape(text)
 
 
+# Schemes a mail client must never be handed as a clickable link. Anything else — including a
+# relative path pasted from the app — stays as written, so a working link is not lost.
+_UNSAFE_HTML_URL_SCHEMES = ("javascript", "data", "vbscript", "file")
+
+
+def _is_safe_html_url(href: str) -> bool:
+    try:
+        scheme = urlparse(href.strip()).scheme.lower()
+    except ValueError:
+        return False
+    return scheme not in _UNSAFE_HTML_URL_SCHEMES
+
+
+def _serialize_mention_to_html(node: JSON, mention_labels: Mapping[int, str] | None) -> str:
+    """
+    A mention carries only the mentioned user's id, so the display name has to be supplied by the
+    caller. Without a label the node would serialize to nothing and drop a word from the sentence.
+    """
+    attrs = node.get("attrs") or {}
+    label = attrs.get("label")
+    user_id = attrs.get("id")
+    if not label and mention_labels and isinstance(user_id, int):
+        label = mention_labels.get(user_id)
+    return f"<strong>@{_escape_html(str(label))}</strong>" if label else "<strong>@member</strong>"
+
+
 def _serialize_text_node_to_html(node: JSON) -> str:
     text = node.get("text", "")
     if not text:
@@ -942,18 +968,20 @@ def _serialize_text_node_to_html(node: JSON) -> str:
         elif mark_type == "link":
             link_href = mark.get("attrs", {}).get("href")
 
-    if link_href:
+    if link_href and _is_safe_html_url(link_href):
         escaped = f'<a href="{_escape_html(link_href)}">{escaped}</a>'
 
     return escaped
 
 
-def _serialize_inline_nodes_to_html(nodes: list[JSON]) -> str:
+def _serialize_inline_nodes_to_html(nodes: list[JSON], mention_labels: Mapping[int, str] | None = None) -> str:
     chunks: list[str] = []
     for node in nodes:
         node_type = node.get("type")
         if node_type == "text":
             chunks.append(_serialize_text_node_to_html(node))
+        elif node_type == "ph-mention":
+            chunks.append(_serialize_mention_to_html(node, mention_labels))
         elif node_type == "hardBreak":
             chunks.append("<br>")
         elif node_type == "image":
@@ -964,24 +992,24 @@ def _serialize_inline_nodes_to_html(nodes: list[JSON]) -> str:
     return "".join(chunks)
 
 
-def _serialize_block_node_to_html(node: JSON) -> str:
+def _serialize_block_node_to_html(node: JSON, mention_labels: Mapping[int, str] | None = None) -> str:
     """Serialize a single non-list block node to email-safe HTML. Lists are handled by
     _serialize_list_to_html."""
     node_type = node.get("type")
 
     if node_type == "paragraph":
-        return f"<p>{_serialize_inline_nodes_to_html(node.get('content', []))}</p>"
+        return f"<p>{_serialize_inline_nodes_to_html(node.get('content', []), mention_labels)}</p>"
 
     if node_type == "blockquote":
         inner_blocks: list[str] = []
         for child in node.get("content", []):
             child_type = child.get("type")
             if child_type in ("bulletList", "orderedList"):
-                inner_blocks.append(_serialize_list_to_html(child, child_type == "orderedList"))
+                inner_blocks.append(_serialize_list_to_html(child, child_type == "orderedList", mention_labels))
             elif child_type == "paragraph":
-                inner_blocks.append(_serialize_inline_nodes_to_html(child.get("content", [])))
+                inner_blocks.append(_serialize_inline_nodes_to_html(child.get("content", []), mention_labels))
             else:
-                inner_blocks.append(_serialize_block_node_to_html(child))
+                inner_blocks.append(_serialize_block_node_to_html(child, mention_labels))
         return f"<blockquote>{'<br>'.join(inner_blocks)}</blockquote>"
 
     if node_type == "heading":
@@ -990,13 +1018,13 @@ def _serialize_block_node_to_html(node: JSON) -> str:
             level = min(max(int(attrs.get("level") or 1), 1), 6)
         except (TypeError, ValueError):
             level = 1
-        return f"<h{level}>{_serialize_inline_nodes_to_html(node.get('content', []))}</h{level}>"
+        return f"<h{level}>{_serialize_inline_nodes_to_html(node.get('content', []), mention_labels)}</h{level}>"
 
     if node_type == "horizontalRule":
         return "<hr>"
 
     if node_type == "codeBlock":
-        return f"<pre><code>{_serialize_inline_nodes_to_html(node.get('content', []))}</code></pre>"
+        return f"<pre><code>{_serialize_inline_nodes_to_html(node.get('content', []), mention_labels)}</code></pre>"
 
     if node_type == "image":
         src = node.get("attrs", {}).get("src", "")
@@ -1006,14 +1034,14 @@ def _serialize_block_node_to_html(node: JSON) -> str:
         return ""
 
     if node.get("content"):
-        inner = _serialize_inline_nodes_to_html(node.get("content", []))
+        inner = _serialize_inline_nodes_to_html(node.get("content", []), mention_labels)
         if inner:
             return f"<p>{inner}</p>"
 
     return ""
 
 
-def _serialize_list_to_html(node: JSON, ordered: bool) -> str:
+def _serialize_list_to_html(node: JSON, ordered: bool, mention_labels: Mapping[int, str] | None = None) -> str:
     items: list[str] = []
     for item in node.get("content", []):
         if item.get("type") != "listItem":
@@ -1022,11 +1050,11 @@ def _serialize_list_to_html(node: JSON, ordered: bool) -> str:
         for child in item.get("content", []):
             child_type = child.get("type")
             if child_type == "paragraph":
-                inner_parts.append(_serialize_inline_nodes_to_html(child.get("content", [])))
+                inner_parts.append(_serialize_inline_nodes_to_html(child.get("content", []), mention_labels))
             elif child_type in ("bulletList", "orderedList"):
-                inner_parts.append(_serialize_list_to_html(child, child_type == "orderedList"))
+                inner_parts.append(_serialize_list_to_html(child, child_type == "orderedList", mention_labels))
             else:
-                inner_parts.append(_serialize_block_node_to_html(child))
+                inner_parts.append(_serialize_block_node_to_html(child, mention_labels))
         items.append(f"<li>{''.join(inner_parts)}</li>")
     if not ordered:
         return f"<ul>{''.join(items)}</ul>"
@@ -1035,8 +1063,12 @@ def _serialize_list_to_html(node: JSON, ordered: bool) -> str:
     return f"<ol{start_attr}>{''.join(items)}</ol>"
 
 
-def rich_content_to_html(rich_content: JSON | None) -> str:
-    """Serialize PostHog rich content JSON to email-safe HTML."""
+def rich_content_to_html_fragment(rich_content: JSON | None, mention_labels: Mapping[int, str] | None = None) -> str:
+    """
+    Serialize PostHog rich content JSON to an email-safe HTML fragment, for embedding in a
+    template that already provides the surrounding document. `mention_labels` maps a mentioned
+    user's id to the name to show — see _serialize_mention_to_html.
+    """
     if not rich_content or rich_content.get("type") != "doc":
         return ""
 
@@ -1045,14 +1077,22 @@ def rich_content_to_html(rich_content: JSON | None) -> str:
         node_type = node.get("type")
 
         if node_type in ("bulletList", "orderedList"):
-            blocks.append(_serialize_list_to_html(node, node_type == "orderedList"))
+            blocks.append(_serialize_list_to_html(node, node_type == "orderedList", mention_labels))
             continue
 
-        html = _serialize_block_node_to_html(node)
+        html = _serialize_block_node_to_html(node, mention_labels)
         if html:
             blocks.append(html)
 
-    body = "\n".join(blocks)
+    return "\n".join(blocks)
+
+
+def rich_content_to_html(rich_content: JSON | None, mention_labels: Mapping[int, str] | None = None) -> str:
+    """Serialize PostHog rich content JSON to a standalone email-safe HTML document."""
+    if not rich_content or rich_content.get("type") != "doc":
+        return ""
+
+    body = rich_content_to_html_fragment(rich_content, mention_labels)
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>

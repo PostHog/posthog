@@ -5,9 +5,9 @@
 <p>
     <b>{{ commenter.first_name }}</b> mentioned you in a comment in the project <b>{{ team.name }}</b>.
 </p>
-<p>
-    {{ content }}
-</p>
+<div class="quoted-body">
+    {{ content_html|safe }}
+</div>
 <div class="mb mt text-center">
     <a class="button" href="{{ href }}">Reply to comment</a>
 </div>

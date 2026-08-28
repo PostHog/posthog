@@ -11,6 +11,7 @@ from posthog.comment.formatting import (
     extract_images_from_rich_content,
     extract_slack_user_ids,
     rich_content_to_html,
+    rich_content_to_html_fragment,
     rich_content_to_markdown,
     rich_content_to_slack_payload,
     slack_to_content_and_rich_content,
@@ -778,6 +779,38 @@ class TestRichContentBlockNodes(SimpleTestCase):
         assert '<ol start="2"><li>parent<ul><li>child</li></ul></li></ol>' in html
         assert "<hr>" in html
         assert "<s>gone</s>" in html
+
+    @parameterized.expand(
+        [
+            (
+                "mention_with_a_known_label",
+                {"type": "ph-mention", "attrs": {"id": 7}},
+                "<p><strong>@Kyle</strong></p>",
+            ),
+            (
+                "mention_without_a_known_label",
+                {"type": "ph-mention", "attrs": {"id": 99}},
+                "<p><strong>@member</strong></p>",
+            ),
+            (
+                "link",
+                {"type": "text", "text": "docs", "marks": [{"type": "link", "attrs": {"href": "/docs"}}]},
+                '<p><a href="/docs">docs</a></p>',
+            ),
+            (
+                "link_with_an_unsafe_scheme",
+                {
+                    "type": "text",
+                    "text": "click me",
+                    "marks": [{"type": "link", "attrs": {"href": "javascript:alert(1)"}}],
+                },
+                "<p>click me</p>",
+            ),
+        ]
+    )
+    def test_rich_content_to_html_fragment_serializes_inline_nodes(self, _name: str, node: dict, expected: str) -> None:
+        doc = {"type": "doc", "content": [{"type": "paragraph", "content": [node]}]}
+        assert rich_content_to_html_fragment(doc, {7: "Kyle"}) == expected
 
     def test_rich_content_to_html_renders_unknown_block_inline_content_as_paragraph(self) -> None:
         doc = {
