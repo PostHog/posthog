@@ -465,9 +465,12 @@ const STORE_TIMEOUT: Duration = Duration::from_millis(500);
 /// you what you needed to know. The confirmed log line is capped for the same
 /// reason.
 ///
-/// `diff_live_entry` returns its diffs in a stable order, so the same
-/// disagreement keeps the same place in the set and a truncated set still
-/// confirms. A cap over an unordered set would silently never confirm.
+/// The cap takes the first entries of `diff_live_entry`'s stable order, so a given
+/// disagreement either fits on every build or on none, which makes its
+/// confirmation deterministic. An unstable subset would leave the aggregate
+/// confirmed count about the same, because the next build compares every diff it
+/// finds against whatever was stored, but a specific flag would then confirm on
+/// some builds and not others.
 const MAX_STORED_FINGERPRINTS: usize = 256;
 
 /// Bound one tracker call and report an elapsed timer as the client's own timeout
@@ -1003,6 +1006,18 @@ mod tests {
     const TRACKER_TTL: Duration = Duration::from_secs(3600);
     const PENDING_KEY_TEAM_7: &str = "posthog:1:feature_flags/shadow_mismatch/7";
 
+    /// One disagreement per flag, for a flag count the caller picks. Used to cross
+    /// the store cap.
+    fn many_mismatch_diffs(count: i32) -> Vec<ShadowDiff> {
+        let built = (1..=count).map(|id| flag_from_json(base_flag_json(id)));
+        let cached = (1..=count).map(|id| {
+            let mut cached_json = base_flag_json(id);
+            cached_json["has_experiment"] = json!(true);
+            flag_from_json(cached_json)
+        });
+        diff_live_entry(&wrapper(built.collect()), &live(cached.collect()))
+    }
+
     /// A disagreement on the same flag with different content, so the fingerprint
     /// differs from `mismatch_diffs`.
     fn other_mismatch_diffs() -> Vec<ShadowDiff> {
@@ -1025,6 +1040,10 @@ mod tests {
     /// It replays *attempted* writes. The mock records a call whether or not it
     /// returned an error, so a test that injects a write failure must build the
     /// next store itself rather than call this.
+    ///
+    /// `shadow_observation` in `bin/flags_cache_builder.rs` models the same thing
+    /// inline for the outcome-label test. A change to what the mock records has to
+    /// reach both.
     fn next_build(prior: &MockRedisClient) -> MockRedisClient {
         let mut next = MockRedisClient::new();
         for call in prior.get_calls() {
@@ -1182,6 +1201,66 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![PENDING_KEY_TEAM_7]
         );
+    }
+
+    #[tokio::test]
+    async fn tracker_write_and_clear_failure_leaves_the_stale_observation() {
+        // Both accesses failing is the residual `observe` documents: the previous
+        // fingerprints stand until the TTL, so a disagreement that returns byte for
+        // byte can confirm one build early. The counter pair is the only signal.
+        let mut second_pod = next_build(&{
+            let first_pod = MockRedisClient::new();
+            tracker(&first_pod).observe(7, mismatch_diffs()).await;
+            first_pod
+        });
+        second_pod.set_ret(PENDING_KEY_TEAM_7, Err(CustomRedisError::Timeout));
+        second_pod.del_ret(PENDING_KEY_TEAM_7, Err(CustomRedisError::Timeout));
+
+        let second = tracker(&second_pod)
+            .observe(7, other_mismatch_diffs())
+            .await;
+        assert_eq!(
+            second.store_errors,
+            vec![TrackerStoreOp::Write, TrackerStoreOp::Clear]
+        );
+        assert!(second.confirmed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn tracker_unreadable_stored_value_is_reported_not_ignored() {
+        // A stored value this build cannot parse counts as a read failure rather
+        // than an absent key, so a value shape that changed across deploys shows on
+        // the counter instead of looking like an expired window.
+        let mut redis = MockRedisClient::new();
+        redis.get_ret(PENDING_KEY_TEAM_7, Ok("not json".to_string()));
+
+        let observation = tracker(&redis).observe(7, mismatch_diffs()).await;
+        assert!(observation.confirmed.is_empty());
+        assert_eq!(observation.first_sight.len(), 1);
+        assert_eq!(observation.store_errors, vec![TrackerStoreOp::Read]);
+    }
+
+    #[tokio::test]
+    async fn tracker_confirms_the_diffs_that_fit_the_stored_cap() {
+        let over_cap = MAX_STORED_FINGERPRINTS as i32 + 20;
+        let first_pod = MockRedisClient::new();
+        let first = tracker(&first_pod)
+            .observe(7, many_mismatch_diffs(over_cap))
+            .await;
+        assert_eq!(first.first_sight.len(), over_cap as usize);
+
+        let second_pod = next_build(&first_pod);
+        let second = tracker(&second_pod)
+            .observe(7, many_mismatch_diffs(over_cap))
+            .await;
+
+        // Pins the cap, and that a diff inside it confirms. It does not pin which
+        // diffs are stored: the next build compares all of its diffs against the
+        // stored set, so any 256 of them produce 256 confirmations. Taking the
+        // first entries of a stable order is what makes one flag's disagreement
+        // confirm on every build rather than on some.
+        assert_eq!(second.confirmed.len(), MAX_STORED_FINGERPRINTS);
+        assert_eq!(second.first_sight.len(), 20);
     }
 
     #[tokio::test]

@@ -1233,6 +1233,9 @@ mod tests {
     /// observation has to read what the first wrote. `MockRedisClient` records
     /// writes but serves no reads, so the recorded write is replayed into the
     /// client the second observation reads from.
+    ///
+    /// `next_build` in `flags::cache_shadow`'s tests does the same replay for the
+    /// tracker's own tests. A change to what the mock records has to reach both.
     async fn shadow_observation(
         confirmed: bool,
     ) -> feature_flags::flags::cache_shadow::ShadowObservation {
