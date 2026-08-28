@@ -3,20 +3,23 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
-from ..facade.enums import SubjectType
+from ..facade.enums import SubjectRelation, SubjectType
 
 
 class DataQualityCheckRunSubject(TeamScopedRootMixin, UUIDModel):
-    """One subject a run read besides its own, as its own row.
+    """One subject a run touched, as its own row: its declared subject and each one it read besides it.
 
-    The same identities ``DataQualityCheckRun.referenced_subjects`` records, indexed. Authorizing a
-    page of history asks two questions -- which subjects the team's runs have read, and which runs
-    read a given one -- and both are aggregations over a JSONB column that no index can serve, run
-    before the check-runs window and before suite pagination.
+    Authorizing a page of history asks which subjects the team's runs have touched and which runs
+    touched a given one. Answered over ``DataQualityCheckRun`` those are aggregations over columns no
+    index can serve, run before the check-runs window and before suite pagination. These rows index
+    them: ``relation`` separates the run's own declared subject from the referenced ones, and the
+    composite index lists either universe without scanning history.
 
-    The JSON column stays authoritative: only it separates "read nothing beyond its subject" from
-    "recorded before runs pinned this", and the gate turns on that difference. These rows are an
-    index over it, never a second source of truth.
+    A ``declared`` row carries ``subject_name`` so a subject that no longer resolves can still be
+    judged by the name it ran under; a ``referenced`` row stays identity-only, since names cannot
+    carry that decision. ``DataQualityCheckRun.referenced_subjects`` stays authoritative for the
+    referenced side: only it separates "read nothing beyond its subject" from "recorded before runs
+    pinned this".
     """
 
     # db_index=False on both FKs: the composite index leads with team, and the unique constraint
@@ -31,14 +34,18 @@ class DataQualityCheckRunSubject(TeamScopedRootMixin, UUIDModel):
         db_index=False,
     )
 
+    relation = models.CharField(max_length=16, choices=[(r.value, r.value) for r in SubjectRelation])
     subject_type = models.CharField(max_length=32, choices=[(t.value, t.value) for t in SubjectType])
     subject_uuid = models.UUIDField()
+    subject_name = models.CharField(max_length=400, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=["team", "subject_type", "subject_uuid"])]
+        indexes = [models.Index(fields=["team", "relation", "subject_type", "subject_uuid", "subject_name"])]
         constraints = [
-            models.UniqueConstraint(fields=["run", "subject_type", "subject_uuid"], name="unique_run_subject")
+            models.UniqueConstraint(
+                fields=["run", "relation", "subject_type", "subject_uuid"], name="unique_run_subject"
+            )
         ]
 
     def __str__(self) -> str:
-        return f"{self.subject_type} {self.subject_uuid} read by run {self.run_id}"
+        return f"{self.relation} {self.subject_type} {self.subject_uuid} on run {self.run_id}"

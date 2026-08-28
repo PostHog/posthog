@@ -14,6 +14,7 @@ from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
     CheckSeverity,
     CheckType,
+    SubjectRelation,
     SubjectStatus,
     SubjectType,
     SuiteRunTrigger,
@@ -304,9 +305,13 @@ class TestCheckRunner(BaseTest):
 
         run = DataQualityCheckRun.objects.for_team(self.team.id).get(quality_check=check)
         assert run.referenced_subjects == [{"subject_type": SubjectType.VIEW, "subject_uuid": str(target.id)}]
-        # Indexed alongside the run, since the history gates read the rows rather than the column.
-        indexed = DataQualityCheckRunSubject.objects.for_team(self.team.id).filter(run=run)
-        assert [(row.subject_type, str(row.subject_uuid)) for row in indexed] == [(SubjectType.VIEW, str(target.id))]
+        # Stamped alongside the run, since the history gates probe the rows rather than the column:
+        # the run's own declared subject beside the one it read.
+        stamps = DataQualityCheckRunSubject.objects.for_team(self.team.id).filter(run=run)
+        assert {(row.relation, str(row.subject_uuid)) for row in stamps} == {
+            (SubjectRelation.DECLARED, str(self.view.id)),
+            (SubjectRelation.REFERENCED, str(target.id)),
+        }
 
     def test_recording_dedupes_a_subject_pinned_under_two_names(self) -> None:
         # A query can name one object two ways (a dotted "stripe.charges" and the "stripe_charges"
@@ -328,8 +333,12 @@ class TestCheckRunner(BaseTest):
             status=CheckRunStatus.PASSED,
         )
 
-        indexed = DataQualityCheckRunSubject.objects.for_team(self.team.id).filter(run=run)
-        assert [(row.subject_type, str(row.subject_uuid)) for row in indexed] == [(SubjectType.VIEW, str(self.view.id))]
+        referenced = DataQualityCheckRunSubject.objects.for_team(self.team.id).filter(
+            run=run, relation=SubjectRelation.REFERENCED
+        )
+        assert [(row.subject_type, str(row.subject_uuid)) for row in referenced] == [
+            (SubjectType.VIEW, str(self.view.id))
+        ]
 
     @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
     def test_an_automated_referencing_check_without_an_author_errors_without_running(

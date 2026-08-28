@@ -1,8 +1,8 @@
-"""Write a run down, together with the subjects it read.
+"""Write a run down, together with the subjects it touched.
 
-One entry point, because the two cannot be created apart. The history gates query the index rows,
-and a run missing them reads as one that referenced nothing -- which is the fail-open answer. A
-caller that could insert the run alone would be able to produce that state.
+One entry point, because the two cannot be created apart. The history gates probe the stamp rows,
+and a run missing its declared stamp is withheld from a restricted member rather than served. A
+caller that could insert the run alone would strand its own history behind that gate.
 """
 
 from typing import Any
@@ -10,33 +10,43 @@ from uuid import UUID
 
 from django.db import transaction
 
+from ..facade.enums import SubjectRelation
 from ..models import DataQualityCheckRun, DataQualityCheckRunSubject
 from .subject_access import pinned_subjects
 
 
 def record_check_run(team_id: int, **fields: Any) -> DataQualityCheckRun:
-    """Record one check execution, indexing whatever ``referenced_subjects`` says it read."""
+    """Record one check execution, stamping the subjects it touched beside it."""
     with transaction.atomic():
         run = DataQualityCheckRun.objects.for_team(team_id).create(team_id=team_id, **fields)
-        _index_referenced_subjects(run)
+        _stamp_subjects(run)
     return run
 
 
-def _index_referenced_subjects(run: DataQualityCheckRun) -> None:
-    # None (recorded before runs pinned this) and an empty list (read nothing beyond its subject)
-    # both index nothing; the recorded column is what tells those two apart.
-    pinned = pinned_subjects(run.referenced_subjects)
-    if not pinned:
-        return
-    # One row per identity. A query can name one object two ways (a dotted "stripe.charges" and the
-    # "stripe_charges" row it resolves to), which pins the same id twice. Without this the unique
-    # index rejects the repeat and rolls the whole run back. dict.fromkeys keeps first-seen order.
-    DataQualityCheckRunSubject.objects.for_team(run.team_id).bulk_create(
+def _stamp_subjects(run: DataQualityCheckRun) -> None:
+    rows = [
         DataQualityCheckRunSubject(
             team_id=run.team_id,
             run=run,
-            subject_type=subject.subject_type,
-            subject_uuid=UUID(subject.subject_uuid),
+            relation=SubjectRelation.DECLARED,
+            subject_type=run.subject_type,
+            subject_uuid=run.subject_uuid,
+            subject_name=run.subject_name,
         )
-        for subject in dict.fromkeys(pinned)
-    )
+    ]
+    # None (recorded before runs pinned this) and an empty list (read nothing beyond its subject)
+    # both stamp no referenced row; the recorded column is what tells those two apart.
+    # A query can name one object two ways (a dotted "stripe.charges" and the "stripe_charges" row it
+    # resolves to), which pins the same id twice; dict.fromkeys keeps one, so the unique index does
+    # not reject the repeat and roll the whole run back.
+    for subject in dict.fromkeys(pinned_subjects(run.referenced_subjects) or []):
+        rows.append(
+            DataQualityCheckRunSubject(
+                team_id=run.team_id,
+                run=run,
+                relation=SubjectRelation.REFERENCED,
+                subject_type=subject.subject_type,
+                subject_uuid=UUID(subject.subject_uuid),
+            )
+        )
+    DataQualityCheckRunSubject.objects.for_team(run.team_id).bulk_create(rows)

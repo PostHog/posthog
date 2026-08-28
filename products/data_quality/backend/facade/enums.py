@@ -84,6 +84,13 @@ class SubjectType(StrEnum):
     VIEW = "view"
 
 
+class SubjectRelation(StrEnum):
+    """Whether a stamped subject is the run's own (``declared``) or one it read besides it (``referenced``)."""
+
+    DECLARED = "declared"
+    REFERENCED = "referenced"
+
+
 class SubjectStatus(StrEnum):
     """Whether the subject a check points at still resolves."""
 
