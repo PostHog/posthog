@@ -181,11 +181,11 @@ export function ModelSwitchCacheDialog({
                 htmlFor={checkboxId}
                 className="cursor-pointer text-[13px] text-muted-foreground"
               >
-                Do not show this again
+                Do not show this ever again
               </Label>
             </div>
             <Text className="text-[12px] text-muted-foreground">
-              You can turn this back on in Cost management settings.
+              You can always change your mind in Cost management settings.
             </Text>
           </div>
         </div>
