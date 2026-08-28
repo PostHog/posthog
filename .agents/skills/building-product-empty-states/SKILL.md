@@ -23,7 +23,22 @@ Before a user has set a product up, its scene should show a setup empty state: t
 
 The status must come from a **real signal**: a data-existence query (HogQL count / exists API), the product's opt-in flag, or an entity count for creation-first products. Never a dismissal flag — `has_completed_onboarding_for` is routing metadata, not evidence of data.
 
-Template: `products/mcp_analytics/frontend/mcpAnalyticsOnboardingLogic.ts` — a cheap event-count loader with `refresh: 'force_blocking'` (a cached pre-ingestion `[0,0]` would otherwise stick), a `cache.disposables` poll that stops once data arrives, and product-intent registration. Push the status from a listener:
+Default: one call to `createSetupDetectionLogic` (`lib/components/ProductEmptyState/setupDetectionLogic.ts`). Supply a `detect` function resolving the product's status; the factory owns the shared contract - detect on mount, optionally poll until data lands (stopping for good on `has-data`, pausing on hidden tabs), fail open on errors, and wait out bootstrap before the first check:
+
+```ts
+export const logsSetupLogic = createSetupDetectionLogic({
+  productKey: ProductKey.LOGS,
+  path: ['products', 'logs', 'frontend', 'emptyState', 'logsSetupLogic'],
+  detect: async () => ((await api.logs.hasLogs()) ? 'has-data' : 'needs-setup'),
+  // Only for products where data arrives from outside (SDK events); entity-count
+  // products omit it - the gate remounts the logic on every scene entry.
+  pollIntervalMs: 20000,
+})
+```
+
+`detect` composes freely: retry inside it with `retryWithBackoff`, return `unknown` for "cannot tell" (e.g. no access), return `waiting-for-data` from an opt-in flag + count check. When the query is a fresh event count, use `refresh: 'force_blocking'` - a cached pre-ingestion `[0,0]` would otherwise stick. `recheckActionTypes` re-detects immediately when app state changes elsewhere (a team-setting opt-in). `cacheHasData` remembers a has-data answer in localStorage so returning users skip the spinner and the query - use it for products with no boot-time probe.
+
+Products whose detection drives more than the gate (extra selectors, staged dashboards) keep a bespoke logic instead - template: `products/mcp_analytics/frontend/mcpAnalyticsOnboardingLogic.ts`. It must push the status from a listener and handle failure the same way the factory does:
 
 ```ts
 connect(() => ({
@@ -87,7 +102,7 @@ Then **delete** the scene's bespoke empty/loading branches (including any custom
 
 ### 4b. Register a boot-time probe
 
-Declare a `setupProbe` in your product manifest (`products/<name>/manifest.tsx`) - the `productKey`, the event names that prove your product has data (and optionally the "instrumented but no traffic" events), and the `featureFlag` to gate on, mirroring your detection logic's semantics. `build-products.mjs` aggregates every manifest's `setupProbe` into `productSetupProbes` (regenerate with `pnpm build:products`), and `productSetupPreloadLogic` answers them at boot. This is what lets the app resolve your status before the user ever opens the scene. The probe query only looks back `PRELOAD_LOOKBACK_DAYS` (so it prunes to recent partitions); your in-scene detection stays the source of truth for anything older. The `ProductSetupProbe` shape and the count-to-status mapping live in `lib/components/ProductEmptyState/setupProbes.ts`. Products whose detection isn't event-based (exists APIs, entity counts) skip this for now; their status resolves on first scene visit.
+Declare a `setupProbe` in your product manifest (`products/<name>/manifest.tsx`) - the `productKey`, the event names that prove your product has data (and optionally the "instrumented but no traffic" events), and the `featureFlag` to gate on, mirroring your detection logic's semantics. `build-products.mjs` aggregates every manifest's `setupProbe` into `productSetupProbes` (regenerate with `pnpm build:products`), and `productSetupPreloadLogic` answers them all at boot with one batched event-definitions request (Postgres, cheap). This is what lets the app resolve your status before the user ever opens the scene; your in-scene detection stays the fresher source of truth. Set `staleAfterDays` when your detection logic uses a staleness window, so a project that stopped sending long ago reads as needing setup at boot too. Use string literals for event names - the probe is cloned into the eager generated `products.tsx`, so it must not import from your product chunk. The `ProductSetupProbe` shape and the definitions-to-status mapping live in `lib/components/ProductEmptyState/setupProbes.ts`. Products whose detection isn't event-based (exists APIs, entity counts) skip this; their status resolves on first scene visit.
 
 ### 5. Test the status mapping
 
