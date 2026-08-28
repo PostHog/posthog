@@ -272,7 +272,16 @@ export type AssistantPropertyFilter =
     | AssistantHogQLPropertyFilter
     | AssistantFlagPropertyFilter
 
-export type AssistantBehavioralPropertyFilter = Pick<BehavioralPropertyFilter, keyof BehavioralPropertyFilter>
+export type AssistantBehavioralPropertyFilterOperator =
+    | PropertyOperator.Exact
+    | PropertyOperator.GreaterThan
+    | PropertyOperator.GreaterThanOrEqual
+    | PropertyOperator.LessThan
+    | PropertyOperator.LessThanOrEqual
+
+export interface AssistantBehavioralPropertyFilter extends Omit<BehavioralPropertyFilter, 'operator'> {
+    operator?: AssistantBehavioralPropertyFilterOperator
+}
 
 export type AssistantInsightPropertyFilter = AssistantPropertyFilter | AssistantBehavioralPropertyFilter
 

@@ -423,6 +423,8 @@ const HogQLPropertyFilter = z.object({
 
 const BehavioralEventSource = z.enum(['events', 'actions'])
 
+const AssistantBehavioralPropertyFilterOperator = z.enum(['exact', 'gt', 'gte', 'lt', 'lte'])
+
 const TimeUnitType = z.enum(['day', 'week', 'month', 'year'])
 
 const InlineBehavioralType = z.enum(['performed_event', 'performed_event_multiple'])
@@ -456,7 +458,7 @@ const AssistantBehavioralPropertyFilter = z.object({
             'Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators'
         )
         .optional(),
-    operator: PropertyOperator.describe('Count comparison for performed_event_multiple, defaults to exact').optional(),
+    operator: AssistantBehavioralPropertyFilterOperator.optional(),
     operator_value: z.coerce.number().int().describe('Count threshold for performed_event_multiple').optional(),
     time_interval: TimeUnitType.optional(),
     time_value: z.coerce.number().int().describe('Relative time window size, paired with time_interval').optional(),

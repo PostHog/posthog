@@ -32,6 +32,7 @@ from posthog.schema_enums import (
     ArtifactContentType as ArtifactContentType,
     ArtifactSource as ArtifactSource,
     AssistantArrayPropertyFilterOperator as AssistantArrayPropertyFilterOperator,
+    AssistantBehavioralPropertyFilterOperator as AssistantBehavioralPropertyFilterOperator,
     AssistantDataVisualizationDisplayType as AssistantDataVisualizationDisplayType,
     AssistantDateTimePropertyFilterOperator as AssistantDateTimePropertyFilterOperator,
     AssistantEventMultipleBreakdownFilterType as AssistantEventMultipleBreakdownFilterType,
@@ -9055,10 +9056,7 @@ class AssistantBehavioralPropertyFilter(BaseModel):
             " count — zero-occurrence persons never match count operators"
         ),
     )
-    operator: PropertyOperator | None = Field(
-        default=None,
-        description="Count comparison for performed_event_multiple, defaults to exact",
-    )
+    operator: AssistantBehavioralPropertyFilterOperator | None = None
     operator_value: int | None = Field(default=None, description="Count threshold for performed_event_multiple")
     time_interval: TimeUnitType | None = None
     time_value: int | None = Field(default=None, description="Relative time window size, paired with time_interval")

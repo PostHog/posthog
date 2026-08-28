@@ -43,4 +43,22 @@ describe('generated query wrappers', () => {
 
         expect(tool.schema.safeParse({ ...query, properties: [behavioralFilter] }).success).toBe(true)
     })
+
+    it('rejects unsupported behavioral count operators', () => {
+        const tool = GENERATED_TOOLS['query-trends']!()
+
+        expect(
+            tool.schema.safeParse({
+                ...insightQueries[0][1],
+                properties: [
+                    {
+                        ...behavioralFilter,
+                        value: 'performed_event_multiple',
+                        operator: 'is_not',
+                        operator_value: 2,
+                    },
+                ],
+            }).success
+        ).toBe(false)
+    })
 })

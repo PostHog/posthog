@@ -2165,8 +2165,7 @@
                     "type": "boolean"
                 },
                 "operator": {
-                    "$ref": "#/definitions/PropertyOperator",
-                    "description": "Count comparison for performed_event_multiple, defaults to exact"
+                    "$ref": "#/definitions/AssistantBehavioralPropertyFilterOperator"
                 },
                 "operator_value": {
                     "description": "Count threshold for performed_event_multiple",
@@ -2188,8 +2187,12 @@
                     "$ref": "#/definitions/InlineBehavioralType"
                 }
             },
-            "required": ["type", "value", "key", "event_type"],
+            "required": ["event_type", "key", "type", "value"],
             "type": "object"
+        },
+        "AssistantBehavioralPropertyFilterOperator": {
+            "enum": ["exact", "gt", "gte", "lt", "lte"],
+            "type": "string"
         },
         "AssistantBreakdownFilter": {
             "additionalProperties": false,
