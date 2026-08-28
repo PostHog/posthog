@@ -666,6 +666,250 @@ def _remove_own_eyes_reaction(client: StamphogGitHubClient, run: ReviewRun) -> N
     client.remove_pr_reaction(pull_request.repo_config.repository, pull_request.pr_number, reaction_id)
 
 
+def _skip_and_dismiss_orphan(
+    client: StamphogGitHubClient, run: ReviewRun, team_id: int, message: str, result: str
+) -> dict:
+    """Retract this run's own orphaned approval, then return the skip result.
+
+    A prior attempt may have posted the approval to GitHub and persisted the id, then crashed
+    before the terminal save. A durably recorded approval (verdict saved) is the sweep's job, so
+    only a non-approved run dismisses here.
+    """
+    if run.verdict != ReviewVerdict.APPROVED:
+        _dismiss_orphaned_approval(client, run, team_id)
+    activity.logger.info(message)
+    return {"verdict": result}
+
+
+def _guard_superseded_before_write(client: StamphogGitHubClient, run: ReviewRun, team_id: int) -> dict | None:
+    """Skip a run already marked SUPERSEDED before any GitHub write. See post_verdict."""
+    if run.status != ReviewRunStatus.SUPERSEDED:
+        return None
+    return _skip_and_dismiss_orphan(
+        client, run, team_id, f"Skipping verdict for superseded run {run.id}", "skipped_superseded"
+    )
+
+
+def _detect_review_drift(run: ReviewRun, output: dict, current_pr: dict) -> tuple[str, str] | None:
+    """Report the reviewed head or base drifting on GitHub, or None when the run is still current.
+
+    A base retarget (a stacked PR's parent merged, or a manual base switch) rewrites the reviewed
+    diff with the head SHA unchanged, so the head guard alone can't see it. GitHub pins base.sha at
+    the last PR event rather than tracking the trunk tip, so it only moves when the PR itself was
+    touched — the diff the sandbox reviewed is stale then.
+    """
+    current_head = ((current_pr.get("head") or {}).get("sha") or "").strip()
+    if current_head and current_head != run.head_sha:
+        return ("head_moved", f"head moved {run.head_sha} -> {current_head}")
+    reviewed_base = (output.get("pr") or {}).get("base") or {}
+    current_base = current_pr.get("base") or {}
+    reviewed_base_ref = reviewed_base.get("ref") or ""
+    reviewed_base_sha = reviewed_base.get("sha") or ""
+    current_base_ref = (current_base.get("ref") or "").strip()
+    current_base_sha = (current_base.get("sha") or "").strip()
+    base_ref_moved = bool(reviewed_base_ref and current_base_ref and reviewed_base_ref != current_base_ref)
+    base_sha_moved = bool(reviewed_base_sha and current_base_sha and reviewed_base_sha != current_base_sha)
+    if base_ref_moved or base_sha_moved:
+        return (
+            "base_retargeted",
+            f"base moved {reviewed_base_ref}@{reviewed_base_sha} -> {current_base_ref}@{current_base_sha}",
+        )
+    return None
+
+
+def _guard_head_or_base_drift(
+    client: StamphogGitHubClient, run: ReviewRun, team_id: int, output: dict, current_pr: dict
+) -> dict | None:
+    """Supersede and skip a run whose reviewed head or base drifted on GitHub. See post_verdict."""
+    drift = _detect_review_drift(run, output, current_pr)
+    if drift is None:
+        return None
+    kind, detail = drift
+    # Conditional: a retry after the terminal save already committed (e.g. the trailing digest stamp
+    # crashed) must not rewrite a delivered COMPLETED outcome to SUPERSEDED — terminal states are
+    # history. The stale-approval sweep retires that approval on the next delivery.
+    ReviewRun.objects.for_team(team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
+        status=ReviewRunStatus.SUPERSEDED, completed_at=timezone.now(), updated_at=timezone.now()
+    )
+    return _skip_and_dismiss_orphan(
+        client, run, team_id, f"Skipping verdict for run {run.id}: {detail}", f"skipped_{kind}"
+    )
+
+
+def _guard_superseded_during_posting(client: StamphogGitHubClient, run: ReviewRun, team_id: int) -> dict | None:
+    """Skip a same-head re-review supersession the head guard can't see. See post_verdict.
+
+    A same-head re-review delivery (e.g. a trigger-label re-add) supersedes this run WITHOUT moving
+    the head, so only a fresh status read catches it. Such a supersession is invisible to the sweep
+    (it excludes same-head approvals), so a posted approval is retracted here before returning.
+    """
+    superseded_now = (
+        ReviewRun.objects.for_team(team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(id=run.id, status=ReviewRunStatus.SUPERSEDED)
+        .exists()
+    )
+    if not superseded_now:
+        return None
+    return _skip_and_dismiss_orphan(
+        client, run, team_id, f"Skipping verdict for run {run.id}: superseded during posting", "skipped_superseded"
+    )
+
+
+def _verdict_sticky_body(parsed: ReviewerVerdict) -> str:
+    """Render the neutralized sticky-comment body for a non-approval verdict."""
+    return _neutralize_active_markdown(parsed.review_body or _verdict_comment(parsed))
+
+
+def _publish_or_adopt_approval(
+    client: StamphogGitHubClient,
+    run: ReviewRun,
+    repo: str,
+    pull_request: PullRequest,
+    parsed: ReviewerVerdict,
+    team_id: int,
+) -> None:
+    """Post the approval, or adopt one this App already pinned to this head, then persist the id.
+
+    Idempotent under Temporal at-least-once retries: the id is persisted the moment GitHub accepts
+    the review, so a retry after any later crash skips re-approving.
+
+    Adopt-before-post: a prior attempt could have posted the approval to GitHub, then crashed BEFORE
+    the immediate persist — leaving an approval with no DB trace that the posted_review_id-keyed sweep
+    can never see. Re-posting would stack a SECOND standing approval. So first ask GitHub whether we
+    already have an active APPROVE pinned to exactly this head; adopt its id instead of posting again
+    if so. Identity fails closed without a configured app slug (list_own_active_approvals returns
+    nothing), so we never adopt another bot's review off a fuzzy match — we post fresh, same as before.
+    """
+    if run.posted_review_id is not None:
+        return
+    adopted_review_id: int | None = None
+    for review in client.list_own_active_approvals(repo, pull_request.pr_number):
+        if (review.get("commit_id") or "") != run.head_sha:
+            continue
+        adopted_review_id = _comment_id(review)
+        if adopted_review_id is not None:
+            break
+    if adopted_review_id is not None:
+        run.posted_review_id = adopted_review_id
+    else:
+        body = _neutralize_active_markdown(_scrub_credentials(parsed.review_body or _approve_comment(parsed)))
+        review = client.post_approve_review(repo, pull_request.pr_number, body, run.head_sha)
+        run.posted_review_id = _comment_id(review)
+    # Persist the id immediately, outside the conditional terminal save: if that save loses to a
+    # supersession or this activity crashes, this row is the only record the approval exists — the
+    # orphan-dismissal paths and the stale-approval sweep need it. An adopted id is persisted exactly
+    # the same way as a freshly posted one.
+    ReviewRun.objects.for_team(team_id).filter(id=run.id).update(
+        posted_review_id=run.posted_review_id, updated_at=timezone.now()
+    )
+
+
+def _strip_trigger_label_on_refusal(
+    client: StamphogGitHubClient,
+    repo: str,
+    pull_request: PullRequest,
+    repo_config: StamphogRepoConfig,
+    is_refusal: bool,
+) -> None:
+    """Strip the trigger label so a label-mode author re-requests the next review by re-adding it.
+
+    A failure here raises on purpose: the activity retries and the sticky upsert is idempotent.
+    """
+    if repo_config.review_mode == ReviewMode.LABEL and is_refusal:
+        client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
+
+
+def _save_terminal_verdict(
+    client: StamphogGitHubClient, run: ReviewRun, update_fields: list[str], team_id: int
+) -> bool:
+    """Conditionally save the terminal verdict, returning False when a supersession won the row.
+
+    A delivery superseding this run between the guards and here must win — a plain save would write
+    COMPLETED back over SUPERSEDED and resurrect a stale run. When this run loses the save after
+    posting an approval, the superseding delivery's dismissal sweep ran before the review existed and
+    can't see it in the DB, so the orphan is retracted here or it stands forever.
+    """
+    updated = (
+        ReviewRun.objects.for_team(team_id)
+        .filter(id=run.id)
+        .exclude(status=ReviewRunStatus.SUPERSEDED)
+        .update(
+            **{field: getattr(run, field) for field in update_fields if field != "updated_at"},
+            updated_at=timezone.now(),
+        )
+    )
+    if updated:
+        return True
+    _dismiss_orphaned_approval(client, run, team_id)
+    activity.logger.info(f"Run {run.id} superseded during verdict posting; verdict not saved")
+    return False
+
+
+def _hand_off_to_reviewhog(
+    client: StamphogGitHubClient,
+    run: ReviewRun,
+    repo: str,
+    pull_request: PullRequest,
+    is_refusal: bool,
+    trigger: str,
+) -> None:
+    """Hand a refused/escalated self-driving PR to ReviewHog by adding its trigger label.
+
+    Only self-driving runs hand off. A human PR has an author who reads the refusal and decides what
+    to do; in ALL mode the handoff would fire on PRs nobody asked stamphog to look at. A self-driving
+    PR has no such author — the refusal sits unread until Inbox triage — so ReviewHog's deeper review
+    is the next step. Adding the label fires its workflow (review-hog.yml exempts stamphog[bot] from
+    the bot-labeler-skip that would otherwise strip it).
+
+    This is a secondary, cross-product notification that must never jeopardize the verdict — the
+    refusal is already durably saved, so it is single-shot best-effort: catching every exception (not
+    just StamphogGitHubError) contains the client's own errors plus the GitHubRateLimitError /
+    requests.RequestException the egress layer raises on rate limits and network blips, neither a
+    subclass of StamphogGitHubError. The sticky upsert is idempotent, so a missed handoff is a missed
+    handoff, not corruption.
+    """
+    if not (is_refusal and trigger == ReviewTrigger.SELF_DRIVING.value):
+        return
+    try:
+        client.add_pr_label(repo, pull_request.pr_number, STAMPHOG_REVIEWHOG_LABEL)
+    except Exception:
+        # Format repo/pr into the message — activity.logger is a stdlib LoggerAdapter that raises
+        # TypeError on arbitrary kwargs, which would escape this best-effort catch.
+        activity.logger.exception(
+            f"stamphog: reviewhog handoff failed for {repo}#{pull_request.pr_number}; verdict still posted"
+        )
+
+
+def _finalize_terminal_sweeps(
+    client: StamphogGitHubClient,
+    run: ReviewRun,
+    repo_config: StamphogRepoConfig,
+    pull_request: PullRequest,
+    current_pr: dict,
+    team_id: int,
+) -> None:
+    """Run the post-save digest stamp or orphan sweep, then remove the in-flight reaction.
+
+    Close the merge-before-approval race only AFTER this run's APPROVED verdict is durably saved. If
+    the PR auto-merged the instant GitHub recorded the approval, the closed webhook may run before this
+    save committed and find no approved run, so it stamps nothing; stamping here (which refreshes
+    merged_at) then catches the merge. Idempotent: it no-ops unless merged, digest-enabled, and
+    unstamped, so the closed-webhook path and this path can't double-stamp.
+
+    A non-approve terminal (gated / refused / escalate / wait) re-runs the GitHub-side sweep to catch
+    an orphan an older, superseded run posted after this run's startup sweep.
+
+    The run stopped actively reviewing the moment the terminal save committed — remove the "review in
+    flight" 👀 now, whichever verdict landed.
+    """
+    if run.verdict == ReviewVerdict.APPROVED:
+        _stamp_digest_audience_if_merged(repo_config, pull_request, run, current_pr)
+    else:
+        _sweep_orphan_approvals_at_terminal(client, run, team_id)
+    _remove_own_eyes_reaction(client, run)
+
+
 @activity.defn
 @asyncify
 def post_verdict(input: StamphogReviewInput) -> dict:
@@ -683,48 +927,13 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # in the sandbox supersedes it in the DB; and even before that flag commits, GitHub's head has
     # already moved. Approving here would sign off a commit nobody reviewed, or overwrite the newer
     # run's sticky comment. Guard on both signals before any GitHub write.
-    if run.status == ReviewRunStatus.SUPERSEDED:
-        # A prior attempt may have approved and crashed before the terminal save; the persisted id
-        # is the only trace. Durably recorded approvals (verdict saved) are the sweep's job instead.
-        if run.verdict != ReviewVerdict.APPROVED:
-            _dismiss_orphaned_approval(client, run, input.team_id)
-        activity.logger.info(f"Skipping verdict for superseded run {run.id}")
-        return {"verdict": "skipped_superseded"}
+    skip = _guard_superseded_before_write(client, run, input.team_id)
+    if skip is not None:
+        return skip
     current_pr = client.get_pr(repo, pull_request.pr_number)
-    current_head = ((current_pr.get("head") or {}).get("sha") or "").strip()
-    # A base retarget (a stacked PR's parent merged, or a manual base switch) rewrites the reviewed
-    # diff with the head SHA unchanged, so the head guard alone can't see it. The retarget delivery
-    # retracts approvals and queues a fresh run, but that delivery can trail this activity. The SHA
-    # is compared too: GitHub pins base.sha at the last PR event rather than tracking the trunk tip,
-    # so it only moves when the PR itself was touched — the diff the sandbox reviewed is stale then.
-    reviewed_base = (output.get("pr") or {}).get("base") or {}
-    current_base = current_pr.get("base") or {}
-    reviewed_base_ref = reviewed_base.get("ref") or ""
-    reviewed_base_sha = reviewed_base.get("sha") or ""
-    current_base_ref = (current_base.get("ref") or "").strip()
-    current_base_sha = (current_base.get("sha") or "").strip()
-    base_ref_moved = bool(reviewed_base_ref and current_base_ref and reviewed_base_ref != current_base_ref)
-    base_sha_moved = bool(reviewed_base_sha and current_base_sha and reviewed_base_sha != current_base_sha)
-    drift: tuple[str, str] | None = None
-    if current_head and current_head != run.head_sha:
-        drift = ("head_moved", f"head moved {run.head_sha} -> {current_head}")
-    elif base_ref_moved or base_sha_moved:
-        drift = (
-            "base_retargeted",
-            f"base moved {reviewed_base_ref}@{reviewed_base_sha} -> {current_base_ref}@{current_base_sha}",
-        )
-    if drift is not None:
-        kind, detail = drift
-        # Conditional: a retry after the terminal save already committed (e.g. the trailing digest
-        # stamp crashed) must not rewrite a delivered COMPLETED outcome to SUPERSEDED — terminal
-        # states are history. The stale-approval sweep retires that approval on the next delivery.
-        ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
-            status=ReviewRunStatus.SUPERSEDED, completed_at=timezone.now(), updated_at=timezone.now()
-        )
-        if run.verdict != ReviewVerdict.APPROVED:
-            _dismiss_orphaned_approval(client, run, input.team_id)
-        activity.logger.info(f"Skipping verdict for run {run.id}: {detail}")
-        return {"verdict": f"skipped_{kind}"}
+    skip = _guard_head_or_base_drift(client, run, input.team_id, output, current_pr)
+    if skip is not None:
+        return skip
 
     parsed = parse_reviewer_output(raw)
 
@@ -732,8 +941,6 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # reviewer_raw was scrubbed on the way into the row; this re-scrub covers the worker's own LLM
     # env secrets, the same belt-and-braces the review body gets below.
     run.change_summary = _scrub_credentials(parsed.change_summary)
-    if parsed.stamphog_version:
-        run.output = {**output, "stamphog_version": parsed.stamphog_version}
 
     update_fields = [
         "gate_result",
@@ -745,72 +952,28 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         "updated_at",
     ]
     if parsed.stamphog_version:
+        run.output = {**output, "stamphog_version": parsed.stamphog_version}
         update_fields.append("output")
 
-    # Last look before any GitHub write: a same-head re-review delivery (e.g. a trigger-label re-add)
-    # supersedes this run WITHOUT moving the head, so the head guard above can't catch it — only a
-    # fresh status read can.
-    superseded_now = (
-        ReviewRun.objects.for_team(input.team_id)
-        .using(router.db_for_write(ReviewRun))
-        .filter(id=run.id, status=ReviewRunStatus.SUPERSEDED)
-        .exists()
-    )
-    if superseded_now:
-        # Same orphan rule as the guards above: a prior attempt may have posted and persisted the
-        # review id, then crashed before the terminal save; a same-head supersession landing here is
-        # invisible to the sweep (it excludes same-head approvals), so retract before returning.
-        if run.verdict != ReviewVerdict.APPROVED:
-            _dismiss_orphaned_approval(client, run, input.team_id)
-        activity.logger.info(f"Skipping verdict for run {run.id}: superseded during posting")
-        return {"verdict": "skipped_superseded"}
+    # Last look before any GitHub write: a same-head re-review delivery supersedes this run WITHOUT
+    # moving the head, so the head guard above can't catch it — only a fresh status read can.
+    skip = _guard_superseded_during_posting(client, run, input.team_id)
+    if skip is not None:
+        return skip
 
     if parsed.gate_blocked:
         # The deterministic gates denied auto-review — a terminal, non-approval
         # outcome. The engine still rendered a plain-language explanation; post it.
-        _post_sticky(
-            client, repo, pull_request, _neutralize_active_markdown(parsed.review_body or _verdict_comment(parsed))
-        )
+        _post_sticky(client, repo, pull_request, _verdict_sticky_body(parsed))
         run.status = ReviewRunStatus.GATED
         run.verdict = ReviewVerdict.WAIT
     elif parsed.verdict == ReviewVerdict.APPROVED:
-        # Idempotent under Temporal at-least-once retries: the id is persisted the moment GitHub
-        # accepts the review, so a retry after any later crash skips re-approving.
-        if run.posted_review_id is None:
-            # Adopt-before-post: a prior attempt could have posted the approval to GitHub, then crashed
-            # BEFORE the immediate-persist below — leaving an approval with no DB trace that the
-            # posted_review_id-keyed sweep can never see. Re-posting would stack a SECOND standing
-            # approval. So first ask GitHub whether we already have an active APPROVE pinned to exactly
-            # this head; adopt its id instead of posting again if so. Identity fails closed without a
-            # configured app slug (list_own_active_approvals returns nothing), so we never adopt another
-            # bot's review off a fuzzy match — we post fresh, same as before.
-            adopted_review_id: int | None = None
-            for review in client.list_own_active_approvals(repo, pull_request.pr_number):
-                if (review.get("commit_id") or "") != run.head_sha:
-                    continue
-                adopted_review_id = _comment_id(review)
-                if adopted_review_id is not None:
-                    break
-            if adopted_review_id is not None:
-                run.posted_review_id = adopted_review_id
-            else:
-                body = _neutralize_active_markdown(_scrub_credentials(parsed.review_body or _approve_comment(parsed)))
-                review = client.post_approve_review(repo, pull_request.pr_number, body, run.head_sha)
-                run.posted_review_id = _comment_id(review)
-            # Persist the id immediately, outside the conditional terminal save below: if that save
-            # loses to a supersession or this activity crashes, this row is the only record the
-            # approval exists — the orphan-dismissal paths and the stale-approval sweep need it. The
-            # adopted id must be persisted exactly the same way as a freshly posted one.
-            ReviewRun.objects.for_team(input.team_id).filter(id=run.id).update(
-                posted_review_id=run.posted_review_id, updated_at=timezone.now()
-            )
+        _publish_or_adopt_approval(client, run, repo, pull_request, parsed, input.team_id)
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = ReviewVerdict.APPROVED
         update_fields.append("posted_review_id")
     else:
-        _post_sticky(
-            client, repo, pull_request, _neutralize_active_markdown(parsed.review_body or _verdict_comment(parsed))
-        )
+        _post_sticky(client, repo, pull_request, _verdict_sticky_body(parsed))
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = parsed.verdict
 
@@ -822,78 +985,18 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # the run was told it was.
     trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
 
-    # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
-    # the author re-requests the next review by re-adding it.
-    # A failure here raises on purpose: the activity retries and the sticky upsert above is idempotent.
-    if repo_config.review_mode == ReviewMode.LABEL and is_refusal:
-        client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
+    _strip_trigger_label_on_refusal(client, repo, pull_request, repo_config, is_refusal)
 
     run.completed_at = timezone.now()
     run.verdict_posted_at = run.completed_at
-    # Conditional terminal save: a delivery superseding this run between the guards above and here
-    # must win — a plain save would write COMPLETED back over SUPERSEDED and resurrect a stale run.
-    updated = (
-        ReviewRun.objects.for_team(input.team_id)
-        .filter(id=run.id)
-        .exclude(status=ReviewRunStatus.SUPERSEDED)
-        .update(
-            **{field: getattr(run, field) for field in update_fields if field != "updated_at"},
-            updated_at=timezone.now(),
-        )
-    )
-    if not updated:
-        # This run lost the terminal save to a supersession that landed after the last guard. If it
-        # already posted an approval, the superseding delivery's dismissal sweep ran before the
-        # review existed and can't see it in the DB — retract it here or it stands forever.
-        _dismiss_orphaned_approval(client, run, input.team_id)
-        activity.logger.info(f"Run {run.id} superseded during verdict posting; verdict not saved")
+    if not _save_terminal_verdict(client, run, update_fields, input.team_id):
         return {"verdict": "skipped_superseded"}
 
-    # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
-    # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
-    # then overrode (a newer run might approve the same head). Adding the ReviewHog trigger label fires
-    # its workflow (review-hog.yml exempts stamphog[bot] from the bot-labeler-skip that would otherwise
-    # strip it).
-    #
-    # Only self-driving runs hand off. A human PR has an author who reads the refusal and decides what
-    # to do about it, and in ALL mode the handoff would fire on PRs nobody asked stamphog to look at.
-    # A self-driving PR has no such author — the refusal sits unread until Inbox triage — so ReviewHog's
-    # deeper review is the next step rather than a second unrequested opinion.
-    #
-    # This is a secondary, cross-product notification that must never jeopardize the verdict — the
-    # refusal is already durably saved, so it is single-shot best-effort: catching every exception (not
-    # just StamphogGitHubError) contains the client's own errors plus the GitHubRateLimitError /
-    # requests.RequestException the egress layer raises on rate limits and network blips, neither a
-    # subclass of StamphogGitHubError. The sticky upsert above is idempotent, so a missed handoff is a
-    # missed handoff, not corruption.
-    if is_refusal and trigger == ReviewTrigger.SELF_DRIVING.value:
-        try:
-            client.add_pr_label(repo, pull_request.pr_number, STAMPHOG_REVIEWHOG_LABEL)
-        except Exception:
-            # Format repo/pr into the message — activity.logger is a stdlib LoggerAdapter that
-            # raises TypeError on arbitrary kwargs, which would escape this best-effort catch.
-            activity.logger.exception(
-                f"stamphog: reviewhog handoff failed for {repo}#{pull_request.pr_number}; verdict still posted"
-            )
+    # Hand off to ReviewHog only AFTER the refusal verdict wins the terminal save above — running it
+    # before would trigger ReviewHog for a stale refusal that a superseding delivery then overrode.
+    _hand_off_to_reviewhog(client, run, repo, pull_request, is_refusal, trigger)
 
-    # Close the merge-before-approval race only AFTER this run's APPROVED verdict is durably saved. If
-    # the PR auto-merged the instant GitHub recorded the approval, the closed webhook may run before this
-    # save committed and find no approved run, so it stamps nothing; stamping here (which refreshes
-    # merged_at) then catches the merge. Ordering the two the other way — stamp before save — was the bug:
-    # the webhook saw no approved run AND the refresh predated the webhook's merged_at, so both missed and
-    # a merged+approved PR silently skipped the digest. Idempotent: it no-ops unless merged, digest-enabled,
-    # and unstamped, so the closed-webhook path and this path can't double-stamp.
-    if run.verdict == ReviewVerdict.APPROVED:
-        _stamp_digest_audience_if_merged(repo_config, pull_request, run, current_pr)
-    else:
-        # This run reached a terminal outcome without a standing approval of its own (gated / refused /
-        # escalate / wait). Re-run the GitHub-side sweep now to catch an orphan an older, superseded run
-        # posted after this run's startup sweep — see _sweep_orphan_approvals_at_terminal.
-        _sweep_orphan_approvals_at_terminal(client, run, input.team_id)
-
-    # The run stopped actively reviewing the moment the terminal save above committed — remove the
-    # "review in flight" 👀 now, whichever verdict landed (approved, gated, refused, escalate).
-    _remove_own_eyes_reaction(client, run)
+    _finalize_terminal_sweeps(client, run, repo_config, pull_request, current_pr, input.team_id)
 
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
     return {"verdict": str(parsed.verdict)}
