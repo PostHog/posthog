@@ -248,13 +248,18 @@ def _box_stat_columns(column: str, prefix: str) -> str:
     )
 
 
+# The three lead-time stages, in the order their six-stat columns appear in
+# _LEAD_TIME_SERIES_SELECT. _lead_time_bucket's ``stage`` index walks this same list, so the
+# SQL column order and the Python row-slice order can't drift independently.
+_LEAD_TIME_STAGES = (("mtd", "lead_seconds"), ("otm", "open_to_merge_seconds"), ("otd", "open_to_deploy_seconds"))
+_STAGE_STAT_WIDTH = 6  # min, p25, p50, mean, p75, max
+_STAGE_MERGE_TO_DEPLOY, _STAGE_OPEN_TO_MERGE, _STAGE_OPEN_TO_DEPLOY = range(len(_LEAD_TIME_STAGES))
+
 _LEAD_TIME_SERIES_SELECT = f"""
     SELECT
         __BUCKET_FN__ AS bucket_start,
         count() AS deployed_pr_count,
-        {_box_stat_columns("lead_seconds", "mtd")},
-        {_box_stat_columns("open_to_merge_seconds", "otm")},
-        {_box_stat_columns("open_to_deploy_seconds", "otd")}
+        {", ".join(_box_stat_columns(column, prefix) for prefix, column in _LEAD_TIME_STAGES)}
     FROM ({_LEAD_TIME_INNER})
     WHERE deployed_at >= {{date_from}} __DATE_TO_DEPLOYED__
     GROUP BY bucket_start
@@ -531,9 +536,15 @@ def _query_lead_time(scan: _DoraScan, *, github_team: str | None, members_source
         median_seconds_prev=opt_float(median_prev),
         merged_count=int(merged_cur or 0),
         attributed_count=int(attributed_cur or 0),
-        series=[_lead_time_bucket(bucket, stats_by_bucket.get(bucket), stage=0) for bucket in buckets],
-        open_to_merge_series=[_lead_time_bucket(bucket, stats_by_bucket.get(bucket), stage=1) for bucket in buckets],
-        open_to_deploy_series=[_lead_time_bucket(bucket, stats_by_bucket.get(bucket), stage=2) for bucket in buckets],
+        series=[
+            _lead_time_bucket(bucket, stats_by_bucket.get(bucket), stage=_STAGE_MERGE_TO_DEPLOY) for bucket in buckets
+        ],
+        open_to_merge_series=[
+            _lead_time_bucket(bucket, stats_by_bucket.get(bucket), stage=_STAGE_OPEN_TO_MERGE) for bucket in buckets
+        ],
+        open_to_deploy_series=[
+            _lead_time_bucket(bucket, stats_by_bucket.get(bucket), stage=_STAGE_OPEN_TO_DEPLOY) for bucket in buckets
+        ],
     )
 
 
@@ -634,8 +645,8 @@ def query_dora_overview(
 
 
 def _lead_time_bucket(bucket: datetime, stats: tuple[Any, ...] | None, *, stage: int) -> LeadTimeBucket:
-    """One stage's bucket off a series row: ``stats`` is (count, then six stats per stage in
-    _LEAD_TIME_SERIES_SELECT order); ``stage`` picks which six-stat slice."""
+    """One stage's bucket off a series row: ``stats`` is (count, then a _STAGE_STAT_WIDTH-wide
+    slice per stage, in _LEAD_TIME_STAGES order); ``stage`` picks which slice."""
     if not stats:
         return LeadTimeBucket(
             bucket_start=bucket,
@@ -648,7 +659,8 @@ def _lead_time_bucket(bucket: datetime, stats: tuple[Any, ...] | None, *, stage:
             max_seconds=None,
         )
     n = stats[0]
-    min_s, p25, p50, mean, p75, max_s = stats[1 + stage * 6 : 7 + stage * 6]
+    offset = 1 + stage * _STAGE_STAT_WIDTH
+    min_s, p25, p50, mean, p75, max_s = stats[offset : offset + _STAGE_STAT_WIDTH]
     return LeadTimeBucket(
         bucket_start=bucket,
         deployed_pr_count=int(n or 0),

@@ -38,6 +38,32 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
         () => [{ key: 'deployments', label: 'Deployments', data: frequencyCounts }],
         [frequencyCounts]
     )
+    const leadTimeStages = [
+        {
+            title: 'Open to deploy',
+            seriesKey: 'open_to_deploy',
+            seriesLabel: 'Open to deploy',
+            buckets: openToDeployBuckets,
+            dataAttr: 'open-to-deploy-box-plot',
+            wrapperDataAttr: 'engineering-analytics-dora-open-to-deploy-box-plot',
+        },
+        {
+            title: 'Open to merge',
+            seriesKey: 'open_to_merge',
+            seriesLabel: 'Open to merge',
+            buckets: openToMergeBuckets,
+            dataAttr: 'open-to-merge-box-plot',
+            wrapperDataAttr: 'engineering-analytics-dora-open-to-merge-box-plot',
+        },
+        {
+            title: 'Merge to deploy',
+            seriesKey: 'merge_to_deploy',
+            seriesLabel: 'Merge to deploy',
+            buckets: boxPlotBuckets,
+            dataAttr: 'merge-to-deploy-box-plot',
+            wrapperDataAttr: 'engineering-analytics-dora-box-plot',
+        },
+    ]
 
     if (notConnected) {
         return <ConnectGitHubSource />
@@ -187,36 +213,18 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                 ) : (
                     <>
                         <div className="flex flex-col gap-4">
-                            <div data-attr="engineering-analytics-dora-open-to-deploy-box-plot">
-                                <h3 className="m-0 mb-1 text-xs font-semibold text-secondary">Open to deploy</h3>
-                                <LeadTimeBoxPlot
-                                    seriesKey="open_to_deploy"
-                                    seriesLabel="Open to deploy"
-                                    buckets={openToDeployBuckets}
-                                    formatSeconds={compactAgeLabel}
-                                    dataAttr="open-to-deploy-box-plot"
-                                />
-                            </div>
-                            <div data-attr="engineering-analytics-dora-open-to-merge-box-plot">
-                                <h3 className="m-0 mb-1 text-xs font-semibold text-secondary">Open to merge</h3>
-                                <LeadTimeBoxPlot
-                                    seriesKey="open_to_merge"
-                                    seriesLabel="Open to merge"
-                                    buckets={openToMergeBuckets}
-                                    formatSeconds={compactAgeLabel}
-                                    dataAttr="open-to-merge-box-plot"
-                                />
-                            </div>
-                            <div data-attr="engineering-analytics-dora-box-plot">
-                                <h3 className="m-0 mb-1 text-xs font-semibold text-secondary">Merge to deploy</h3>
-                                <LeadTimeBoxPlot
-                                    seriesKey="merge_to_deploy"
-                                    seriesLabel="Merge to deploy"
-                                    buckets={boxPlotBuckets}
-                                    formatSeconds={compactAgeLabel}
-                                    dataAttr="merge-to-deploy-box-plot"
-                                />
-                            </div>
+                            {leadTimeStages.map((stage) => (
+                                <div key={stage.seriesKey} data-attr={stage.wrapperDataAttr}>
+                                    <h3 className="m-0 mb-1 text-xs font-semibold text-secondary">{stage.title}</h3>
+                                    <LeadTimeBoxPlot
+                                        seriesKey={stage.seriesKey}
+                                        seriesLabel={stage.seriesLabel}
+                                        buckets={stage.buckets}
+                                        formatSeconds={compactAgeLabel}
+                                        dataAttr={stage.dataAttr}
+                                    />
+                                </div>
+                            ))}
                         </div>
                         {dora?.unattributed_merged_pr_share != null && dora.unattributed_merged_pr_share > 0 && (
                             <div
