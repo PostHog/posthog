@@ -1421,6 +1421,20 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_retention_query_runner import (
+            MarketingAnalyticsRetentionQueryRunner,
+        )
+
+        return MarketingAnalyticsRetentionQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY:
         from products.marketing_analytics.backend.hogql_queries.non_integrated_conversions_table_query_runner import (
             NonIntegratedConversionsTableQueryRunner,

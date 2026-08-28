@@ -62,8 +62,9 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 // mutations); most large recordings are ordinary small events and play fine, so both must trip
 export const OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES = 30 * 1024 * 1024
 export const OVERSIZED_RECORDING_AVG_EVENT_BYTES = 100 * 1024
-export const OVERSIZED_MUTATION_MIN_ADDED_NODES = 2000
-export const OVERSIZED_MUTATION_EVENT_COUNT = 3
+// Adds concentrated in one playback second freeze the tab; the same adds spread out play fine
+export const OVERSIZED_MUTATION_WINDOW_MS = 1000
+export const OVERSIZED_MUTATION_WINDOW_ADDED_NODES = 15000
 
 export interface SessionRecordingDataCoordinatorLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -701,26 +702,34 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             },
         ],
 
-        // Catches recordings the metadata gate cannot see: ClickHouse only stores
-        // sum and count, so a short burst of giant mutations hides under a small average
         hasOversizedMutations: [
             (s) => [s.snapshots, s.featureFlags],
             (snapshots: RecordingSnapshot[], featureFlags: FeatureFlagsSet): boolean => {
                 if (!featureFlags[FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]) {
                     return false
                 }
-                let oversizedEvents = 0
+                const mutations: { timestamp: number; adds: number }[] = []
                 for (const snapshot of snapshots) {
                     if (
                         snapshot.type === EventType.IncrementalSnapshot &&
                         snapshot.data?.source === IncrementalSource.Mutation &&
                         Array.isArray(snapshot.data.adds) &&
-                        snapshot.data.adds.length >= OVERSIZED_MUTATION_MIN_ADDED_NODES
+                        snapshot.data.adds.length > 0
                     ) {
-                        oversizedEvents += 1
-                        if (oversizedEvents >= OVERSIZED_MUTATION_EVENT_COUNT) {
-                            return true
-                        }
+                        mutations.push({ timestamp: snapshot.timestamp, adds: snapshot.data.adds.length })
+                    }
+                }
+                // processedSnapshots are sorted by timestamp
+                let lo = 0
+                let windowAdds = 0
+                for (const mutation of mutations) {
+                    windowAdds += mutation.adds
+                    while (mutation.timestamp - mutations[lo].timestamp > OVERSIZED_MUTATION_WINDOW_MS) {
+                        windowAdds -= mutations[lo].adds
+                        lo += 1
+                    }
+                    if (windowAdds >= OVERSIZED_MUTATION_WINDOW_ADDED_NODES) {
+                        return true
                     }
                 }
                 return false

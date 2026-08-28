@@ -157,6 +157,7 @@ export enum NodeKind {
     MarketingAnalyticsAggregatedQuery = 'MarketingAnalyticsAggregatedQuery',
     MarketingAnalyticsAttributionQuery = 'MarketingAnalyticsAttributionQuery',
     MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
+    MarketingAnalyticsRetentionQuery = 'MarketingAnalyticsRetentionQuery',
     NonIntegratedConversionsTableQuery = 'NonIntegratedConversionsTableQuery',
 
     // Experiment queries
@@ -238,6 +239,7 @@ export type AnyDataNode =
     | MarketingAnalyticsAggregatedQuery
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
+    | MarketingAnalyticsRetentionQuery
     | NonIntegratedConversionsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
@@ -352,6 +354,7 @@ export type QuerySchema =
     | MarketingAnalyticsAggregatedQuery
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
+    | MarketingAnalyticsRetentionQuery
     | NonIntegratedConversionsTableQuery
 
     // Interface nodes
@@ -1393,6 +1396,7 @@ export interface ChartSettings {
     showXAxisBorder?: boolean
     showYAxisBorder?: boolean
     showLegend?: boolean
+    showAnnotations?: boolean
     showValuesOnSeries?: boolean
     // Deprecated: superseded by `pie.showTotal`. Retained so pre-existing pie-chart insights still
     // validate (ChartSettings is `extra="forbid"`). Read as a fallback in the pie chart components.
@@ -7205,7 +7209,8 @@ export interface MarketingAnalyticsAggregatedQuery extends Omit<
 }
 
 /**
- * Row dimension for the Attribution table. String values match MarketingAnalyticsDrillDownLevel for the
+ * Dimension a session is sliced by, shared by the Attribution table and the Retention explorer. String
+ * values match MarketingAnalyticsDrillDownLevel for the
  * levels they share, so both surfaces speak the same vocabulary. It's a separate enum because
  * `ad_group`/`ad` can't be attributed to events at all (no ad identifier reaches the events table), while
  * `referring_domain`/`landing_page` have no cost-side expression and so don't belong in the drill-down.
@@ -7381,6 +7386,94 @@ export interface MarketingAnalyticsAttributionPathsQueryResponse extends Analyti
 
 export type CachedMarketingAnalyticsAttributionPathsQueryResponse =
     CachedQueryResponse<MarketingAnalyticsAttributionPathsQueryResponse>
+
+/**
+ * Cohort and column period for the Retention explorer. Narrower than IntervalType, because hour and
+ * minute grains produce a matrix nobody can read.
+ */
+export enum MarketingAnalyticsRetentionInterval {
+    Day = 'day',
+    Week = 'week',
+    Month = 'month',
+}
+
+/**
+ * The omitted fields are ones this runner ignores, so leaving them settable would let a caller ask for
+ * something that does nothing. `interval` goes because `retentionInterval` shadows it, and
+ * `conversionGoal` because this table counts return visits rather than conversions.
+ */
+export interface MarketingAnalyticsRetentionQuery extends Omit<
+    WebAnalyticsQueryBase<MarketingAnalyticsRetentionQueryResponse>,
+    'orderBy' | 'compareFilter' | 'interval' | 'conversionGoal' | 'doPathCleaning' | 'sampling' | 'samplingFactor'
+> {
+    kind: NodeKind.MarketingAnalyticsRetentionQuery
+    /** Cohort dimension, read off each person's first session. Defaults to channel. */
+    breakdownBy?: MarketingAnalyticsAttributionBreakdown
+    /** Period for both the cohort rows and the return columns. Defaults to week. */
+    retentionInterval?: MarketingAnalyticsRetentionInterval
+    /** Return columns, counting period 0. Defaults to 8, clamped to 40. */
+    totalIntervals?: integer
+    /** Drop direct sessions when deciding first touch, mirroring the attribution explorer. */
+    excludeDirectTraffic?: boolean
+    /** Drop persons whose first session names nothing for the current breakdown. */
+    excludeUnattributed?: boolean
+    /**
+     * Only count persons with no session before the range, so a channel's cohorts are not inflated by
+     * users it acquired long ago. Defaults to true.
+     */
+    onlyNewUsers?: boolean
+    /** How far back to look for a prior session. Defaults to 90, clamped to 365. */
+    newUserLookbackDays?: integer
+    /** Breakdown values kept before the rest roll into 'Other'. Defaults to 20. */
+    breakdownLimit?: integer
+}
+
+/** One cohort's activity in one period since acquisition. */
+export interface MarketingAnalyticsRetentionCell {
+    /** Distinct persons from this cohort active in this period. */
+    count: integer
+    /** count / cohortSize. Null when the cohort is empty. */
+    rate: number | null
+    /**
+     * False when this period has not fully elapsed within the queried range, so a low cell reads as
+     * unfinished instead of as churn.
+     */
+    complete: boolean
+}
+
+export interface MarketingAnalyticsRetentionRow {
+    breakdownValue: string
+    /** Start of the cohort's period, in the team's timezone. @format date-time */
+    cohortDate: string
+    /** 0-based position of this cohort from the range start. */
+    cohortIndex: integer
+    /** Persons acquired in this period under this breakdown value. The denominator for every cell. */
+    cohortSize: integer
+    /** One per column, index = periods since the cohort started. Always intervalCount long. */
+    values: MarketingAnalyticsRetentionCell[]
+}
+
+export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsRetentionRow[]
+    /** Column count. Every row's values array has this length. */
+    intervalCount: integer
+    interval: MarketingAnalyticsRetentionInterval
+    /** Column headers, e.g. ['Week 0', 'Week 1', ...]. */
+    labels: string[]
+    /** How many breakdown values were folded into 'Other', so the table can say so. */
+    otherBreakdownCount: integer
+    /**
+     * Older cohorts dropped to bound the matrix. Non-zero means the table covers less than the date
+     * range the filter bar shows, so the table has to say so.
+     */
+    truncatedCohorts: integer
+    /** Distinct persons acquired across every cohort and breakdown value. */
+    totalCohortSize: integer
+    hogql?: string
+}
+
+export type CachedMarketingAnalyticsRetentionQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsRetentionQueryResponse>
 
 /** Columns for non-integrated conversions table */
 export enum NonIntegratedConversionsColumnsSchemaNames {
