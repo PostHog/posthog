@@ -9,14 +9,17 @@ def persisted_report_priority(*, team_id: int, report_id: str) -> ReportPriority
     """The priority from the report's latest ``priority_judgment`` artefact, or ``None`` without a readable one.
 
     Latest-wins, because re-research and the artefact API append new judgments instead of editing
-    the old one. Content that does not parse (a legacy non-JSON row, a hand-edited artefact) reads
-    as missing, so a caller that keys a decision on the priority fails safe instead of crashing.
+    the old one. The ``-id`` tiebreak keeps the pick deterministic when two judgments share a
+    ``created_at``: the routed effort tier is decided once and sticky, so an arbitrary tie-break
+    could otherwise pin a report to a stale priority. Content that does not parse (a legacy non-JSON
+    row, a hand-edited artefact) reads as missing, so a caller that keys a decision on the priority
+    fails safe instead of crashing.
     """
     artefact = (
         SignalReportArtefact.objects.filter(
             team_id=team_id, report_id=report_id, type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
         )
-        .order_by("-created_at")
+        .order_by("-created_at", "-id")
         .first()
     )
     if artefact is None:
