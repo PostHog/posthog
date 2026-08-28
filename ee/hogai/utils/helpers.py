@@ -3,7 +3,7 @@ import json
 
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
 import xml.etree.ElementTree as ET
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Optional, TypeVar, Union, cast
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -417,54 +417,65 @@ def extract_thinking_from_ai_message(response: BaseMessage) -> list[dict[str, An
     return thinking
 
 
-def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantMessage]:
-    _create_blank_assistant_message = lambda: AssistantMessage(
-        content="", id=None if isinstance(message, AIMessageChunk) else str(uuid4()), tool_calls=[]
-    )
-    if isinstance(message.content, list):
-        messages: list[AssistantMessage] = [_create_blank_assistant_message()]
-        for content_item in message.content:
-            if isinstance(content_item, dict) and "type" in content_item:
-                if content_item["type"] == "server_tool_use":
-                    # Server tool use requires starting a new AssistantMessage for correct presentation of the subsequent output
-                    messages.append(_create_blank_assistant_message())
-                    # Also we need to parse `input` from `partial_json`, as weirdly server tool uses in LangChain
-                    # have an empty `input` even `partial_json` is ready and clearly has args
-                    if content_item.get("partial_json"):
-                        try:
-                            content_item["input"] = json.loads(content_item["partial_json"])
-                        except json.JSONDecodeError:
-                            pass
-                if content_item["type"] == "text":
-                    if "text" in content_item:
-                        messages[-1].content += content_item["text"]
-                    if "citations" in content_item:
-                        messages[-1].content += "".join(
-                            f" [({urlparse(citation['url']).netloc})]({citation['url']})"  # Must have space in front
-                            for citation in content_item["citations"]
-                        )
-                elif content_item["type"] in SUPPORTED_ANTHROPIC_BLOCKS:
-                    # All of these blocks must be preserved in their original order for Anthropic interleaved thinking
-                    if not messages[-1].meta:
-                        messages[-1].meta = AssistantMessageMetadata(thinking=[])
-                    messages[-1].meta.thinking.append(content_item)  # type: ignore
+def _parse_server_tool_use_input(content_item: dict) -> None:
+    """Populate `input` from `partial_json` on a server tool use block, in place.
 
-            elif isinstance(content_item, str):
-                messages[-1].content += content_item
-    else:
-        content = extract_content_from_ai_message(message)
-        thinking = extract_thinking_from_ai_message(message)
-        messages = [
-            AssistantMessage(
-                id=None if isinstance(message, AIMessageChunk) else str(uuid4()),
-                content=content,
-                meta=AssistantMessageMetadata(thinking=thinking) if thinking else None,
-            )
-        ]
+    LangChain leaves `input` empty on server tool use blocks even when `partial_json` holds the
+    finished args, so parse it back ourselves. Leave `input` unset when the JSON is incomplete.
+    """
+    if content_item.get("partial_json"):
+        try:
+            content_item["input"] = json.loads(content_item["partial_json"])
+        except json.JSONDecodeError:
+            pass
 
-    # Regular tool calls are added separately to the last message, as their args must be fully complete to be JSON-valid
+
+def _append_text_block(target: AssistantMessage, content_item: dict) -> None:
+    """Append the text and any citations of a text block to the message content."""
+    if "text" in content_item:
+        target.content += content_item["text"]
+    if "citations" in content_item:
+        target.content += "".join(
+            f" [({urlparse(citation['url']).netloc})]({citation['url']})"  # Must have space in front
+            for citation in content_item["citations"]
+        )
+
+
+def _append_thinking_block(target: AssistantMessage, content_item: dict) -> None:
+    """Append a block to the message thinking, preserving its order for Anthropic interleaved thinking."""
+    if not target.meta:
+        target.meta = AssistantMessageMetadata(thinking=[])
+    target.meta.thinking.append(content_item)  # type: ignore
+
+
+def _normalize_content_list(content: list, create_blank: Callable[[], AssistantMessage]) -> list[AssistantMessage]:
+    """Turn a list of Anthropic content blocks into ordered assistant messages."""
+    messages: list[AssistantMessage] = [create_blank()]
+    for content_item in content:
+        if isinstance(content_item, str):
+            messages[-1].content += content_item
+            continue
+        if not isinstance(content_item, dict) or "type" not in content_item:
+            continue
+
+        block_type = content_item["type"]
+        if block_type == "server_tool_use":
+            # Server tool use starts a new AssistantMessage so the later output renders correctly.
+            messages.append(create_blank())
+            _parse_server_tool_use_input(content_item)
+
+        if block_type == "text":
+            _append_text_block(messages[-1], content_item)
+        elif block_type in SUPPORTED_ANTHROPIC_BLOCKS:
+            _append_thinking_block(messages[-1], content_item)
+
+    return messages
+
+
+def _extract_tool_calls(message: AIMessage | AIMessageChunk) -> list[AssistantToolCall]:
+    """Build the tool calls for the last message. Chunk args must be complete to be valid JSON."""
     if isinstance(message, AIMessageChunk):
-        tool_calls = [
+        return [
             AssistantToolCall(
                 id=tool_call["id"],
                 name=tool_call["name"],
@@ -473,14 +484,35 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
             for tool_call in message.tool_call_chunks
             if tool_call["id"] is not None and tool_call["name"] is not None
         ]
-    else:
-        tool_calls = [
-            AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"] or {})
-            for tool_call in message.tool_calls
-        ]
-    messages[-1].tool_calls = tool_calls
+    return [
+        AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"] or {})
+        for tool_call in message.tool_calls
+    ]
 
-    if isinstance(message, AIMessageChunk):
+
+def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantMessage]:
+    is_chunk = isinstance(message, AIMessageChunk)
+
+    def create_blank() -> AssistantMessage:
+        return AssistantMessage(content="", id=None if is_chunk else str(uuid4()), tool_calls=[])
+
+    if isinstance(message.content, list):
+        messages = _normalize_content_list(message.content, create_blank)
+    else:
+        content = extract_content_from_ai_message(message)
+        thinking = extract_thinking_from_ai_message(message)
+        messages = [
+            AssistantMessage(
+                id=None if is_chunk else str(uuid4()),
+                content=content,
+                meta=AssistantMessageMetadata(thinking=thinking) if thinking else None,
+            )
+        ]
+
+    # Tool calls attach to the last message, as their args must be fully complete to be JSON-valid.
+    messages[-1].tool_calls = _extract_tool_calls(message)
+
+    if is_chunk:
         for i, final_message in enumerate(messages):
             final_message.id = f"temp-{i}"  # Assign each ephemeral message an index-based temp ID
 
