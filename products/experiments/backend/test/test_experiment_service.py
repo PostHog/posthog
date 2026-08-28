@@ -675,6 +675,26 @@ class TestExperimentService(APIBaseTest):
 
         assert "at least 2 variants" in str(ctx.exception)
 
+    @parameterized.expand(
+        [
+            ("name_too_long", "x" * 401, "", "name must be at most 400 characters"),
+            ("description_too_long", "Valid Name", "y" * 3001, "description must be at most 3000 characters"),
+        ]
+    )
+    def test_create_experiment_rejects_oversized_name_or_description(
+        self, _: str, name: str, description: str, expected_error: str
+    ) -> None:
+        service = self._service()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name=name,
+                feature_flag_key="oversized-flag",
+                description=description,
+            )
+
+        assert expected_error in str(ctx.exception)
+
     # ------------------------------------------------------------------
     # Saved metrics
     # ------------------------------------------------------------------
