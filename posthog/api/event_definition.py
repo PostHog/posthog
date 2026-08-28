@@ -169,6 +169,14 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         return value
 
     def validate(self, data):
+        unsupported_metadata = {
+            field: "This field is not supported by this deployment."
+            for field in ("description", "verified", "hidden")
+            if field in self.initial_data
+        }
+        if unsupported_metadata:
+            raise serializers.ValidationError(unsupported_metadata)
+
         validated_data = super().validate(data)
 
         if "hidden" in validated_data and "verified" in validated_data:

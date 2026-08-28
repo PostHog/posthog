@@ -421,7 +421,7 @@ export const ProjectGetAllSchema = z.object({})
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
     tags: z
-        .array(z.string())
+        .array(z.string().max(255))
         .optional()
         .describe(
             'Tags to organize events by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention")'
