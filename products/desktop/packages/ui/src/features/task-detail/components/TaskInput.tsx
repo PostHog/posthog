@@ -64,7 +64,6 @@ import { useAutoresearchEnabled } from "../../autoresearch/useAutoresearchEnable
 import { useFileSearchStore } from "../../command/fileSearchStore";
 import { NewTaskFilePreview } from "../../command/NewTaskFilePreview";
 import { EnvironmentSelector } from "../../environments/EnvironmentSelector";
-import { useContextLayerFlag } from "../../feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
 import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
 import { AdditionalDirectoriesButton } from "../../folder-picker/AdditionalDirectoriesButton";
@@ -115,12 +114,10 @@ import { usePreviewConfig } from "../hooks/usePreviewConfig";
 import { useResolvedWorkspaceMode } from "../hooks/useResolvedWorkspaceMode";
 import { useTaskCreation } from "../hooks/useTaskCreation";
 import { useWarmTask } from "../hooks/useWarmTask";
-import {
-  ChannelContextChip,
-  shouldShowChannelContextChip,
-} from "./ChannelContextChip";
+import { ChannelContextChip } from "./ChannelContextChip";
 import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
+import { shouldShowChannelContextChip } from "./channelContext";
 import {
   type SuggestedPrompt,
   SuggestedPromptCard,
@@ -360,7 +357,6 @@ export function TaskInput({
   }, [channelContextSource]);
   const includeChannelContext =
     !!channelContextPath || (!!channelContext && !channelContextDismissed);
-  const contextLayerEnabled = useContextLayerFlag();
 
   const adapter = lastUsedAdapter;
   const prefillRequestKey = initialPromptKey ?? initialPrompt;
@@ -1480,7 +1476,7 @@ export function TaskInput({
                       </span>
                     ) : shouldShowChannelContextChip(
                         includeChannelContext,
-                        contextLayerEnabled,
+                        channelContextPath,
                       ) ? (
                       <ChannelContextChip
                         channelName={channelName}

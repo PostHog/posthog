@@ -8,13 +8,6 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 
-export function shouldShowChannelContextChip(
-  includeChannelContext: boolean,
-  contextLayerEnabled: boolean,
-): boolean {
-  return includeChannelContext && !contextLayerEnabled;
-}
-
 /**
  * The channel CONTEXT.md riding along with the prompt, pinned inside the
  * composer beside the send button rather than sitting in the attachments row.
