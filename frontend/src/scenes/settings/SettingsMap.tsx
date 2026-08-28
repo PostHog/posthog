@@ -15,6 +15,7 @@ import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analy
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { FeaturePreviews, FeaturePreviewsComingSoon } from 'lib/components/FeaturePreviews/FeaturePreviews'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -99,7 +100,6 @@ import {
     FlagsSecureApiKeys,
     RequireEvaluationContexts,
 } from './environment/FeatureFlagSettings'
-import { FeaturePreviewsComingSoon, FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
@@ -2167,7 +2167,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Feature previews',
                 description:
                     'Try out upcoming PostHog features before they are generally available. Toggling a preview enables it for your account only.',
-                component: <FeaturePreviewsSettings />,
+                component: <FeaturePreviews />,
                 keywords: ['beta', 'early access', 'preview', 'opt-in'],
             },
             {
