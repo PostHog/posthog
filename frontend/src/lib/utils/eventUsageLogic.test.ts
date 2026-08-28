@@ -6,12 +6,20 @@ import type {
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentTrendsQuery,
+    Node,
 } from '~/queries/schema/schema-general'
-import { BaseMathType } from '~/types'
+import {
+    BaseMathType,
+    BehavioralEventType,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    TimeUnitType,
+} from '~/types'
 
-import { getEventPropertiesForMetric } from './eventUsageLogic'
+import { getEventPropertiesForMetric, sanitizeQuery } from './eventUsageLogic'
 
-describe('getEventPropertiesForMetric', () => {
+describe('eventUsageLogic', () => {
     describe('ExperimentMetric (new format)', () => {
         it('extracts funnel metric properties', () => {
             const metric: ExperimentFunnelMetric = {
@@ -207,6 +215,60 @@ describe('getEventPropertiesForMetric', () => {
 
             expect(result.funnel_steps_count).toBe(0)
             expect(result.property_filter_count).toBe(0)
+        })
+    })
+
+    describe('sanitizeQuery', () => {
+        it('counts behavioral filters across global and series filters', () => {
+            const query = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            properties: [
+                                {
+                                    type: PropertyFilterType.Behavioral,
+                                    key: 'signed up',
+                                    value: BehavioralEventType.PerformMultipleEvents,
+                                    event_type: 'actions',
+                                    operator: PropertyOperator.GreaterThanOrEqual,
+                                    operator_value: 3,
+                                    time_value: 7,
+                                    time_interval: TimeUnitType.Week,
+                                },
+                            ],
+                        },
+                    ],
+                    properties: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.Behavioral,
+                                        key: 'completed onboarding',
+                                        value: BehavioralEventType.PerformEvent,
+                                        event_type: 'events',
+                                        negation: true,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            } as unknown as Node
+
+            expect(sanitizeQuery(query)).toMatchObject({
+                behavioral_filter_count: 2,
+                has_negated_behavioral_filter: true,
+                has_custom_behavioral_filter_count: true,
+                has_custom_behavioral_filter_time: true,
+                has_action_behavioral_filter: true,
+            })
         })
     })
 

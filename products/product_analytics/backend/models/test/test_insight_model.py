@@ -321,9 +321,41 @@ class TestInsightModel(BaseTest):
                 "source": {
                     "kind": "TrendsQuery",
                     "series": [
-                        {"kind": "EventsNode", "event": "$pageview"},
+                        {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "properties": [
+                                {
+                                    "type": "behavioral",
+                                    "key": "signed up",
+                                    "value": "performed_event_multiple",
+                                    "event_type": "actions",
+                                    "operator": "gte",
+                                    "operator_value": 3,
+                                    "time_value": 7,
+                                    "time_interval": "week",
+                                }
+                            ],
+                        },
                         {"kind": "ActionsNode", "id": 1},
                     ],
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "type": "behavioral",
+                                        "key": "completed onboarding",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                        "negation": True,
+                                    }
+                                ],
+                            }
+                        ],
+                    },
                     "dateRange": {"date_from": "-7d"},
                     "filterTestAccounts": True,
                     "breakdownFilter": {"breakdown_type": "event"},
@@ -336,7 +368,12 @@ class TestInsightModel(BaseTest):
             "event_entity_count": 1,
             "action_entity_count": 1,
             "data_warehouse_entity_count": 0,
-            "has_properties": False,
+            "has_properties": True,
+            "behavioral_filter_count": 2,
+            "has_negated_behavioral_filter": True,
+            "has_custom_behavioral_filter_count": True,
+            "has_custom_behavioral_filter_time": True,
+            "has_action_behavioral_filter": True,
             "filter_test_accounts": True,
             "breakdown_type": "event",
             "has_formula": True,
