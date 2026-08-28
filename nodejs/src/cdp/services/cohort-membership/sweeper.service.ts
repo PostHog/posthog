@@ -23,6 +23,16 @@ export const COHORT_PARTITION_COUNT = 64
  */
 export const PRODUCER_VERSION_FORMAT = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/
 
+/**
+ * The stamp for a membership row the pipeline never versioned. Must stay equal to the column
+ * default in `20260826000001_add_version_to_cohort_membership.sql`: every row written before that
+ * migration reads as this value, and the sweep deletes below a threshold, so a sentinel that does
+ * not sort below every producer stamp would leave stale rows behind. The delete pager also starts
+ * its keyset cursor here, so a value that stopped matching the column default would make the
+ * first page match nothing.
+ */
+export const VERSIONLESS = '-infinity'
+
 /** All 64 bits set, read as a signed 64-bit integer. Same convention as the seeder's ledger. */
 const ALL_MARKERS = '-1'
 
@@ -162,9 +172,9 @@ export class CohortMembershipSweeper {
         private postgres: PostgresRouter,
         /** All three describe the membership consumer's own client: the marker topic may live on another cluster. */
         private kafka: {
-            /** Broker identity the progress rows are keyed by; offsets are only comparable within one cluster. */
+            /** Broker identity half of the progress-row key; offsets are only comparable within one cluster. */
             cluster: string
-            /** Membership topic the watermarks and the progress offsets both describe. */
+            /** Topic half of the progress-row key; the watermarks and the progress offsets both describe it. */
             topic: string
             captureMembershipWatermarks: () => Promise<MembershipWatermarks>
             refreshConsumerProgress: () => Promise<void>
@@ -417,8 +427,8 @@ export class CohortMembershipSweeper {
     private async readConsumerProgress(): Promise<Map<number, number>> {
         const result = await this.postgres.query<{ partition: number; next_offset: string }>(
             PostgresUse.BEHAVIORAL_COHORTS_RW,
-            'SELECT partition, next_offset FROM cohort_membership_consumer_progress WHERE cluster = $1',
-            [this.kafka.cluster],
+            'SELECT partition, next_offset FROM cohort_membership_consumer_progress WHERE cluster = $1 AND topic = $2',
+            [this.kafka.cluster, this.kafka.topic],
             'readCohortMembershipProgress'
         )
 
@@ -568,7 +578,7 @@ export class CohortMembershipSweeper {
         // constructor still advances through those rows by id. `to_char` returns NULL for an
         // infinite timestamp, so the RETURNING clause restores the sentinel text: without it the
         // cursor would take a NULL and the next page would match nothing.
-        let cursorVersion = '-infinity'
+        let cursorVersion: string = VERSIONLESS
         let cursorId = '0'
 
         do {
@@ -597,7 +607,7 @@ export class CohortMembershipSweeper {
                     USING candidates c
                     WHERE m.id = c.id AND m.version < $3::timestamp
                     RETURNING COALESCE(
-                        to_char(m.version, 'YYYY-MM-DD HH24:MI:SS.US'), '-infinity'
+                        to_char(m.version, 'YYYY-MM-DD HH24:MI:SS.US'), '${VERSIONLESS}'
                     ) AS version, m.id
                 `,
                 [
@@ -764,8 +774,8 @@ export class CohortMembershipSweeper {
             'gcCohortMembershipSweeps'
         )
 
-        // Progress rows keyed to a broker cluster the consumer left stop updating and would
-        // otherwise sit forever.
+        // Progress rows keyed to a feed the consumer left, by cluster move or topic change, stop
+        // updating and would otherwise sit forever.
         await this.postgres.query(
             PostgresUse.BEHAVIORAL_COHORTS_RW,
             `

@@ -16,6 +16,7 @@ import {
     CohortMembershipSweeper,
     MembershipWatermarks,
     PRODUCER_VERSION_FORMAT,
+    VERSIONLESS,
 } from '../services/cohort-membership/sweeper.service'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
@@ -31,19 +32,11 @@ export type CdpCohortMembershipConsumerConfig = CdpConsumerBaseConfig &
     >
 
 /**
- * The stamp for a membership row the pipeline never versioned. Must stay equal to the column
- * default in `20260826000001_add_version_to_cohort_membership.sql`: every row written before that
- * migration reads as this value, and the sweep deletes below a threshold, so a sentinel that does
- * not sort below every producer stamp would leave stale rows behind.
- */
-const VERSIONLESS = '-infinity'
-
-/**
  * The broker list the membership consumer resolves, mirroring the consumer's own config
- * resolution. Progress offsets are only comparable against watermarks from the same cluster, so
- * this keys every progress row: after a cluster move the old rows stop matching, and the gate
- * starts from no progress instead of comparing the old cluster's large offsets against the new
- * cluster's small watermarks.
+ * resolution. Progress offsets are only comparable against watermarks from the same feed, so
+ * this keys every progress row together with the topic: after a cluster move or a topic change
+ * the old rows stop matching, and the gate starts from no progress instead of comparing another
+ * feed's large offsets against the current feed's small watermarks.
  */
 function membershipClusterId(): string {
     return String(getKafkaConfigFromEnv('CONSUMER')['metadata.broker.list'] ?? 'kafka:9092')
@@ -237,8 +230,8 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
         // would fire while the missing partitions still hold unconsumed snapshot rows.
         const known = await this.deps.postgres.query<{ count: string }>(
             PostgresUse.BEHAVIORAL_COHORTS_RW,
-            'SELECT COUNT(*) AS count FROM cohort_membership_consumer_progress WHERE cluster = $1',
-            [this.membershipCluster],
+            'SELECT COUNT(*) AS count FROM cohort_membership_consumer_progress WHERE cluster = $1 AND topic = $2',
+            [this.membershipCluster, KAFKA_COHORT_MEMBERSHIP_CHANGED],
             'countCohortMembershipProgressPartitions'
         )
 
@@ -299,15 +292,23 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
         }
 
         try {
-            // Deduplicate by (team_id, cohort_id, person_id), keeping the highest version so the
-            // in-memory pick agrees with the SQL last-writer-wins guard, with Kafka order breaking
-            // ties. A versionless change applies unconditionally in SQL, so it also has to win the
-            // in-batch pick when it arrives later in Kafka order.
+            // Deduplicate by (team_id, cohort_id, person_id). With version writes on, the highest
+            // version wins so the in-memory pick agrees with the SQL last-writer-wins guard, with
+            // Kafka order breaking ties; a versionless change applies unconditionally in SQL, so
+            // it also has to win the in-batch pick when it arrives later in Kafka order. With
+            // version writes off there is no SQL guard to agree with, so the last message in
+            // Kafka order wins and the deploy stays a behavioral no-op until the flag flips.
+            const versionAware = this.config.COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED
             const deduped = new Map<string, CohortMembershipChange>()
             for (const change of changes) {
                 const key = `${change.team_id}:${change.cohort_id}:${change.person_id}`
                 const existing = deduped.get(key)
-                if (!existing || !change.last_updated || change.last_updated >= (existing.last_updated ?? '')) {
+                if (
+                    !existing ||
+                    !versionAware ||
+                    !change.last_updated ||
+                    change.last_updated >= (existing.last_updated ?? '')
+                ) {
                     deduped.set(key, change)
                 }
             }
@@ -411,7 +412,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                 changes.map((change) => change.person_id),
                 changes.map((change) => change.status === 'entered'),
             ],
-            'batchUpsertCohortMembership'
+            'batchUpsertCohortMembershipWithoutVersion'
         )
     }
 
@@ -463,9 +464,9 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
         await this.deps.postgres.query(
             target,
             `
-                INSERT INTO cohort_membership_consumer_progress (cluster, partition, next_offset)
-                SELECT $1, unnest($2::int[]), unnest($3::bigint[])
-                ON CONFLICT (cluster, partition)
+                INSERT INTO cohort_membership_consumer_progress (cluster, topic, partition, next_offset)
+                SELECT $1, $2, unnest($3::int[]), unnest($4::bigint[])
+                ON CONFLICT (cluster, topic, partition)
                 DO UPDATE SET
                     next_offset = GREATEST(
                         cohort_membership_consumer_progress.next_offset,
@@ -473,7 +474,12 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                     ),
                     updated_at = CURRENT_TIMESTAMP
             `,
-            [this.membershipCluster, sorted.map((entry) => entry.partition), sorted.map((entry) => entry.nextOffset)],
+            [
+                this.membershipCluster,
+                KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                sorted.map((entry) => entry.partition),
+                sorted.map((entry) => entry.nextOffset),
+            ],
             'upsertCohortMembershipProgress'
         )
     }

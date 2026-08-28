@@ -39,17 +39,20 @@ describe('CohortMembershipSweeper', () => {
     let postgres: PostgresRouter
     let sweeper: CohortMembershipSweeper
     let watermarks: MembershipWatermarks
+    let captureFailure: Error | null
     let runId: string
 
     beforeEach(async () => {
         postgres = new PostgresRouter(defaultConfig)
         await resetBehavioralCohortsDatabase(postgres)
         watermarks = { 0: 10 }
+        captureFailure = null
         runId = new UUIDT().toString()
         sweeper = new CohortMembershipSweeper(config, postgres, {
             cluster: CLUSTER,
             topic: TOPIC,
-            captureMembershipWatermarks: () => Promise.resolve(watermarks),
+            captureMembershipWatermarks: () =>
+                captureFailure ? Promise.reject(captureFailure) : Promise.resolve(watermarks),
             refreshConsumerProgress: () => Promise.resolve(),
         })
     })
@@ -124,8 +127,9 @@ describe('CohortMembershipSweeper', () => {
 
     const insertProgress = async (partition: number, nextOffset: number): Promise<void> => {
         await query(
-            `INSERT INTO cohort_membership_consumer_progress (cluster, partition, next_offset) VALUES ($1, $2, $3)`,
-            [CLUSTER, partition, nextOffset]
+            `INSERT INTO cohort_membership_consumer_progress (cluster, topic, partition, next_offset)
+             VALUES ($1, $2, $3, $4)`,
+            [CLUSTER, TOPIC, partition, nextOffset]
         )
     }
 
@@ -134,6 +138,19 @@ describe('CohortMembershipSweeper', () => {
         for (const [partition, highWatermark] of Object.entries(watermarks)) {
             await insertProgress(Number(partition), highWatermark)
         }
+    }
+
+    /** Run `onPage` after each delete page the sweep issues. */
+    const afterEachDeletePage = (onPage: (page: number) => Promise<void> | void): void => {
+        const realQuery = postgres.query.bind(postgres)
+        let pages = 0
+        postgres.query = (async (...args: any[]) => {
+            const result = await (realQuery as any)(...args)
+            if (args[3] === 'sweepCohortMembership') {
+                await onPage(++pages)
+            }
+            return result
+        }) as typeof postgres.query
     }
 
     it('should skip unusable markers instead of failing the batch', () => {
@@ -191,7 +208,10 @@ describe('CohortMembershipSweeper', () => {
     })
 
     it('should hold the sweep until consumer progress passes every captured watermark', async () => {
-        watermarks = { 0: 10, 3: 4 }
+        // Partition 5 never had a message produced to it, so it also never gets a progress row.
+        // The gate must skip it rather than wait on it: on a topic with idle partitions, waiting
+        // would block every sweep forever.
+        watermarks = { 0: 10, 3: 4, 5: 0 }
         await readyRun()
         const stale = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
 
@@ -282,20 +302,14 @@ describe('CohortMembershipSweeper', () => {
         // heartbeat must notice and yield, instead of paging on and writing the terminal ledger
         // row over the new owner's state.
         const newOwnerToken = new UUIDT().toString()
-        const realQuery = postgres.query.bind(postgres)
-        let pages = 0
-        postgres.query = (async (...args: any[]) => {
-            const result = await (realQuery as any)(...args)
-            if (args[3] === 'sweepCohortMembership' && ++pages === 1) {
-                await (realQuery as any)(
-                    PostgresUse.BEHAVIORAL_COHORTS_RW,
-                    'UPDATE cohort_membership_sweeps SET claim_token = $1 WHERE run_id = $2',
-                    [newOwnerToken, runId],
-                    'stealClaim'
-                )
+        afterEachDeletePage(async (page) => {
+            if (page === 1) {
+                await query('UPDATE cohort_membership_sweeps SET claim_token = $1 WHERE run_id = $2', [
+                    newOwnerToken,
+                    runId,
+                ])
             }
-            return result
-        }) as typeof postgres.query
+        })
 
         expect(await sweeper.runOnce()).toMatchObject({ rowsDeleted: 2 })
         expect(await survivingPersonIds()).toEqual([unreached])
@@ -311,21 +325,43 @@ describe('CohortMembershipSweeper', () => {
 
         // Shutdown lands between delete pages. Marking the run swept here would strand the rows
         // it never reached, because nothing revisits a swept run.
-        const realQuery = postgres.query.bind(postgres)
-        postgres.query = (async (...args: any[]) => {
-            const result = await (realQuery as any)(...args)
-            if (args[3] === 'sweepCohortMembership') {
-                sweeper['stopping'] = true
-            }
-            return result
-        }) as typeof postgres.query
+        afterEachDeletePage(() => {
+            sweeper['stopping'] = true
+        })
 
         expect(await sweeper.runOnce()).toMatchObject({ rowsDeleted: 2 })
         expect(await survivingPersonIds()).toEqual([unreached])
         expect(await readSweep()).toMatchObject({ status: 'ready', swept_rows: '2' })
     })
 
-    it('should abandon unproven and expired runs, but no proven run, even while watermark capture fails', async () => {
+    it('should send a sweep whose rows were lock-skipped back to ready instead of retiring it', async () => {
+        await readyRun()
+        await openGate()
+        const locked = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+
+        // A row another transaction holds locked is skipped by FOR UPDATE SKIP LOCKED, so the
+        // delete page comes back empty while a stale row remains. Retiring the run as swept here
+        // would strand that row, because nothing revisits a swept run.
+        await postgres.transaction(PostgresUse.BEHAVIORAL_COHORTS_RW, 'holdRowLock', async (tx) => {
+            await postgres.query(
+                tx,
+                'SELECT id FROM cohort_membership WHERE person_id = $1 FOR UPDATE',
+                [locked],
+                'lockStaleRow'
+            )
+            expect(await sweeper.runOnce()).toMatchObject({ swept: 1, rowsDeleted: 0 })
+        })
+
+        expect(await survivingPersonIds()).toEqual([locked])
+        expect(await readSweep()).toMatchObject({ status: 'ready', swept_rows: '0' })
+
+        // With the lock released, the next cycle finishes the run.
+        expect(await sweeper.runOnce()).toMatchObject({ swept: 1, rowsDeleted: 1 })
+        expect(await survivingPersonIds()).toEqual([])
+        expect(await readSweep()).toMatchObject({ status: 'swept', swept_rows: '1' })
+    })
+
+    it('should abandon unproven and expired runs and collect aged garbage, sparing proven runs, even while watermark capture fails', async () => {
         await query(
             `INSERT INTO cohort_membership_sweeps (run_id, cohort_id, team_id, marker_bits, created_at, updated_at)
              VALUES ($1, $2, $3, 7, CURRENT_TIMESTAMP - INTERVAL '30 days',
@@ -364,10 +400,36 @@ describe('CohortMembershipSweeper', () => {
                      CURRENT_TIMESTAMP - INTERVAL '31 days')`,
             [expiredRunId, COHORT_ID + 3, TEAM_ID]
         )
-        sweeper['kafka'].captureMembershipWatermarks = () => Promise.reject(new Error('kafka down'))
+
+        // GC hygiene rides the same cycle: a terminal ledger row and a progress row past the
+        // marker-retention horizon are deleted, while recent rows survive. The progress bound is
+        // the risky half: deleting a live partition's row would make the gate block every sweep.
+        const gcRunId = new UUIDT().toString()
+        await query(
+            `INSERT INTO cohort_membership_sweeps
+                (run_id, cohort_id, team_id, marker_bits, status, created_at, updated_at)
+             VALUES ($1, $2, $3, -1, 'swept', CURRENT_TIMESTAMP - INTERVAL '31 days',
+                     CURRENT_TIMESTAMP - INTERVAL '31 days')`,
+            [gcRunId, COHORT_ID + 4, TEAM_ID]
+        )
+        await insertProgress(0, 5)
+        await query(
+            `INSERT INTO cohort_membership_consumer_progress (cluster, topic, partition, next_offset, updated_at)
+             VALUES ($1, $2, 1, 5, CURRENT_TIMESTAMP - INTERVAL '31 days')`,
+            [CLUSTER, TOPIC]
+        )
+
+        captureFailure = new Error('kafka down')
 
         expect(await sweeper.runOnce()).toMatchObject({ abandoned: 2 })
         expect(await readSweep()).toMatchObject({ status: 'abandoned' })
+
+        expect(await query('SELECT 1 FROM cohort_membership_sweeps WHERE run_id = $1', [gcRunId])).toEqual([])
+        expect(
+            (await query<{ partition: number }>('SELECT partition FROM cohort_membership_consumer_progress')).map(
+                (row) => row.partition
+            )
+        ).toEqual([0])
 
         const statuses = Object.fromEntries(
             (

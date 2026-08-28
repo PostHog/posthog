@@ -45,6 +45,19 @@ describe('CdpCohortMembershipConsumer', () => {
         await closeHub(hub)
     })
 
+    it('should refuse to construct a sweeping consumer whose own write path skips versions', () => {
+        // The flag ordering (version writes on first and off last, sweep on last and off first)
+        // is enforced nowhere else: a pod that swept while writing without versions would delete
+        // rows its own upserts left carrying a stale stamp.
+        expect(
+            () =>
+                new CdpCohortMembershipConsumer(
+                    { ...hub, COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED: false, COHORT_MEMBERSHIP_SWEEP_ENABLED: true },
+                    createCdpConsumerDeps(hub)
+                )
+        ).toThrow('COHORT_MEMBERSHIP_SWEEP_ENABLED requires COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED')
+    })
+
     describe('end-to-end cohort membership processing', () => {
         const readProgress = async (): Promise<Record<string, any>[]> => {
             const result = await hub.postgres.query(
@@ -199,11 +212,23 @@ describe('CdpCohortMembershipConsumer', () => {
         })
 
         it.each([
-            ['keeping last in Kafka order for equal versions', {}, {}, false],
+            ['keeping last in Kafka order for equal versions', false, {}, {}, false],
+            // The version-aware pick only exists on the version-writes path. With the flag off
+            // there is no SQL guard for it to agree with, so Kafka order must win even when the
+            // stamps run backwards: anything else would change the write shape on deploy, before
+            // any flag flips.
+            [
+                'keeping last in Kafka order even for a lower version while version writes are off',
+                false,
+                { last_updated: '2026-05-26 13:00:00.000000' },
+                { last_updated: '2026-05-26 12:00:00.000000' },
+                false,
+            ],
             // The SQL guard only ever sees the batch's surviving entry, so the in-memory pick has
             // to agree with last-writer-wins: a newer version beats a later offset.
             [
-                'keeping the highest version regardless of order',
+                'keeping the highest version regardless of order with version writes on',
+                true,
                 { last_updated: '2026-05-26 13:00:00.000000' },
                 { last_updated: '2026-05-26 12:00:00.000000' },
                 true,
@@ -211,14 +236,16 @@ describe('CdpCohortMembershipConsumer', () => {
             // A versionless change applies unconditionally in SQL, so it also has to win the
             // in-batch pick, even against a versioned entry earlier in Kafka order.
             [
-                'keeping a later versionless change over an earlier versioned one',
+                'keeping a later versionless change over an earlier versioned one with version writes on',
+                true,
                 { last_updated: '2026-05-26 13:00:00.000000' },
                 {},
                 false,
             ],
         ])(
             'should deduplicate batch entries for the same (team_id, cohort_id, person_id), %s',
-            async (_label, firstTags, secondTags, expectedInCohort) => {
+            async (_label, withVersionWrites, firstTags, secondTags, expectedInCohort) => {
+                const target = withVersionWrites ? sweepConsumer : consumer
                 const testEvents = createCohortMembershipEvents([
                     {
                         person_id: personId1,
@@ -240,8 +267,8 @@ describe('CdpCohortMembershipConsumer', () => {
                     createKafkaMessage(event, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: index })
                 )
 
-                const cohortMembershipChanges = consumer['_parseAndValidateBatch'](messages)
-                await consumer['persistCohortMembershipChanges'](cohortMembershipChanges)
+                const cohortMembershipChanges = target['_parseAndValidateBatch'](messages)
+                await target['persistCohortMembershipChanges'](cohortMembershipChanges)
 
                 const result = await hub.postgres.query(
                     PostgresUse.BEHAVIORAL_COHORTS_RW,
