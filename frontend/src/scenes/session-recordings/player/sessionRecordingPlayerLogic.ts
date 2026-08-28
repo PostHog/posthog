@@ -541,7 +541,7 @@ export interface sessionRecordingPlayerLogicValues {
     createExportJSON: () => ExportedSessionRecordingFileV2 // sessionRecordingDataCoordinatorLogic
     customRRWebEvents: customEvent[] // sessionRecordingDataCoordinatorLogic
     fullyLoaded: boolean // sessionRecordingDataCoordinatorLogic
-    mutationStormDetected: boolean // sessionRecordingDataCoordinatorLogic
+    hasOversizedMutations: boolean // sessionRecordingDataCoordinatorLogic
     recordingTooLargeToPlay: boolean // sessionRecordingDataCoordinatorLogic
     sessionPlayerData: SessionPlayerData // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaData: SessionRecordingType | null // sessionRecordingDataCoordinatorLogic
@@ -1164,7 +1164,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'fullyLoaded',
                 'trackedWindow',
                 'recordingTooLargeToPlay',
-                'mutationStormDetected',
+                'hasOversizedMutations',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
@@ -2617,7 +2617,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         setPlay: () => {
             // Clicking or pressing space on the "unable to play" card must not start the load anyway
-            if (values.recordingTooLargeToPlay || values.mutationStormDetected) {
+            if (values.recordingTooLargeToPlay || values.hasOversizedMutations) {
                 return
             }
             if (!values.snapshotsLoaded) {
@@ -3283,7 +3283,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
 
     subscriptions(({ actions, values }) => ({
-        mutationStormDetected: (detected: boolean) => {
+        hasOversizedMutations: (detected: boolean) => {
             if (detected) {
                 actions.setPause()
                 actions.setPlayerError('recordingTooLarge')

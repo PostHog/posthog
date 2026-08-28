@@ -146,7 +146,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             ['too few giant mutations', mutationSnapshots(2, 5000), true, false],
             ['many ordinary mutations', mutationSnapshots(100, 100), true, false],
             ['the flag is disabled', mutationSnapshots(3, 2000), false, false],
-        ])('detects a mutation storm with %s', (_name, snapshots, flagEnabled, expected) => {
+        ])('detects oversized mutations with %s', (_name, snapshots, flagEnabled, expected) => {
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags(
                 flagEnabled ? [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE] : [],
@@ -154,7 +154,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             )
             logic.actions.setProcessedSnapshots(snapshots)
 
-            expect(logic.values.mutationStormDetected).toBe(expected)
+            expect(logic.values.hasOversizedMutations).toBe(expected)
         })
     })
 

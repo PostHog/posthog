@@ -63,7 +63,7 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 export const OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES = 30 * 1024 * 1024
 export const OVERSIZED_RECORDING_AVG_EVENT_BYTES = 100 * 1024
 export const OVERSIZED_MUTATION_MIN_ADDED_NODES = 2000
-export const OVERSIZED_MUTATION_STORM_EVENT_COUNT = 3
+export const OVERSIZED_MUTATION_EVENT_COUNT = 3
 
 export interface SessionRecordingDataCoordinatorLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -124,9 +124,9 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     effectiveSourceLoadingStates: SourceLoadingState[]
     end: Dayjs | null
     fullyLoaded: boolean
+    hasOversizedMutations: boolean
     isOldAndInvalid: boolean
     isRecentAndInvalid: boolean
-    mutationStormDetected: boolean
     processedSnapshots: RecordingSnapshot[]
     recordingTooLargeToPlay: boolean
     reportedLoaded: boolean
@@ -330,7 +330,7 @@ export interface sessionRecordingDataCoordinatorLogicMeta {
             sessionPlayerMetaData: SessionRecordingType | null,
             featureFlags: FeatureFlagsSet
         ) => boolean
-        mutationStormDetected: (
+        hasOversizedMutations: (
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
             featureFlags: FeatureFlagsSet
         ) => boolean
@@ -701,23 +701,23 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             },
         ],
 
-        // Catches storm recordings the metadata gate cannot see: ClickHouse only stores
+        // Catches recordings the metadata gate cannot see: ClickHouse only stores
         // sum and count, so a short burst of giant mutations hides under a small average
-        mutationStormDetected: [
+        hasOversizedMutations: [
             (s) => [s.snapshots, s.featureFlags],
             (snapshots: RecordingSnapshot[], featureFlags: FeatureFlagsSet): boolean => {
                 if (!featureFlags[FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]) {
                     return false
                 }
-                let stormEvents = 0
+                let oversizedEvents = 0
                 for (const snapshot of snapshots) {
                     if (
                         snapshot.type === EventType.IncrementalSnapshot &&
                         snapshot.data.source === IncrementalSource.Mutation &&
                         snapshot.data.adds.length >= OVERSIZED_MUTATION_MIN_ADDED_NODES
                     ) {
-                        stormEvents += 1
-                        if (stormEvents >= OVERSIZED_MUTATION_STORM_EVENT_COUNT) {
+                        oversizedEvents += 1
+                        if (oversizedEvents >= OVERSIZED_MUTATION_EVENT_COUNT) {
                             return true
                         }
                     }
