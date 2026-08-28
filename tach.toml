@@ -892,18 +892,6 @@ expose = [
     # canvas analog of the backend.tasks Celery registration above. Canvas is
     # not isolated yet, so this stays a legacy leak rather than a facade expose.
     "backend\\.temporal\\.registry.*",
-]
-from = [
-    "products.canvas",
-]
-
-# Generic Comments delegates Canvas ownership checks to this narrow,
-# product-owned boundary; Canvas never imports Comments or Tasks here.
-[[interfaces]]
-expose = [
-    "backend\\.teaching.*",
-    "backend\\.artifacts.*",
-    "backend\\.tasks.*",
     # tasks' tests build canvases that point at a generation task.
     "backend\\.models\\.Canvas",
 ]
