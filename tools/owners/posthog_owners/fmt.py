@@ -108,6 +108,15 @@ class _Statement:
 
 
 @dataclass
+class _CurrentLayout:
+    """The current on-disk layout, as the three maps ``_diff`` compares against."""
+
+    simple_dirs: set[str]  # dirs whose simple file fmt may delete
+    rules: dict[str, dict[str, list[str] | None | _Unset]]  # dir -> {match: owners}, last-match-wins
+    owners: dict[str, list[str] | None]  # dir -> top-level owners as written
+
+
+@dataclass
 class _Placement:
     """Where a statement ends up in the canonical layout."""
 
@@ -485,23 +494,18 @@ class CanonicalPlacer:
             f.rules.append(OwnersRule(match=match, owners=_statement_owners_value(p.statement.owners)))
         return files
 
-    def _current_layout(
-        self, entries: list[ParsedOwnershipFile]
-    ) -> tuple[set[str], dict[str, dict[str, list[str] | None | _Unset]], dict[str, list[str] | None]]:
-        """The current layout as three maps: simple-file dirs fmt may delete, each
-        dir's rules (last-match-wins, mirroring the resolver), and each dir's
-        top-level owners as written."""
-        current_simple_dirs: set[str] = set()
-        current_rules: dict[str, dict[str, list[str] | None | _Unset]] = {}
-        current_owners: dict[str, list[str] | None] = {}
+    def _current_layout(self, entries: list[ParsedOwnershipFile]) -> _CurrentLayout:
+        """The current layout: simple-file dirs fmt may delete, each dir's rules
+        (last-match-wins, mirroring the resolver), and each dir's top-level owners."""
+        layout = _CurrentLayout(simple_dirs=set(), rules={}, owners={})
         for entry in entries:
             if entry.name != OWNERS_FILENAME or entry.parsed is None:
                 continue
-            current_rules[entry.rel_dir] = {r.match: r.owners for r in entry.parsed.rules}
-            current_owners[entry.rel_dir] = entry.parsed.owners
+            layout.rules[entry.rel_dir] = {r.match: r.owners for r in entry.parsed.rules}
+            layout.owners[entry.rel_dir] = entry.parsed.owners
             if _is_simple_file(entry.parsed):
-                current_simple_dirs.add(entry.rel_dir)
-        return current_simple_dirs, current_rules, current_owners
+                layout.simple_dirs.add(entry.rel_dir)
+        return layout
 
     def _dropped_rules(
         self,
@@ -557,7 +561,7 @@ class CanonicalPlacer:
         pinned_dirs: set[str],
         code_files: list[str],
     ) -> tuple[list[str], list[str], dict[str, list[str]]]:
-        current_simple_dirs, current_rules, current_owners = self._current_layout(entries)
+        current = self._current_layout(entries)
 
         creations, deletions = [], []
         additions: dict[str, list[str]] = {}
@@ -565,19 +569,19 @@ class CanonicalPlacer:
         for carrier in sorted(open_dirs):
             proposed_file = proposed[carrier]
             path = f"{carrier}/{OWNERS_FILENAME}" if carrier else OWNERS_FILENAME
-            file_exists = carrier in current_rules or carrier in pinned_dirs
+            file_exists = carrier in current.rules or carrier in pinned_dirs
             # A new file matters if it carries rules OR contributes owners itself
             # (a non-empty list, or explicit null); owners: [] with no rules is a no-op.
             has_content = bool(proposed_file.rules) or bool(proposed_file.owners) or proposed_file.owners is None
             if not file_exists and has_content:
                 creations.append(path)
             edits = self._carrier_edits(
-                carrier, proposed_file, current_rules.get(carrier, {}), current_owners, pinned_dirs, code_files
+                carrier, proposed_file, current.rules.get(carrier, {}), current.owners, pinned_dirs, code_files
             )
             if edits:
                 additions[path] = edits
 
-        for carrier in current_simple_dirs:
+        for carrier in current.simple_dirs:
             if carrier not in open_dirs:
                 deletions.append(f"{carrier}/{OWNERS_FILENAME}" if carrier else OWNERS_FILENAME)
 
