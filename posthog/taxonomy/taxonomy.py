@@ -176,10 +176,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag_called": {
             "label": "Feature flag called",
-            "description": (
-                'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag event. If you want to filter other events, try "Active feature flags".'
-            ),
-            "examples": ["beta-feature"],
+            "description": 'Sent when a feature flag is evaluated. The flag key is in the "Feature flag" property, and the value it returned is in "Feature flag response".',
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
             "primary_property": "$feature_flag",
         },
@@ -1744,7 +1741,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag": {
             "label": "Feature flag",
-            "description": 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try "Active feature flags".',
+            "description": 'The key of the feature flag that was evaluated, sent only on "Feature flag called" events. To find other events where a flag was active, use "Active feature flags".',
             "examples": ["beta-feature"],
         },
         "$feature_flag_reason": {
