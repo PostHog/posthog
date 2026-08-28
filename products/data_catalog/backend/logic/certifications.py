@@ -59,18 +59,19 @@ def _duplicate_target_conflict(certification: TableCertification) -> CatalogConf
 
 
 def _resolve_table(team: Team, table_id: str | UUID | None, table_name: str | None) -> DataWarehouseTable:
-    # queryable() drops soft-deleted tables and those orphaned by a soft-deleted source.
-    live = DataWarehouseTable.objects.queryable().filter(team_id=team.id)
+    # raw_objects skips the default manager's externaldataschema_set prefetch and created_by join,
+    # which this path never reads; queryable() still drops soft-deleted and orphaned tables.
+    live = DataWarehouseTable.raw_objects.queryable().filter(team_id=team.id).select_related("external_data_source")
     if table_id:
         table = live.filter(id=table_id).first()
         if table is None:
             raise ValidationError({"table_id": "Table not found."})
         return table
-    matches = list(live.filter(name=table_name).select_related("external_data_source").defer("columns"))
+    matches = list(live.filter(name=table_name).defer("columns"))
     if table_name is not None and "." in table_name:
         matches += [
             table
-            for table in live.exclude(name=table_name).select_related("external_data_source").defer("columns")
+            for table in live.exclude(name=table_name).defer("columns")
             if get_data_warehouse_table_name(table.external_data_source, table.name) == table_name
         ]
     if not matches:
