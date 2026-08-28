@@ -82,7 +82,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 data-attr="send-test-message-template"
                                 type="secondary"
                                 onClick={() => setSendTestEmailModalOpen(true)}
-                                disabledReason={!template.content.email.subject ? 'Add a subject first' : undefined}
+                                disabledReason={!template.content.email?.subject ? 'Add a subject first' : undefined}
                                 size="small"
                             >
                                 Send test

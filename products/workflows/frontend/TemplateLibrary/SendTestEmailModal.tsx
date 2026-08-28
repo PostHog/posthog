@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { urls } from 'scenes/urls'
@@ -16,6 +16,7 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
         recipientEmail,
         senderIntegrationId,
         emailIntegrations,
+        integrationsLoading,
         sendDisabledReason,
         testSendResult,
         testSendResultLoading,
@@ -57,7 +58,9 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
                 </div>
                 <div className="flex flex-col gap-1">
                     <LemonLabel>From</LemonLabel>
-                    {emailIntegrations.length > 0 ? (
+                    {integrationsLoading && emailIntegrations.length === 0 ? (
+                        <Spinner />
+                    ) : emailIntegrations.length > 0 ? (
                         <LemonSelect
                             value={senderIntegrationId}
                             onChange={(id) => setSenderIntegrationId(id)}
@@ -83,7 +86,12 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
                         </div>
                     )}
                 </div>
-                {testSendResult && testSendResult.status !== 'success' ? (
+                {testSendResult && testSendResult.status === 'skipped' ? (
+                    <LemonBanner type="warning">
+                        {testSendResult.logs?.map((log) => log.message).join(' ') ||
+                            'The send was skipped for this recipient.'}
+                    </LemonBanner>
+                ) : testSendResult && testSendResult.status === 'error' ? (
                     <LemonBanner type="error">
                         {testSendResult.errors?.join(', ') || 'Failed to send test email'}
                     </LemonBanner>

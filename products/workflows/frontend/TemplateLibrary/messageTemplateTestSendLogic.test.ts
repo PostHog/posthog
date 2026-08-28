@@ -11,6 +11,7 @@ import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
 jest.mock('lib/lemon-ui/LemonToast', () => ({
     lemonToast: {
         success: jest.fn(),
+        warning: jest.fn(),
         error: jest.fn(),
     },
 }))
@@ -85,7 +86,9 @@ describe('messageTemplateTestSendLogic', () => {
         })
     })
 
-    it('sends a one-step synthetic workflow carrying the typed recipient and template content', async () => {
+    it('sends a one-step synthetic workflow carrying the typed recipient and template content, stripping any cc/bcc', async () => {
+        templateLogic.actions.setTemplateValue('content.email.cc', 'observer@example.com')
+        templateLogic.actions.setTemplateValue('content.email.bcc', 'archive@example.com')
         logic.actions.setRecipientEmail('recipient@example.com')
 
         await expectLogic(logic, () => {
@@ -101,10 +104,35 @@ describe('messageTemplateTestSendLogic', () => {
             subject: 'Welcome',
             to: { email: 'recipient@example.com', name: '' },
             from: { integrationId: 5 },
+            cc: '',
+            bcc: '',
         })
 
         expect(mockToast.success).toHaveBeenCalledWith('Test email sent to recipient@example.com')
         expect(logic.values.isModalOpen).toBe(false)
+    })
+
+    it('treats a skipped send as a distinct outcome from a failure', async () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/hog_flows/:id/invocations/': () => [
+                    200,
+                    { status: 'skipped', logs: [{ message: 'Recipient has opted out.' }] },
+                ],
+            },
+        })
+
+        logic.actions.setModalOpen(true)
+        logic.actions.setRecipientEmail('recipient@example.com')
+
+        await expectLogic(logic, () => {
+            logic.actions.sendTestEmail()
+        }).toDispatchActions(['sendTestEmailSuccess'])
+
+        expect(mockToast.warning).toHaveBeenCalledWith('Test email skipped, see details below')
+        expect(mockToast.error).not.toHaveBeenCalled()
+        expect(logic.values.isModalOpen).toBe(true)
+        expect(logic.values.testSendResult?.status).toBe('skipped')
     })
 
     it('keeps the modal open and surfaces the error when the send fails', async () => {
@@ -129,15 +157,26 @@ describe('messageTemplateTestSendLogic', () => {
         expect(logic.values.testSendResult?.errors).toEqual(['The selected email integration domain is not verified'])
     })
 
-    it('disables sending until subject, recipient, and sender are all valid', async () => {
+    it('disables sending until subject, body, recipient, and sender are all valid', async () => {
         templateLogic.actions.setTemplateValue('content.email.subject', '')
         await expectLogic(logic).toMatchValues({ sendDisabledReason: 'Add a subject first' })
 
         templateLogic.actions.setTemplateValue('content.email.subject', 'Welcome')
+        templateLogic.actions.setTemplateValue('content.email.text', '')
+        templateLogic.actions.setTemplateValue('content.email.html', '')
+        await expectLogic(logic).toMatchValues({ sendDisabledReason: 'Add email content first' })
+
+        templateLogic.actions.setTemplateValue('content.email.text', 'Hello!')
         logic.actions.setRecipientEmail('not-an-email')
         await expectLogic(logic).toMatchValues({ sendDisabledReason: 'Enter a valid email address' })
 
         logic.actions.setRecipientEmail('recipient@example.com')
         await expectLogic(logic).toMatchValues({ sendDisabledReason: undefined })
+    })
+
+    it('does not crash when a template has no email content, and disables sending', async () => {
+        templateLogic.actions.setTemplateValue('content.email', undefined)
+
+        await expectLogic(logic).toMatchValues({ sendDisabledReason: 'Add a subject first' })
     })
 })
