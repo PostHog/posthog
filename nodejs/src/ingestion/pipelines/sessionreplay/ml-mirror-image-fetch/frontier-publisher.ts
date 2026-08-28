@@ -169,9 +169,7 @@ class BufferedRepublishBatch implements RepublishBatch {
                 remainingHops,
                 notBeforeMs: destination.delayMs > 0 ? Date.now() + destination.delayMs : 0,
                 republishCount: candidate.republishCount + 1,
-                lastRepublishReason: reason === 'low_origin_diversity' ? candidate.lastRepublishReason : reason,
-                lowOriginDiversityDeferred:
-                    reason === 'low_origin_diversity' ? true : candidate.lowOriginDiversityDeferred,
+                lastRepublishReason: reason,
             },
             reason,
             destination,

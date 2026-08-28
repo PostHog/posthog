@@ -25,6 +25,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import (
@@ -33,6 +34,7 @@ from products.engineering_analytics.backend.logic.sources import (
     resolve_trunk_merge_queue_table,
 )
 from products.engineering_analytics.backend.logic.views import (
+    deployments,
     issue_events,
     job_costs,
     pull_requests,
@@ -52,6 +54,14 @@ class _IssueEventsWindow:
 
     start: str
     end: str
+
+
+@frozen
+class DeploySources:
+    """The curated deploy pair's ``SELECT`` subqueries, resolved and gated together."""
+
+    deployments: str
+    statuses: str
 
 
 _READY_BY_PR_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
@@ -174,11 +184,15 @@ class CuratedGitHubSource:
         )
         return f"({query})"
 
-    def jobs_source(self) -> str | None:
-        """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced."""
+    def jobs_source(self, *, created_floor: bool = False) -> str | None:
+        """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced.
+
+        ``created_floor`` adds the raw-string scan floor inside the builder — callers must register
+        {job_created_floor} (see run_started_floor_constant). A windowed caller needs it: the builder's
+        ``is_rerun_copy`` window blocks an outer ``created_at_raw`` predicate from pruning the scan."""
         if not self._tables.workflow_jobs:
             return None
-        return f"({workflow_jobs.build_query(self._tables.workflow_jobs)})"
+        return f"({workflow_jobs.build_query(self._tables.workflow_jobs, created_floor=created_floor)})"
 
     def trunk_merge_queue_source(self) -> str | None:
         """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the
@@ -204,6 +218,17 @@ class CuratedGitHubSource:
         if not self._tables.issue_events:
             return None
         return f"({issue_events.build_query(self._tables.issue_events)})"
+
+    def deploy_sources(self) -> "DeploySources | None":
+        """The curated deploy ``SELECT`` subqueries, or None when the optional deploy pair isn't
+        fully synced. Gated on BOTH tables in one place: a deployment's outcome lives on its
+        status rows, so one table without the other can't serve an honest read."""
+        if not (self._tables.deployments and self._tables.deployment_statuses):
+            return None
+        return DeploySources(
+            deployments=f"({deployments.build_deployments_query(self._tables.deployments)})",
+            statuses=f"({deployments.build_deployment_statuses_query(self._tables.deployment_statuses)})",
+        )
 
     def ready_to_merge_sql(self) -> ReadyToMergeSql:
         """SQL for the per-PR ready-to-merge measure, off the PR source aliased ``pr``. Degrades to
@@ -251,7 +276,7 @@ class CuratedGitHubSource:
             )
         """
 
-    def job_cost_source(self) -> str | None:
+    def job_cost_source(self, *, created_floor: bool = False) -> str | None:
         """Per-job cost ``SELECT`` subquery — the same view body ``engineering_analytics_job_costs``
         exposes, but with the endpoint-only run pass-through columns (``run_started_at`` /
         ``run_head_branch``). None when the jobs table isn't synced, exactly like ``jobs_source``.
@@ -260,6 +285,12 @@ class CuratedGitHubSource:
         / ``estimated_cost_usd`` are rendered from ``logic.cost`` in ClickHouse, so every endpoint cost
         query aggregates the same per-job figures the exposed view (and the parity test) do — there is
         no separate Python cost rollup to drift.
+
+        ``created_floor`` adds the raw-string scan floor inside the jobs builder — callers must
+        register {job_created_floor} (see run_windowed_job_created_floor_constant, the right slack for
+        the run-windowed predicates every cost query uses). Every windowed caller wants it: the cost
+        source's window predicates read the RUN's columns and so can never prune the jobs scan, which
+        the ``is_rerun_copy`` window would otherwise sort in full on every call.
         """
         if not self._tables.workflow_jobs:
             return None
@@ -267,6 +298,7 @@ class CuratedGitHubSource:
             jobs_table=self._tables.workflow_jobs,
             runs_table=self._tables.workflow_runs,
             include_run_columns=True,
+            created_floor=created_floor,
         )
         return f"({query})"
 

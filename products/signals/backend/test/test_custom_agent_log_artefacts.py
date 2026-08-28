@@ -25,7 +25,7 @@ from products.signals.backend.report_generation.research import (
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Task  # tach-ignore
+from products.tasks.backend.models import Task
 
 
 class _StubAgent(CustomSignalAgent):

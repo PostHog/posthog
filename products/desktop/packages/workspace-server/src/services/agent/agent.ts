@@ -22,6 +22,12 @@ import {
 import type { McpToolApprovals } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { hydrateSessionJsonl } from "@posthog/agent/adapters/claude/session/jsonl-hydration";
 import {
+  type CodexLoginSession,
+  hasCodexChatgptLogin,
+  signOutCodexChatgpt,
+  startCodexChatgptLogin,
+} from "@posthog/agent/adapters/codex-app-server/subscription-login";
+import {
   getContextWindowOptions,
   getFastModeOptions,
   getReasoningEffortOptions,
@@ -70,6 +76,7 @@ import {
   type BedrockGatewayVariant,
   buildCloudTaskConfigOptions,
   type CloudRegion,
+  type CodexModelAccess,
   type ExecutionMode,
   isAuthError,
   resolveCloudInitialPermissionMode,
@@ -88,7 +95,11 @@ import type { ProcessTrackingService } from "../process-tracking/process-trackin
 import { loadSessionEnvOverrides } from "../session-env/loader";
 import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
-import { cleanupCodexHome, prepareCodexHome } from "./codex-home";
+import {
+  cleanupCodexHome,
+  getCodexHomeDir,
+  prepareCodexHome,
+} from "./codex-home";
 import { prepareContextWiki } from "./context-wiki";
 import { discoverExternalPlugins } from "./discover-plugins";
 import {
@@ -108,6 +119,7 @@ import type {
 import {
   AgentServiceEvent,
   type AgentServiceEvents,
+  type CodexSubscriptionStatus,
   type Credentials,
   type EffortLevel,
   type InterruptReason,
@@ -273,6 +285,7 @@ interface SessionConfig {
   /** The agent's session ID (for resume - SDK session ID for Claude, Codex's session ID for Codex) */
   sessionId?: string;
   adapter?: Adapter;
+  codexModelAccess?: CodexModelAccess;
   /** Permission mode to use for the session */
   permissionMode?: string;
   /** Custom instructions injected into the system prompt */
@@ -505,6 +518,59 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private getCodexBinaryPath(): string {
     const binary = process.platform === "win32" ? "codex.exe" : "codex";
     return this.bundledResources.resolve(`.vite/build/codex-acp/${binary}`);
+  }
+
+  private codexLogin?: CodexLoginSession;
+  private codexAuthGeneration = 0;
+
+  async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
+    if (this.codexLogin) return { appLoggedIn: false };
+    return {
+      appLoggedIn: await hasCodexChatgptLogin({
+        binaryPath: this.getCodexBinaryPath(),
+      }),
+    };
+  }
+
+  async startCodexSubscriptionLogin(): Promise<{ authUrl: string }> {
+    await this.prepareCodexAccountChange();
+    const login = await startCodexChatgptLogin({
+      binaryPath: this.getCodexBinaryPath(),
+    });
+    this.codexLogin = login;
+    void login.completed.then((loggedIn) => {
+      if (this.codexLogin === login) this.codexLogin = undefined;
+      this.log.info("Codex subscription login finished", { loggedIn });
+    });
+    return { authUrl: login.authUrl };
+  }
+
+  async signOutCodexSubscription(): Promise<void> {
+    await this.prepareCodexAccountChange();
+    await signOutCodexChatgpt({
+      binaryPath: this.getCodexBinaryPath(),
+    });
+  }
+
+  private async prepareCodexAccountChange(): Promise<void> {
+    this.codexAuthGeneration += 1;
+    const currentLogin = this.codexLogin;
+    this.codexLogin = undefined;
+    await Promise.all([
+      currentLogin?.cancel(),
+      this.stopCodexSubscriptionSessions(),
+    ]);
+  }
+
+  private async stopCodexSubscriptionSessions(): Promise<void> {
+    const sessionIds = [...this.sessions.entries()]
+      .filter(
+        ([, session]) => session.config.codexModelAccess === "own-subscription",
+      )
+      .map(([taskRunId]) => taskRunId);
+    await Promise.all(
+      sessionIds.map((taskRunId) => this.cleanupSession(taskRunId)),
+    );
   }
 
   /**
@@ -878,27 +944,28 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         this.posthogPluginService.getPluginPath(),
         "skills",
       );
+      const codexSubscription =
+        adapter === "codex" && config.codexModelAccess === "own-subscription";
+      const codexAuthGeneration = this.codexAuthGeneration;
 
       let codexHome: string | undefined;
       if (adapter === "codex") {
-        try {
+        if (codexSubscription) {
+          codexHome = getCodexHomeDir(this.storagePaths.appDataPath, taskRunId);
+          await fs.promises.mkdir(codexHome, { recursive: true });
+        } else {
           codexHome = await prepareCodexHome({
             appDataPath: this.storagePaths.appDataPath,
             taskRunId,
             bundledSkillsDir,
             log: this.log,
           });
-        } catch (err) {
-          // A skills-prep failure must not kill the session; Codex falls back
-          // to its default home and the user's own ~/.agents/skills.
-          this.log.warn("Failed to prepare codex home", {
-            error: err instanceof Error ? err.message : String(err),
-          });
         }
       }
 
       const acpConnection = await agent.run(taskId, taskRunId, {
         adapter,
+        codexModelAccess: codexSubscription ? "own-subscription" : undefined,
         gatewayUrl: proxyUrl,
         contextWiki: contextWiki ?? undefined,
         codexBinaryPath:
@@ -1215,6 +1282,13 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       };
 
       this.sessions.set(taskRunId, session);
+      if (
+        codexSubscription &&
+        codexAuthGeneration !== this.codexAuthGeneration
+      ) {
+        await this.cleanupSession(taskRunId);
+        throw new Error("The Codex account changed during task setup.");
+      }
       this.recordActivity(taskRunId);
 
       if (isRetry) {
@@ -1700,6 +1774,8 @@ For git operations while detached:
 
   @preDestroy()
   async cleanupAll(): Promise<void> {
+    await this.codexLogin?.cancel();
+    this.codexLogin = undefined;
     for (const { handle } of this.idleTimeouts.values()) clearTimeout(handle);
     this.idleTimeouts.clear();
     const sessionIds = Array.from(this.sessions.keys());
@@ -2161,6 +2237,8 @@ For git operations while detached:
       logUrl: "logUrl" in params ? params.logUrl : undefined,
       sessionId: "sessionId" in params ? params.sessionId : undefined,
       adapter: "adapter" in params ? params.adapter : undefined,
+      codexModelAccess:
+        "codexModelAccess" in params ? params.codexModelAccess : undefined,
       permissionMode:
         "permissionMode" in params ? params.permissionMode : undefined,
       customInstructions:
