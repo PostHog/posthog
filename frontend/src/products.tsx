@@ -43,6 +43,7 @@ import { configurationRedirect, resolveSettingSlug } from '../../products/error_
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
+import type { NodeDetailSceneTab } from './scenes/models/nodeDetailSceneLogic'
 import {
     ActionType,
     DashboardType,
@@ -123,6 +124,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/models': ['Models', 'models'],
     '/models/dags': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
+    '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
     '/data-management/sources': ['Sources', 'sources'],
     '/data-management/sources/:sourceId/schemas/:schemaId': ['DataWarehouseSourceSchema', 'dataWarehouseSourceSchema'],
     '/data-management/sources/:sourceId/schemas/:schemaId/:tab': [
@@ -1119,7 +1121,7 @@ export const productUrls = {
         return query ? `/data-ops?${query}` : '/data-ops'
     },
     models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
-    nodeDetail: (id: string): string => `/models/${id}`,
+    nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
     sources: (): string => '/data-management/sources',
     dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
         `/data-management/sources/${id}/${tab ?? 'schemas'}`,
