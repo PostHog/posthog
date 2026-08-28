@@ -1,8 +1,8 @@
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { RE2_DOCS_LINK } from 'lib/utils/regexp'
 
 import {
@@ -83,7 +83,9 @@ export function EvaluationInputPreprocessing({
                                         icon={<IconArrowDown />}
                                         onClick={() => onMove(index, 'down')}
                                         disabledReason={
-                                            index === transformations.length - 1 ? 'This rule is already last.' : undefined
+                                            index === transformations.length - 1
+                                                ? 'This rule is already last.'
+                                                : undefined
                                         }
                                         tooltip="Move rule down"
                                         data-attr={`llma-evaluation-move-input-transformation-down-${index}`}

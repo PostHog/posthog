@@ -218,7 +218,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
             ? 'Select a judge model before saving'
             : !inputTransformationsValid
               ? 'Fix the input preprocessing rules before saving'
-            : undefined
+              : undefined
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')

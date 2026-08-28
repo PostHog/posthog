@@ -13,9 +13,7 @@ const meta: Meta<typeof EvaluationInputPreprocessing> = {
 export default meta
 type Story = StoryObj<typeof EvaluationInputPreprocessing>
 
-function InputPreprocessingStory(
-    props: Pick<EvaluationInputPreprocessingProps, 'transformations'>
-): JSX.Element {
+function InputPreprocessingStory(props: Pick<EvaluationInputPreprocessingProps, 'transformations'>): JSX.Element {
     const [transformations, setTransformations] = useState(props.transformations)
 
     return (

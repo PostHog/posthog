@@ -31,10 +31,7 @@ import {
     isBooleanEvaluationOutput,
     isLLMJudgeEvaluation,
 } from './evaluationCapabilities'
-import {
-    MAX_EVALUATION_INPUT_TRANSFORMATIONS,
-    inputTransformationsAreValid,
-} from './evaluationInputTransformations'
+import { MAX_EVALUATION_INPUT_TRANSFORMATIONS, inputTransformationsAreValid } from './evaluationInputTransformations'
 import { EvaluationBackTarget, getEvaluationBackTarget } from './evaluationNavigation'
 import { evaluationReportLogic, persistReportDraft } from './evaluationReportLogic'
 import { getHogEvalExample } from './hogEvalExamples'
