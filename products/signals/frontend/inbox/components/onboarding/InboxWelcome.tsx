@@ -1,5 +1,6 @@
-import './InboxWelcomeRedesign.scss'
+import './InboxWelcome.scss'
 
+import { useActions } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconRewindPlay, IconWarning } from '@posthog/icons'
@@ -10,8 +11,10 @@ import { IconSlack } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { captureInboxWelcomeCommandCopied, captureInboxWelcomeViewed } from '../../inboxAnalytics'
-import { SELF_DRIVING_WIZARD_COMMAND } from './InboxOnboarding'
-import { ManualSetupAction } from './ManualSetupAction'
+import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
+
+/** The one command that sets up self-driving. The whole onboarding orbits this string. */
+export const SELF_DRIVING_WIZARD_COMMAND = 'npx -y @posthog/wizard@latest self-driving'
 
 /** How long the copy button reads "Copied" before flipping back. */
 const COPIED_RESET_MS = 1600
@@ -34,7 +37,7 @@ function CommandCta(): JSX.Element {
 
     const handleCopy = (): void => {
         void copyToClipboard(SELF_DRIVING_WIZARD_COMMAND, 'self-driving setup command', { silent: true })
-        captureInboxWelcomeCommandCopied({ variant: 'redesign', surface: 'takeover' })
+        captureInboxWelcomeCommandCopied({ surface: 'takeover' })
         setCopied(true)
         if (resetTimerRef.current !== null) {
             window.clearTimeout(resetTimerRef.current)
@@ -43,19 +46,42 @@ function CommandCta(): JSX.Element {
     }
 
     return (
-        <div className="InboxWelcomeRedesign__cta flex flex-wrap items-center justify-center gap-x-3 gap-y-2.5 py-2.5 pl-4 pr-2.5">
+        <div className="InboxWelcome__cta flex flex-wrap items-center justify-center gap-x-3 gap-y-2.5 py-2.5 pl-4 pr-2.5">
             <span className="whitespace-nowrap font-mono text-sm text-white">
                 <span className="select-none text-[#6f6f76]">$ </span>
                 {SELF_DRIVING_WIZARD_COMMAND}
             </span>
             <button
                 type="button"
-                className="InboxWelcomeRedesign__copy-button"
+                className="InboxWelcome__copy-button"
                 onClick={handleCopy}
                 aria-label="Copy self-driving setup command"
             >
                 {copied ? 'Copied' : 'Copy'}
             </button>
+        </div>
+    )
+}
+
+/** The escape hatch: skip the setup agent and turn sources and scouts on by hand. */
+function ManualSetupAction(): JSX.Element {
+    const { requestManualSetup } = useActions(inboxOnboardingLogic)
+
+    return (
+        <div className="mt-7 flex flex-col items-center gap-2 text-center">
+            <LemonButton
+                type="secondary"
+                // pinned: autocapture data-attr - dashboards and test selectors match on this string
+                data-attr="inbox-welcome-set-up-manually"
+                className="w-fit"
+                onClick={() => requestManualSetup()}
+            >
+                Set up manually
+            </LemonButton>
+            <p className="m-0 max-w-prose text-[13px] text-tertiary">
+                Turn on sources and scouts yourself in Configuration. You still need to connect GitHub for pull
+                requests.
+            </p>
         </div>
     )
 }
@@ -77,7 +103,7 @@ function StageCard({
     return (
         <LemonCard
             hoverEffect={false}
-            className={`InboxWelcomeRedesign__stage InboxWelcomeRedesign__stage--${stage} ${className ?? ''}`}
+            className={`InboxWelcome__stage InboxWelcome__stage--${stage} ${className ?? ''}`}
         >
             {children}
         </LemonCard>
@@ -87,8 +113,8 @@ function StageCard({
 function Arrow({ second = false }: { second?: boolean }): JSX.Element {
     return (
         <div
-            className={`InboxWelcomeRedesign__arrow ${
-                second ? 'InboxWelcomeRedesign__arrow--second ' : ''
+            className={`InboxWelcome__arrow ${
+                second ? 'InboxWelcome__arrow--second ' : ''
             }hidden pt-5 text-center text-2xl text-border-secondary md:block`}
             aria-hidden="true"
         >
@@ -163,18 +189,18 @@ function LoopDiagram(): JSX.Element {
 }
 
 /**
- * Redesigned self-driving welcome takeover (test arm of the `inbox-welcome-redesign` experiment;
- * `InboxOnboardingTakeover` is control). Leads with the payoff, makes the wizard command the one
- * CTA, and explains signal sources and the scouts & pipeline stage as labels over an animated loop instead of prose.
- * Rendered without the tab bar: this variant is a full-pane welcome, not a locked tab.
+ * Self-driving welcome takeover, shown when self-driving isn't set up and there's nothing in the
+ * inbox yet. Leads with the payoff, makes the wizard command the one CTA, and explains signal
+ * sources and the scouts & pipeline stage as labels over an animated loop instead of prose.
+ * Rendered in place of the report list and without the tab bar: a full-pane welcome, not a tab.
  */
-export function InboxWelcomeRedesign(): JSX.Element {
+export function InboxWelcome(): JSX.Element {
     useEffect(() => {
-        captureInboxWelcomeViewed({ variant: 'redesign' })
+        captureInboxWelcomeViewed()
     }, [])
 
     return (
-        <div className="InboxWelcomeRedesign flex min-h-full flex-col justify-center py-10">
+        <div className="InboxWelcome flex min-h-full flex-col justify-center py-10">
             <div className="px-6 pb-12">
                 <div className="mx-auto flex max-w-[720px] flex-col items-center text-center">
                     <div className="mb-7">
@@ -192,7 +218,7 @@ export function InboxWelcomeRedesign(): JSX.Element {
                         Run it in your repo. That's the whole setup: it connects GitHub and picks the signal sources and
                         scouts to watch. PRs start landing in this inbox.
                     </p>
-                    <ManualSetupAction variant="redesign" className="mt-7 items-center text-center" />
+                    <ManualSetupAction />
                 </div>
             </div>
             <div className="px-6 md:px-12">

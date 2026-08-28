@@ -44,36 +44,20 @@ function FlatTabCount({ tabKey }: { tabKey: InboxFlatListTabKey }): JSX.Element 
     return <span className="text-xs text-muted tabular-nums">{count ?? 0}</span>
 }
 
-/** Synthetic key for the onboarding "Welcome" tab – presentational only, never routed to. */
-const WELCOME_TAB_KEY = 'welcome'
-
-type InboxTabBarKey = InboxTabKey | typeof WELCOME_TAB_KEY
-
 /**
  * Tab bar with the redesign flag off: Pull requests / Reports / Runs (everyone) + Not actionable (staff-only, with a
  * "Staff" tag). Each flat report tab shows its own server-computed count. The Configuration tab is only
  * shown when `showConfigTab` is set – i.e. when the scene is too narrow for the setup rail; on wide
  * viewports the rail replaces it.
- *
- * In `onboarding` mode (self-driving not set up, empty inbox) a locked "Welcome" tab is shown and
- * selected, while the real tabs stay visible but disabled – the user can see what's coming, but the
- * inbox only opens up once self-driving is set up. Code review is the exception: it works without
- * self-driving, so its tab stays clickable.
  */
-export function InboxTabBarLegacy({
-    showConfigTab,
-    onboarding,
-}: {
-    showConfigTab?: boolean
-    onboarding?: boolean
-}): JSX.Element {
+export function InboxTabBarLegacy({ showConfigTab }: { showConfigTab?: boolean }): JSX.Element {
     const { activeTab, isStaff } = useValues(inboxSceneLogic)
 
     const visibleTabKeys = INBOX_LEGACY_TAB_KEYS.filter(
         (key) => (key !== 'config' || showConfigTab) && (!isStaffOnlyTabKey(key) || isStaff)
     )
 
-    const realTabs = visibleTabKeys.map((key) => ({
+    const tabs = visibleTabKeys.map((key) => ({
         key,
         label: (
             <span className="flex items-center gap-1.5">
@@ -86,17 +70,12 @@ export function InboxTabBarLegacy({
                 )}
             </span>
         ),
-        disabledReason: onboarding ? 'Set up self-driving to open your inbox' : undefined,
         content: <></>,
     }))
 
-    const tabs = onboarding
-        ? [{ key: WELCOME_TAB_KEY as InboxTabBarKey, label: <span>Welcome</span>, content: <></> }, ...realTabs]
-        : realTabs
-
     return (
-        <LemonTabs<InboxTabBarKey>
-            activeKey={onboarding ? WELCOME_TAB_KEY : activeTab}
+        <LemonTabs<InboxTabKey>
+            activeKey={activeTab}
             // min-w-0 lets the tab bar shrink inside the header flex row so its own overflow-x scroll
             // engages on narrow/mobile widths – otherwise it grows to fit every tab and the last ones
             // (e.g. Configuration) overflow off-screen with no way to reach them.
@@ -104,11 +83,7 @@ export function InboxTabBarLegacy({
             // Hide LemonTabs' own bottom border + margin so the single full-width border lives on the
             // scene header row; the active-tab slider then sits directly on that one border.
             barClassName="before:hidden mb-0"
-            onChange={(key) => {
-                if (key !== WELCOME_TAB_KEY) {
-                    router.actions.push(urls.inbox(key))
-                }
-            }}
+            onChange={(key) => router.actions.push(urls.inbox(key))}
             tabs={tabs}
         />
     )
