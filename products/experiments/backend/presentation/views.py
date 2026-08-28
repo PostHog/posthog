@@ -511,7 +511,9 @@ class EnterpriseExperimentsViewSet(
                 and access_level_satisfied_for_resource("experiment", user_access_level, "editor")
             ]
 
-        return Response({"ids": editable_ids, "total": len(editable_ids)})
+        return Response(
+            ExperimentMatchingIdsResponseSerializer({"ids": editable_ids, "total": len(editable_ids)}).data
+        )
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> RequiredScopes | None:
         # Archiving with disable_feature_flag=true also disables and archives the linked flag,

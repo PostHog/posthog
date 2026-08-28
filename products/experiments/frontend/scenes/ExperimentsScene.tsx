@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react'
 
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
@@ -31,7 +30,6 @@ import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { toParams } from 'lib/utils/url'
 import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -65,6 +63,8 @@ import {
     confirmDeleteExperiment,
 } from 'products/experiments/frontend/experimentActions'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
+import { experimentsMatchingIdsRetrieve } from 'products/experiments/frontend/generated/api'
+import type { ExperimentsMatchingIdsRetrieveParams } from 'products/experiments/frontend/generated/api.schemas'
 /**
  * these scenes are handled as child components. This works fine, but breaks the expectation of scenes
  * having their own routes.
@@ -246,7 +246,7 @@ const ExperimentsTable = ({
     openSurveyModal: (experiment: Experiment) => void
     openCopyToProjectModal: (experiment: Experiment) => void
 }): JSX.Element => {
-    const { currentProjectId, experiments, experimentsLoading, filters, count, pagination, paramsFromFilters } =
+    const { currentProjectId, experiments, experimentsLoading, filters, count, pagination } =
         useValues(experimentsLogic)
     const { loadExperiments, archiveExperiment, unarchiveExperiment, setExperimentsFilters } =
         useActions(experimentsLogic)
@@ -647,10 +647,24 @@ const ExperimentsTable = ({
                                             onClick={async () => {
                                                 setMatchingExperimentIdsLoading(true)
                                                 try {
-                                                    const { limit, offset, ...restFilters } = paramsFromFilters
-                                                    const response = (await api.get(
-                                                        `api/projects/${currentProjectId}/experiments/matching_ids/?${toParams(restFilters)}`
-                                                    )) as { ids: number[]; total: number }
+                                                    const response = await experimentsMatchingIdsRetrieve(
+                                                        String(currentProjectId),
+                                                        {
+                                                            search: filters.search,
+                                                            status: filters.status as ExperimentsMatchingIdsRetrieveParams['status'],
+                                                            archived: filters.archived,
+                                                            order: filters.order,
+                                                            created_by_id: filters.created_by_id?.length
+                                                                ? JSON.stringify(filters.created_by_id)
+                                                                : undefined,
+                                                            tags: filters.tags?.length
+                                                                ? JSON.stringify(filters.tags)
+                                                                : undefined,
+                                                            excluded_tags: filters.excluded_tags?.length
+                                                                ? JSON.stringify(filters.excluded_tags)
+                                                                : undefined,
+                                                        }
+                                                    )
                                                     setMatchingExperimentIds(response.ids)
                                                     ctx.setSelectedKeys(response.ids)
                                                 } catch {
