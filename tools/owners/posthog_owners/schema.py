@@ -211,6 +211,40 @@ def _parse_rule(raw: object, index: int, errors: list[str]) -> list[OwnersRule]:
     return [OwnersRule(match=pattern, owners=owners, status=status, inherit=inherit) for pattern in patterns]
 
 
+def _validate_top_level_owners(data: dict, errors: list[str]) -> list[str] | None:
+    """The required top-level ``owners:`` value. A missing key is an error but still
+    yields an empty list so parsing can continue and report every problem at once."""
+    if "owners" not in data:
+        errors.append("'owners' is required (a string, a list of strings, or null for unowned-by-design)")
+        return []
+    validated = _validate_owners_value(data["owners"], "owners", errors)
+    return [] if isinstance(validated, _Unset) else validated
+
+
+def _apply_optional_sections(data: dict, file: OwnersFile, directory: str, errors: list[str]) -> None:
+    """Validate and apply the optional ``status``, ``inherit``, ``teams``, and
+    ``rules`` sections onto an already-built ``OwnersFile``."""
+    if "status" in data:
+        file.status = _validate_status(data["status"], "status", errors)
+    if "inherit" in data:
+        inherit = _validate_inherit(data["inherit"], "inherit", errors)
+        file.inherit = True if isinstance(inherit, _Unset) else inherit
+    if "teams" in data:
+        # The registry is a single repo-wide lookup, so it only makes sense at the
+        # root; a nested file carrying it would silently do nothing.
+        if directory != "":
+            errors.append("'teams' is only allowed in the repo-root owners.yaml")
+        else:
+            file.teams = _validate_teams(data["teams"], errors)
+    if "rules" in data:
+        raw_rules = data["rules"]
+        if not isinstance(raw_rules, list):
+            errors.append("'rules' must be a list")
+        else:
+            for i, raw_rule in enumerate(raw_rules):
+                file.rules.extend(_parse_rule(raw_rule, i, errors))
+
+
 def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersFile | None, list[str]]:
     """Parse and validate ``owners.yaml`` contents.
 
@@ -232,36 +266,9 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
     if data.get("version") != 1:
         errors.append("'version: 1' is required")
 
-    if "owners" not in data:
-        errors.append("'owners' is required (a string, a list of strings, or null for unowned-by-design)")
-        owners: list[str] | None = []
-    else:
-        validated = _validate_owners_value(data["owners"], "owners", errors)
-        owners = [] if isinstance(validated, _Unset) else validated
-
+    owners = _validate_top_level_owners(data, errors)
     file = OwnersFile(path=path, directory=directory, owners=owners)
-
-    if "status" in data:
-        file.status = _validate_status(data["status"], "status", errors)
-    if "inherit" in data:
-        inherit = _validate_inherit(data["inherit"], "inherit", errors)
-        file.inherit = True if isinstance(inherit, _Unset) else inherit
-
-    if "teams" in data:
-        # The registry is a single repo-wide lookup, so it only makes sense at the
-        # root; a nested file carrying it would silently do nothing.
-        if directory != "":
-            errors.append("'teams' is only allowed in the repo-root owners.yaml")
-        else:
-            file.teams = _validate_teams(data["teams"], errors)
-
-    if "rules" in data:
-        raw_rules = data["rules"]
-        if not isinstance(raw_rules, list):
-            errors.append("'rules' must be a list")
-        else:
-            for i, raw_rule in enumerate(raw_rules):
-                file.rules.extend(_parse_rule(raw_rule, i, errors))
+    _apply_optional_sections(data, file, directory, errors)
 
     # A missing version or owners makes the file unusable for resolution.
     if data.get("version") != 1 or "owners" not in data:

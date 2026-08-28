@@ -30,6 +30,7 @@ tracked path re-resolved; it must match the current resolution exactly.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -329,6 +330,36 @@ class CanonicalPlacer:
         that very directory needs no rule — the manifest/non-simple file provides it."""
         return s.is_dir and (node.pinned or node.frozen) and node.pinned_label == s.owners
 
+    def _relieve_carrier(
+        self, carrier: str, ps: list[_Placement], can_host: Callable[[str], bool], open_dirs: set[str]
+    ) -> bool:
+        """Move one overflowing carrier's densest child group to a dedicated child
+        facility. Returns whether it moved anything.
+
+        Group overflow by the immediate child-of-carrier prefix. Only statements
+        that live under a real subdirectory can move — a direct file (``/x.tsx``) has
+        no subdir to hold it, the carrier's own top-level statement (empty head)
+        stays put, and a dir hosting a glob file or product.yaml manifest cannot take
+        new rules. The cap is soft: a group of one is never exiled to a per-dir file
+        (that recreates the single-purpose sprawl fmt exists to remove), so if no
+        group has at least two statements the overflow is tolerated."""
+        groups: dict[str, list[_Placement]] = {}
+        for p in ps:
+            rel = p.statement.target[len(carrier) + 1 :] if carrier else p.statement.target
+            head = rel.split("/", 1)[0]
+            if head and (p.statement.is_dir or "/" in rel):
+                groups.setdefault(head, []).append(p)
+        hostable = [h for h in groups if len(groups[h]) >= 2 and can_host(f"{carrier}/{h}" if carrier else h)]
+        best_head = max(hostable, key=lambda h: len(groups[h]), default=None)
+        if best_head is None:
+            return False
+        new_dir = f"{carrier}/{best_head}" if carrier else best_head
+        open_dirs.add(new_dir)
+        for p in groups[best_head]:
+            p.carrier_dir = new_dir
+            p.distance = max(0, _depth(p.statement.target) - _depth(new_dir) - (0 if p.statement.is_dir else 1))
+        return True
+
     def _enforce_capacity(self, root: _Node, placements: list[_Placement], open_dirs: set[str]) -> None:
         """If a carrier exceeds MAX_RULES, open the child prefix with the most overflow
         as a dedicated facility and reassign its statements there. Repeat to a fixpoint."""
@@ -346,34 +377,8 @@ class CanonicalPlacer:
             for p in placements:
                 by_carrier.setdefault(p.carrier_dir, []).append(p)
             for carrier, ps in by_carrier.items():
-                if len(ps) <= MAX_RULES:
-                    continue
-                # Group overflow by the immediate child-of-carrier prefix. Only
-                # statements that live under a real subdirectory can move to a child
-                # facility — a direct file (``/x.tsx``) has no subdir to hold it, the
-                # carrier's own top-level statement (empty head) stays put, and a dir
-                # hosting a glob file or product.yaml manifest cannot take new rules.
-                # The cap is soft: a group of one is never exiled to a per-dir file
-                # (that recreates the single-purpose sprawl fmt exists to remove), so
-                # if no group has at least two statements the overflow is tolerated.
-                groups: dict[str, list[_Placement]] = {}
-                for p in ps:
-                    rel = p.statement.target[len(carrier) + 1 :] if carrier else p.statement.target
-                    head = rel.split("/", 1)[0]
-                    if head and (p.statement.is_dir or "/" in rel):
-                        groups.setdefault(head, []).append(p)
-                hostable = [h for h in groups if len(groups[h]) >= 2 and can_host(f"{carrier}/{h}" if carrier else h)]
-                best_head = max(hostable, key=lambda h: len(groups[h]), default=None)
-                if best_head is None:
-                    continue
-                new_dir = f"{carrier}/{best_head}" if carrier else best_head
-                open_dirs.add(new_dir)
-                for p in groups[best_head]:
-                    p.carrier_dir = new_dir
-                    p.distance = _depth(p.statement.target) - _depth(new_dir) - (0 if p.statement.is_dir else 1)
-                    if p.distance < 0:
-                        p.distance = 0
-                changed = True
+                if len(ps) > MAX_RULES and self._relieve_carrier(carrier, ps, can_host, open_dirs):
+                    changed = True
 
     # --- current layout cost + diff -------------------------------------
 
@@ -480,6 +485,70 @@ class CanonicalPlacer:
             f.rules.append(OwnersRule(match=match, owners=_statement_owners_value(p.statement.owners)))
         return files
 
+    def _current_layout(
+        self, entries: list[ParsedOwnershipFile]
+    ) -> tuple[set[str], dict[str, dict[str, list[str] | None | _Unset]], dict[str, list[str] | None]]:
+        """The current layout as three maps: simple-file dirs fmt may delete, each
+        dir's rules (last-match-wins, mirroring the resolver), and each dir's
+        top-level owners as written."""
+        current_simple_dirs: set[str] = set()
+        current_rules: dict[str, dict[str, list[str] | None | _Unset]] = {}
+        current_owners: dict[str, list[str] | None] = {}
+        for entry in entries:
+            if entry.name != OWNERS_FILENAME or entry.parsed is None:
+                continue
+            current_rules[entry.rel_dir] = {r.match: r.owners for r in entry.parsed.rules}
+            current_owners[entry.rel_dir] = entry.parsed.owners
+            if _is_simple_file(entry.parsed):
+                current_simple_dirs.add(entry.rel_dir)
+        return current_simple_dirs, current_rules, current_owners
+
+    def _dropped_rules(
+        self,
+        carrier: str,
+        cur_rules: dict[str, list[str] | None | _Unset],
+        proposed_rules: dict[str, list[str] | None | _Unset],
+        code_files: list[str],
+    ) -> list[str]:
+        """Rules the rebuilt carrier sheds. Rules that match no code file under the
+        carrier stay silent — they act outside fmt's domain (e.g. the root rule
+        routing owners.yaml edits) and the proof never reasons about them, so fmt
+        must not propose touching them."""
+        removed: list[str] = []
+        for m in cur_rules.keys() - proposed_rules.keys():
+            matcher = compile_pattern(m)
+            prefix = f"{carrier}/" if carrier else ""
+            in_domain = any(matcher.test(p[len(prefix) :]) for p in code_files if not prefix or p.startswith(prefix))
+            if in_domain:
+                removed.append(f"drop {m} (was {_fmt_owners(cur_rules[m])})")
+        return removed
+
+    def _carrier_edits(
+        self,
+        carrier: str,
+        proposed_file: OwnersFile,
+        cur_rules: dict[str, list[str] | None | _Unset],
+        current_owners: dict[str, list[str] | None],
+        pinned_dirs: set[str],
+        code_files: list[str],
+    ) -> list[str]:
+        """The ordered edits for one carrier. Changed top-level ``owners:`` and
+        reused-match rules with different owners belong to the plan as much as new
+        rules — omitting either would print a plan that, applied literally, resolves
+        differently from the proved proposal."""
+        proposed_rules = {r.match: r.owners for r in proposed_file.rules}
+        edits: list[str] = []
+        if carrier in current_owners and proposed_file.owners != current_owners[carrier]:
+            edits.append(f"owners: {_fmt_owners(current_owners[carrier])} -> {_fmt_owners(proposed_file.owners)}")
+        changed, added = [], []
+        for m, o in proposed_rules.items():
+            if m not in cur_rules:
+                added.append(f"{m} -> {_fmt_owners(o)}")
+            elif o != cur_rules[m]:
+                changed.append(f"{m}: {_fmt_owners(cur_rules[m])} -> {_fmt_owners(o)}")
+        removed = [] if carrier in pinned_dirs else self._dropped_rules(carrier, cur_rules, proposed_rules, code_files)
+        return edits + sorted(changed) + sorted(added) + sorted(removed)
+
     def _diff(
         self,
         entries: list[ParsedOwnershipFile],
@@ -488,26 +557,13 @@ class CanonicalPlacer:
         pinned_dirs: set[str],
         code_files: list[str],
     ) -> tuple[list[str], list[str], dict[str, list[str]]]:
-        current_simple_dirs: set[str] = set()  # dirs whose file fmt may delete
-        # dir -> {match: owners as written} — last occurrence wins, mirroring the
-        # resolver's last-match-wins so the diff compares against what decides.
-        current_rules: dict[str, dict[str, list[str] | None | _Unset]] = {}
-        current_owners: dict[str, list[str] | None] = {}  # dir -> top-level owners as written
-        for entry in entries:
-            if entry.name != OWNERS_FILENAME or entry.parsed is None:
-                continue
-            current_rules[entry.rel_dir] = {r.match: r.owners for r in entry.parsed.rules}
-            current_owners[entry.rel_dir] = entry.parsed.owners
-            if _is_simple_file(entry.parsed):
-                current_simple_dirs.add(entry.rel_dir)
+        current_simple_dirs, current_rules, current_owners = self._current_layout(entries)
 
         creations, deletions = [], []
         additions: dict[str, list[str]] = {}
 
         for carrier in sorted(open_dirs):
             proposed_file = proposed[carrier]
-            proposed_rules = {r.match: r.owners for r in proposed_file.rules}
-            cur_rules = current_rules.get(carrier, {})
             path = f"{carrier}/{OWNERS_FILENAME}" if carrier else OWNERS_FILENAME
             file_exists = carrier in current_rules or carrier in pinned_dirs
             # A new file matters if it carries rules OR contributes owners itself
@@ -515,36 +571,9 @@ class CanonicalPlacer:
             has_content = bool(proposed_file.rules) or bool(proposed_file.owners) or proposed_file.owners is None
             if not file_exists and has_content:
                 creations.append(path)
-            edits: list[str] = []
-            # Changed top-level `owners:` and reused-match rules with different
-            # owners are as much a part of the plan as new rules — omitting either
-            # would print a plan that, applied literally, resolves differently
-            # from the proved proposal.
-            if carrier in current_owners and proposed_file.owners != current_owners[carrier]:
-                edits.append(f"owners: {_fmt_owners(current_owners[carrier])} -> {_fmt_owners(proposed_file.owners)}")
-            changed: list[str] = []
-            added: list[str] = []
-            for m, o in proposed_rules.items():
-                if m not in cur_rules:
-                    added.append(f"{m} -> {_fmt_owners(o)}")
-                elif o != cur_rules[m]:
-                    changed.append(f"{m}: {_fmt_owners(cur_rules[m])} -> {_fmt_owners(o)}")
-            removed: list[str] = []
-            # Rebuilt simple carriers can shed rules the canonical layout proved
-            # redundant; those drops are part of the plan too. Rules that match no
-            # code file under the carrier stay silent — they act outside fmt's
-            # domain (e.g. the root rule routing owners.yaml edits) and the proof
-            # never reasons about them, so fmt must not propose touching them.
-            if carrier not in pinned_dirs:
-                for m in cur_rules.keys() - proposed_rules.keys():
-                    matcher = compile_pattern(m)
-                    prefix = f"{carrier}/" if carrier else ""
-                    in_domain = any(
-                        matcher.test(p[len(prefix) :]) for p in code_files if not prefix or p.startswith(prefix)
-                    )
-                    if in_domain:
-                        removed.append(f"drop {m} (was {_fmt_owners(cur_rules[m])})")
-            edits += sorted(changed) + sorted(added) + sorted(removed)
+            edits = self._carrier_edits(
+                carrier, proposed_file, current_rules.get(carrier, {}), current_owners, pinned_dirs, code_files
+            )
             if edits:
                 additions[path] = edits
 
