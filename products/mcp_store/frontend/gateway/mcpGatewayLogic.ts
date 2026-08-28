@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { UserType } from '~/types'
@@ -1635,7 +1636,13 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 const sharedCount = serverIds.length - failedCount
                 if (failedCount > 0) {
                     lemonToast.warning(
-                        `${created.name} created and shared with ${sharedCount} of ${serverIds.length} selected connectors. Share the rest from its page.`
+                        `${created.name} created and shared with ${sharedCount} of ${serverIds.length} selected connectors.`,
+                        {
+                            button: {
+                                label: `Finish sharing`,
+                                action: () => router.actions.push(urls.mcpGatewayAgent(created.id)),
+                            },
+                        }
                     )
                 } else {
                     lemonToast.success(
