@@ -18,12 +18,12 @@ from posthog.models import Team
 
 from products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute import (
     CHUNK_DAYS,
+    PRECOMPUTE_WINDOW_DAYS,
     ensure_marketing_sessions_precomputed,
 )
 
 logger = structlog.get_logger(__name__)
 
-PRECOMPUTE_WINDOW_DAYS = int(os.getenv("MARKETING_SESSIONS_PRECOMPUTE_WINDOW_DAYS", "90"))
 
 # The team the attribution memory failures come from. Widen once the trial holds.
 DEFAULT_ROLLOUT_TEAM_IDS = [2]
