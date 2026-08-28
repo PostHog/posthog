@@ -97489,6 +97489,10 @@ export namespace Schemas {
     export type SurveysListParams = {
     archived?: boolean;
     /**
+     * Filter surveys by the ID of the user who created them.
+     */
+    created_by?: number;
+    /**
      * Multiple values may be separated by commas.
      */
     ids?: string[];
@@ -97505,6 +97509,14 @@ export namespace Schemas {
      */
     search?: string;
     /**
+     * Filter surveys by their current status.
+     *
+     * * `draft` - Draft
+     * * `running` - Running
+     * * `complete` - Complete
+     */
+    status?: SurveysListStatus;
+    /**
      * * `popover` - popover
      * * `widget` - widget
      * * `external_survey` - external survey
@@ -97512,6 +97524,15 @@ export namespace Schemas {
      */
     type?: SurveysListType;
     };
+
+    export type SurveysListStatus = typeof SurveysListStatus[keyof typeof SurveysListStatus];
+
+
+    export const SurveysListStatus = {
+      Complete: 'complete',
+      Draft: 'draft',
+      Running: 'running',
+    } as const;
 
     export type SurveysListType = typeof SurveysListType[keyof typeof SurveysListType];
 
