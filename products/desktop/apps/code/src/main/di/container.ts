@@ -43,8 +43,6 @@ import {
 } from "@posthog/core/git/identifiers";
 import { gitPrModule } from "@posthog/core/git-pr/git-pr.module";
 import { GIT_DIFF_SOURCE } from "@posthog/core/git-pr/identifiers";
-import { handoffModule } from "@posthog/core/handoff/handoff.module";
-import { HANDOFF_HOST } from "@posthog/core/handoff/identifiers";
 import { integrationsModule } from "@posthog/core/integrations/integrations.module";
 import { CanvasLinkService } from "@posthog/core/links/canvas-link";
 import { ChannelLinkService } from "@posthog/core/links/channel-link";
@@ -174,12 +172,6 @@ import type { ExternalAppsPreferences } from "@posthog/workspace-server/services
 import { foldersModule } from "@posthog/workspace-server/services/folders/folders.module";
 import { GitService } from "@posthog/workspace-server/services/git/service";
 import { TaskPrStatusService } from "@posthog/workspace-server/services/git/task-pr-status";
-import {
-  HANDOFF_GIT_GATEWAY,
-  HANDOFF_LOG_GATEWAY,
-} from "@posthog/workspace-server/services/handoff/identifiers";
-import type { HandoffGitGateway } from "@posthog/workspace-server/services/handoff/ports";
-import { HandoffHostService } from "@posthog/workspace-server/services/handoff/service";
 import { LOGS_SERVICE } from "@posthog/workspace-server/services/local-logs/identifiers";
 import { localMcpModule } from "@posthog/workspace-server/services/local-mcp/local-mcp.module";
 import { mcpCallbackModule } from "@posthog/workspace-server/services/mcp-callback/mcp-callback.module";
@@ -599,44 +591,6 @@ container
   .bind<IGitPrStatus>(GIT_PR_STATUS_PROVIDER)
   .to(TaskPrStatusService)
   .inSingletonScope();
-container.load(handoffModule);
-container.bind(HANDOFF_HOST).to(HandoffHostService).inSingletonScope();
-container.bind(HANDOFF_GIT_GATEWAY).toDynamicValue((ctx): HandoffGitGateway => {
-  const workspace = ctx.get<WorkspaceClient>(MAIN_WORKSPACE_CLIENT);
-  return {
-    async getChangedFiles(repoPath) {
-      const files = await workspace.git.getChangedFilesHead.query({
-        directoryPath: repoPath,
-      });
-      return files.map((f) => ({
-        path: f.path,
-        status: f.status,
-        linesAdded: f.linesAdded,
-        linesRemoved: f.linesRemoved,
-      }));
-    },
-    getLocalGitState: (repoPath) =>
-      workspace.git.readHandoffLocalGitState.query({
-        directoryPath: repoPath,
-      }),
-    cleanupAfterCloudHandoff: (repoPath, branchName) =>
-      workspace.git.cleanupAfterCloudHandoff.mutate({
-        directoryPath: repoPath,
-        branchName,
-      }),
-  };
-});
-container.bind(HANDOFF_LOG_GATEWAY).toDynamicValue((ctx) => {
-  const ws = ctx.get<WorkspaceClient>(MAIN_WORKSPACE_CLIENT);
-  return {
-    seedLocalLogs: (taskRunId: string, content: string) =>
-      ws.localLogs.seed.mutate({ taskRunId, content }),
-    countLocalLogEntries: (taskRunId: string) =>
-      ws.localLogs.count.query({ taskRunId }),
-    deleteLocalLogCache: (taskRunId: string) =>
-      ws.localLogs.delete.mutate({ taskRunId }),
-  };
-});
 container.load(mcpCallbackModule);
 container.bind(NOTIFICATION_SERVICE).to(NotificationService);
 container.load(oauthCallbackModule);
