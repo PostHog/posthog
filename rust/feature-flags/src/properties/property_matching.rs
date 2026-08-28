@@ -208,27 +208,28 @@ pub fn match_property(
 
     match operator {
         OperatorType::Exact | OperatorType::IsNot => {
-            let compute_exact_match = |value: &Value, override_value: &Value| -> bool {
-                if is_truthy_or_falsy_property_value(value) {
-                    // Do boolean handling, such that passing in "true" or "True" or "false" or "False" as matching value is equivalent
-                    let (truthy_value, truthy_override_value) = (
-                        is_truthy_property_value(value),
-                        is_truthy_property_value(override_value),
-                    );
-                    return truthy_override_value.to_string().to_lowercase()
-                        == truthy_value.to_string().to_lowercase();
+            let compute_scalar_exact_match = |value: &Value, override_value: &Value| -> bool {
+                if let (Some(value), Some(override_value)) = (
+                    parse_boolean_property_value(value),
+                    parse_boolean_property_value(override_value),
+                ) {
+                    return value == override_value;
                 }
 
+                to_string_representation(value).to_lowercase()
+                    == to_string_representation(override_value).to_lowercase()
+            };
+
+            let compute_exact_match = |value: &Value, override_value: &Value| -> bool {
                 if value.is_array() {
-                    let target = to_string_representation(override_value).to_lowercase();
                     return value
                         .as_array()
                         .expect("expected array value")
                         .iter()
-                        .any(|v| to_string_representation(v).to_lowercase() == target);
+                        .any(|value| compute_scalar_exact_match(value, override_value));
                 }
-                to_string_representation(value).to_lowercase()
-                    == to_string_representation(override_value).to_lowercase()
+
+                compute_scalar_exact_match(value, override_value)
             };
 
             if let Some(match_value) = match_value {
@@ -643,52 +644,13 @@ pub fn match_property(
     }
 }
 
-fn is_truthy_or_falsy_property_value(value: &Value) -> bool {
-    if value.is_boolean() {
-        return true;
+fn parse_boolean_property_value(value: &Value) -> Option<bool> {
+    match value {
+        Value::Bool(value) => Some(*value),
+        Value::String(value) if value.eq_ignore_ascii_case("true") => Some(true),
+        Value::String(value) if value.eq_ignore_ascii_case("false") => Some(false),
+        _ => None,
     }
-
-    if value.is_string() {
-        let parsed_value = value
-            .as_str()
-            .expect("expected string value")
-            .to_lowercase();
-        return parsed_value == "true" || parsed_value == "false";
-    }
-
-    if value.is_array() {
-        return value
-            .as_array()
-            .expect("expected array value")
-            .iter()
-            .all(is_truthy_or_falsy_property_value);
-    }
-
-    false
-}
-
-fn is_truthy_property_value(value: &Value) -> bool {
-    if value.is_boolean() {
-        return value.as_bool().expect("expected boolean value");
-    }
-
-    if value.is_string() {
-        let parsed_value = value
-            .as_str()
-            .expect("expected string value")
-            .to_lowercase();
-        return parsed_value == "true";
-    }
-
-    if value.is_array() {
-        return value
-            .as_array()
-            .expect("expected array value")
-            .iter()
-            .all(is_truthy_property_value);
-    }
-
-    false
 }
 
 /// Naive wall-clock datetime formats (no embedded offset). A match here means the
@@ -954,24 +916,110 @@ mod test_match_properties {
         assert_eq!(actual, expected, "user_value = {user_value}");
     }
 
-    #[test]
-    fn test_match_properties_exact_empty_array_never_matches() {
+    fn match_exact_value(filter_value: Value, user_value: Value, operator: OperatorType) -> bool {
         let property = PropertyFilter {
-            key: "country".to_string(),
-            value: Some(json!([])),
-            operator: Some(OperatorType::Exact),
+            key: "key".to_string(),
+            value: Some(filter_value),
+            operator: Some(operator),
             prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
             compiled_regex: None,
             extra: Default::default(),
         };
-        assert!(!match_property(
+
+        match_property(
             &property,
-            &HashMap::from([("country".to_string(), json!("us"))]),
-            true
+            &HashMap::from([("key".to_string(), user_value)]),
+            true,
         )
-        .expect("expected match to exist"));
+        .expect("expected match to exist")
+    }
+
+    #[test]
+    fn test_match_properties_exact_only_coerces_explicit_boolean_values() {
+        let cases = [
+            (json!(false), json!(false), true),
+            (json!(false), json!("FALSE"), true),
+            (json!("FaLsE"), json!(false), true),
+            (json!(true), json!(true), true),
+            (json!(true), json!("TRUE"), true),
+            (json!("TrUe"), json!(true), true),
+            (json!(false), json!(true), false),
+            (json!(false), json!("true"), false),
+            (json!(false), json!(0), false),
+            (json!(false), Value::Null, false),
+            (json!(false), json!(""), false),
+            (json!(false), json!("banana"), false),
+            (json!(true), json!(1), false),
+            (json!(true), json!("banana"), false),
+        ];
+
+        for (filter_value, user_value, expected) in cases {
+            let actual = match_exact_value(
+                filter_value.clone(),
+                user_value.clone(),
+                OperatorType::Exact,
+            );
+            assert_eq!(
+                actual, expected,
+                "exact filter={filter_value} user_value={user_value}"
+            );
+
+            let actual_is_not = match_exact_value(filter_value, user_value, OperatorType::IsNot);
+            assert_eq!(actual_is_not, !expected, "is_not must complement exact");
+        }
+    }
+
+    #[test]
+    fn test_match_properties_exact_boolean_arrays_use_any_membership() {
+        let cases = [
+            (json!(["true", "false"]), json!(true), true),
+            (json!(["true", "false"]), json!("TRUE"), true),
+            (json!(["true", "false"]), json!(false), true),
+            (json!(["true", "false"]), json!("false"), true),
+            (json!(["true", "false"]), json!("pro"), false),
+            (json!(["false"]), json!("banana"), false),
+            (json!(["FREE", "PRO"]), json!("pro"), true),
+        ];
+
+        for (filter_value, user_value, expected) in cases {
+            let actual = match_exact_value(
+                filter_value.clone(),
+                user_value.clone(),
+                OperatorType::Exact,
+            );
+            assert_eq!(
+                actual, expected,
+                "exact filter={filter_value} user_value={user_value}"
+            );
+
+            let actual_is_not = match_exact_value(filter_value, user_value, OperatorType::IsNot);
+            assert_eq!(actual_is_not, !expected, "is_not must complement exact");
+        }
+    }
+
+    #[test]
+    fn test_match_properties_exact_empty_array_never_matches() {
+        for user_value in [
+            json!(true),
+            json!("true"),
+            json!(false),
+            json!("banana"),
+            json!([]),
+            json!([true]),
+        ] {
+            assert!(!match_exact_value(
+                json!([]),
+                user_value.clone(),
+                OperatorType::Exact,
+            ));
+            assert!(match_exact_value(
+                json!([]),
+                user_value,
+                OperatorType::IsNot,
+            ));
+        }
     }
 
     #[test]
