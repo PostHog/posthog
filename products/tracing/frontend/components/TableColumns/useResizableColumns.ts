@@ -68,28 +68,45 @@ export function useResizableColumns(tableKey: string, specs: ResizableColumnSpec
     const startResize = useCallback(
         (columnKey: string, event: ReactPointerEvent): void => {
             event.preventDefault()
+            // A drag cut short by a second pointer (e.g. two-finger touch) leaves its listeners
+            // attached — clear it before starting a new one instead of orphaning it.
+            stopDragRef.current?.()
+            // Keep receiving move/up events even if the pointer leaves the handle, or the
+            // window, before it's released.
+            event.currentTarget.setPointerCapture(event.pointerId)
+
             const startX = event.clientX
             const startWidth = renderedWidthsRef.current[columnKey] ?? MIN_COLUMN_WIDTH
             const widthAt = (clientX: number): number =>
                 Math.max(MIN_COLUMN_WIDTH, Math.round(startWidth + clientX - startX))
+            // A click with no movement shouldn't pin an auto-growing column to its current width.
+            let moved = false
 
             const onMove = (moveEvent: PointerEvent): void => {
+                moved = true
                 setDragged({ columnKey, width: widthAt(moveEvent.clientX) })
             }
             const onUp = (upEvent: PointerEvent): void => {
                 stopDragRef.current?.()
-                setColumnWidth(tableKey, columnKey, widthAt(upEvent.clientX))
+                if (moved) {
+                    setColumnWidth(tableKey, columnKey, widthAt(upEvent.clientX))
+                }
             }
+            // A cancelled gesture (e.g. an interrupted touch drag) discards the in-progress width
+            // instead of committing it.
+            const onCancel = (): void => stopDragRef.current?.()
 
             stopDragRef.current = (): void => {
                 document.removeEventListener('pointermove', onMove)
                 document.removeEventListener('pointerup', onUp)
+                document.removeEventListener('pointercancel', onCancel)
                 document.body.classList.remove('cursor-col-resize', 'select-none')
                 stopDragRef.current = null
                 setDragged(null)
             }
             document.addEventListener('pointermove', onMove)
             document.addEventListener('pointerup', onUp)
+            document.addEventListener('pointercancel', onCancel)
             // Hold the resize cursor and suppress text selection for the whole drag, not only while
             // the pointer stays over the handle.
             document.body.classList.add('cursor-col-resize', 'select-none')
