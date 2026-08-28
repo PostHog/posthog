@@ -624,6 +624,65 @@ class FlakyTestList:
     limit: int
 
 
+# How long a Trunk quarantine may stand before the scoreboard calls it overdue. Trunk itself never
+# expires a quarantine, so this deadline is the product's own accountability bar.
+TRUNK_QUARANTINE_TTL_DAYS = 15
+
+
+@dataclass(frozen=True)
+class TrunkQuarantinedTest:
+    """One test Trunk currently quarantines, aged against ``TRUNK_QUARANTINE_TTL_DAYS``.
+
+    Rows come from the synced TrunkIo ``QuarantinedTests`` warehouse table. Ownership rides the
+    per-test CI spans (the emitter stamps ``test.owner_team``); a quarantined test with no
+    in-retention span aggregates under ``'unowned'``.
+    """
+
+    # Runner label derived from Trunk's uploader-specific 'parent' field: 'pytest', 'jest',
+    # 'playwright', 'rust', or 'storybook'. Free-form on purpose; Trunk ingests suites the
+    # CITestRunner enum does not model.
+    runner: str
+    # Runner-native test id reconstructed from Trunk's (file, classname, name) key.
+    nodeid: str
+    file: str
+    owner_team: str
+    # Trunk's health verdict on the test, e.g. 'FLAKY' or 'BROKEN'.
+    status: str
+    # How the quarantine was applied, e.g. 'AUTO_QUARANTINE'.
+    quarantine_setting: str
+    quarantined_at: datetime
+    age_days: int
+    overdue: bool
+    # The Trunk app's page for this test; None when the source has no org slug or the row no id.
+    trunk_url: str | None
+
+
+@dataclass(frozen=True)
+class TrunkQuarantineTeamDebt:
+    """One owning team's share of the standing Trunk quarantine debt."""
+
+    owner_team: str
+    test_count: int
+    overdue_count: int
+    oldest_age_days: int
+
+
+@dataclass(frozen=True)
+class TrunkQuarantineDebt:
+    """The standing Trunk quarantine debt: every currently quarantined test with its owning team,
+    age, and whether it has outlived the TTL, plus the per-team rollup. ``available`` is false when
+    no TrunkIo source has the QuarantinedTests endpoint synced — that is not an error."""
+
+    available: bool
+    ttl_days: int
+    # The 'owner/name' repository the debt was read for; test file paths are relative to it.
+    repository: str
+    # The Trunk app's flaky-tests page for this repository; None when the source has no org slug.
+    trunk_url: str | None
+    teams: list[TrunkQuarantineTeamDebt]
+    tests: list[TrunkQuarantinedTest]
+
+
 @dataclass(frozen=True)
 class TeamCIHealthItem:
     """One owning team's rollup of the CI test surfaces it owns, with equal-length
@@ -1158,6 +1217,122 @@ class RepoOverview:
     ready_to_merge_series: list[ReadyToMergeBucket]
     # Bucket width of `ready_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     ready_to_merge_series_granularity: str
+
+
+@dataclass(frozen=True)
+class DeploymentFrequencyBucket:
+    """One time bucket of successful deployments, keyed on the deploy's first success status.
+    Empty buckets are zero-filled with 0 — no deploy in a bucket genuinely means nothing shipped.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    bucket_start: datetime
+    # Deployments whose first success status landed in this bucket, within the environment scope.
+    deployment_count: int
+
+
+@dataclass(frozen=True)
+class MergeToDeployBucket:
+    """One time bucket of per-PR merge-to-deploy seconds — the box-plot distribution of how long
+    merged PRs waited until the first successful deployment containing their merge (resolved
+    through the deploy's head commit; bots and drafts excluded, per the locked cycle-time
+    recipe). Keyed on deploy time: a PR lands in the bucket its deploy succeeded in. The measure
+    is named for exactly what it is: merge to deploy, not the full commit-to-deploy DORA lead
+    time (pre-merge time is on the other cards).
+    Buckets where nothing deployed carry ``deployed_pr_count`` 0 and null stats (a gap).
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    bucket_start: datetime
+    # PRs whose first post-merge successful deployment landed in this bucket.
+    deployed_pr_count: int
+    # Distribution of merged_at → first successful deploy, in seconds, over those PRs — the
+    # six-number summary a box plot draws (box p25→p75, median line, mean marker, whiskers).
+    min_seconds: float | None
+    p25_seconds: float | None
+    p50_seconds: float | None
+    mean_seconds: float | None
+    p75_seconds: float | None
+    max_seconds: float | None
+
+
+@dataclass(frozen=True)
+class DoraOverview:
+    """DORA-style deploy metrics over the window, each headline with its previous-window twin.
+
+    Built from the GitHub ``deployments`` + ``deployment_statuses`` warehouse pair. The four DORA
+    quadrants map onto honest fields: deployment frequency and merge-to-deploy lead time are
+    computed directly; change failure rate and time-to-restore have no incident link yet, so they
+    ship as deploy-status proxies under names that say what is actually measured
+    (``failed_deployment_share``, ``median_failed_deploy_to_next_success_seconds``).
+
+    ``deploy_data_available`` is False when the deploy tables aren't synced — every other field is
+    then empty/None, never a fake zero. A ``github_team`` filter narrows only the PR-scoped
+    merge-to-deploy figures (deploy counts are repo events, not team events); when membership data
+    isn't synced the filter can't be honored, so those figures go empty rather than silently
+    unfiltered (``has_membership_data``).
+    """
+
+    # False when the deployments/deployment_statuses tables aren't synced for the selected repo.
+    deploy_data_available: bool
+    # What the environment filter resolved to: 'production' (deployments GitHub marks
+    # production_environment), an exact environment name (the one the caller passed, or —
+    # when nothing is marked production — the busiest persistent environment, so a multi-region
+    # repo doesn't multiply every count), or 'persistent' (no persistent environment deployed in
+    # the window at all, so every non-transient one counts). Transient environments (ephemeral
+    # per-PR previews) never join a default scope. The scope resolves from deployments in the
+    # scan window, so two different windows can resolve different scopes and are not always comparable.
+    environment_scope: str
+    # Distinct persistent environments deployed to in the scan window, most-deployed first — the
+    # picker's options. Transient environments are omitted but stay reachable by exact name.
+    environments: list[str]
+    # True when the optional team-membership snapshot is synced (the github_team filter's substrate).
+    has_membership_data: bool
+    # Distinct GitHub team slugs from the membership snapshot, sorted — the team picker's options.
+    github_teams: list[str]
+    # Deployments whose first success status landed in the window, within the environment scope.
+    deployment_count: int
+    deployment_count_prev: int
+    # deployment_count normalized by the window length in days. Null only when the deploy tables aren't synced.
+    deployments_per_day: float | None
+    deployments_per_day_prev: float | None
+    # Median seconds from a PR's merge to the first successful deployment containing it —
+    # containment resolved through the deploy's head commit, not the deploy's success time
+    # (bots/drafts excluded; narrowed by github_team when given). Keyed on deploy time.
+    median_merge_to_deploy_seconds: float | None
+    median_merge_to_deploy_seconds_prev: float | None
+    # PRs first deployed in the window (the population behind the medians and the box plot).
+    deployed_pr_count: int
+    deployed_pr_count_prev: int
+    # Deployments with at least one failure/error status, keyed on the first failure time.
+    failed_deployment_count: int
+    failed_deployment_count_prev: int
+    # failed deployments / deployments that reached any outcome (success or failure). A change
+    # failure *proxy*: no incident data is linked, so a deploy that succeeded but broke production
+    # is not counted. None when nothing reached an outcome.
+    failed_deployment_share: float | None
+    failed_deployment_share_prev: float | None
+    # Median seconds from a deployment's first failure status to the next successful deployment in
+    # the same environment. A time-to-restore *proxy*: recovery by anything other than a deploy is
+    # invisible, and failures not yet recovered are excluded. None when no failed deploy recovered.
+    median_failed_deploy_to_next_success_seconds: float | None
+    median_failed_deploy_to_next_success_seconds_prev: float | None
+    # PRs merged in the window (bots/drafts excluded; narrowed by github_team when given) — the
+    # denominator behind unattributed_merged_pr_share.
+    merged_pr_count: int
+    # Share of merged_pr_count no successful in-scope deployment attributed: recent merges still
+    # waiting for their deploy, plus merges whose deploy the scope or scan bounds miss. None when
+    # nothing merged in the window.
+    unattributed_merged_pr_share: float | None
+    # The newest deployment status row synced, any environment — how fresh the deploy data is.
+    # Windows ending after this instant undercount. None when the deploy tables are empty.
+    latest_deploy_status_at: datetime | None
+    # Successful deployments per bucket across the window, oldest first, zero-filled.
+    deployment_frequency_series: list[DeploymentFrequencyBucket]
+    # Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series.
+    merge_to_deploy_series: list[MergeToDeployBucket]
+    # Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'.
+    series_granularity: str
 
 
 @dataclass(frozen=True)

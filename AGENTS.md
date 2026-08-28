@@ -29,7 +29,7 @@
   - Frontend: `pnpm --filter=@posthog/frontend build`
   - Start dev: `./bin/start` or `hogli start` (interactive TUI). Detached mode: `hogli up -d` paired with `hogli wait` / `hogli down`
     - Cloud task VMs (prebaked dev-stack image): run `bootstrap-dev-stack` first (restores compose host aliases, starts dockerd), then `uv sync`, `source .venv/bin/activate`, `hogli start -y -d`, and `hogli wait` (the detached start returns while the stack is still booting; `hogli wait` blocks until every process is ready) — always detached: the sandbox has no TTY, and phrocs under a pseudo-TTY balloons in memory until OOM-killed
-    - Cloud task VMs: on user-created runs the backend may already be starting the stack; check `curl -sf localhost:8010/_health` and `/tmp/posthog-preview/status.json` before running `hogli start`
+    - Cloud task VMs: on user-created runs the backend usually starts the stack itself. While it does, `hogli start` exits without starting anything. Poll `/tmp/posthog-preview/status.json` until `state` is `ready` or `failed`. On `ready`, run `hogli wait`; it reports `not reachable` until the backend reaches the phrocs step, so retry it rather than forcing a second start. On `failed` (the backend does not retry), start the stack yourself with `hogli start -y -d`
     - Cloud task VMs, frontend work: `pnpm install --frozen-lockfile --prefer-offline` links from the prebaked pnpm store, and Playwright Chromium is preinstalled; product/Storybook builds still run from source
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
@@ -129,6 +129,7 @@ The check fails open (missing `gh` or `trunk`, not logged in, offline, API error
 
 A pre-push hook runs `hogli ci:preflight --strict`, failing the push on deterministic CI breakage reachable from your diff (lint, lockfiles, migration conflicts). Never bypass it (`--no-verify`).
 If it blocks the push, run `hogli ci:preflight --fix`, resolve the remaining `✗ fail` lines, act on the `→ advisory` ones (regenerate OpenAPI types, merge master in), and push again.
+Advisories never block the push; in a cloud task sandbox, do not boot the dev stack only to clear one.
 In environments without hooks (no `node_modules`), run `hogli ci:preflight --fix` yourself before pushing or reporting a task done. If the command reports it is disabled, that's intentional — proceed.
 
 ### Merging PRs
@@ -284,7 +285,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/authoring-ci-workflows` — adding or editing any `.github/workflows` workflow, composite action, or reusable workflow
 - `/reviewing-personhog-protocol` — any personhog coordination-protocol change (leases, fencing, handoffs, supervisors, budgets, warming, changelog semantics), and any request for an exhaustive review of personhog code
 - `/gating-production-deploys` — any workflow that builds and pushes a production image or dispatches a deploy
-- `/splitting-oversized-modules` — splitting a Python module into a package, or deciding whether to propose splitting one before you work in it; propose, and land the move as a stacked base PR rather than inside your feature diff
+- `/splitting-oversized-modules` — splitting a Python module into a package, or deciding whether to propose splitting one before you work in it, including before you restructure code inside a module over roughly a thousand lines; propose, and land the move as a stacked base PR rather than inside your feature diff
 - `/auditing-llm-gateway-parity` — changing either gateway's auth, attribution, billing, endpoints, providers, models, routing, or metadata contract; reviewing a `services/llm-gateway` change; or refreshing `services/llm-gateway/PARITY.md`
 - `/finding-llm-gateway-migration-candidates` — finding, auditing, or ranking callers that could move from `services/llm-gateway` to `PostHog/ai-gateway`, including requests for the next or lowest-risk migration candidate
 - `/migrating-llm-gateway-callers` — adding an LLM gateway caller or migrating an existing caller from `services/llm-gateway` to `PostHog/ai-gateway`, including shared client and gateway setting changes made for that migration

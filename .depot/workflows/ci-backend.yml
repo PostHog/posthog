@@ -19,7 +19,8 @@
 #   auto-commit (handle-snapshots), posthog-github-action telemetry (including the
 #   capture-test-selection job — turbo-discover still emits its telemetry outputs to
 #   stay apples-to-apples, they just have no consumer here),
-#   --store-durations write, test-selection verdict, Trunk flaky-test quarantine
+#   --store-durations write, test-selection verdict (so the guard skipping it when both
+#   test matrices were skipped has nothing to mirror), Trunk flaky-test quarantine
 #   gate (canonical runs per-shard analytics-uploader steps that post to the
 #   external Trunk service; the upload is best-effort and a local "Fail on test
 #   failure" step owns the pass/fail verdict. Canonical can stage or filter JUnit
@@ -42,7 +43,16 @@
 #   changes confined to it (script deps, the reporter's availability guard, emission secret
 #   plumbing such as dual-project tokens, the JUnit-artifact download pattern, re-run attempt
 #   handling — including the attempt-suffixed junit artifact names canonical uploads so the
-#   reporter can pair re-run recoveries with attempt-1 failures) need no depot bump.
+#   reporter can pair re-run recoveries with attempt-1 failures, and the guard that skips the
+#   job when both test matrices were skipped, with the needs: entries that feed it) need no
+#   depot bump.
+# - Hourly scheduled master run: canonical no longer runs the test matrices on master push
+#   (the merge queue's trunk-merge/** run gates every commit) and runs them from an hourly
+#   `schedule` trigger instead — the shape this shadow always had (its `!= 'push'` gates on
+#   turbo-discover / get_clickhouse_versions). A sampling trial must not run on a timer, so
+#   the schedule trigger and canonical's per-commit-vs-scheduled splits (the `!= 'schedule'`
+#   gates on check-migrations / check-openapi-types / repo-checks, report-test-timings' push
+#   exclusion, and the paths-filter schedule skip) are depot-exempt.
 # - mirror-schema-cache: canonical's master run copies the migrated schema dump out of the
 #   migrated-schema artifact into GitHub Actions Cache, so fork PRs (which run without
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
@@ -492,7 +502,8 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
+        # Not on master push: only feeds the matrices, which master pushes skip.
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         outputs:
             mode: ${{ steps.detect.outputs.mode }}
         steps:
@@ -627,6 +638,14 @@ jobs:
               uses: ./.depot/actions/pnpm-install
               with:
                   install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+            # turbo-discover.js runs .github/scripts/tach_map.py under `uv run
+            # --no-project` for the dependent cascade; the script pins tach, so no
+            # Python project sync is needed. A missing uv widens the cascade to
+            # every product rather than failing the job.
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              continue-on-error: true
+              with:
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Restore test durations from cache
               # Restore fresh timings so shard counts match GitHub Actions; miss falls back to committed.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -1054,7 +1073,15 @@ jobs:
                   - name: Check operator parity
                     run: python .github/scripts/check-operator-parity.py
                   - name: Check module boundaries (tach)
-                    run: tach check --dependencies --interfaces
+                    # Two passes: tests are in the interface graph but not the dependency graph.
+                    # A branch that predates the command still excludes tests in tach.toml, so
+                    # the old single pass is the right check there.
+                    run: |
+                        if ./bin/hogli lint:tach --help >/dev/null 2>&1; then
+                            ./bin/hogli lint:tach
+                        else
+                            tach check --dependencies --interfaces
+                        fi
                   - name: Check product facade enforcement (import-linter)
                     run: lint-imports
                   # These guards take the whole repo as input (import graph after
@@ -2210,7 +2237,7 @@ jobs:
                     if [[ "${{ matrix.compat }}" == "true" ]]; then
                         full_targets="$CLICKHOUSE_COMPAT_PYTEST_TARGETS"
                     elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
-                        full_targets="./posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/tests/api/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
+                        full_targets="./posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
                         full_ignores+=(--ignore=posthog/hogql_queries --ignore=posthog/hogql)
                     fi
                     # shellcheck disable=SC2086

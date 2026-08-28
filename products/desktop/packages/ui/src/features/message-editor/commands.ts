@@ -1,7 +1,10 @@
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
 import {
+  AI_FEEDBACK_TEXT_MAX_LENGTH,
+  buildSlashFeedbackEvents,
+} from "@posthog/core/analytics/aiFeedback";
+import {
   basename,
-  buildFeedbackEventPayload,
   parseCommandLine,
 } from "@posthog/core/message-editor/commands";
 import { escapeXmlAttr, type SkillSource } from "@posthog/shared";
@@ -22,10 +25,9 @@ interface CommandContext {
   repoPath: string | null | undefined;
   session: {
     taskRunId?: string;
-    logUrl?: string;
     events: unknown[];
   } | null;
-  taskRun: { id?: string; log_url?: string } | null;
+  taskRun: { id?: string } | null;
   /** Fires a "/btw" side question. Absent when the session doesn't support them. */
   /** Returns false when a side question is already pending for this run. */
   askSideQuestion?: (question: string) => boolean;
@@ -40,7 +42,10 @@ export interface CodeCommandInsertContext {
 interface CodeCommand {
   name: string;
   description: string;
-  input?: { hint: string };
+  /** `required` is the message shown when the command is sent without input.
+   * `maxLength` bounds the input; over-limit submits are rejected pre-submit
+   * so the composer keeps the text. */
+  input?: { hint: string; required?: string; maxLength?: number };
   /** Optional override for the chip attrs inserted when this command is committed. */
   placeholderChip?: Partial<MentionChipAttrs>;
   /** Fires immediately after the chip is inserted into the editor. */
@@ -52,27 +57,35 @@ interface CodeCommand {
   ) => Promise<void> | void;
 }
 
+const FEEDBACK_COMMENT_REQUIRED =
+  "Add a comment after /feedback. To rate without a comment, use /good or /bad.";
+
 function makeFeedbackCommand(
   name: string,
   feedbackType: FeedbackType,
   label: string,
+  input: NonNullable<CodeCommand["input"]>,
 ): CodeCommand {
   return {
     name,
     description: `Capture ${label.toLowerCase()} feedback`,
-    input: { hint: "optional comment" },
+    input: { ...input, maxLength: AI_FEEDBACK_TEXT_MAX_LENGTH },
     execute(args, ctx) {
-      track(
-        ANALYTICS_EVENTS.TASK_FEEDBACK,
-        buildFeedbackEventPayload({
+      if (input.required && !args?.trim()) {
+        toast.error(input.required);
+        return;
+      }
+      const { metric, feedback } = buildSlashFeedbackEvents({
+        run: {
           taskId: ctx.taskId,
           taskRunId: ctx.session?.taskRunId ?? ctx.taskRun?.id,
-          logUrl: ctx.session?.logUrl ?? ctx.taskRun?.log_url,
-          eventCount: ctx.session?.events.length ?? 0,
-          feedbackType,
-          comment: args,
-        }),
-      );
+        },
+        eventCount: ctx.session?.events.length ?? 0,
+        feedbackType,
+        comment: args,
+      });
+      if (metric) track(ANALYTICS_EVENTS.AI_METRIC, metric);
+      if (feedback) track(ANALYTICS_EVENTS.AI_FEEDBACK, feedback);
       toast.success(`${label} feedback captured`);
     },
   };
@@ -113,7 +126,7 @@ const btwCommand: CodeCommand = {
   name: BTW_COMMAND_NAME,
   description:
     "Ask a quick side question without interrupting the conversation",
-  input: { hint: "your question" },
+  input: { hint: "your question", required: "Add a question after /btw" },
   execute(args, ctx) {
     const question = args?.trim();
     if (!question) {
@@ -133,21 +146,46 @@ const btwCommand: CodeCommand = {
 const commands: CodeCommand[] = [
   addDirCommand,
   btwCommand,
-  makeFeedbackCommand("good", "good", "Positive"),
-  makeFeedbackCommand("bad", "bad", "Negative"),
-  makeFeedbackCommand("feedback", "general", "General"),
+  makeFeedbackCommand("good", "good", "Positive", {
+    hint: "optional comment",
+  }),
+  makeFeedbackCommand("bad", "bad", "Negative", { hint: "optional comment" }),
+  makeFeedbackCommand("feedback", "general", "General", {
+    hint: "your comment",
+    required: FEEDBACK_COMMENT_REQUIRED,
+  }),
 ];
 
 export const CODE_COMMANDS: AvailableCommand[] = commands.map((cmd) => ({
   name: cmd.name,
   description: cmd.description,
-  input: cmd.input,
+  input: cmd.input ? { hint: cmd.input.hint } : undefined,
 }));
 
 const commandMap = new Map(commands.map((cmd) => [cmd.name, cmd]));
 
 export function getCodeCommand(name: string): CodeCommand | undefined {
   return commandMap.get(name);
+}
+
+/**
+ * Message to show instead of sending, when `text` is a code command that
+ * requires input and has none, or the input exceeds the command's limit.
+ * Checked before submit so the composer keeps the text for the user to
+ * complete or trim.
+ */
+export function getCodeCommandInputError(text: string): string | null {
+  const parsed = parseCommandLine(text.trim());
+  if (!parsed) return null;
+  const input = commandMap.get(parsed.name)?.input;
+  const args = parsed.args?.trim();
+  if (input?.required && !args) {
+    return input.required;
+  }
+  if (input?.maxLength && args && args.length > input.maxLength) {
+    return `Your comment is ${args.length.toLocaleString()} characters and the limit is ${input.maxLength.toLocaleString()}. Shorten it and try again.`;
+  }
+  return null;
 }
 
 export async function tryExecuteCodeCommand(

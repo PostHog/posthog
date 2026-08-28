@@ -303,7 +303,7 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # the write scope; the snapshot read stays on the read scope.
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["recompute"]
-    posthog_feature_flag = "mcp-analytics"
+    posthog_feature_flag = contracts.MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
     permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = None
 

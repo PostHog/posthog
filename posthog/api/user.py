@@ -6,6 +6,7 @@ import secrets
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -64,7 +65,7 @@ from posthog.api.oauth.toolbar_service import (
 )
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
-from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
+from posthog.api.shared import OrganizationBasicSerializer, OrganizationNotificationLockSerializer, TeamBasicSerializer
 from posthog.api.utils import (
     ClassicBehaviorBooleanFieldSerializer,
     action,
@@ -112,6 +113,7 @@ from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token, has_live_
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_notification_lock import GovernedSetting, notification_locks_for_users
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import (
     NOTIFICATION_DEFAULTS,
@@ -162,6 +164,42 @@ NUM_2FA_BACKUP_CODES = 10
 
 MAX_PIPELINE_NOTIFICATIONS = 1000
 _PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
+
+
+def _reject_locked_notification_settings(user: User, incoming: Notifications, current: Mapping[str, Any]) -> None:
+    """Stop a member changing a setting their organization enforces.
+
+    The settings page disables these controls, but the disabling has to be enforced here too, or
+    the rule is only a suggestion to anyone using the API directly. Only a changed value is
+    refused: the page submits the whole map on every save, so an untouched governed setting has
+    to pass through.
+
+    Deliberately not scoped to one organization: a value the member stores is the one every
+    organization that has no rule of its own falls back to, so any single rule freezes it.
+    """
+    locks = notification_locks_for_users([user.id]).get(user.id, {})
+    if not locks:
+        return
+
+    for key, value in incoming.items():
+        if isinstance(value, dict):
+            stored: dict = current.get(key) or {}
+            blocked = [
+                scope_id
+                for scope_id, scoped_value in value.items()
+                if GovernedSetting(setting=key, scope_id=str(scope_id)) in locks
+                and stored.get(scope_id) != scoped_value
+            ]
+            if blocked:
+                raise serializers.ValidationError(
+                    f"{key} is set by your organization for {', '.join(sorted(blocked))} and cannot be changed here",
+                    code="permission_denied",
+                )
+        elif GovernedSetting(setting=key, scope_id="") in locks and current.get(key) != value:
+            raise serializers.ValidationError(
+                f"{key} is set by your organization and cannot be changed here",
+                code="permission_denied",
+            )
 
 
 def _validate_pipeline_notifications(incoming: dict, merged: dict) -> None:
@@ -333,6 +371,13 @@ class UserSerializer(serializers.ModelSerializer):
             "once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only."
         ),
     )
+    notification_locks = serializers.SerializerMethodField(
+        help_text=(
+            "Notification settings an organization admin enforces on this user. The matching "
+            "controls are read-only, and `notification_settings` still holds the user's own "
+            "choice underneath. Read-only."
+        ),
+    )
 
     class Meta:
         model = User
@@ -346,6 +391,7 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_email",
             "is_email_verified",
             "notification_settings",
+            "notification_locks",
             "anonymize_data",
             "allow_impersonation",
             "toolbar_mode",
@@ -388,6 +434,7 @@ class UserSerializer(serializers.ModelSerializer):
             "active_realtime_notification_types",
             "pending_invites",
             "requires_credential_review",
+            "notification_locks",
         ]
 
         read_only_fields = [
@@ -566,6 +613,17 @@ class UserSerializer(serializers.ModelSerializer):
     def get_active_realtime_notification_types(self, _: User) -> list[str]:
         return [t.value for t in NotificationType]
 
+    @extend_schema_field(OrganizationNotificationLockSerializer(many=True))
+    def get_notification_locks(self, instance: User) -> list[dict]:
+        """Every rule that reaches this person, across all the organizations they belong to."""
+        if not self._is_self_request(instance):
+            return []
+        locks = notification_locks_for_users([instance.id]).get(instance.id, {})
+        return [
+            {"setting": governed.setting, "scope_id": governed.scope_id, "locked_value": value}
+            for governed, value in sorted(locks.items(), key=lambda item: (item[0].setting, item[0].scope_id))
+        ]
+
     @extend_schema_field(PendingInviteSerializer(many=True))
     @tracer.start_as_current_span("user_serializer.pending_invites")
     def get_pending_invites(self, instance: User) -> list[dict]:
@@ -640,6 +698,8 @@ class UserSerializer(serializers.ModelSerializer):
             **NOTIFICATION_DEFAULTS,
             **(instance.partial_notification_settings or {}),
         }
+
+        _reject_locked_notification_settings(instance, notification_settings, current_settings)
 
         _dict_notification_keys = (
             "project_weekly_digest_disabled",
