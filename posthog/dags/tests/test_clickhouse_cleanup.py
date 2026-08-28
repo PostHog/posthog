@@ -667,7 +667,7 @@ def test_a_retried_snapshot_populate_cannot_skew_the_dictionary(cluster: Clickho
     )
     try:
         cluster.map_all_hosts(partial(dictionary.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
-        cluster.map_all_hosts(partial(dictionary.load, timeout_seconds=60), concurrency=1).result()
+        cluster.map_all_hosts(dictionary.load, concurrency=1).result()
         rows = cluster.any_host(
             lambda client: client.execute(f"SELECT person_id, max_version FROM {dictionary.qualified_name}")
         ).result()
