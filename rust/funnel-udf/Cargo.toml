@@ -1,3 +1,7 @@
+# Its own cargo workspace, deliberately not a member of rust/Cargo.toml: the
+# release profile below is only honoured in a workspace root.
+[workspace]
+
 [package]
 name = "funnels"
 version = "0.1.0"

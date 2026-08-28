@@ -838,9 +838,6 @@ const STANDALONE_TREES = new Map([
     // Go service with its own CI. ci-hog.yml ignores livestream/** explicitly,
     // so its Hog implementation is not covered by the shared hog suite either.
     ['livestream', ['livestream']],
-    // Another standalone cargo workspace, and nothing in the dev or CI stack
-    // builds it: the UDF binary reaches ClickHouse through its image.
-    ['funnel-udf', ['funnel-udf']],
     // Terragrunt definitions for dashboards and alerts. No suite compiles them,
     // and terragrunt-posthog.yaml is the only workflow that reads the tree.
     ['terraform', ['terraform']],
@@ -1413,6 +1410,11 @@ function touchesContractSurface(product, file, contractSurfaces) {
 
 // --- Rust crate inventory ---
 
+// A cargo workspace of its own living under rust/, with its own lockfile and
+// release profile. Nothing in the dev or CI stack builds it: the UDF binary
+// reaches ClickHouse through its image, so it holds a lane instead of a crate.
+const RUST_STANDALONE_WORKSPACE = 'funnel-udf'
+
 // Discovers workspace crates as (directory, crate name) pairs. Crate names can
 // differ from directory names, and file paths only carry the directory, so both
 // are needed to translate a changed path into a crate.
@@ -1424,6 +1426,11 @@ function discoverRustCrates(repoRoot) {
         }
         for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
             if (entry.name === 'target' || entry.name === '.git' || entry.name.startsWith('.')) {
+                continue
+            }
+            // Sits under rust/ but resolves against its own lockfile, so the
+            // crate graph the determinator answers from does not name it.
+            if (depth === 0 && entry.name === RUST_STANDALONE_WORKSPACE) {
                 continue
             }
             const full = path.join(dir, entry.name)
@@ -1538,6 +1545,7 @@ function allKnownTargets(context) {
         'dev-env',
         'ownership',
         'ci-tooling',
+        RUST_STANDALONE_WORKSPACE,
     ])
     for (const product of products) {
         targets.add(pyProduct(product))
@@ -2038,6 +2046,10 @@ function computeTargets(changedFiles, context) {
             return everything(context)
         }
         if (top === 'rust') {
+            if (segments[1] === RUST_STANDALONE_WORKSPACE) {
+                targets.add(RUST_STANDALONE_WORKSPACE)
+                continue
+            }
             if (!rustInventory) {
                 targets.add('rust:unresolved')
                 continue

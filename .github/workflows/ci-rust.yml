@@ -51,6 +51,8 @@ jobs:
                       rust:
                         # Avoid running rust tests for irrelevant changes
                         - 'rust/**'
+                        # Its own workspace and lockfile, built by nothing here
+                        - '!rust/funnel-udf/**'
                         - 'proto/**'
                         - '.github/workflows/ci-rust.yml'
                         - '.github/workflows/rust.yml'

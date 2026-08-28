@@ -192,9 +192,10 @@ class TestDetectTestType:
         assert "--" not in config.command  # main.rs has no module filter
 
     def test_rust_standalone_funnel_udf(self) -> None:
-        config = detect_test_type("funnel-udf/src/lib.rs")
+        config = detect_test_type("rust/funnel-udf/src/lib.rs")
         assert config.test_type == "rust"
-        assert "--manifest-path=funnel-udf/Cargo.toml" in config.command
+        assert "--manifest-path=rust/funnel-udf/Cargo.toml" in config.command
+        assert "-p" not in config.command  # its own workspace, not a rust/ member
         assert "--" not in config.command  # lib.rs has no module filter
 
     def test_rust_single_file_filters_to_module(self) -> None:

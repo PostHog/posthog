@@ -21,7 +21,7 @@ class RequireAtLeastTwoFunnelSteps:
 # The aggregate_funnel UDFs return reached steps as a UInt32 bitfield (see
 # posthog/user_scripts/latest_user_defined_function.xml), so steps beyond 32
 # silently report zero conversions. Only raise this limit together with
-# widening the bitfield in funnel-udf and shipping a new UDF version.
+# widening the bitfield in rust/funnel-udf and shipping a new UDF version.
 MAX_FUNNEL_STEPS = 32
 
 

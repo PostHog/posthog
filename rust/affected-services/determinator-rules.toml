@@ -84,6 +84,12 @@ mark-changed = "all"
 globs = ["../**"]
 mark-changed = []
 
+# funnel-udf is a cargo workspace of its own, excluded from rust/Cargo.toml and
+# resolved against its own lockfile, so nothing here rebuilds for it.
+[[path-rule]]
+globs = ["funnel-udf/**"]
+mark-changed = []
+
 # Migration directories are not cargo crates. Tell the determinator to
 # ignore them (don't try ancestor-walk package matching). The sqlx-migrate
 # image trigger is handled in custom code outside the determinator.

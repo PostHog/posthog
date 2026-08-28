@@ -73,6 +73,10 @@ members = [
   "property-vals-rs",
 ]
 
+# funnel-udf ships a ClickHouse UDF binary from its own workspace and lockfile,
+# so it stays out of the members above.
+exclude = ["funnel-udf"]
+
 # NOTE: cargo allows only one crate with `links = "python"` (i.e. one pyo3 version) per
 # dependency graph. `hogql/parser` and `deltalite/python` must therefore agree on their
 # pyo3 major (currently 0.28, dictated by arrow 58's `pyarrow` feature in deltalite) --

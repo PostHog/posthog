@@ -205,7 +205,7 @@ type:
   extending an existing attempt. Ordered funnels skip the SQL-level temporal filter entirely; the
   per-step gap check in the UDF is the only window enforcement.
 
-  <!-- Source for maintainers: funnel-udf/src/steps.rs (per-event step-0 reset and the
+  <!-- Source for maintainers: rust/funnel-udf/src/steps.rs (per-event step-0 reset and the
   consecutive-step gap check). experiment_query_builder.py documents the ordered-vs-unordered
   branch. -->
 

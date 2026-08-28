@@ -317,6 +317,11 @@ fn multi_binary_crate_produces_all_images() {
     true,
     &[],
 )]
+#[case::funnel_udf_is_its_own_workspace(
+    "rust/funnel-udf/src/steps.rs",
+    false,
+    &[],
+)]
 fn path_rule_ordering(
     #[case] file: &str,
     #[case] expect_rebuild_all: bool,

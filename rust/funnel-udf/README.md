@@ -4,7 +4,7 @@
 
 - Building the binaries:
   - Exit flox: `exit`
-  - Switch to the subfolder: `cd funnel-udf`
+  - Switch to the subfolder: `cd rust/funnel-udf`
   - Execute the build script: `./build.sh`
   - Restart the clickhouse docker container
 

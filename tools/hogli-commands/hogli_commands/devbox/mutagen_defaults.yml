@@ -32,7 +32,7 @@ sync:
                 - '.pnpm-store'
                 - 'target'
                 - 'rust/target'
-                - 'funnel-udf/target'
+                - 'rust/funnel-udf/target'
 
                 # NB: don't ignore all of `common/hogql_parser` -- it holds
                 # hand-maintained C++ sources (error.cpp, parser_python.cpp,

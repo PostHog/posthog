@@ -275,6 +275,13 @@ def _rust_module_filter(file_only: str, crate_toml: Path, node_id: str | None = 
 
 def _find_workspace_toml(crate_toml: Path) -> Path | None:
     """Walk up from a crate's Cargo.toml to find the workspace root Cargo.toml."""
+    try:
+        # A crate declaring [workspace] itself is its own root, even when it sits
+        # inside another workspace's directory (rust/funnel-udf).
+        if "[workspace]" in crate_toml.read_text():
+            return None
+    except OSError:
+        pass
     parent = crate_toml.parent.parent
     while parent == REPO_ROOT or REPO_ROOT in parent.parents:
         candidate = parent / "Cargo.toml"

@@ -890,7 +890,7 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         '.agents/skills/merging-prs/SKILL.md',
         'cli/src/main.rs',
         'livestream/auth/jwt.go',
-        'funnel-udf/src/codec.rs',
+        'rust/funnel-udf/src/codec.rs',
         'terraform/us/dashboards.tf',
         '.stamphog/policy.yml',
         '.vscode/launch.json',
@@ -985,14 +985,14 @@ test('tripwire domains are reported for telemetry', () => {
 test('standalone top-level trees hold a lane instead of widening', () => {
     assert.deepEqual(computeTargets(['terraform/us/project-2/dashboards.tf'], CONTEXT), ['terraform'])
     assert.deepEqual(computeTargets(['livestream/auth/jwt.go'], CONTEXT), ['livestream'])
-    assert.deepEqual(computeTargets(['funnel-udf/src/codec.rs'], CONTEXT), ['funnel-udf'])
 })
 
-// funnel-udf and cli are cargo workspaces of their own, outside rust/ and
-// outside its lockfile, so the crate graph must not be consulted for them.
+// rust/funnel-udf and cli are cargo workspaces of their own, outside
+// rust/Cargo.lock, so the crate graph must not be consulted for them.
 test('standalone cargo workspaces stay out of the rust crate lanes', () => {
-    const udf = computeTargets(['funnel-udf/src/codec.rs'], CONTEXT)
+    const udf = computeTargets(['rust/funnel-udf/src/codec.rs'], CONTEXT)
     const rust = computeTargets(['rust/shared/src/lib.rs'], CONTEXT)
+    assert.deepEqual(udf, ['funnel-udf'])
     assert.deepEqual(
         udf.filter((target) => rust.includes(target)),
         []

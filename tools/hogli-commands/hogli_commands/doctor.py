@@ -874,7 +874,7 @@ def _find_cargo_workspaces(repo_root: Path) -> list[Path]:
             continue
 
         # Check if this is a workspace root or standalone package
-        # We look for workspace roots (rust/, cli/, funnel-udf/) and skip members
+        # We look for workspace roots (rust/, cli/, rust/funnel-udf/) and skip members
         try:
             cargo_content = cargo_toml.read_text()
         except (FileNotFoundError, PermissionError, OSError):
