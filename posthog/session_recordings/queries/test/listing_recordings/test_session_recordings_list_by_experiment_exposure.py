@@ -21,7 +21,6 @@ from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.queries.recordings_query_runner import RecordingsQueryRunner
@@ -35,6 +34,8 @@ from posthog.session_recordings.session_recording_api import list_recordings_fro
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.persons import add_distinct_id, create_person
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -46,8 +47,6 @@ from products.experiments.backend.hogql_queries.experiment_exposure_query_builde
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-from ee.models.rbac.access_control import AccessControl
 
 FROZEN_NOW = "2021-08-21T20:00:00Z"
 BASE_TIME = datetime(2021, 8, 21, 10, 0, tzinfo=UTC)

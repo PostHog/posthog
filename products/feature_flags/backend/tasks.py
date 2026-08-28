@@ -25,6 +25,7 @@ from products.feature_flags.backend.flags_cache import (
     cleanup_stale_expiry_tracking,
     clear_flags_cache,
     get_cache_stats,
+    publish_shadow_invalidation,
     refresh_expiring_flags_caches,
     update_flags_cache,
 )
@@ -111,6 +112,13 @@ def update_team_service_flags_cache(team_id: int) -> None:
     HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
         namespace="feature_flags", cache_name="flags", operation="update", result="success" if success else "failure"
     ).inc()
+
+    # KAFKA-CUTOVER TRANSITIONAL CODE — remove with the block it belongs to in
+    # flags_cache.py. Gated on `success` because a shadow build must diff against
+    # the entry this task just wrote. After a failed write the live entry is the
+    # stale one, and the diff would report Python's failure as Rust drift.
+    if success:
+        publish_shadow_invalidation(team_id)
 
 
 @shared_task(

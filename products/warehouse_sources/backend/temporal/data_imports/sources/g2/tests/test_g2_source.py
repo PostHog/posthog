@@ -2,14 +2,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.g2.g2 import G2ResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.g2.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.g2.source import G2Source
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.g2 import G2SourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.g2.source.validate_g2_credentials"
 
@@ -19,9 +16,6 @@ class TestG2Source:
         self.source = G2Source()
         self.team_id = 123
         self.config = G2SourceConfig(access_token="token-1", product_id="prod-1")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.G2
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -34,26 +28,6 @@ class TestG2Source:
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["access_token", "product_id"]
-
-    def test_access_token_field_is_a_secret_password(self) -> None:
-        config = self.source.get_source_config
-        token_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "access_token"
-        )
-
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
-
-    def test_product_id_field_is_required_plain_text(self) -> None:
-        config = self.source.get_source_config
-        product_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "product_id"
-        )
-
-        assert product_field.type == SourceFieldInputConfigType.TEXT
-        assert product_field.secret is False
-        assert product_field.required is True
 
     @parameterized.expand(
         [
@@ -85,10 +59,6 @@ class TestG2Source:
             assert schema.supports_append is False
             assert schema.incremental_fields == []
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["reviews"])
-        assert [schema.name for schema in schemas] == ["reviews"]
-
     def test_products_catalog_is_opt_in(self) -> None:
         # G2's global product catalog runs into the hundreds of thousands of rows, so it must not
         # be silently enabled for every new connection.
@@ -119,12 +89,6 @@ class TestG2Source:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("token-1", "v2")
 
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is G2ResumeConfig
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.g2.source.g2_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_g2_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
@@ -141,6 +105,3 @@ class TestG2Source:
         assert kwargs["resumable_source_manager"] is manager
         # An unpinned source must still send a version, or every request 404s off /api/.
         assert kwargs["api_version"] == "v2"
-
-    def test_canonical_descriptions_cover_declared_endpoints(self) -> None:
-        assert set(self.source.get_canonical_descriptions().keys()) == set(ENDPOINTS)

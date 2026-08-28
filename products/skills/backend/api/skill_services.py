@@ -27,9 +27,20 @@ MAX_SKILL_FILE_COUNT = 200
 # importing the serializers that import it.
 RESERVED_SKILL_NAMES = {"new", "scouts", "review-hog", "community"}
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+MAX_SKILL_NAME_LENGTH = 64
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}
+
+
+def skill_name_is_well_formed(value: str) -> bool:
+    """The shape half of the skill-name contract, without the reserved-name rule.
+
+    ``fullmatch`` rather than ``match``: ``$`` matches before a trailing newline, so ``match`` would
+    accept ``"safe\n"``. Archive writers use this to skip legacy rows that predate the validator,
+    where a name is a directory and a reserved route name is harmless.
+    """
+    return len(value) <= MAX_SKILL_NAME_LENGTH and SKILL_NAME_PATTERN.fullmatch(value) is not None and "--" not in value
 
 
 def normalize_skill_file_path(value: str) -> str:
@@ -751,6 +762,20 @@ def resolve_skill_owners_for_names(team: Team, skill_names: list[str]) -> dict[s
     for row in rows:
         owners_by_name.setdefault(row.skill_name, []).append(row.user)
     return owners_by_name
+
+
+def skill_names_owned_by(team: Team, user_id: int) -> "QuerySet[LLMSkillOwner, str]":
+    """Names of the logical skills one user owns — backs the list endpoint's owner filter.
+
+    Returns a lazy values queryset so the caller can use it as a subquery instead of pulling every
+    name into memory. Same current-access filter as `resolve_skill_owners`: filtering by a user who
+    lost access matches nothing, rather than surfacing skills through a stale owner row.
+    """
+    return (
+        _owner_qs(team)
+        .filter(user_id=user_id, user__in=team.all_users_with_access())
+        .values_list("skill_name", flat=True)
+    )
 
 
 def clear_skill_owners(team: Team, skill_name: str) -> None:

@@ -41,6 +41,7 @@ import {
   useDashboard,
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
@@ -344,16 +345,17 @@ function CanvasBreadcrumb({
   );
 }
 
-// Canvas toolbar + content outlet for the Website space (channel-scoped). A
-// single toolbar carries the channel breadcrumb (left) and data controls /
-// actions (right).
 export function ShellLayout() {
   const spacesLayout = useChannelsLayout();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const selectedCanvasId = useSelectedCanvasId();
   const params = useParams({ strict: false });
 
   const channelId = params.channelId;
   const dashboardId = params.dashboardId;
+  const { dashboard: selectedCanvas } = useDashboard(selectedCanvasId);
+  const toolbarDashboardId = dashboardId ?? selectedCanvasId;
+  const toolbarChannelId = channelId ?? selectedCanvas?.channelId;
 
   // Activity reads a task into its pane off the feed, so the session is not
   // always the one in the URL.
@@ -380,8 +382,11 @@ export function ShellLayout() {
     : spacesLayout
       ? "Space"
       : "Channel";
+  const toolbarChannelName = toolbarChannelId
+    ? (channels.find((c) => c.id === toolbarChannelId)?.name ?? channelName)
+    : channelName;
 
-  const isDashboardDetail = Boolean(channelId && dashboardId);
+  const isDashboardDetail = Boolean(toolbarDashboardId);
   // The canvases grid (its own sub-route now that the channel index is the
   // static homepage, which carries its own header content).
   const isDashboardsGrid =
@@ -389,8 +394,7 @@ export function ShellLayout() {
 
   // Whether the single toolbar should render: the canvases grid, or any single
   // canvas (so Edit lives here too).
-  const showToolbar =
-    Boolean(channelId) && (isDashboardsGrid || isDashboardDetail);
+  const showToolbar = isDashboardsGrid || isDashboardDetail;
 
   return (
     <Flex direction="column" height="100%" overflow="hidden">
@@ -405,28 +409,28 @@ export function ShellLayout() {
       {/* Single canvas toolbar: the "# channel / canvas" breadcrumb (left) and
           canvas actions (Edit / New canvas) on the right.
           Freeform canvases own their own date control in-app (DateTimePicker). */}
-      {showToolbar && channelId && (
+      {showToolbar && (
         <div className="flex h-10 shrink-0 items-center border-border border-b px-3">
-          {isDashboardDetail && dashboardId ? (
+          {isDashboardDetail && toolbarDashboardId && toolbarChannelId ? (
             <CanvasBreadcrumb
-              channelName={channelName}
-              channelId={channelId}
-              dashboardId={dashboardId}
+              channelName={toolbarChannelName}
+              channelId={toolbarChannelId}
+              dashboardId={toolbarDashboardId}
               trailing={
                 <FreeformEditControls
-                  channelId={channelId}
-                  dashboardId={dashboardId}
+                  channelId={toolbarChannelId}
+                  dashboardId={toolbarDashboardId}
                 />
               }
             />
-          ) : (
+          ) : channelId ? (
             <ChannelBreadcrumb
               channelName={channelName}
               channelId={channelId}
               leafLabel="Canvases"
               trailing={<NewCanvasMenu channelId={channelId} />}
             />
-          )}
+          ) : null}
         </div>
       )}
       {/* The right panel lays itself over this row's right edge and pins its

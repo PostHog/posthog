@@ -359,8 +359,10 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
         description=(
             "Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run "
             "cycles, merged-PR count (bots included), median PR open-to-merge (bots and drafts excluded; "
-            "coarse — draft and ready time fused), and billable minutes + estimated cost (with the merge-queue "
-            "slice of billable minutes broken out) — each with its equal-length previous-window twin so a "
+            "coarse — draft and ready time fused), median time-to-green, billable minutes + estimated cost "
+            "(with the merge-queue slice of billable minutes broken out), and merge-queue landing stats "
+            "(queue-landed merges, first-gate-to-merge median and p90, gate attempts, failed-gate share) — "
+            "each with its equal-length previous-window twin so a "
             "caller can render honest deltas. Also carries the "
             "detected default branch and its completed-run history series (skippable via include_series=false). "
             "Cost figures are null until the job-level source is synced."

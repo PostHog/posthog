@@ -1,12 +1,15 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.context.notebook.prompts import LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE
 from ee.hogai.tools.create_notebook.tool import CreateNotebookTool
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
@@ -33,6 +36,24 @@ class TestCreateNotebookTool(BaseTest):
         assert "summary: Show the flag status" in self.tool.description
         assert "editor: Edit the flag status" in self.tool.description
         assert "Cohort" in self.tool.description
+
+    @parameterized.expand(
+        [
+            ("sql_v2 enabled", True, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
+            ("sql_v2 disabled", False, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
+        ]
+    )
+    def test_description_offers_only_runnable_cell_tags(
+        self, _name: str, sql_v2_enabled: bool, expected: str, unexpected: str
+    ) -> None:
+        with patch(
+            "products.notebooks.backend.facade.api.is_sql_v2_enabled",
+            return_value=sql_v2_enabled,
+        ):
+            tool = async_to_sync(CreateNotebookTool.create_tool_class)(team=self.team, user=self.user)
+
+        assert expected in tool.description
+        assert unexpected not in tool.description
 
     def test_returns_error_when_both_content_and_draft_content_provided(self):
         result, artifact = async_to_sync(self.tool._arun_impl)(

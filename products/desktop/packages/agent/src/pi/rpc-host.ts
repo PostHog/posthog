@@ -19,6 +19,10 @@ import {
 import { createPiRepositoryToolsExtension } from "./repository-tools-extension";
 import type { PiRpcBootstrap, PiRuntimeExtension } from "./rpc-client";
 import { sanitizePiHostEnvironment } from "./rpc-environment";
+import {
+  createPiTaskSystemPromptExtension,
+  resolvePiTaskContext,
+} from "./task-system-prompt-extension";
 
 interface PiHostRequest {
   type: "posthog_pi_host_request";
@@ -81,6 +85,8 @@ const extensionFactories: Record<PiRuntimeExtension, InlineExtension> = {
 const runtimeExtensions = (bootstrap.extensions ?? []).map(
   (extension) => extensionFactories[extension],
 );
+const taskContext = resolvePiTaskContext(sessionManager, bootstrap.taskContext);
+runtimeExtensions.push(createPiTaskSystemPromptExtension(taskContext));
 if (bootstrap.enrichment) {
   runtimeExtensions.push(createPiEnrichmentExtension(bootstrap.enrichment));
 }

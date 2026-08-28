@@ -4,6 +4,7 @@ import {
   CaretRightIcon,
   ChartLine,
   EnvelopeSimple,
+  Gauge,
   GitDiffIcon,
   SquaresFourIcon,
 } from "@phosphor-icons/react";
@@ -34,6 +35,7 @@ import {
   type CommandMenuAction,
 } from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { useTaskArchive } from "@posthog/ui/features/archive/useTaskArchive";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import {
   EDITOR_TEXT_CLASS,
@@ -69,6 +71,7 @@ import {
   useSearchSections,
 } from "@posthog/ui/features/command/useSearchSections";
 import { useTaskSearch } from "@posthog/ui/features/command/useTaskSearch";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useProvisioningStore } from "@posthog/ui/features/provisioning/store";
@@ -78,6 +81,7 @@ import {
 } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
@@ -216,7 +220,10 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
+  // With channel reports on, spaces own reports and the inbox entry goes away.
+  const channelReportsEnabled = useChannelReportsEnabled();
+  const spendAnalysisEnabled = useSpendAnalysisEnabled();
   const { channels } = useChannels({ enabled: bluebirdEnabled });
   const { theme, setTheme } = useThemeStore();
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);
@@ -286,6 +293,13 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     }
   }, [reviewTaskId, getReviewMode, setReviewMode]);
 
+  // Archiving acts on the open task, so the command needs the task itself and
+  // drops out of the list when the palette can't find it.
+  const openedTask = tasks.find((task) => task.id === reviewTaskId);
+  const { requestArchive, dialog: archiveDialog } = useTaskArchive(openedTask, {
+    navigateUnscoped: !openedTask?.channel,
+  });
+
   useEffect(() => {
     if (open) {
       track(ANALYTICS_EVENTS.COMMAND_MENU_OPENED);
@@ -352,18 +366,22 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         shortcut: SHORTCUTS.SETTINGS,
         onRun: () => openSettingsDialog(),
       },
-      {
-        id: "inbox",
-        label: "Inbox",
-        keywords: "reports pull requests agents notifications",
-        icon: <EnvelopeSimple size={12} className="text-gray-11" />,
-        action: "open-inbox",
-        shortcut: SHORTCUTS.INBOX,
-        onRun: () => {
-          closeSettingsDialog();
-          navigateToInbox();
-        },
-      },
+      ...(channelReportsEnabled
+        ? []
+        : [
+            {
+              id: "inbox",
+              label: "Self-driving",
+              keywords: "reports pull requests agents notifications",
+              icon: <EnvelopeSimple size={12} className="text-gray-11" />,
+              action: "open-inbox",
+              shortcut: SHORTCUTS.INBOX,
+              onRun: () => {
+                closeSettingsDialog();
+                navigateToInbox();
+              },
+            } satisfies Command,
+          ]),
       {
         id: "archived",
         label: "Archived",
@@ -398,6 +416,21 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                 closeSettingsDialog();
                 navigateToLoops();
               },
+            },
+          ]
+        : []),
+      // Gated like every other cost-management entry point: without spend
+      // analysis the settings page is hidden and redirects to General, so the
+      // command would not do what its label says.
+      ...(spendAnalysisEnabled
+        ? [
+            {
+              id: "cost-management",
+              label: "Cost management",
+              keywords: "cost spend limits budget savings recommendations",
+              icon: <Gauge size={12} className="text-gray-11" />,
+              action: "open-cost-management" as CommandMenuAction,
+              onRun: () => openSettingsDialog("cost-management"),
             },
           ]
         : []),
@@ -459,6 +492,19 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               action: "open-review-panel" as CommandMenuAction,
               shortcut: SHORTCUTS.TOGGLE_REVIEW_PANEL,
               onRun: openReviewPanel,
+            },
+          ]
+        : []),
+      ...(openedTask
+        ? [
+            {
+              id: "archive-task",
+              label: "Archive task",
+              keywords: "archive close remove",
+              icon: <ArchiveIcon size={12} className="text-gray-11" />,
+              action: "archive-task" as CommandMenuAction,
+              shortcut: SHORTCUTS.ARCHIVE_TASK,
+              onRun: requestArchive,
             },
           ]
         : []),
@@ -569,9 +615,13 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     toggleLeftSidebar,
     openReviewPanel,
     reviewTaskId,
+    openedTask,
+    requestArchive,
     canSearchFiles,
     openFilePicker,
     loopsEnabled,
+    channelReportsEnabled,
+    spendAnalysisEnabled,
   ]);
 
   const taskSections = useMemo<CommandSection[]>(() => {
@@ -982,6 +1032,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         surface="command_menu"
         onCreated={(feed) => navigateToFeed(feed.id)}
       />
+      {/* Outlives the palette, which closes as the command runs. */}
+      {archiveDialog}
     </>
   );
 }

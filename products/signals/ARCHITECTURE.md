@@ -388,7 +388,8 @@ suppressed → resolved (resolve an archived report straight out of the archive;
 # - suppressed transitions back to potential, or straight to the researched status it held before
 #   being archived (ready | pending_input | resolved | failed) — see restore_target_status()
 # - any non-deleted status can transition to deleted or suppressed
-# - snooze = transition to potential with snooze_for=N (sets signals_at_run = signal_count + N)
+# - reset/snooze = transition in_progress | pending_input | ready | resolved | failed → potential;
+#   snooze_for=N sets signals_at_run = signal_count + N
 suppressed → potential
 any (except deleted) → deleted
 any (except deleted) → suppressed
@@ -536,7 +537,9 @@ Per-team configuration for which signal sources are enabled.
 
 - `llm_analytics` signals go through the standard enabled-row check like every other source. `evaluation_report` is the only type AI observability emits, gated by its own `(llm_analytics, evaluation_report)` row (the inbox "AI observability" toggle). The per-result workflow and activity remain registered only so existing Temporal histories can finish replaying.
 - For session replay configs, serializer validation enforces that `config.recording_filters` is a JSON object when present.
-- Two `config` keys steer the emission actionability gate per source: `config.steering` (free text, the team's preferences about the source's records — injected into the canonical actionability prompt, never replacing it) and `config.default_not_actionable` (boolean — flips the gate's "when in doubt" posture from keep to filter). Serializer validation enforces `steering` is a string capped at `STEERING_MAX_LENGTH` (2000 chars) and `default_not_actionable` is a boolean; injection escapes braces so the text can never break the gate's one-word output contract (see `backend/emission/steering.py`). The keys apply to sources that run `run_signal_pipeline` (data warehouse imports and Conversations); other sources persist them unread today, and future consumers (report research, the autostart gate) are expected to read the same text.
+- Two `config` keys steer the emission actionability gate per source: `config.steering` (free text, the team's preferences about the source's records — injected into the canonical actionability prompt, never replacing it) and `config.default_not_actionable` (boolean — flips the gate's "when in doubt" posture from keep to filter). Serializer validation enforces `steering` is a string capped at `STEERING_MAX_LENGTH` (2000 chars) and `default_not_actionable` is a boolean; injection escapes braces so the text can never break the gate's one-word output contract (see `backend/emission/steering.py`). The keys apply to sources that run `run_signal_pipeline` (data warehouse imports and Conversations), and to the direct-emitting sources listed in `DIRECT_STEERABLE_SOURCES` (error tracking and health checks), which `emit_signal` runs through the gate in `backend/emission/direct_gate.py` before queueing the signal.
+  A direct source is judged only when the team has written steering, and only against that text: the canonical prompt there states no criteria of its own, so a first rule filters what it describes and nothing else.
+  Sources outside both sets persist the keys unread, and future consumers (report research, the autostart gate) are expected to read the same text.
 - The serializer exposes a computed `status` field:
   - data-import-backed sources (`github`, `linear`, `zendesk`) derive status from `ExternalDataSchema`
 - The `signals_scout` source variant pairs with `source_type=cross_source_issue` and is the emission channel used by the headless Signals agent's `emit_signal_*` tools. It is the only `(source_product, source_type)` pair the agent emits today.
@@ -596,18 +599,21 @@ Thin bridge from a Tasks `TaskRun` to the scout skill that ran inside it: one sc
 
 Narrow per-team scratchpad surface the scout fleet writes during runs and reads back on future runs (known issues, false positives, dedupe fingerprints, learned team quirks). Distinct from `SignalProjectProfile`: profile is _deterministic ground truth_, scratchpad is the _scout's inferred learnings_ (possibly wrong). MCP-readable across agents so PostHog AI and other scouts can see what the fleet has learned about a team.
 
-| Field            | Type                           | Description                                                                               |
-| ---------------- | ------------------------------ | ----------------------------------------------------------------------------------------- |
-| `team`           | FK → Team                      | Owning team (`related_name="signal_scratchpads"`)                                         |
-| `key`            | CharField(300)                 | Semantic key, agent-chosen; unique per team                                               |
-| `content`        | TextField                      | Prose for prompt injection — the agent reads this verbatim                                |
-| `created_by_run` | FK → SignalScoutRun (SET_NULL) | The run that wrote this entry; `SET_NULL` so deleting a run row doesn't destroy the entry |
-| `created_at`     | DateTime                       | Auto-set on creation                                                                      |
-| `updated_at`     | DateTime                       | Auto-set on save                                                                          |
+| Field            | Type                           | Description                                                                                      |
+| ---------------- | ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `team`           | FK → Team                      | Owning team (`related_name="signal_scratchpads"`)                                                |
+| `key`            | CharField(300)                 | Semantic key, agent-chosen; unique per team                                                      |
+| `content`        | TextField                      | Prose for prompt injection — the agent reads this verbatim                                       |
+| `created_by_run` | FK → SignalScoutRun (SET_NULL) | The run that wrote this entry; `SET_NULL` so deleting a run row doesn't destroy the entry        |
+| `expires_at`     | DateTime (nullable)            | Optional TTL — null (the default) is durable; past expiry drops the row from `search_scratchpad` |
+| `created_at`     | DateTime                       | Auto-set on creation                                                                             |
+| `updated_at`     | DateTime                       | Auto-set on save                                                                                 |
 
 **Constraints:** Unique on `(team, key)`.
 
-`authority`, `tags`, and `expires_at` (with their backing GIN / expiry indexes) were dropped in the PR2 review simplification — retrieval is now plain ILIKE over `key` + `content`, and every entry is durable per-team scratchpad.
+`authority` and `tags` (with their backing GIN index) were dropped in the PR2 review simplification — retrieval is now plain ILIKE over `key` + `content`.
+
+`expires_at` was dropped in that same pass and later restored: a scout that wrote a time-boxed memory almost never came back to `forget` it, so stale entries kept loading into run prompts. Entries stay durable by default. Expiry hides a row from `search_scratchpad` (`include_expired=True` is the human audit path); it never deletes one, so the key stays taken and both `forget` and the `remember` upsert still find it. `remember` writes the whole entry, so a write that omits `expires_at` clears an expiry an earlier write set. A `followup:` key may not carry one — `remember` rejects that, since an expired follow-up would vanish from the self-validation queue before the scout could work it.
 
 ### `SignalProjectProfile`
 

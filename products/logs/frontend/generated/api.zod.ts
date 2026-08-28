@@ -395,13 +395,11 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Delete a notification destination by deleting its HogFunction group atomically.
  */
-export const logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 4
 
 export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
     hog_function_ids: zod
         .array(zod.uuid())
         .min(1)
-        .max(logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
         .describe('HogFunction IDs to delete as one atomic destination group.'),
 })
 
@@ -505,6 +503,21 @@ export const LogsAnomaliesScanCreateBody = /* @__PURE__ */ zod.object({
                 .describe('End of the evaluation window (ISO 8601), clamped to now.'),
         })
         .describe('Evaluation window to scan for anomalies. May span at most 7 days.'),
+})
+
+/**
+ * Returns the last 7 days of log volume for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. Synchronous and read only.
+ * @summary Per-series log volume with expected bands
+ */
+export const logsAnomaliesSeriesBandsCreateBodyIntervalMinutesDefault = 60
+
+export const LogsAnomaliesSeriesBandsCreateBody = /* @__PURE__ */ zod.object({
+    serviceName: zod.string().describe("Service whose per-series volume to chart (the log record's service_name)."),
+    intervalMinutes: zod
+        .literal(60)
+        .describe('\* `60` - 60')
+        .default(logsAnomaliesSeriesBandsCreateBodyIntervalMinutesDefault)
+        .describe('Display grain in minutes for buckets and bands. Only hourly is supported today.\n\n\* `60` - 60'),
 })
 
 export const LogsCountCreateBody = /* @__PURE__ */ zod.object({

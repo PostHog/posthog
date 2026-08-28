@@ -26,11 +26,13 @@ import { ExportedData } from '../types'
 export default function ExporterQueryScene({
     query,
     queryResults,
+    title,
     themes,
     exportOptions,
 }: {
     query: NonNullable<ExportedData['query']>
     queryResults: ExportedData['query_results']
+    title: ExportedData['query_title']
     themes: NonNullable<ExportedData['themes']>
     exportOptions: SharingConfigurationSettings
 }): JSX.Element {
@@ -82,6 +84,11 @@ export default function ExporterQueryScene({
                     trendsDisplay === ChartDisplayType.Metric && 'ExportedInsight--metric'
                 )}
             >
+                {title && (
+                    <div className="ExportedInsight__header">
+                        <div className="ExportedInsight__header__title">{title}</div>
+                    </div>
+                )}
                 <div className="ExportedInsight__content">
                     <Query
                         query={query}

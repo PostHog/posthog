@@ -3163,9 +3163,13 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    ReviewHog sandbox session (perspectives, validation, resolution) ran with the context default of **full**
    PostHog MCP access — execute-sql and every write tool — while reading untrusted PR-comment text; no prompt
    ever uses more than `skill-get`/`skill-file-get`. The executor now pins `posthog_mcp_scopes` to
-   `REVIEW_MCP_SCOPES = ["llm_skill:read"]` at both context constructions (internal sandbox-plumbing scopes
-   are re-added by the resolver). A future skill that legitimately needs product data adds its specific read
-   scope with that feature.
+   `REVIEW_MCP_SCOPES = ["llm_skill:read", "user:read"]` at both context constructions (internal sandbox-plumbing
+   scopes are re-added by the resolver). `user:read` is the MCP handshake, not a data grant: the MCP server
+   resolves the calling user (`/api/users/@me/`) when a session opens and refuses the connection without it.
+   The pin shipped on 2026-08-13 with only `llm_skill:read`, so until 2026-08-25 every ReviewHog session
+   (perspectives, blind-spot, validation, resolution) had its MCP connection refused and reviewed without its
+   skill — the agents carry on without MCP instead of failing, so nothing flagged it. A future skill that
+   legitimately needs product data adds its specific read scope with that feature.
    _Same date (fix-commit provenance gate, maintainer decision):_ `commit_on_branch`'s "reachable from the
    branch tip" necessarily accepts every ancestor (later turns and the author push on top mid-run), so a
    steered turn could echo someone's old clean commit and have every check inspect the wrong one. The
@@ -3904,3 +3908,18 @@ resolution died silently at sandbox checkout. Decisions, in one PR:
 Vocabulary added to CONTEXT.md: **Review cycle**, **Busy-guard**. ADR: `adr/0001-resolution-is-a-separate-workflow.md`
 (kept resolution a separate workflow after challenging it — standalone mode, failure isolation, independent
 versioning outweigh the manual seam).
+
+## Sandbox checkout ref: head branch by name (2026-08-25, maintainer decision)
+
+Review sandboxes check out the PR's **head branch by name** again. The 2026-07-15 switch to `pull/N/head` (meant to
+survive a mid-review merge, which deletes the head branch) never worked: the Tasks checkout resolves only
+`refs/heads/<name>`, so the pull ref fell through to a fresh local branch on the base tip and every review
+sandbox investigated the base branch instead of the PR. Invisible while base ≈ PR; loud once the base carried
+later fixes — validators dismissed real findings as "already fixed" because the tree they examined was master.
+The reviewer's findings still came from the diff pasted into its prompt, so review volume never dropped.
+Residual gap (not a loud failure): if a mid-review merge deletes the head branch, the Tasks checkout does not
+raise — `git ls-remote --exit-code --heads origin refs/heads/<name>` returns exit 2 and `checkout_branch_in_sandbox`
+falls back to a fresh branch on the base tip. A later checkout can then still land on the base tree, but only for
+checkouts after the branch is gone, not the whole review as the 2026-07-15 regression did. Closing that window —
+a strict checkout that fails on a missing head branch, or a proper `refs/pull/N/head` fetch — belongs in the Tasks
+checkout, out of scope here.

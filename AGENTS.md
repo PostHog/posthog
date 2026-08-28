@@ -29,6 +29,7 @@
   - Frontend: `pnpm --filter=@posthog/frontend build`
   - Start dev: `./bin/start` or `hogli start` (interactive TUI). Detached mode: `hogli up -d` paired with `hogli wait` / `hogli down`
     - Cloud task VMs (prebaked dev-stack image): run `bootstrap-dev-stack` first (restores compose host aliases, starts dockerd), then `uv sync`, `source .venv/bin/activate`, `hogli start -y -d`, and `hogli wait` (the detached start returns while the stack is still booting; `hogli wait` blocks until every process is ready) — always detached: the sandbox has no TTY, and phrocs under a pseudo-TTY balloons in memory until OOM-killed
+    - Cloud task VMs: on user-created runs the backend may already be starting the stack; check `curl -sf localhost:8010/_health` and `/tmp/posthog-preview/status.json` before running `hogli start`
     - Cloud task VMs, frontend work: `pnpm install --frozen-lockfile --prefer-offline` links from the prebaked pnpm store, and Playwright Chromium is preinstalled; product/Storybook builds still run from source
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
@@ -138,7 +139,7 @@ Never run `gh pr merge` or click the GitHub merge button — both are blocked by
 Agents must not enqueue, merge, re-enqueue, or otherwise cause a PR to land without explicit user approval in the current conversation for the identified PR or stack. Do not infer that approval from requests to prepare a PR, move it toward merge, make it ready, monitor it, or resolve its blockers. Agents may inspect status, fix code and CI, apply `stamphog` when approval is missing, and report that a PR is ready; then they must wait for a direct instruction to merge or enqueue it.
 
 - After explicit user approval: enqueue with `gh pr comment <number> --body "/trunk merge"`. Cancel: `gh pr comment <number> --body "/trunk cancel"`. Enqueueing a stacked PR also enqueues every unmerged layer below it — comment on the top PR to merge the whole stack. `--no-batch` opts the PR (or stack) out of batching.
-- The Trunk CLI is an alternative to the comments: `trunk merge <number>` enqueues, `trunk merge status <number>` inspects, `trunk merge cancel <number>` dequeues. It ships in the flox environment but needs a one-time interactive `trunk login`, so agents and headless environments should keep using the comments.
+- The Trunk CLI is an alternative to the comments: `trunk merge <number>` enqueues, `trunk merge status <number>` inspects, `trunk merge cancel <number>` dequeues. It ships in the flox environment and needs a one-time interactive `trunk login` — run it once even if you prefer the comments, because the same login arms the pre-push merge-queue guard that stops you from knocking a queued PR out of the queue. Agents and headless environments that can't complete the interactive login use the comments.
 - Missing required approval: apply the `stamphog` label (`gh pr edit <number> --add-label stamphog`) to trigger the automated review-and-approve flow, and re-apply it whenever it was stripped (`REFUSED`/`ESCALATE` verdict) once the feedback is addressed — re-applying is always safe.
 - After enqueueing, babysit the PR until it merges or fails — follow [`.agents/skills/merging-prs/SKILL.md`](./.agents/skills/merging-prs/SKILL.md) for the preflight, watch, and failure-handling loop.
 - Queue progress is the `Trunk Merge Queue (master)` check run on the PR's head commit. The PR's own checks don't reflect the queue's testing — it runs CI on a `trunk-merge/**` branch.
@@ -210,6 +211,7 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - Frontend (quill design system): before writing UI that imports `@posthog/quill` / `lib/ui/quill`, read [packages/quill/packages/primitives/AGENTS.md](packages/quill/packages/primitives/AGENTS.md) — component choice (dropdown vs select vs combobox, accordion vs collapsible, etc.), composition, and spacing rules. Charts: [packages/quill/packages/charts/AGENTS.md](packages/quill/packages/charts/AGENTS.md); DataTable/DateTimePicker: [packages/quill/packages/components/AGENTS.md](packages/quill/packages/components/AGENTS.md)
 - Frontend (quill vs LemonUI): quill is for MCP apps and the desktop app. It is deliberately more compact than LemonUI, so its components look out of place in the main app, and there is no active migration of the main app onto it. In `frontend/src/` and `products/*/frontend/`, use LemonUI, including for menus — `LemonMenu` with a `LemonButton` trigger is the default there. `lib/ui/DropdownMenu` (Radix) is legacy; don't add new ones. Where quill is the right library, don't mix quill and Lemon components within one component's internals, and note that quill uses Base UI's `render` prop rather than Radix's `asChild`, so don't carry `asChild` over when converting
 - Frontend: Any button or form submit that triggers a network request must guard against double-submission — disable the button and show a loading state (`loading` / `disabledReason` on `LemonButton`, or equivalent) while the request is in flight. Never leave a submit button clickable during an active mutation; reset the state in both success and error paths. This applies to `<form onSubmit>` handlers, `onClick` handlers that call `api.*`, and any kea `listener` that issues a request — wire the in-flight state (loader `*Loading` selectors, local `useState`, or a reducer) into the trigger's disabled/loading props.
+- Frontend: Any UI a person reads must hold up in a narrow scene. The nav sidebar and an open side panel leave a 1280px window about 520px of scene, so break on container queries rather than `md:`/`lg:`/`xl:`, wrap or truncate instead of clipping, and stack halves that no longer fit. Render the surface at a few widths before calling the work done. We do not support mobile — don't add phone-width layouts or touch-sized targets. See "Rule 6" in [frontend/src/AGENTS.md](frontend/src/AGENTS.md)
 - Imports: Use oxfmt import sorting (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)
 - CSS: Use tailwind utility classes instead of inline styles
 - Error handling: Prefer explicit error handling with typed errors
@@ -221,6 +223,7 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - Python tests: do not add doc comments
 - Python: leave `__init__.py` alone unless a check asks for it. Whether a directory needs one depends on what sits above it. `hogli product:lint` and `posthog/test/repo_invariants/test_pytest_module_collisions.py` say where, and print the fix
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
+- Node.js Jest tests: use `.test.ts` by default. Use `.serial.test.ts` only when shared mutable infrastructure cannot be isolated, such as tests that reset a shared database.
 - Tests: when adding coverage, prefer extending a relevant existing test over creating a new standalone test when practical. Prefer parameterized cases (use the `parameterized` library in Python and `test.each` in Jest) when testing variations of the same behavior
 - Tests must earn their place: every new test has to catch a realistic regression no existing test already catches (if you can't name it, don't add it), assert observable behavior through the public interface rather than implementation details, and stay cheap — deterministic, isolated, and at the lowest level that catches the bug (see `/writing-tests`)
 - Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code
@@ -267,11 +270,13 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 **Invoke when in the area:**
 
 - `/writing-dataclasses` — adding or changing a Python dataclass, replacing a tuple or `dict[str, Any]` payload, or passing a dataclass or facade contract through internal layers
+- `/announcing-behavior-changes` — shipping a fix that changes what an existing user sees (a metric moves, a count drops, a range resolves differently), or adding, reviewing, or removing an in-app change notice
 - `/merging-prs` — merging a PR, or babysitting one through the Trunk merge queue
 - `/stacking-prs` — creating, restacking, adopting, or landing a stack of PRs (`gh stack`)
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/placing-product-frontend-code` — adding a frontend file or directory for a product, or deciding between `products/<name>/frontend/` and `frontend/src/scenes/<name>/`
+- `/integrating-with-posthog-ai` — making a product surface work with PostHog AI: injecting scene context or custom instructions, reacting to the agent's tool calls, or rendering your product's tool cards in a thread
 - `/sending-notifications` — adding notification support
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
 - `/writing-evals` — adding or changing eval suites, cases, scorers, or seeders under `products/posthog_ai/evals/` or `products/*/evals/`, touching the harness in `products/posthog_ai/eval_harness/`, or running those evals
@@ -279,7 +284,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/authoring-ci-workflows` — adding or editing any `.github/workflows` workflow, composite action, or reusable workflow
 - `/reviewing-personhog-protocol` — any personhog coordination-protocol change (leases, fencing, handoffs, supervisors, budgets, warming, changelog semantics), and any request for an exhaustive review of personhog code
 - `/gating-production-deploys` — any workflow that builds and pushes a production image or dispatches a deploy
-- `/splitting-oversized-modules` — splitting a Python module into a package, or deciding whether to propose splitting one before you work in it; propose, and land the move as a stacked base PR rather than inside your feature diff
+- `/splitting-oversized-modules` — splitting a Python module into a package, or deciding whether to propose splitting one before you work in it, including before you restructure code inside a module over roughly a thousand lines; propose, and land the move as a stacked base PR rather than inside your feature diff
 - `/auditing-llm-gateway-parity` — changing either gateway's auth, attribution, billing, endpoints, providers, models, routing, or metadata contract; reviewing a `services/llm-gateway` change; or refreshing `services/llm-gateway/PARITY.md`
 - `/finding-llm-gateway-migration-candidates` — finding, auditing, or ranking callers that could move from `services/llm-gateway` to `PostHog/ai-gateway`, including requests for the next or lowest-risk migration candidate
 - `/migrating-llm-gateway-callers` — adding an LLM gateway caller or migrating an existing caller from `services/llm-gateway` to `PostHog/ai-gateway`, including shared client and gateway setting changes made for that migration

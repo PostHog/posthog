@@ -103,10 +103,10 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import is_relative_url
 
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.batch_exports.backend.models.batch_export import get_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
@@ -854,10 +854,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 redshift_integration: (
                     type[RedshiftIntegration] | type[AWSRedshiftIntegration] | type[AWSRedshiftRoleBasedIntegration]
                 ) = AWSRedshiftRoleBasedIntegration
+            elif any(required in config for required in ("aws_access_key_id", "aws_secret_access_key")):
+                # Checked before the plain-server keys: AWS-credential configs also carry
+                # 'user' (the database user to obtain temporary credentials for).
+                redshift_integration = AWSRedshiftIntegration
             elif any(required in config for required in ("host", "port", "user", "password")):
                 redshift_integration = RedshiftIntegration
-            elif any(required in config for required in ("aws_access_key_id", "aws_secret_access_key")):
-                redshift_integration = AWSRedshiftIntegration
             else:
                 raise ValidationError("Missing required inputs")
 
@@ -1950,8 +1952,8 @@ class IntegrationViewSet(
             raise ValidationError("domain query parameter is required")
 
         # Extract root domain so subdomains (e.g. ph.example.com) resolve correctly
-        root_domain, _ = extract_root_domain_and_host(domain)
-        result = discover_domain_connect(root_domain)
+        domain_parts = extract_root_domain_and_host(domain)
+        result = discover_domain_connect(domain_parts.root_domain)
         return Response(
             {
                 "supported": result is not None,

@@ -230,6 +230,7 @@ const inboxReportsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
             query: {
+                channel_id: params.channel_id,
                 has_implementation_pr: params.has_implementation_pr,
                 include_all_statuses: params.include_all_statuses,
                 limit: params.limit,
@@ -764,6 +765,9 @@ const scoutEditReport = (): ToolBase<typeof ScoutEditReportSchema, Schemas.EditR
         if (params.charts !== undefined) {
             body['charts'] = params.charts
         }
+        if (params.suggested_prompts !== undefined) {
+            body['suggested_prompts'] = params.suggested_prompts
+        }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/edit-report/`,
@@ -815,6 +819,9 @@ const scoutEmitReport = (): ToolBase<typeof ScoutEmitReportSchema, Schemas.EmitR
         }
         if (params.charts !== undefined) {
             body['charts'] = params.charts
+        }
+        if (params.suggested_prompts !== undefined) {
+            body['suggested_prompts'] = params.suggested_prompts
         }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
@@ -1171,6 +1178,9 @@ const scoutScratchpadRemember = (): ToolBase<typeof ScoutScratchpadRememberSchem
         if (params.run_id !== undefined) {
             body['run_id'] = params.run_id
         }
+        if (params.expires_at !== undefined) {
+            body['expires_at'] = params.expires_at
+        }
         const result = await context.api.request<Schemas.ScratchpadEntry>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
@@ -1197,6 +1207,7 @@ const scoutScratchpadSearch = (): ToolBase<
                 content_max_chars: params.content_max_chars,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                include_expired: params.include_expired,
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
@@ -1398,6 +1409,9 @@ const signalsScoutEditReport = (): ToolBase<typeof SignalsScoutEditReportSchema,
         if (params.charts !== undefined) {
             body['charts'] = params.charts
         }
+        if (params.suggested_prompts !== undefined) {
+            body['suggested_prompts'] = params.suggested_prompts
+        }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/edit-report/`,
@@ -1449,6 +1463,9 @@ const signalsScoutEmitReport = (): ToolBase<typeof SignalsScoutEmitReportSchema,
         }
         if (params.charts !== undefined) {
             body['charts'] = params.charts
+        }
+        if (params.suggested_prompts !== undefined) {
+            body['suggested_prompts'] = params.suggested_prompts
         }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
@@ -1710,6 +1727,9 @@ const signalsScoutScratchpadRemember = (): ToolBase<
         if (params.run_id !== undefined) {
             body['run_id'] = params.run_id
         }
+        if (params.expires_at !== undefined) {
+            body['expires_at'] = params.expires_at
+        }
         const result = await context.api.request<Schemas.ScratchpadEntry>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
@@ -1736,6 +1756,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
                 content_max_chars: params.content_max_chars,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                include_expired: params.include_expired,
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,

@@ -331,7 +331,7 @@ export const InsightsGenerateMetadataCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped. Returns 201 on success regardless of how many ids were retained.
+ * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped, as are views from impersonated staff-support sessions. Returns 201 on success regardless of how many ids were retained.
  */
 export const insightsViewedCreateBodyInsightIdsMax = 2500
 

@@ -1258,7 +1258,7 @@ def _stamp_digest_audience_if_merged(
                 owned_files=audience.owned_files,
                 owned_file_count=audience.owned_file_count,
             )
-            for audience in resolve_audiences(repo_config, pr_payload, run.gate_result)
+            for audience in resolve_audiences(repo_config, run.gate_result)
         ],
         ignore_conflicts=True,
     )

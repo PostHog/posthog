@@ -79,18 +79,20 @@ import {
   decorateFlagPreview,
   decorateSurveyPreview,
   type EvidencePreview,
-  exposureFact,
+  type ExperimentMetricQueryResult,
+  experimentMetricQueries,
   formatDay,
   gridRows,
   hogqlEscape,
-  pivotDailyGroups,
   shapeActionPreview,
   shapeCohortPreview,
   shapeDashboardPreview,
   shapeErrorIssuePreview,
   shapeEvaluationPreview,
   shapeEventDefinitionPreview,
+  shapeExperimentExposureChart,
   shapeExperimentPreview,
+  shapeExperimentResults,
   shapeFlagPreview,
   shapePersonPreview,
   shapeRecordingPreview,
@@ -125,6 +127,7 @@ import type {
   TeamMcpGatewayConfigUpdate,
 } from "./mcp-gateway";
 import type { SpendAnalysisResponse } from "./spend-analysis";
+import { parseUserSpendLimit, type UserSpendLimit } from "./spend-limit";
 import {
   normalizeTaskResponse,
   normalizeTaskRunArtifact,
@@ -798,6 +801,23 @@ export class ContextWikiUnavailableError extends Error {
 function readDetail(error: ApiRequestError): string {
   const body = error.body as { detail?: string } | null;
   return body?.detail ?? error.message;
+}
+
+/**
+ * DRF validation failures carry the messages per field, `{ field: [msg] }`,
+ * with no top-level `detail`. Flatten them so the server's own wording reaches
+ * the toast instead of a bare status text.
+ */
+function readFieldErrors(error: ApiRequestError): string {
+  if (typeof error.body !== "object" || error.body === null) {
+    return error.message;
+  }
+  const record = error.body as Record<string, unknown>;
+  if (typeof record.detail === "string") return record.detail;
+  const parts = Object.values(record).flatMap((messages) =>
+    Array.isArray(messages) ? messages.map(String) : [],
+  );
+  return parts.length > 0 ? parts.join(" ") : error.message;
 }
 
 export interface TaskArtifactUploadRequest {
@@ -2746,6 +2766,7 @@ export class PostHogAPIClient {
       > & {
         github_integration?: number | null;
         github_user_integration?: string | null;
+        signal_report_task_relationship?: string;
         branch?: string | null;
         runtime_adapter?: string | null;
         model?: string | null;
@@ -2910,6 +2931,51 @@ export class PostHogAPIClient {
     if (!response.ok) return null;
     const data = (await response.json()) as { task_id?: string | null };
     return data.task_id ?? null;
+  }
+
+  async startOnboardingTestSession(input: {
+    company_domain: string;
+    joining_existing_organization: boolean;
+    has_events: boolean;
+    signal_reports_waiting: number;
+    other_members: string[];
+    sources_enabled: string[];
+    sources_watching: string[];
+    sources_newly_enabled: boolean;
+  }): Promise<{ task_id: string; channel_id: string }> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session_test/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify(input) },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to start test onboarding session: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { task_id: string; channel_id: string };
+  }
+
+  async createTeachingCanvasForTest(): Promise<{
+    canvas_id: string;
+    channel_id: string;
+  }> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/teaching_canvas_test/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to create teaching canvas: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { canvas_id: string; channel_id: string };
   }
 
   async updateTaskChannelRepositories(
@@ -4701,6 +4767,9 @@ export class PostHogAPIClient {
         String(params.has_implementation_pr),
       );
     }
+    if (params?.channel_id) {
+      url.searchParams.set("channel_id", params.channel_id);
+    }
 
     const response = await this.api.fetcher.fetch({
       method: "get",
@@ -5943,20 +6012,22 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/sandbox_environments/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: `/api/projects/${teamId}/sandbox_environments/`,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: `/api/projects/${teamId}/sandbox_environments/`,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+      return (await response.json()) as SandboxEnvironment;
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
       throw new Error(
-        `Failed to create sandbox environment: ${response.statusText}`,
+        `Failed to create sandbox environment: ${readFieldErrors(error)}`,
       );
     }
-    return (await response.json()) as SandboxEnvironment;
   }
 
   async updateSandboxEnvironment(
@@ -5967,20 +6038,22 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/sandbox_environments/${id}/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "patch",
-      url,
-      path: `/api/projects/${teamId}/sandbox_environments/${id}/`,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "patch",
+        url,
+        path: `/api/projects/${teamId}/sandbox_environments/${id}/`,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+      return (await response.json()) as SandboxEnvironment;
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
       throw new Error(
-        `Failed to update sandbox environment: ${response.statusText}`,
+        `Failed to update sandbox environment: ${readFieldErrors(error)}`,
       );
     }
-    return (await response.json()) as SandboxEnvironment;
   }
 
   async deleteSandboxEnvironment(id: string): Promise<void> {
@@ -6248,6 +6321,60 @@ export class PostHogAPIClient {
   }
 
   /**
+   * The signed-in person's own spend limit, as the gateway holds it. A
+   * deployment without the gateway wired answers `available: false` rather than
+   * failing, so the settings page can say the limit informs only.
+   */
+  async getUserSpendLimit(): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(await this.spendLimitRequest("get"));
+  }
+
+  /** Sets the limit; `windowSeconds` is the window it resets over. */
+  async setUserSpendLimit(
+    limitUsd: number,
+    windowSeconds: number,
+  ): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(
+      await this.spendLimitRequest("post", "", {
+        limit_usd: String(limitUsd),
+        window_seconds: windowSeconds,
+      }),
+    );
+  }
+
+  /** Removes the limit, so nothing holds this person's spend. */
+  async clearUserSpendLimit(): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(
+      await this.spendLimitRequest("delete", "clear/"),
+    );
+  }
+
+  private async spendLimitRequest(
+    method: "get" | "post" | "delete",
+    suffix = "",
+    body?: Record<string, unknown>,
+  ): Promise<unknown> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/ai_gateway/@me/spend_limit/${suffix}`;
+    // The shared fetcher throws `Failed request: [<status>] <json-body>` for any
+    // non-2xx, so unwrap that into the endpoint's clean message rather than
+    // surfacing the raw string in the settings toast.
+    try {
+      const response = await this.api.fetcher.fetch({
+        method,
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        ...(body ? { overrides: { body: JSON.stringify(body) } } : {}),
+      });
+      return await response.json();
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(error, "Couldn't update your spend limit."),
+      );
+    }
+  }
+
+  /**
    * Lists the team's LLM skills (latest versions, no bodies).
    * Returns null when the feature is unavailable for this org (the
    * llm-analytics-skills flag gates the endpoint server-side with a 403).
@@ -6404,25 +6531,20 @@ export class PostHogAPIClient {
     return { results: data.results ?? [], columns: data.columns ?? [] };
   }
 
-  /**
-   * Runs an arbitrary typed query node (TrendsQuery, HogQLQuery, ...) against
-   * the team's project and returns the raw response. `refresh: "blocking"`
-   * serves a fresh-enough cached result and computes synchronously otherwise —
-   * the same mode PostHog insights use. Backs inbox report charts, whose query
-   * nodes are scout-authored and arrive unparsed.
-   */
   async runQuery(
     query: Record<string, unknown>,
+    options?: { refresh?: "blocking" | false },
   ): Promise<Record<string, unknown>> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/query/`;
     const url = new URL(`${this.api.baseUrl}${path}`);
+    const refresh = options?.refresh === false ? null : "blocking";
     const response = await this.api.fetcher.fetch({
       method: "post",
       url,
       path,
       overrides: {
-        body: JSON.stringify({ query, refresh: "blocking" }),
+        body: JSON.stringify({ query, ...(refresh ? { refresh } : {}) }),
       },
     });
     const data = (await response.json()) as Record<string, unknown>;
@@ -6527,54 +6649,74 @@ export class PostHogAPIClient {
           { path: { project_id: projectId, id: numericId } },
         );
         const preview = shapeExperimentPreview(experiment);
-        // Depth: unique persons exposed per variant, showing the experiment
-        // is collecting and roughly balanced.
-        if (!experiment.start_date || !experiment.feature_flag_key) {
-          return preview;
-        }
-        const until = experiment.end_date
-          ? ` AND timestamp <= parseDateTimeBestEffort('${hogqlEscape(experiment.end_date)}')`
-          : "";
-        const scope = `event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(experiment.feature_flag_key)}' AND timestamp >= parseDateTimeBestEffort('${hogqlEscape(experiment.start_date)}')${until}`;
-        const [exposures, dailyExposures] = await Promise.all([
-          this.runQuery({
-            kind: "HogQLQuery",
-            query: `SELECT toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE ${scope} GROUP BY variant ORDER BY variant`,
-          }).catch(() => ({})),
-          this.runQuery({
-            kind: "HogQLQuery",
-            query: `SELECT toDate(timestamp) AS day, toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE ${scope} GROUP BY day, variant ORDER BY day`,
-          }).catch(() => ({})),
-        ]);
-        const fact = exposureFact(gridRows(exposures));
-        // "false" rows are flag evaluations outside the experiment, not a variant.
-        const pivot = pivotDailyGroups(
-          gridRows(dailyExposures).filter((row) => String(row[1]) !== "false"),
+        const primaryQueries = experimentMetricQueries(experiment, "primary");
+        const secondaryQueries = experimentMetricQueries(
+          experiment,
+          "secondary",
         );
-        const variantStats = gridRows(exposures)
-          .filter((row) => typeof row[0] === "string" && row[0] !== "false")
-          .slice(0, 4)
-          .map((row) => ({
-            label: `${row[0]} exposed`,
-            value: compactCount(Number(row[1]) || 0),
-          }));
+        if (!experiment.start_date) {
+          return {
+            ...preview,
+            experimentResults: shapeExperimentResults(experiment, null, [], []),
+          };
+        }
+
+        const runMetricQuery = async (
+          metric: unknown,
+        ): Promise<ExperimentMetricQueryResult> => {
+          if (!metric || typeof metric !== "object") {
+            return { response: null };
+          }
+          try {
+            const response = await this.runQuery(
+              {
+                kind: "ExperimentQuery",
+                metric,
+                experiment_id: numericId,
+              },
+              { refresh: false },
+            );
+            return {
+              response: response as Schemas.ExperimentQueryResponse,
+            };
+          } catch {
+            return { response: null };
+          }
+        };
+
+        const exposureQuery = experiment.feature_flag
+          ? this.runQuery(
+              {
+                kind: "ExperimentExposureQuery",
+                experiment_id: numericId,
+                experiment_name: experiment.name,
+                exposure_criteria: experiment.exposure_criteria,
+                feature_flag: experiment.feature_flag,
+                start_date: experiment.start_date,
+                end_date: experiment.end_date,
+                holdout: experiment.holdout,
+              },
+              { refresh: false },
+            ).catch(() => null)
+          : Promise.resolve(null);
+        const [exposureResponse, primaryResults, secondaryResults] =
+          await Promise.all([
+            exposureQuery,
+            Promise.all(primaryQueries.map(runMetricQuery)),
+            Promise.all(secondaryQueries.map(runMetricQuery)),
+          ]);
+
+        const experimentExposureResponse =
+          exposureResponse as Schemas.ExperimentExposureQueryResponse | null;
         return {
           ...preview,
-          facts: fact ? [...(preview.facts ?? []), fact] : preview.facts,
-          stats: [...(preview.stats ?? []), ...variantStats],
-          chart: pivot
-            ? {
-                title:
-                  pivot.omittedGroups > 0
-                    ? `Daily exposed users by variant (top ${pivot.series.length} of ${
-                        pivot.series.length + pivot.omittedGroups
-                      })`
-                    : "Daily exposed users by variant",
-                labels: pivot.labels,
-                series: pivot.series,
-                render: "line" as const,
-              }
-            : undefined,
+          experimentResults: shapeExperimentResults(
+            experiment,
+            experimentExposureResponse,
+            primaryResults,
+            secondaryResults,
+          ),
+          chart: shapeExperimentExposureChart(experimentExposureResponse),
         };
       }
       case "error": {

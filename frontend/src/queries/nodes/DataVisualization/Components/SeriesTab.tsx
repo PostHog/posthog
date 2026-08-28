@@ -28,6 +28,7 @@ import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { Column } from '../types'
+import { BoxPlotSeriesTab } from './BoxPlotSeriesTab'
 import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
 import { AxisBreakdownSeries, BREAKDOWN_LIMIT_LABEL, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { getAvailableSeriesBreakdownColumns } from './seriesBreakdownUtils'
@@ -69,6 +70,10 @@ export const SeriesTab = (): JSX.Element => {
 
     if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         return <HeatmapSeriesTab />
+    }
+
+    if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+        return <BoxPlotSeriesTab />
     }
 
     if (showTableSettings) {

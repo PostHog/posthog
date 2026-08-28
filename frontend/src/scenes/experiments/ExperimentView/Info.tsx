@@ -11,15 +11,16 @@ import { urls } from 'scenes/urls'
 
 import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { getExperimentStatus, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
+
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { ExperimentDuration } from './ExperimentDuration'
 import { ExperimentReloadActionContainer } from './ExperimentReloadActionContainer'
 import { flagCleanupTaskLogic } from './flagCleanupTaskLogic'
 import { RunningTime } from './RunningTime'
-import { StatusTag } from './StatusTag'
 
 function FlagCleanupField({ experimentId, taskId }: { experimentId: number; taskId: string }): JSX.Element | null {
     const { cleanupTask } = useValues(flagCleanupTaskLogic({ experimentId }))

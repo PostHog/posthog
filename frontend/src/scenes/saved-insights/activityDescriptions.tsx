@@ -261,6 +261,7 @@ const insightActionsMapping: Record<
     filter_override_context: () => null,
     columns: () => null,
     types: () => null,
+    resolved_date_range: () => null,
 }
 
 function summarizeQueryChanges(query: InsightQueryNode | HogQLQuery): ChangeMapping {

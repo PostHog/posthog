@@ -1,10 +1,15 @@
 """AWS role/credential-based integrations (S3, Redshift, S3-compatible endpoints)."""
 
+import re
+import json
+import secrets
 from collections.abc import Mapping
-from typing import ClassVar, Literal
+from typing import Any, ClassVar, Literal
 
+from django.conf import settings
 from django.db import transaction
 
+import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.credentials import AWSKeyPair
@@ -15,6 +20,8 @@ from posthog.security.url_validation import is_url_allowed
 from . import common, model
 
 _AWSKindType = Literal[model.Integration.IntegrationKind.AWS_REDSHIFT, model.Integration.IntegrationKind.AWS_S3]
+
+LOGGER = structlog.get_logger(__name__)
 
 
 def _read_aws_credentials(integration: model.Integration) -> AWSKeyPair:
@@ -36,13 +43,14 @@ def _create_unique_aws_integration(
     account_id: str,
     credentials: AWSKeyPair,
     created_by: "User | None",
+    **extra,
 ) -> model.Integration:
     """Create an AWS integration from credentials and an account."""
     return _create_unique_named_integration(
         team_id=team_id,
         kind=kind,
         name=name,
-        config={"name": name, "aws_account_id": account_id},
+        config={"name": name, "aws_account_id": account_id, **extra},
         sensitive_config={
             "aws_access_key_id": credentials.access_key_id,
             "aws_secret_access_key": credentials.secret_access_key,
@@ -116,6 +124,99 @@ def _return_non_empty_str_from_config_for_aws(config: Mapping, key: str, friendl
     return common._return_non_empty_str_from_config(config, key, friendly_name=friendly_name, kind="AWS")
 
 
+AWS_ROLE_ARN_RE = re.compile(r"^arn:aws(-[a-z-]+)?:iam::\d{12}:role/.+")
+
+
+def validate_aws_role_arn(aws_role_arn: str, our_aws_role_arn: str, external_id: str) -> None:
+    """Validate we can assume an AWS role ARN.
+
+    Users who have configured role based authentication must grant one of our
+    AWS roles permissions to assume their role. So, here we validate that
+    our_aws_role_arn can assume their aws_role_arn.
+
+    This requires two steps: A first step to assume our own AWS role (as the
+    current session's role may not necessarilly be the one we have given our
+    users), and a second step to actually test whether we can assume our user's
+    role.
+    """
+    import boto3  # noqa: PLC0415 — keeps botocore off the module import path (startup time)
+    from botocore.config import Config  # noqa: PLC0415
+    from botocore.exceptions import BotoCoreError, ClientError  # noqa: PLC0415
+
+    if not AWS_ROLE_ARN_RE.match(aws_role_arn):
+        raise common.IntegrationError("AWS role ARN is not valid")
+
+    config = Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 1})
+    sts = boto3.client("sts", config=config)
+    try:
+        first_response = sts.assume_role(
+            RoleArn=our_aws_role_arn,
+            RoleSessionName="PostHog-validate-aws-role-arn",
+            Policy=json.dumps(
+                # Narrow permissions to only allow assuming provided role with this
+                # session.
+                {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Action": ["sts:AssumeRole"],
+                            "Resource": aws_role_arn,
+                        },
+                    ],
+                }
+            ),
+        )
+    except (ClientError, BotoCoreError):
+        LOGGER.exception("Assume role failed")
+        raise common.IntegrationError("Could not validate AWS role ARN due to an internal error. Try again later.")
+
+    external_session = boto3.Session(
+        aws_access_key_id=first_response["Credentials"]["AccessKeyId"],
+        aws_secret_access_key=first_response["Credentials"]["SecretAccessKey"],
+        aws_session_token=first_response["Credentials"]["SessionToken"],
+    )
+    external_sts = external_session.client("sts", config=config)
+
+    # These two tests are required to test both that an external id is
+    # required and that it's not set to wildcard.
+    try:
+        _ = external_sts.assume_role(
+            RoleArn=aws_role_arn,
+            RoleSessionName="PostHog-validate-aws-role-arn",
+            ExternalId=f"posthog-{secrets.token_hex(67)}",
+        )
+    except Exception:
+        pass
+    else:
+        raise common.IntegrationError(
+            f"The provided role '{aws_role_arn}' allows access without a required external id condition. Update the role's policy with a condition to match '{external_id}' as a external id."
+        )
+
+    try:
+        _ = external_sts.assume_role(
+            RoleArn=aws_role_arn,
+            RoleSessionName="PostHog-validate-aws-role-arn",
+        )
+    except Exception:
+        pass
+    else:
+        raise common.IntegrationError(
+            f"The provided role '{aws_role_arn}' allows access without a required external id condition. Update the role's policy with a condition to match '{external_id}' as a external id."
+        )
+
+    try:
+        _ = external_sts.assume_role(
+            RoleArn=aws_role_arn,
+            RoleSessionName="PostHog-validate-aws-role-arn",
+            ExternalId=external_id,
+        )
+    except ClientError:
+        raise common.IntegrationError("AWS role ARN is not valid")
+    except BotoCoreError:
+        raise common.IntegrationError("Could not validate AWS role ARN")
+
+
 def validate_aws_credentials(aws_access_key_id: str, aws_secret_access_key: str) -> str:
     """Validate AWS credentials via STS GetCallerIdentity, returning the AWS account id.
 
@@ -168,6 +269,11 @@ class AWSRoleBasedIntegration:
         except KeyError:
             raise common.IntegrationError("AWS integration is not valid: 'aws_role_arn' missing")
 
+    @property
+    def aws_account_id(self) -> str:
+        """The AWS account id parsed from the role ARN."""
+        return self.aws_role_arn.split(":")[4]
+
     @classmethod
     def integration_from_config(
         cls,
@@ -182,14 +288,30 @@ class AWSRoleBasedIntegration:
         if not is_unique_aws_role_by_organization_id(aws_role_arn, organization_id):
             raise ValidationError("Cannot create AWS integration: Invalid role")
 
+        extra = cls.read_extra_configuration_parameters(**config)
+
+        # Currently, only batch exports uses this integration.
+        # If you are using this integration outside batch exports, then you should make the our_aws_role_arn and external_id configurable.
+        # TODO: Make our_aws_role_arn external_id configurable.
+        validate_aws_role_arn(
+            aws_role_arn=aws_role_arn,
+            our_aws_role_arn=settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN,
+            external_id=f"posthog-{organization_id}",
+        )
+
         return _create_unique_named_integration(
             team_id=team_id,
             kind=cls.integration_kind,
             name=name,
-            config={"name": name, "aws_role_arn": aws_role_arn},
+            config={"name": name, "aws_role_arn": aws_role_arn, **extra},
             sensitive_config={},
             created_by=created_by,
         )
+
+    @staticmethod
+    def read_extra_configuration_parameters(**config) -> dict[str, Any]:
+        """Subclasses can override this to do further processing on the configuration."""
+        return {}
 
 
 class AWSS3RoleBasedIntegration(AWSRoleBasedIntegration):
@@ -200,12 +322,82 @@ class AWSS3RoleBasedIntegration(AWSRoleBasedIntegration):
     )
 
 
+def _return_redshift_groups(**config) -> list[str] | None:
+    if (groups := config.get("groups")) is not None:
+        if not isinstance(groups, list) or any(not isinstance(group, str) for group in groups) or len(groups) < 1:
+            raise common.IntegrationError("Groups must be a list of at least one string")
+
+        return groups
+    return None
+
+
+def _return_redshift_auto_create(**config) -> bool | None:
+    if (auto_create := config.get("auto_create")) is not None:
+        if not isinstance(auto_create, bool):
+            raise common.IntegrationError("Auto create can only be True or False")
+
+        return auto_create
+    return None
+
+
+AWS_REDSHIFT_SERVERLESS_WORKGROUP_ARN_RE = re.compile(
+    r"^arn:aws(-[a-z-]+)?:redshift-serverless:[a-z0-9-]+:\d{12}:workgroup/.+"
+)
+
+
+def _return_redshift_workgroup_arn(**config) -> str | None:
+    if (workgroup_arn := config.get("workgroup_arn")) is not None:
+        if not isinstance(workgroup_arn, str) or not AWS_REDSHIFT_SERVERLESS_WORKGROUP_ARN_RE.match(workgroup_arn):
+            raise common.IntegrationError("Workgroup ARN must be a valid Redshift Serverless workgroup ARN")
+
+        return workgroup_arn
+    return None
+
+
+def _return_extra_redshift_configuration(**config) -> dict[str, Any]:
+    user = _return_non_empty_str_from_config_for_aws(config, "user", "Username")
+
+    extra: dict[str, Any] = {"user": user}
+
+    if (groups := _return_redshift_groups(**config)) is not None:
+        extra["groups"] = groups
+
+    if (auto_create := _return_redshift_auto_create(**config)) is not None:
+        extra["auto_create"] = auto_create
+
+    if (workgroup_arn := _return_redshift_workgroup_arn(**config)) is not None:
+        extra["workgroup_arn"] = workgroup_arn
+
+    return extra
+
+
 class AWSRedshiftRoleBasedIntegration(AWSRoleBasedIntegration):
     """An AWS Redshift integration storing a customer's AWS role."""
 
     integration_kind: ClassVar[Literal[model.Integration.IntegrationKind.AWS_REDSHIFT]] = (
         model.Integration.IntegrationKind.AWS_REDSHIFT
     )
+
+    @property
+    def user(self) -> str:
+        return self.integration.config["user"]
+
+    @property
+    def groups(self) -> list[str] | None:
+        return self.integration.config.get("groups")
+
+    @property
+    def auto_create(self) -> bool | None:
+        return self.integration.config.get("auto_create")
+
+    @property
+    def workgroup_arn(self) -> str | None:
+        """ARN of a Redshift Serverless workgroup, required when the cluster is Serverless."""
+        return self.integration.config.get("workgroup_arn")
+
+    @staticmethod
+    def read_extra_configuration_parameters(**config) -> dict[str, Any]:
+        return _return_extra_redshift_configuration(**config)
 
 
 class AWSCredentialsIntegration:
@@ -267,6 +459,8 @@ class AWSCredentialsIntegration:
         # values is what they say they are. This call is safe.
         credentials = AWSKeyPair.unsafe_from_strings(aws_access_key_id, aws_secret_access_key)
 
+        extra = cls.read_extra_configuration_parameters(**config)
+
         # `name` is the unencrypted, frontend-visible identifier — never an AWS credential, which is
         # treated as a secret. The account id is non-sensitive and kept for display/debugging.
         return _create_unique_aws_integration(
@@ -276,7 +470,13 @@ class AWSCredentialsIntegration:
             account_id=account_id,
             credentials=credentials,
             created_by=created_by,
+            **extra,
         )
+
+    @staticmethod
+    def read_extra_configuration_parameters(**config) -> dict[str, Any]:
+        """Subclasses can override this to do further processing on the configuration."""
+        return {}
 
 
 class AWSS3Integration(AWSCredentialsIntegration):
@@ -297,6 +497,27 @@ class AWSRedshiftIntegration(AWSCredentialsIntegration):
     integration_kind: ClassVar[Literal[model.Integration.IntegrationKind.AWS_REDSHIFT]] = (
         model.Integration.IntegrationKind.AWS_REDSHIFT
     )
+
+    @property
+    def user(self) -> str:
+        return self.integration.config["user"]
+
+    @property
+    def groups(self) -> list[str] | None:
+        return self.integration.config.get("groups")
+
+    @property
+    def auto_create(self) -> bool | None:
+        return self.integration.config.get("auto_create")
+
+    @property
+    def workgroup_arn(self) -> str | None:
+        """ARN of a Redshift Serverless workgroup, required when the cluster is Serverless."""
+        return self.integration.config.get("workgroup_arn")
+
+    @staticmethod
+    def read_extra_configuration_parameters(**config) -> dict[str, Any]:
+        return _return_extra_redshift_configuration(**config)
 
 
 def _return_non_empty_str_from_config_for_s3_compatible(config: Mapping, key: str, friendly_name: str) -> str:

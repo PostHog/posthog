@@ -74,6 +74,7 @@ import type {
     QuerySchema,
     QueryStatus,
     RefreshType,
+    ResolvedDateRangeResponse,
     SessionsQueryResponse,
     TraceSpansAggregationQueryResponse,
     TraceSpansAttributeBreakdownQueryResponse,
@@ -280,6 +281,7 @@ export interface insightDataLogicActions {
             order: number | null
             query: Node<Record<string, any>> | null
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
             saved: boolean
             short_id: InsightShortId
@@ -326,6 +328,7 @@ export interface insightDataLogicActions {
             order: number | null
             query: Node<Record<string, any>> | null
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
             saved: boolean
             short_id: InsightShortId

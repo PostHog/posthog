@@ -44,8 +44,8 @@ export function SignalDefaultChannelSettings({
       label="Default notification channel"
       description={
         isAdmin === false
-          ? "Where every report is posted for the whole team. Only organization admins can change it."
-          : "Where every report is posted for the whole team. Reviewers who set their own channel are notified there instead."
+          ? "Where every report is posted for the whole team; only organization admins can change it"
+          : "Where every report is posted for the whole team; reviewers who set their own channel are notified there instead"
       }
     >
       <SlackChannelCombobox

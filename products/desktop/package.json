@@ -31,7 +31,6 @@
     "rebuild:sqlite-electron": "node scripts/rebuild-better-sqlite3-electron.mjs",
     "typecheck": "turbo typecheck",
     "boundaries": "node scripts/check-host-boundaries.mjs",
-    "optimize:onboarding-videos": "node scripts/optimize-onboarding-videos.mjs",
     "lint": "biome check --write --unsafe",
     "format": "biome format --write",
     "clean": "pnpm -r clean",
