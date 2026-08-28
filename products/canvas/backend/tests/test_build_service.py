@@ -414,6 +414,32 @@ class TestAssetSideLoading(BuildServiceBaseTest):
         assert build.status == CanvasBuild.STATUS_FAILED
         assert build.diagnostics[0]["code"] == "asset_missing"
 
+    def test_mislabeled_content_type_fails_the_build(self):
+        # Bytes are a valid PNG, but the asset (and the matching manifest) declare JPEG. Hash and
+        # size line up, so only sniffing the bytes catches the wrong served type.
+        self.storage.write(
+            build_service.canvas_asset_object_key(self.team.id, self.canvas.id, PIXEL_SHA256),
+            PIXEL_PNG,
+            extras={"ContentType": "image/png"},
+        )
+        build = self._publish_with_asset(
+            {"encoding": "objectRef", "contentType": "image/jpeg", "sha256": PIXEL_SHA256, "sizeBytes": len(PIXEL_PNG)}
+        )
+        with patch.object(
+            build_service,
+            "run_cloud_builder",
+            return_value=_builder_result(
+                {"index.html": "<html></html>"},
+                image_assets=[{**PIXEL_MANIFEST_ENTRY, "contentType": "image/jpeg"}],
+            ),
+        ):
+            build_service.run_canvas_build(self.team.id, str(build.id))
+        build.refresh_from_db()
+
+        assert build.status == CanvasBuild.STATUS_FAILED
+        assert build.diagnostics[0]["code"] == "asset_type_mismatch"
+        assert not any(key.startswith("canvas_artifact/") for key in self.storage.objects)
+
     @parameterized.expand(
         [
             ("forged_hash", {**PIXEL_MANIFEST_ENTRY, "contentHash": "ff" * 32}),

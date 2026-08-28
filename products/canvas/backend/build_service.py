@@ -46,7 +46,7 @@ from posthog.ph_client import ph_background_capture
 from posthog.storage import object_storage
 
 from products.canvas.backend import error_reports
-from products.canvas.backend.asset_store import canvas_asset_object_key
+from products.canvas.backend.asset_store import canvas_asset_object_key, sniff_image_content_type
 from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits, image_asset_content_types
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
@@ -1120,6 +1120,29 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
                             "error",
                             "asset_missing",
                             f'asset "{asset_path}" could not be read back from the canvas asset store — upload it and publish again',
+                            path=asset_path,
+                        )
+                    ],
+                )
+                return
+            # The served MIME type is detected from the bytes here, never trusted from the
+            # declared source type: the artifact origin serves it with nosniff, so a mislabeled
+            # asset would otherwise render broken with no diagnostic.
+            sniffed_type = sniff_image_content_type(data)
+            if sniffed_type != source.content_type:
+                if uploaded_keys:
+                    try:
+                        object_storage.delete_objects(uploaded_keys)
+                    except object_storage.ObjectStorageError:
+                        logger.warning("canvas_artifact_cleanup_failed", build_id=str(build.id))
+                _finish_failed(
+                    build,
+                    [
+                        diagnostic(
+                            "error",
+                            "asset_type_mismatch",
+                            f'asset "{asset_path}" is declared as {source.content_type} but its bytes are '
+                            f"{sniffed_type or 'not a supported image'} — re-upload it and publish again",
                             path=asset_path,
                         )
                     ],
