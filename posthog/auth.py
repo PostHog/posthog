@@ -1174,6 +1174,8 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
     The request authenticates as a synthetic InternalAPIUser bound to the token's team.
     When the URL carries a team_id, the token's team_id claim must match it, so a token
     minted for one team can never read another's data even if both hit the same route.
+    The verified claims become request.auth, so views can enforce entity-level claims
+    (e.g. that the token's ticket_id matches the URL's).
 
     require_team=False is for fleet-scoped purposes (cron-style calls with no team in the
     URL or claims); team-scoped purposes must keep the default so a token without a team
@@ -1183,7 +1185,7 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
     purpose: ClassVar[ScopedServiceJwtPurpose]
     require_team: ClassVar[bool] = True
 
-    def authenticate(self, request: Request) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Request) -> Optional[tuple[Any, dict[str, Any]]]:
         header = authentication.get_authorization_header(request).split()
         # No bearer header: return None (not raise) so the view's other authenticators,
         # if any, still get their turn.
@@ -1216,13 +1218,13 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
 
         return self._authenticate_claims(request, claims)
 
-    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, None]:
+    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
         claim_team_id = claims.get("team_id")
 
         if claim_team_id is None:
             if self.require_team:
                 raise AuthenticationFailed("Service token is missing its team claim.")
-            return InternalAPIUser(), None
+            return InternalAPIUser(), claims
 
         url_team_id = _team_id_from_request_path(request)
         if url_team_id is not None and str(claim_team_id) != url_team_id:
@@ -1234,7 +1236,7 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
         except (Team.DoesNotExist, ValueError, TypeError):
             raise AuthenticationFailed("Invalid service token team.")
 
-        return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id), None
+        return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id), claims
 
     def authenticate_header(self, request: Request) -> str:
         # Without a challenge value DRF renders every AuthenticationFailed from this class as

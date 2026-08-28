@@ -1316,6 +1316,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         Returning None keeps the caller on the legacy `CDCHandledExternally` path, so a source that
         was never flipped — or a lane the buffer doesn't serve — behaves exactly as before.
         """
+        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
             CONSOLIDATED_WRITE_MODE,
             CDCSourceManager,
@@ -1330,6 +1331,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         ingest_mode = PostgresCDCConfig.from_source(schema.source).ingest_mode
         if not is_buffered_consolidated(schema, ingest_mode=ingest_mode):
             return None
+
+        # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
+        # before the flip, or a worker one deploy behind, would consume this buffer on v2, record
+        # no load position, and re-merge the whole buffer on every tick. Fail the run loudly
+        # instead of degrading silently.
+        job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
+        if job is not None and job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
+            raise ValueError(
+                f"Buffered CDC schema {schema.name} reached a {job.pipeline_version} pipeline run. "
+                "Buffered consumption requires v3, whose loader records the load position that "
+                "proves buffer files consumed."
+            )
 
         # A CDC reset must travel through snapshot mode (which purges the buffer and re-seeds the
         # table); every reset writer does that. Standing down here instead would route into
