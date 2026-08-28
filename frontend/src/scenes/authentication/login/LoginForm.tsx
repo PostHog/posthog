@@ -22,6 +22,7 @@ import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
+import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -37,7 +38,8 @@ const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 // insertBefore NotFoundError, see react#11538). Text that is its own element's only child is
 // already safe, so only text sharing a parent with element siblings needs wrapping.
 export function LoginForm(): JSX.Element {
-    const { precheck, exitCodeVerification, resendCodeBasedVerification } = useActions(loginLogic)
+    const { precheck, exitCodeVerification, resendCodeBasedVerification, submitCodeVerification } =
+        useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
@@ -151,13 +153,16 @@ export function LoginForm(): JSX.Element {
                         className="flex flex-col gap-4"
                     >
                         <LemonField name="code" label="Verification code">
-                            <LemonInput
-                                className="ph-ignore-input"
+                            <VerificationCodeInput
                                 autoFocus
                                 data-attr="code-verification"
-                                placeholder="123456"
-                                inputMode="numeric"
-                                autoComplete="one-time-code"
+                                aria-label="Verification code"
+                                disabled={isCodeVerificationSubmitting}
+                                onComplete={() => {
+                                    if (!isCodeVerificationSubmitting) {
+                                        submitCodeVerification()
+                                    }
+                                }}
                             />
                         </LemonField>
                         <LemonButton

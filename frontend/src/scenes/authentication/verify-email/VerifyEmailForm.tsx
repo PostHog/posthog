@@ -7,10 +7,11 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { ExplorerHog, SleepingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
+import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { urls } from 'scenes/urls'
 
 import { verifyEmailLogic } from './verifyEmailLogic'
@@ -120,16 +121,17 @@ function VerificationCodeEntry(): JSX.Element {
                 }
             }}
         >
-            <LemonInput
+            <VerificationCodeInput
                 autoFocus
                 value={verificationCode}
                 onChange={setVerificationCode}
-                placeholder="123456"
+                onComplete={() => {
+                    if (!validatedEmailTokenLoading) {
+                        submitVerificationCode()
+                    }
+                }}
+                disabled={validatedEmailTokenLoading}
                 aria-label="Email verification code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                size="large"
-                className="text-center ph-replay-block"
                 data-attr="verify-email-code"
                 status={verificationCodeError ? 'danger' : 'default'}
             />
@@ -145,7 +147,9 @@ function VerificationCodeEntry(): JSX.Element {
                 fullWidth
                 htmlType="submit"
                 loading={validatedEmailTokenLoading}
-                disabledReason={verificationCode ? undefined : 'Enter the code from your email'}
+                disabledReason={
+                    isValidVerificationCode(verificationCode) ? undefined : 'Enter the 6-digit code from your email'
+                }
                 data-attr="verify-email-code-submit"
             >
                 Verify email
