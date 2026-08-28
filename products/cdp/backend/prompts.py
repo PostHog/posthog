@@ -1,5 +1,6 @@
-# nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
 from collections.abc import Iterable, Iterator
+
+# nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
 from xml.etree import ElementTree as ET
 
 from posthog.schema import PropertyOperator
