@@ -19,15 +19,17 @@ import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from types import TracebackType
-from typing import TYPE_CHECKING, Protocol, Self
+from typing import TYPE_CHECKING, Any, Protocol, Self
 
 from django.conf import settings
 
 import structlog
 from pydantic import BaseModel, model_validator
+
+from posthog.dataclasses import frozen
 
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
@@ -47,12 +49,12 @@ if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 
-@dataclass
+@frozen
 class AgentServerResult:
     """Result from starting an agent server in a sandbox."""
 
     url: str
-    token: str | None = None
+    token: str | None = field(default=None, repr=False)
 
 
 class SandboxStatus(str, Enum):
@@ -325,7 +327,7 @@ class SandboxBase(ABC):
     def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
 
     @abstractmethod
-    def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
+    def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult: ...
 
     def stop_agent_server(self) -> ExecutionResult:
         """Stop the agent server gracefully so it can flush terminal events."""
@@ -498,6 +500,9 @@ class SandboxBase(ABC):
         token needed to connect to the sandbox.
         """
         ...
+
+    @abstractmethod
+    def create_preview_connect_credentials(self, port: int, user_metadata: dict[str, Any]) -> AgentServerResult: ...
 
     @abstractmethod
     def start_agent_server(

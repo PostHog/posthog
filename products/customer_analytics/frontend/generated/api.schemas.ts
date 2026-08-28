@@ -465,7 +465,7 @@ export interface CustomPropertyValueApi {
 export interface CustomPropertyValueWriteApi {
     /** UUID of the custom property definition whose value to set for this account. */
     definition: string
-    /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties. */
+    /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, or text for text properties. */
     value: string | number | boolean
 }
 
@@ -1089,6 +1089,7 @@ export interface CalendarSyncTriggerResponseApi {
 
 /**
  * * `text` - text
+ * * `link` - link
  * * `number` - number
  * * `currency` - currency
  * * `percent` - percent
@@ -1102,6 +1103,7 @@ export type CustomPropertyDisplayTypeEnumApi =
 
 export const CustomPropertyDisplayTypeEnumApi = {
     Text: 'text',
+    Link: 'link',
     Number: 'number',
     Currency: 'currency',
     Percent: 'percent',
@@ -1398,9 +1400,10 @@ export interface CustomPropertyDefinitionApi {
      * @nullable
      */
     description?: string | null
-    /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
+    /** How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL.
      *
      * * `text` - text
+     * * `link` - link
      * * `number` - number
      * * `currency` - currency
      * * `percent` - percent
@@ -1469,9 +1472,10 @@ export interface PatchedCustomPropertyDefinitionApi {
      * @nullable
      */
     description?: string | null
-    /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
+    /** How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL.
      *
      * * `text` - text
+     * * `link` - link
      * * `number` - number
      * * `currency` - currency
      * * `percent` - percent
@@ -1975,6 +1979,11 @@ export interface FeatureRequestApi {
     readonly account: FeatureRequestAccountApi
     /** Active account links visible to the caller, with account-specific evidence. */
     readonly account_links: readonly FeatureRequestAccountLinkApi[]
+    /**
+     * Total evidence items recorded across visible account links.
+     * @minimum 0
+     */
+    readonly evidence_count: number
     /** Product areas affected by this request. */
     readonly product_areas: readonly FeatureRequestProductAreaApi[]
     /**
@@ -2833,6 +2842,16 @@ export type FeatureRequestsListParams = {
      * * `priority` - Priority: low to high
      * * `title` - Title: A to Z
      * * `-title` - Title: Z to A
+     * * `account` - Accounts: A to Z
+     * * `-account` - Accounts: Z to A
+     * * `product_area` - Product areas: A to Z
+     * * `-product_area` - Product areas: Z to A
+     * * `status` - Status: A to Z
+     * * `-status` - Status: Z to A
+     * * `created_by` - Created by: A to Z
+     * * `-created_by` - Created by: Z to A
+     * * `evidence_count` - Evidence: low to high
+     * * `-evidence_count` - Evidence: high to low
      * @minLength 1
      */
     request_ordering?: string
