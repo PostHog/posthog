@@ -609,7 +609,21 @@ async function buildCanvas(project) {
                 continue
             }
             scannedImageReferences.add(reference)
-            if (/^[a-z][a-z0-9+.-]*:/i.test(reference)) {
+            if (/^[a-z][a-z0-9+.-]*:/i.test(reference) || reference.startsWith('//')) {
+                continue
+            }
+            if (reference.startsWith('/')) {
+                // A root-relative URL keeps its leading slash in the output and resolves outside
+                // /canvas-artifacts/<token>/, so it 404s even when the target exists. A tag
+                // compiled into the JS bundle cannot be rewritten here, so warn either way.
+                warnings.push({
+                    ...diagnostic(
+                        'asset_not_declared',
+                        `<img src="${reference}"> is root-relative, so it resolves outside the canvas and will render broken — use a relative path like "./${normalize(reference)}"`,
+                        filePath
+                    ),
+                    severity: 'warning',
+                })
                 continue
             }
             if (!declaredArtifactPaths.has(normalize(reference))) {

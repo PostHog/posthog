@@ -664,6 +664,23 @@ bridge.port1.close();
         warning = next(item for item in result["diagnostics"] if item["code"] == "asset_not_declared")
         self.assertEqual(warning["severity"], "warning")
 
+    def test_warns_on_root_relative_img_src_even_when_declared(self) -> None:
+        # A root-relative URL keeps its leading slash in the output and resolves outside the
+        # artifact's token prefix, so it 404s even though the asset is declared.
+        payload = self._project("")
+        payload["files"]["index.html"] = (
+            '<img src="/assets/logo.png" /><div id="root"></div><script type="module" src="/src/main.ts"></script>'
+        )
+        payload["assets"] = {
+            "assets/logo.png": {"encoding": "meta", "contentType": "image/png", "sizeBytes": 8, "sha256": "ab" * 32}
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        warning = next(item for item in result["diagnostics"] if item["code"] == "asset_not_declared")
+        self.assertEqual(warning["severity"], "warning")
+
     def test_fails_on_asset_path_colliding_with_build_output(self) -> None:
         payload = self._project("")
         payload["assets"] = {
