@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from rest_framework import status
 
+from posthog.egress.public_web import PublicWebFetchError
 from posthog.models import Organization, Team
 
 from products.web_analytics.backend.api.content_autopilot import CONTENT_AUTOPILOT_FEATURE_FLAGS
@@ -102,6 +103,31 @@ class TestContentAutopilotAPI(APIBaseTest):
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
                 self.assertEqual(response.json()["attr"], field)
 
+    def test_profile_accepts_same_origin_sources_with_queries_and_default_ports(self) -> None:
+        response = self.client.post(
+            self._profiles_url(),
+            self._profile_payload(source_urls=["https://example.com:443/sitemap.xml?page=1"]),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(response.json()["source_urls"], ["https://example.com:443/sitemap.xml?page=1"])
+
+    def test_profile_rejects_an_unsafe_github_base_branch(self) -> None:
+        response = self.client.post(
+            self._profiles_url(),
+            self._profile_payload(
+                delivery_mode="github",
+                github_repository="example/site",
+                base_branch="../../pulls",
+                content_directories=["content"],
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "base_branch")
+
     def test_project_can_configure_and_list_multiple_sites(self) -> None:
         first = self.client.post(self._profiles_url(), self._profile_payload(), format="json")
         second = self.client.post(
@@ -124,6 +150,22 @@ class TestContentAutopilotAPI(APIBaseTest):
             {"https://example.com", "https://docs.example.com"},
         )
 
+    @patch("products.web_analytics.backend.api.content_autopilot.MAX_CONTENT_AUTOPILOT_SITE_PROFILES", 1)
+    def test_project_cannot_exceed_the_site_profile_limit(self) -> None:
+        create_content_autopilot_profile(self.team)
+
+        response = self.client.post(
+            self._profiles_url(),
+            self._profile_payload(
+                domain="https://docs.example.com",
+                source_urls=["https://docs.example.com/sitemap.xml"],
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "domain")
+
     @patch("products.web_analytics.backend.api.content_autopilot.discover_site")
     def test_discover_returns_editable_onboarding_defaults(self, discover_site: MagicMock) -> None:
         discover_site.return_value = {
@@ -143,6 +185,19 @@ class TestContentAutopilotAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["source_urls"], ["https://example.com/sitemap.xml"])
+
+    @patch("products.web_analytics.backend.api.content_autopilot.discover_site")
+    def test_discover_returns_a_validation_error_for_a_typed_fetch_failure(self, discover_site: MagicMock) -> None:
+        discover_site.side_effect = PublicWebFetchError("The site could not be inspected safely.")
+
+        response = self.client.post(
+            self._profiles_url("discover/"),
+            {"domain": "https://example.com"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "domain")
 
     def test_start_and_cancel_expose_durable_run_transitions(self) -> None:
         profile = create_content_autopilot_profile(self.team)
@@ -170,6 +225,12 @@ class TestContentAutopilotAPI(APIBaseTest):
 
         self.assertEqual([run["id"] for run in runs.json()["results"]], [str(first_run.id)])
         self.assertEqual([proposal["id"] for proposal in proposals.json()["results"]], [str(first_proposal.id)])
+        self.assertEqual(proposals.json()["results"][0]["file_path"], "content/guides/example.md")
+        self.assertNotIn("proposed_markdown", proposals.json()["results"][0])
+        self.assertNotIn("content_package", proposals.json()["results"][0])
+        proposal_detail = self.client.get(self._proposals_url(f"{first_proposal.id}/"))
+        self.assertIn("proposed_markdown", proposal_detail.json())
+        self.assertIn("content_package", proposal_detail.json())
         self.assertEqual(invalid_runs.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(invalid_proposals.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -237,6 +298,7 @@ class TestContentAutopilotAPI(APIBaseTest):
             "success": True,
             "pr_url": "https://github.com/example/site/pull/7",
         }
+        github.find_pull_request_for_branch.return_value = {"success": True, "pr_url": ""}
 
         with patch(
             "products.web_analytics.backend.content_autopilot.delivery.GitHubIntegration.first_for_team_repository",
@@ -253,6 +315,20 @@ class TestContentAutopilotAPI(APIBaseTest):
             github.commit_files_to_branch.call_args.args[3],
             {"content/guides/example.md": proposal.proposed_markdown},
         )
+
+    def test_open_pull_request_requires_integration_write_scope(self) -> None:
+        key = self.create_personal_api_key_with_scopes(["web_analytics:write"])
+        self.client.logout()
+
+        response = self.client.post(
+            self._proposals_url("open_pull_request/"),
+            {"proposal_ids": ["00000000-0000-4000-8000-000000000001"]},
+            format="json",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("integration:write", response.json()["detail"])
 
     def test_other_team_records_are_not_exposed(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))

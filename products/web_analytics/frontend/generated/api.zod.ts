@@ -413,15 +413,25 @@ export const WebAnalyticsContentAutopilotProfilesDiscoverBody = /* @__PURE__ */ 
  * Saves reviewed Markdown and its canonical delivery package without publishing it.
  * @summary Edit a content proposal
  */
+export const webAnalyticsContentAutopilotProposalsEditBodyProposedMarkdownMax = 500000
+
+export const webAnalyticsContentAutopilotProposalsEditBodyContentPackageOneMarkdownMax = 500000
+
 export const WebAnalyticsContentAutopilotProposalsEditBody = /* @__PURE__ */ zod.object({
-    proposed_markdown: zod.string().describe('Edited Markdown to save for review.'),
+    proposed_markdown: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProposalsEditBodyProposedMarkdownMax)
+        .describe('Edited Markdown to save for review.'),
     content_package: zod
         .object({
             file_path: zod.string().describe('Repository-relative Markdown or MDX file path.'),
             title: zod.string().describe('Content title.'),
             description: zod.string().describe('Search description or summary.'),
             slug: zod.string().describe('URL slug.'),
-            markdown: zod.string().describe('Validated Markdown body.'),
+            markdown: zod
+                .string()
+                .max(webAnalyticsContentAutopilotProposalsEditBodyContentPackageOneMarkdownMax)
+                .describe('Validated Markdown body.'),
             frontmatter: zod
                 .array(
                     zod.object({

@@ -296,6 +296,40 @@ class TestGitHubIntegrationModel(BaseTest):
         assert (method, path) == ("PATCH", "/repos/PostHog/community-skills/git/refs/heads/community-skill/x")
         assert body == {"sha": "new-commit", "force": True}
 
+    @parameterized.expand(
+        [
+            ("base traversal", "community-skill/x", "../../pulls"),
+            ("head query", "community-skill/x?state=all", "main"),
+        ]
+    )
+    def test_commit_files_to_branch_rejects_unsafe_refs_without_a_request(
+        self, _name: str, head_branch: str, base_branch: str
+    ):
+        github = self._github_for_org()
+
+        with patch.object(github, "api_request") as api_request:
+            result = github.commit_files_to_branch("community-skills", head_branch, base_branch, {"a.md": "A"}, "msg")
+
+        assert result["success"] is False
+        api_request.assert_not_called()
+
+    def test_find_pull_request_for_branch_filters_by_head_and_base(self):
+        github = self._github_for_org()
+        response = MagicMock(
+            status_code=200,
+            **{"json.return_value": [{"html_url": "https://github.com/PostHog/community-skills/pull/7"}]},
+        )
+
+        with patch.object(github, "api_request", return_value=response) as api_request:
+            result = github.find_pull_request_for_branch("community-skills", "community-skill/x", "main")
+
+        assert result == {"success": True, "pr_url": "https://github.com/PostHog/community-skills/pull/7"}
+        assert api_request.call_args.kwargs["params"] == {
+            "head": "PostHog:community-skill/x",
+            "state": "open",
+            "base": "main",
+        }
+
     @parameterized.expand([("deleted", 204), ("already gone", 404)])
     def test_delete_branch_treats_a_missing_branch_as_deleted(self, _name: str, status_code: int):
         github = self._github_for_org()

@@ -37,7 +37,7 @@ import type {
     LlmsTxtFetchRequestApi,
     LlmsTxtFetchResponseApi,
     PaginatedContentAutopilotMeasurementListApi,
-    PaginatedContentAutopilotProposalListApi,
+    PaginatedContentAutopilotProposalListListApi,
     PaginatedContentAutopilotRunListApi,
     PaginatedContentAutopilotSiteProfileListApi,
     PaginatedWebAnalyticsFilterPresetListApi,
@@ -787,8 +787,8 @@ export const webAnalyticsContentAutopilotProposalsList = async (
     projectId: string,
     params?: WebAnalyticsContentAutopilotProposalsListParams,
     options?: RequestInit
-): Promise<PaginatedContentAutopilotProposalListApi> => {
-    return apiMutator<PaginatedContentAutopilotProposalListApi>(
+): Promise<PaginatedContentAutopilotProposalListListApi> => {
+    return apiMutator<PaginatedContentAutopilotProposalListListApi>(
         getWebAnalyticsContentAutopilotProposalsListUrl(projectId, params),
         {
             ...options,

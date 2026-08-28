@@ -2,10 +2,12 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
+from django.db.models.fields.json import KeyTextTransform
 
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -14,6 +16,8 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.egress.public_web import PublicWebFetchError
+from posthog.models.integration.github import is_safe_github_ref
 
 from products.web_analytics.backend.content_autopilot.delivery import (
     ContentAutopilotDeliveryError,
@@ -21,6 +25,7 @@ from products.web_analytics.backend.content_autopilot.delivery import (
     open_pull_request,
 )
 from products.web_analytics.backend.content_autopilot.lifecycle import (
+    MAX_PROPOSAL_MARKDOWN_CHARS,
     ContentAutopilotLifecycleError,
     cancel_run,
     edit_proposal,
@@ -28,7 +33,11 @@ from products.web_analytics.backend.content_autopilot.lifecycle import (
     reject_proposal,
     start_run,
 )
-from products.web_analytics.backend.content_autopilot.site_discovery import discover_site, normalize_site_origin
+from products.web_analytics.backend.content_autopilot.site_discovery import (
+    discover_site,
+    has_same_public_origin,
+    normalize_site_origin,
+)
 from products.web_analytics.backend.models import (
     ContentAutopilotMeasurement,
     ContentAutopilotProposal,
@@ -40,6 +49,7 @@ CONTENT_AUTOPILOT_FEATURE_FLAGS = (
     "web-analytics-page-performance",
     "web-analytics-content-autopilot",
 )
+MAX_CONTENT_AUTOPILOT_SITE_PROFILES = 100
 
 
 class ContentAutopilotViewSetMixin(TeamAndOrgViewSetMixin):
@@ -89,6 +99,32 @@ class ContentAutopilotSnapshotSerializer(serializers.Serializer):
         choices=[("standard", "Standard"), ("lower", "Lower")],
         required=False,
         help_text="Confidence level based on the available data sources.",
+    )
+    source_urls = serializers.ListField(
+        child=serializers.URLField(), required=False, help_text="Public sources authorized for this run."
+    )
+    content_boundaries = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Site paths authorized for this run."
+    )
+    brand_rules = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Editorial rules captured for this run."
+    )
+    delivery_mode = serializers.ChoiceField(
+        choices=ContentAutopilotSiteProfile.DeliveryMode.choices,
+        required=False,
+        help_text="Delivery mode captured for this run.",
+    )
+    github_repository = serializers.CharField(
+        required=False, allow_blank=True, help_text="GitHub repository captured for this run."
+    )
+    base_branch = serializers.CharField(
+        required=False, allow_blank=True, help_text="GitHub base branch captured for this run."
+    )
+    content_directories = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Repository directories authorized for this run."
+    )
+    url_to_file_convention = serializers.CharField(
+        required=False, allow_blank=True, help_text="URL-to-file mapping captured for this run."
     )
 
 
@@ -157,7 +193,7 @@ class ContentAutopilotPackageSerializer(serializers.Serializer):
     title = serializers.CharField(help_text="Content title.")
     description = serializers.CharField(help_text="Search description or summary.")
     slug = serializers.CharField(help_text="URL slug.")
-    markdown = serializers.CharField(help_text="Validated Markdown body.")
+    markdown = serializers.CharField(max_length=MAX_PROPOSAL_MARKDOWN_CHARS, help_text="Validated Markdown body.")
     frontmatter = ContentAutopilotFrontmatterEntrySerializer(
         many=True,
         help_text="Ordered frontmatter entries.",
@@ -241,21 +277,28 @@ class ContentAutopilotSiteProfileSerializer(serializers.ModelSerializer):
             matching_profiles = matching_profiles.exclude(id=self.instance.id)
         if matching_profiles.exists():
             raise ValidationError({"domain": "This site is already configured for the project."})
+        if self.instance is None and (
+            ContentAutopilotSiteProfile.objects.for_team(self.context["get_team"]().id).count()
+            >= MAX_CONTENT_AUTOPILOT_SITE_PROFILES
+        ):
+            raise ValidationError(
+                {"domain": f"A project can configure up to {MAX_CONTENT_AUTOPILOT_SITE_PROFILES} sites."}
+            )
 
         for source_url in values.get("source_urls") or []:
             parsed_source = urlparse(str(source_url))
+            try:
+                same_origin = has_same_public_origin(str(source_url), domain)
+            except (ValueError, PublicWebFetchError):
+                same_origin = False
             if (
-                parsed_source.username
-                or parsed_source.password
-                or parsed_source.query
-                or parsed_source.fragment
+                parsed_source.fragment
                 or parsed_source.path.startswith("//")
                 or "\\" in parsed_source.path
-                or parsed_source.scheme.lower() != parsed_domain.scheme.lower()
-                or parsed_source.netloc.lower() != parsed_domain.netloc.lower()
+                or not same_origin
             ):
                 raise ValidationError(
-                    {"source_urls": "Use public same-origin source URLs without credentials, queries, or fragments."}
+                    {"source_urls": "Use public same-origin source URLs without credentials or fragments."}
                 )
 
         boundaries = values.get("content_boundaries") or []
@@ -272,12 +315,16 @@ class ContentAutopilotSiteProfileSerializer(serializers.ModelSerializer):
 
         delivery_mode = values.get("delivery_mode")
         repository = str(values.get("github_repository") or "")
+        base_branch = str(values.get("base_branch") or "").strip()
+        attrs["base_branch"] = base_branch
         directories = values.get("content_directories") or []
         if delivery_mode == ContentAutopilotSiteProfile.DeliveryMode.GITHUB:
             if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
                 raise ValidationError({"github_repository": "Enter a GitHub repository in owner/name format."})
             if not directories:
                 raise ValidationError({"content_directories": "Add at least one repository content directory."})
+            if not is_safe_github_ref(base_branch):
+                raise ValidationError({"base_branch": "Enter a valid GitHub branch name."})
         if any(
             not path or path.startswith("/") or "\\" in path or any(part in {"", ".", ".."} for part in path.split("/"))
             for path in directories
@@ -288,18 +335,35 @@ class ContentAutopilotSiteProfileSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any]) -> ContentAutopilotSiteProfile:
         team = self.context["get_team"]()
         user_id = getattr(self.context["request"].user, "id", None)
-        return ContentAutopilotSiteProfile.objects.for_team(team.id).create(
-            team=team,
-            created_by_id=user_id,
-            updated_by_id=user_id,
-            **validated_data,
-        )
+        try:
+            with transaction.atomic():
+                return ContentAutopilotSiteProfile.objects.for_team(team.id).create(
+                    team=team,
+                    created_by_id=user_id,
+                    updated_by_id=user_id,
+                    **validated_data,
+                )
+        except IntegrityError as error:
+            if ContentAutopilotSiteProfile.objects.for_team(team.id).filter(domain=validated_data["domain"]).exists():
+                raise ValidationError({"domain": "This site is already configured for the project."}) from error
+            raise
 
     def update(
         self, instance: ContentAutopilotSiteProfile, validated_data: dict[str, Any]
     ) -> ContentAutopilotSiteProfile:
         instance.updated_by_id = getattr(self.context["request"].user, "id", None)
-        return super().update(instance, validated_data)
+        try:
+            with transaction.atomic():
+                return super().update(instance, validated_data)
+        except IntegrityError as error:
+            if (
+                ContentAutopilotSiteProfile.objects.for_team(instance.team_id)
+                .filter(domain=validated_data.get("domain", instance.domain))
+                .exclude(id=instance.id)
+                .exists()
+            ):
+                raise ValidationError({"domain": "This site is already configured for the project."}) from error
+            raise
 
 
 class ContentAutopilotSiteDiscoveryRequestSerializer(serializers.Serializer):
@@ -436,6 +500,39 @@ class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
         }
 
 
+class ContentAutopilotProposalListSerializer(serializers.ModelSerializer):
+    evidence = ContentAutopilotEvidenceSerializer(many=True, help_text="Performance evidence for this proposal.")
+    validation_report = ContentAutopilotValidationReportSerializer(
+        help_text="Blocking and advisory validation results."
+    )
+    file_path = serializers.SerializerMethodField(help_text="Repository-relative delivery path.")
+
+    class Meta:
+        model = ContentAutopilotProposal
+        fields = [
+            "id",
+            "run_id",
+            "proposal_type",
+            "lifecycle_status",
+            "title",
+            "audience",
+            "search_intent",
+            "expected_outcome",
+            "evidence",
+            "validation_report",
+            "file_path",
+            "delivery_state",
+            "pull_request_url",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField)
+    def get_file_path(self, proposal: ContentAutopilotProposal) -> str:
+        return str(getattr(proposal, "content_file_path", "") or "")
+
+
 class ContentAutopilotProposalListQuerySerializer(serializers.Serializer):
     run_id = serializers.UUIDField(required=False, help_text="Only return proposals from this content run.")
     profile_id = serializers.UUIDField(required=False, help_text="Only return proposals for this site profile.")
@@ -473,7 +570,9 @@ class ContentAutopilotMeasurementSerializer(serializers.ModelSerializer):
 
 
 class ContentAutopilotProposalEditRequestSerializer(serializers.Serializer):
-    proposed_markdown = serializers.CharField(help_text="Edited Markdown to save for review.")
+    proposed_markdown = serializers.CharField(
+        max_length=MAX_PROPOSAL_MARKDOWN_CHARS, help_text="Edited Markdown to save for review."
+    )
     content_package = ContentAutopilotPackageSerializer(help_text="Updated canonical delivery package.")
 
 
@@ -517,7 +616,10 @@ class ContentAutopilotSiteProfileViewSet(ContentAutopilotViewSetMixin, viewsets.
     )
     @action(detail=False, methods=["post"], required_scopes=["web_analytics:write"])
     def discover(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        result = discover_site(request.validated_data["domain"])
+        try:
+            result = discover_site(request.validated_data["domain"])
+        except (ValueError, PublicWebFetchError) as error:
+            raise ValidationError({"domain": str(error)}) from error
         return Response(ContentAutopilotSiteDiscoveryResponseSerializer(instance=result).data)
 
 
@@ -572,13 +674,23 @@ class ContentAutopilotRunViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnly
         return Response(self.get_serializer(run).data)
 
 
-@extend_schema_view(list=extend_schema(parameters=[ContentAutopilotProposalListQuerySerializer]))
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[ContentAutopilotProposalListQuerySerializer],
+        responses=ContentAutopilotProposalListSerializer(many=True),
+    )
+)
 class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = ContentAutopilotProposalSerializer
     queryset = ContentAutopilotProposal.objects.unscoped()
 
+    def get_serializer_class(self) -> type[serializers.BaseSerializer[Any]]:
+        if self.action == "list":
+            return ContentAutopilotProposalListSerializer
+        return ContentAutopilotProposalSerializer
+
     def safely_get_queryset(self, queryset: QuerySet[ContentAutopilotProposal]) -> QuerySet[ContentAutopilotProposal]:
-        queryset = ContentAutopilotProposal.objects.for_team(self.team_id).select_related("run")
+        queryset = ContentAutopilotProposal.objects.for_team(self.team_id)
         if self.action == "list":
             query_serializer = ContentAutopilotProposalListQuerySerializer(data=self.request.query_params)
             query_serializer.is_valid(raise_exception=True)
@@ -588,7 +700,23 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
                 queryset = queryset.filter(run_id=run_id)
             if profile_id:
                 queryset = queryset.filter(run__profile_id=profile_id)
-        return queryset.order_by("proposal_type", "created_at")
+            queryset = queryset.annotate(content_file_path=KeyTextTransform("file_path", "content_package")).only(
+                "id",
+                "run_id",
+                "proposal_type",
+                "lifecycle_status",
+                "title",
+                "audience",
+                "search_intent",
+                "expected_outcome",
+                "evidence",
+                "validation_report",
+                "delivery_state",
+                "pull_request_url",
+                "created_at",
+                "updated_at",
+            )
+        return queryset.order_by("-created_at")
 
     @validated_request(
         request_serializer=ContentAutopilotProposalEditRequestSerializer,
@@ -659,7 +787,11 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
         responses={201: OpenApiResponse(response=ContentAutopilotPullRequestResponseSerializer)},
         tags=["web_analytics"],
     )
-    @action(detail=False, methods=["post"], required_scopes=["web_analytics:write"])
+    @action(
+        detail=False,
+        methods=["post"],
+        required_scopes=["web_analytics:write", "integration:write"],
+    )
     def open_pull_request(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         try:
             pull_request_url, branch = open_pull_request(
