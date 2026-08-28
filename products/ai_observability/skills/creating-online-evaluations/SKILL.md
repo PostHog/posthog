@@ -6,8 +6,8 @@ description: >
   or whole traces going forward — "create an eval to catch X", "continuously check that responses do Y",
   "turn these failures into evals". Covers letting the explored data decide how many evals to create,
   proposing that set in plain language and asking the user which ones they want, choosing the target and
-  eval type (hog / llm_judge / sentiment), configuring a provider and model for an llm_judge eval (the
-  provider key may be null and is only needed to enable it), scoping which generations trigger it via
+  eval type (hog / llm_judge / sentiment), configuring a provider and model for an llm_judge eval (a
+  provider key gates enabling, not creation), scoping which generations trigger it via
   conditions, creating disabled, verifying scope,
   and enabling. Falls back to proposing a sentiment eval when no failure mode is worth catching.
   Finding and ranking the failure modes worth evaluating is its own job — use exploring-ai-failures first.
@@ -130,11 +130,11 @@ set into production, which is noise and (for a judge) cost the user didn't agree
 
 ### 2.1 — Choose the eval type
 
-| Use…        | When the criterion is…                                                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `hog`       | Structural / rule-based (JSON parses, length, regex, tool-call shape). Cheap, deterministic, **no provider key needed.**              |
+| Use…        | When the criterion is…                                                                                                                                                            |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hog`       | Structural / rule-based (JSON parses, length, regex, tool-call shape). Cheap, deterministic, **no provider key needed.**                                                          |
 | `llm_judge` | Subjective / fuzzy (tone, factuality, on-topic). Costs an LLM call per run; needs a provider and model. A usable provider key is only needed to enable it, not to create a draft. |
-| `sentiment` | You want sentiment labels on user messages, not a pass/fail (unless very specifically asked for, usually not relevant to this skill). |
+| `sentiment` | You want sentiment labels on user messages, not a pass/fail (unless very specifically asked for, usually not relevant to this skill).                                             |
 
 Reach for `hog` first, escalate to `llm_judge` if there is no deterministic way to check for what we want to check.
 
