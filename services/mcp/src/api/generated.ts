@@ -8692,6 +8692,7 @@ export namespace Schemas {
       rightYAxisSettings?: YAxisSettings | null;
       scatter?: ScatterChartSettings | null;
       seriesBreakdownColumn?: string | null;
+      showAnnotations?: boolean | null;
       showLegend?: boolean | null;
       showNullsAsZero?: boolean | null;
       showPieTotal?: boolean | null;
@@ -46622,7 +46623,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * What this skill does and when to use it. Max 4096 characters.
+         * What this skill does and when to use it.
          * @maxLength 4096
          */
       description: string;
@@ -46704,8 +46705,8 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * What this skill does and when to use it. Max 4096 characters.
-         * @maxLength 4096
+         * What this skill does and when to use it. Max 1024 characters.
+         * @maxLength 1024
          */
       description: string;
       /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
@@ -46850,7 +46851,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * What this skill does and when to use it. Max 4096 characters.
+         * What this skill does and when to use it.
          * @maxLength 4096
          */
       description: string;
@@ -58493,39 +58494,10 @@ export namespace Schemas {
       results: User[];
     }
 
-    /**
-     * * `default` - Default
-     * * `onboarding` - Onboarding
-     * * `product_intent` - Product Intent
-     * * `used_by_colleagues` - Used by Colleagues
-     * * `used_similar_products` - Used Similar Products
-     * * `used_on_separate_team` - Used on Separate Team
-     * * `new_product` - New Product
-     * * `sales_led` - Sales Led
-     * * `onboarding_delegated` - Onboarding Delegated
-     */
-    export type UserProductListReasonEnum = typeof UserProductListReasonEnum[keyof typeof UserProductListReasonEnum];
-
-
-    export const UserProductListReasonEnum = {
-      Default: 'default',
-      Onboarding: 'onboarding',
-      ProductIntent: 'product_intent',
-      UsedByColleagues: 'used_by_colleagues',
-      UsedSimilarProducts: 'used_similar_products',
-      UsedOnSeparateTeam: 'used_on_separate_team',
-      NewProduct: 'new_product',
-      SalesLed: 'sales_led',
-      OnboardingDelegated: 'onboarding_delegated',
-    } as const;
-
     export interface UserProductList {
       readonly id: string;
       readonly product_path: string;
       enabled?: boolean;
-      readonly reason: UserProductListReasonEnum | null;
-      /** @nullable */
-      readonly reason_text: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
@@ -62896,7 +62868,7 @@ export namespace Schemas {
       edits?: LLMSkillEditOperation[];
       /**
          * Updated description for the new version.
-         * @maxLength 4096
+         * @maxLength 1024
          */
       description?: string;
       /**
@@ -67328,9 +67300,6 @@ export namespace Schemas {
       readonly id?: string;
       readonly product_path?: string;
       enabled?: boolean;
-      readonly reason?: UserProductListReasonEnum | null;
-      /** @nullable */
-      readonly reason_text?: string | null;
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
@@ -75471,7 +75440,7 @@ export namespace Schemas {
       name: string;
       /**
          * Short description of the signal or behavior this scout investigates.
-         * @maxLength 4096
+         * @maxLength 1024
          */
       description: string;
       /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */
@@ -76622,7 +76591,7 @@ export namespace Schemas {
       name: string;
       /**
          * Short description of the signal or behavior this scout investigates.
-         * @maxLength 4096
+         * @maxLength 1024
          */
       description: string;
       /** Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here. */

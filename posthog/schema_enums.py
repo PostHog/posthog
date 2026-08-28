@@ -4175,18 +4175,6 @@ class UsageMetricFormat(StrEnum):
     CURRENCY = "currency"
 
 
-class UserProductListReason(StrEnum):
-    DEFAULT = "default"
-    ONBOARDING = "onboarding"
-    PRODUCT_INTENT = "product_intent"
-    USED_BY_COLLEAGUES = "used_by_colleagues"
-    USED_SIMILAR_PRODUCTS = "used_similar_products"
-    USED_ON_SEPARATE_TEAM = "used_on_separate_team"
-    NEW_PRODUCT = "new_product"
-    SALES_LED = "sales_led"
-    ONBOARDING_DELEGATED = "onboarding_delegated"
-
-
 class WebAgentAnalyticsQueryType(StrEnum):
     OVERVIEW = "overview"
     ISSUES = "issues"

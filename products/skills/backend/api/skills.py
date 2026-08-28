@@ -87,6 +87,7 @@ from .skill_serializers import (
     validate_skill_name_value,
 )
 from .skill_services import (
+    LLMSkillDescriptionTooLongError,
     LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
     LLMSkillFileLimitError,
@@ -427,6 +428,15 @@ class LLMSkillViewSet(
                 {"detail": f"Skill has reached the maximum of {err.max_count} files."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if isinstance(err, LLMSkillDescriptionTooLongError):
+            return Response(
+                {
+                    "detail": (
+                        f"Shorten the skill description to {err.max_length} characters before creating a new version."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return None
 
     def _is_scout_sandbox_caller(self) -> bool:
@@ -677,6 +687,15 @@ class LLMSkillViewSet(
                         f"Skill has reached the maximum of {err.max_version} versions. "
                         "Archive and recreate the skill to continue publishing."
                     ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except LLMSkillDescriptionTooLongError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"Shorten the skill description to {err.max_length} characters before creating a new version."
+                    )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -1120,6 +1139,15 @@ class LLMSkillViewSet(
                 {"attr": "new_name", "detail": "A skill with this name already exists."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except LLMSkillDescriptionTooLongError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"Shorten the source skill description to {err.max_length} characters before duplicating it."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         props = {
             **_skill_analytics_props(new_skill),
@@ -1303,6 +1331,7 @@ class LLMSkillViewSet(
             LLMSkillVersionConflictError,
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
+            LLMSkillDescriptionTooLongError,
         ) as err:
             response = self._handle_skill_write_error(err, skill_name)
             if response is None:
@@ -1368,6 +1397,7 @@ class LLMSkillViewSet(
             LLMSkillVersionConflictError,
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
+            LLMSkillDescriptionTooLongError,
         ) as err:
             response = self._handle_skill_write_error(err, skill_name)
             if response is None:
@@ -1430,6 +1460,7 @@ class LLMSkillViewSet(
             LLMSkillVersionConflictError,
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
+            LLMSkillDescriptionTooLongError,
         ) as err:
             response = self._handle_skill_write_error(err, skill_name)
             if response is None:

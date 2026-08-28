@@ -144,6 +144,8 @@ export class TaskCreationSaga extends Saga<
     const workspaceMode =
       input.workspaceMode ??
       (task.latest_run?.environment === "cloud" ? "cloud" : "local");
+    const shouldDeferLocalPiTaskReady =
+      isPiRuntime && !taskId && workspaceMode !== "cloud";
 
     let workspace: Workspace | null = null;
     const branch = input.branch ?? task.latest_run?.branch ?? null;
@@ -152,7 +154,9 @@ export class TaskCreationSaga extends Saga<
 
     if (hasProvisioning) {
       this.deps.host.setProvisioningActive(task.id);
-      this.notifyTaskReady({ task, workspace });
+      if (!shouldDeferLocalPiTaskReady) {
+        this.notifyTaskReady({ task, workspace });
+      }
     }
 
     if (repoPath) {
@@ -211,10 +215,8 @@ export class TaskCreationSaga extends Saga<
         }
       } catch (error) {
         // For a fresh worktree task the prompt is already persisted as the task
-        // description and the UI has navigated onto the task. Rolling the saga
-        // back here would run task_creation's deleteTask and destroy that task,
-        // losing the prompt. Instead keep the task with no workspace (the shape
-        // openTask re-provisions from) so the user can retry setup on it.
+        // description. Rolling the saga back here would delete that task and
+        // lose the prompt. Keep the task with no workspace so setup can retry.
         if (!hasProvisioning) throw error;
         const provisioningError =
           error instanceof Error ? error.message : String(error);
@@ -223,6 +225,9 @@ export class TaskCreationSaga extends Saga<
           error,
         });
         this.deps.host.clearProvisioning(task.id);
+        if (shouldDeferLocalPiTaskReady) {
+          this.notifyTaskReady({ task, workspace: null });
+        }
         // The in-flight mark is left to TTL-expire on purpose: this state has
         // its own retry-prompt UX, and auto-recovery would race the retry.
         return { task, workspace: null, provisioningError };
@@ -338,7 +343,11 @@ export class TaskCreationSaga extends Saga<
       );
     }
 
-    if (!hasProvisioning && !shouldStartCloudRun) {
+    if (
+      !hasProvisioning &&
+      !shouldStartCloudRun &&
+      !shouldDeferLocalPiTaskReady
+    ) {
       if (!taskId && workspaceMode === "cloud") {
         await this.deps.sessionService.watchCreatedCloudTask(task);
       }
@@ -559,8 +568,6 @@ export class TaskCreationSaga extends Saga<
                 additionalDirectories: input.additionalDirectories,
                 channelMode: !!scratchCwd && agentCwd === scratchCwd,
               },
-              projectTrustPath:
-                workspace?.folderPath ?? repoPath ?? scratchCwd ?? undefined,
               prompt,
               model: input.model,
               thinkingLevel,
@@ -604,6 +611,10 @@ export class TaskCreationSaga extends Saga<
           await this.deps.sessionService.disconnectFromTask(taskId);
         },
       });
+    }
+
+    if (shouldDeferLocalPiTaskReady) {
+      this.notifyTaskReady({ task, workspace });
     }
 
     return { task, workspace };

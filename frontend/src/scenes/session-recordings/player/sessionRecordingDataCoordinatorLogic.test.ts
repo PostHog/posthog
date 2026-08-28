@@ -129,29 +129,29 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 .toMatchValues({ recordingTooLargeToPlay: false })
         })
 
-        const mutationSnapshots = (eventCount: number, addsPerEvent: number): RecordingSnapshot[] =>
+        const mutationSnapshots = (eventCount: number, addsPerEvent: number, gapMs: number = 1): RecordingSnapshot[] =>
             Array.from(
                 { length: eventCount },
                 (_, i) =>
                     ({
                         windowId: '1',
-                        timestamp: 1000 + i,
+                        timestamp: 1000 + i * gapMs,
                         type: 3,
                         data: { source: 0, adds: new Array(addsPerEvent).fill({}) },
                     }) as unknown as RecordingSnapshot
             )
 
         it.each([
-            ['enough giant mutations', mutationSnapshots(3, 2000), true, true],
-            ['too few giant mutations', mutationSnapshots(2, 5000), true, false],
-            ['many ordinary mutations', mutationSnapshots(100, 100), true, false],
+            ['a concentrated burst of adds', mutationSnapshots(10, 5000), true, true],
+            ['the same adds spread over minutes', mutationSnapshots(10, 5000, 30_000), true, false],
+            ['a single large render', mutationSnapshots(2, 5000), true, false],
             [
                 'malformed mutations without adds',
-                mutationSnapshots(3, 0).map((s) => ({ ...s, data: { source: 0 } }) as unknown as RecordingSnapshot),
+                mutationSnapshots(10, 0).map((s) => ({ ...s, data: { source: 0 } }) as unknown as RecordingSnapshot),
                 true,
                 false,
             ],
-            ['the flag is disabled', mutationSnapshots(3, 2000), false, false],
+            ['the flag is disabled', mutationSnapshots(10, 5000), false, false],
         ])('detects oversized mutations with %s', (_name, snapshots, flagEnabled, expected) => {
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags(
