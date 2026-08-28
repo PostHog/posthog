@@ -487,18 +487,23 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBe(expected)
         })
 
-        // Guards the property list that decides whether an event reported usage.
-        // Narrowing it to the plain input/output counts would leave an event that
-        // only reports cache or modality tokens looking like it reported nothing.
-        it('prices an event that reports only cache tokens', () => {
-            delete event.properties!.$ai_input_tokens
-            delete event.properties!.$ai_output_tokens
-            event.properties!.$ai_cache_read_input_tokens = 100
+        // Both properties are named here rather than read from
+        // TOKEN_COUNT_PROPERTIES, so narrowing that list to the plain
+        // input/output counts fails these. Iterating the list itself would only
+        // drop the case. Neither catches the opposite drift: a calculator that
+        // starts reading a token property nobody added to the list.
+        it.each(['$ai_cache_read_input_tokens', '$ai_audio_input_tokens'])(
+            'treats %s on its own as a usage report',
+            (property) => {
+                delete event.properties!.$ai_input_tokens
+                delete event.properties!.$ai_output_tokens
+                event.properties![property] = 100
 
-            const result = processAiEvent(event)
+                const result = processAiEvent(event)
 
-            expect(result.properties!.$ai_total_cost_usd).toBeGreaterThan(0)
-        })
+                expect(result.properties!.$ai_total_cost_usd).toBeDefined()
+            }
+        )
 
         // Request and web search charges are computed without reading a token
         // count, so absent token counts must not discard a cost we do know.

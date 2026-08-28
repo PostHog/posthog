@@ -75,6 +75,11 @@ const trackCostOutcome = (totalCost: number): void => {
 // Every token count the cost calculators read. Presence is what matters, not
 // value: `0` is a usage report that says the model consumed nothing, while an
 // absent property means the provider never reported usage at all.
+//
+// Hand-maintained, so a calculator that starts reading a new token property has
+// to add it here too. Leave it out and an event carrying only that property
+// prices as unknown. Properties that modality extraction writes but no
+// calculator reads, such as `$ai_text_input_tokens`, do not belong here.
 const TOKEN_COUNT_PROPERTIES = [
     '$ai_input_tokens',
     '$ai_output_tokens',
@@ -110,7 +115,12 @@ const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): v
     // the costs unset so downstream can say it does not know — but only when
     // nothing at all priced this call.
     if (!hasAnyTokenCount(event.properties) && !hasNonTokenCost) {
-        aiCostTotalOutcomeCounter.labels({ outcome: 'unknown' }).inc()
+        // A total the client sent is a cost we know, so the outcome is not
+        // unknown. It goes uncounted, matching the other paths that leave a
+        // passthrough total untracked.
+        if (typeof event.properties['$ai_total_cost_usd'] !== 'number') {
+            aiCostTotalOutcomeCounter.labels({ outcome: 'unknown' }).inc()
+        }
         return
     }
 
