@@ -498,6 +498,32 @@ describe('aiObservabilityDatasetLogic', () => {
             expect(logic.values.datasetExportLoadError?.status).toBe(500)
             expect(logic.values.datasetExportLoading).toBe(false)
         })
+
+        it('blocks export until the dataset has a revision to export', async () => {
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // No items means no canonical revision, so export cannot succeed.
+            expect(logic.values.datasetExportDisabledReason).toBe('Add an item before you can export this dataset.')
+
+            mockDatasetsApi.listRevisions.mockResolvedValue({
+                results: [
+                    {
+                        id: 'revision-1',
+                        dataset_id: mockDataset.id,
+                        revision: 1,
+                        created_at: '2024-01-01T00:00:00Z',
+                        created_by: null,
+                        team_id: 997,
+                    },
+                ],
+                count: 1,
+            })
+            await expectLogic(logic, () => logic.actions.loadDatasetRevisions()).toFinishAllListeners()
+
+            expect(logic.values.datasetExportDisabledReason).toBeUndefined()
+        })
     })
 
     describe('dataset revisions', () => {

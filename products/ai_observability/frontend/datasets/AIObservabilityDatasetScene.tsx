@@ -96,6 +96,7 @@ export function AIObservabilityDatasetScene(): JSX.Element {
         isHistoricalRevision,
         filters,
         datasetExportLoading,
+        datasetExportDisabledReason,
         datasetLoadError,
     } = useValues(aiObservabilityDatasetLogic)
     const {
@@ -230,7 +231,8 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                             <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
                             <SceneMenuBarSeparator />
                             <SceneMenuBarItem
-                                disabled={datasetExportLoading}
+                                disabled={datasetExportLoading || !!datasetExportDisabledReason}
+                                tooltip={datasetExportDisabledReason}
                                 onClick={() => exportDataset(filters.revision ?? undefined)}
                                 data-attr={`${RESOURCE_TYPE}-menubar-export`}
                             >
@@ -330,6 +332,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
         filters,
         datasetExportLoading,
         datasetExportLoadError,
+        datasetExportDisabledReason,
     } = useValues(aiObservabilityDatasetLogic)
     const {
         closeModalAndRefetchDatasetItems,
@@ -409,6 +412,7 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
                             children: 'Try again',
                             onClick: () => exportDataset(filters.revision ?? undefined),
                             loading: datasetExportLoading,
+                            disabledReason: datasetExportDisabledReason,
                         }}
                     >
                         {datasetExportLoadError.detail || "Couldn't add the dataset to exports. Try again."}
@@ -487,6 +491,7 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
         isHistoricalRevision,
         isArchivingDataset,
         datasetExportLoading,
+        datasetExportDisabledReason,
     } = useValues(aiObservabilityDatasetLogic)
     const {
         archiveDatasetItem,
@@ -679,6 +684,7 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                         type="secondary"
                         onClick={() => exportDataset(filters.revision ?? undefined)}
                         loading={datasetExportLoading}
+                        disabledReason={datasetExportDisabledReason}
                         data-attr="export-dataset"
                         icon={<IconDownload />}
                         size="small"

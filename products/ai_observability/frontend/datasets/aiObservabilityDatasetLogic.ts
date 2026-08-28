@@ -131,6 +131,7 @@ export interface aiObservabilityDatasetLogicValues {
     canManageDataset: boolean
     dataset: DatasetFormValues | DatasetReadApi | null
     datasetExport: DatasetExportReadApi | null
+    datasetExportDisabledReason: string | undefined
     datasetExportLoadError: ApiError | null
     datasetExportLoading: boolean
     datasetForm: DatasetFormValues
@@ -449,6 +450,10 @@ export interface aiObservabilityDatasetLogicMeta {
             label: string
             value: string
         }[]
+        datasetExportDisabledReason: (
+            datasetRevisions: PaginatedDatasetRevisionReadListApi,
+            datasetRevisionsLoading: boolean
+        ) => string | undefined
         breadcrumbs: (
             dataset: DatasetFormValues | DatasetReadApi | null,
             searchParams: Record<string, any>
@@ -982,6 +987,17 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                         .map((revision) => ({ value: String(revision), label: `Revision ${revision}` })),
                 ]
             },
+        ],
+
+        datasetExportDisabledReason: [
+            (s) => [s.datasetRevisions, s.datasetRevisionsLoading],
+            (
+                datasetRevisions: PaginatedDatasetRevisionReadListApi,
+                datasetRevisionsLoading: boolean
+            ): string | undefined =>
+                !datasetRevisionsLoading && datasetRevisions.results.length === 0
+                    ? 'Add an item before you can export this dataset.'
+                    : undefined,
         ],
 
         breadcrumbs: [
