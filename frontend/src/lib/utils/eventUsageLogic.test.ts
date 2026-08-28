@@ -8,7 +8,14 @@ import type {
     ExperimentTrendsQuery,
     Node,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, BehavioralEventType, FilterLogicalOperator, PropertyFilterType } from '~/types'
+import {
+    BaseMathType,
+    BehavioralEventType,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    TimeUnitType,
+} from '~/types'
 
 import { getEventPropertiesForMetric, sanitizeQuery } from './eventUsageLogic'
 
@@ -225,8 +232,12 @@ describe('eventUsageLogic', () => {
                                 {
                                     type: PropertyFilterType.Behavioral,
                                     key: 'signed up',
-                                    value: BehavioralEventType.PerformEvent,
-                                    event_type: 'events',
+                                    value: BehavioralEventType.PerformMultipleEvents,
+                                    event_type: 'actions',
+                                    operator: PropertyOperator.GreaterThanOrEqual,
+                                    operator_value: 3,
+                                    time_value: 7,
+                                    time_interval: TimeUnitType.Week,
                                 },
                             ],
                         },
@@ -242,6 +253,7 @@ describe('eventUsageLogic', () => {
                                         key: 'completed onboarding',
                                         value: BehavioralEventType.PerformEvent,
                                         event_type: 'events',
+                                        negation: true,
                                     },
                                 ],
                             },
@@ -250,7 +262,13 @@ describe('eventUsageLogic', () => {
                 },
             } as unknown as Node
 
-            expect(sanitizeQuery(query).behavioral_filter_count).toBe(2)
+            expect(sanitizeQuery(query)).toMatchObject({
+                behavioral_filter_count: 2,
+                has_negated_behavioral_filter: true,
+                has_custom_behavioral_filter_count: true,
+                has_custom_behavioral_filter_time: true,
+                has_action_behavioral_filter: true,
+            })
         })
     })
 
