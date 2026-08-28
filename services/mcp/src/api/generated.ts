@@ -9162,6 +9162,7 @@ export namespace Schemas {
     export const AgentKeyEnum = {
       Support: 'support',
       Scout: 'scout',
+      Workflow: 'workflow',
     } as const;
 
     /**

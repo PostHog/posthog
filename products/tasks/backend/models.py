@@ -60,7 +60,7 @@ def execute_after_commit(callback: Callable[[], object]) -> None:
 
 
 LogLevel = Literal["debug", "info", "warn", "error"]
-MCPBuiltInAgentKey = Literal["support", "scout"]
+MCPBuiltInAgentKey = Literal["support", "scout", "workflow"]
 MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
 MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
 MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
@@ -68,6 +68,7 @@ TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
+    "workflow": "workflow",
 }
 
 
