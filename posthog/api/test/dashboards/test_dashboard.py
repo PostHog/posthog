@@ -674,24 +674,34 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             Dashboard.objects.get(id=copied_id).customization, {"show_legend": False, "tile_spacing": "wide"}
         )
 
-    @patch(
-        "products.dashboards.backend.feature_flags.get_flags_from_service",
-        return_value={"flags": {"dashboard-customization": {"enabled": True}}},
-    )
+    @patch("products.dashboards.backend.feature_flags.get_flags_from_service")
     def test_dashboard_customization_uses_remote_flag_evaluation(self, mock_get_flags: MagicMock) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        internal_rollout_token = "phc_internal_rollout_project"
 
-        _, updated = self.dashboard_api.update_dashboard(
-            dashboard_id,
-            {"grid_spacing": "condensed", "layout_compaction": "horizontal"},
-        )
+        def flag_result(token: str, *_args: object, **_kwargs: object) -> dict[str, dict[str, dict[str, bool]]]:
+            if token == internal_rollout_token:
+                return {"flags": {"dashboard-customization": {"enabled": True}}}
+            return {"flags": {}}
 
+        mock_get_flags.side_effect = flag_result
+
+        with patch("products.dashboards.backend.feature_flags.posthoganalytics.api_key", internal_rollout_token):
+            dashboard_id, created = self.dashboard_api.create_dashboard(
+                {"name": "dashboard", "grid_spacing": "condensed"}
+            )
+
+            _, updated = self.dashboard_api.update_dashboard(
+                dashboard_id,
+                {"layout_compaction": "horizontal"},
+            )
+
+        self.assertEqual(created["customization"], {"tile_spacing": "condensed"})
         self.assertEqual(
             updated["customization"],
             {"tile_spacing": "condensed", "layout_compaction": "horizontal"},
         )
         expected_flag_call = call(
-            self.team.api_token,
+            internal_rollout_token,
             self.user.distinct_id,
             groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
             flag_keys=["dashboard-customization"],
