@@ -232,10 +232,10 @@ const RELATIVE_DATE_UNIT_LABELS: Record<string, string> = {
     s: 'second',
 }
 
-export function formatRelativeDateValue(value: string): string | undefined {
+export function formatRelativeDateValue(value: string): string | null {
     const match = RELATIVE_DATE_VALUE_RE.exec(value)
     if (!match) {
-        return undefined
+        return null
     }
     const [, sign, rawAmount, rawUnit] = match
     const amount = Number.parseInt(rawAmount, 10)

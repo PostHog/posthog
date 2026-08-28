@@ -770,6 +770,28 @@ class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
                 with pytest.raises(AccountTrackRuleValidationError):
                     preview_account_track_rules(self.team.id)
 
+        for relative_value in ["d", "-d", "+d", "y", "mStart"]:
+            config = {
+                "schema_version": 1,
+                "version": 1,
+                "enabled": False,
+                "groups": [
+                    {
+                        "conditions": [
+                            {
+                                "field": {"kind": "account_field", "field": "created_at"},
+                                "operator": "is_date_after",
+                                "values": [relative_value],
+                            }
+                        ]
+                    }
+                ],
+            }
+            with self.subTest(relative_value=relative_value):
+                self.save_config(config)
+                with pytest.raises(AccountTrackRuleValidationError):
+                    preview_account_track_rules(self.team.id)
+
     def test_run_creation_is_idempotent_and_workflow_id_is_per_team(self) -> None:
         definition, *_ = self.create_rule_fixtures()
         self.save_config(track_rules_config(version=3, definition_id=str(definition.id)))

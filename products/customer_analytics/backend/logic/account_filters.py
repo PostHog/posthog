@@ -40,7 +40,7 @@ ACCOUNT_DATETIME_FIELDS = frozenset(
         contracts.AccountTableField.IGNORED_AT,
     }
 )
-RELATIVE_DATE_VALUE_RE = re.compile(r"[+-]?\d*[hdwmqysHDWMQY](?:Start|End)?")
+RELATIVE_DATE_VALUE_RE = re.compile(r"[+-]?\d+[hdwmqysHDWMQY](?:Start|End)?")
 UTC_TIMEZONE = ZoneInfo("UTC")
 
 ACCOUNT_DIRECT_FIELDS = {

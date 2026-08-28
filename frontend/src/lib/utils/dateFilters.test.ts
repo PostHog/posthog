@@ -24,8 +24,8 @@ describe('dateFilters utils', () => {
             expect(formatRelativeDateValue(value)).toBe(expected)
         })
 
-        it('returns undefined for absolute dates', () => {
-            expect(formatRelativeDateValue('2026-08-20')).toBeUndefined()
+        it('returns null for absolute dates', () => {
+            expect(formatRelativeDateValue('2026-08-20')).toBeNull()
         })
     })
 
