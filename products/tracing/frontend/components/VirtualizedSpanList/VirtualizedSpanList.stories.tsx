@@ -5,12 +5,13 @@ import { VirtualizedSpanList } from './VirtualizedSpanList'
 
 const span = (index: number, overrides: Partial<Span> = {}): Span => ({
     uuid: `span-${index}`,
-    trace_id: '842AF0A62764CA7B9E1D3F0C55A1B204',
-    span_id: `0000000000000${index}`,
+    trace_id: '0F3B7C1A5E2D48960B7A1C3E5D9F2048',
+    span_id: `000000000000000${index}`,
     parent_span_id: '00000000000000ff',
-    name: 'validateReplayHeadersStep',
+    name: 'loadCartContents',
     kind: 3,
-    service_name: 'ingestion-sessionreplay-metrics',
+    // Long enough to show that the service column no longer truncates.
+    service_name: 'checkout-orchestrator-europe',
     status_code: 1,
     timestamp: '2026-08-28T10:24:27.000Z',
     end_time: '2026-08-28T10:24:27.000Z',
@@ -24,10 +25,10 @@ const span = (index: number, overrides: Partial<Span> = {}): Span => ({
 
 const SPANS: Span[] = [
     span(1, { parent_span_id: '', is_root_span: true, name: 'POST /api/v2/checkout/session/confirm' }),
-    span(2, { name: 'teamFilterStep' }),
-    span(3, { name: 'applyEventRestrictionsStep', duration_nano: 390_000 }),
-    span(4, { name: 'lazyLoader.loadViaCache', service_name: 'cdp-events-consumer-ws', duration_nano: 4_630_000 }),
-    span(5, { name: 'parseHeadersStep', status_code: 2, duration_nano: 63_000 }),
+    span(2, { name: 'validateCoupon' }),
+    span(3, { name: 'reserveStockForOrder', duration_nano: 390_000 }),
+    span(4, { name: 'pricing.quoteFromCache', service_name: 'pricing-api', duration_nano: 4_630_000 }),
+    span(5, { name: 'chargePaymentMethod', status_code: 2, duration_nano: 63_000 }),
 ]
 
 const meta: Meta<typeof VirtualizedSpanList> = {
