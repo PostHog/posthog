@@ -28,6 +28,7 @@ interface EventContentConversationProps {
     raisedError?: boolean
     outputTokens?: unknown
     reasoningTokens?: unknown
+    textOutputTokens?: unknown
     stopReason?: unknown
     searchQuery?: string
     displayOption?: ConversationDisplayOption
@@ -53,6 +54,7 @@ export function EventContentConversation({
     raisedError,
     outputTokens,
     reasoningTokens,
+    textOutputTokens,
     stopReason,
     searchQuery,
     displayOption,
@@ -147,6 +149,7 @@ export function EventContentConversation({
             raisedError={raisedError}
             outputTokens={outputTokens}
             reasoningTokens={reasoningTokens}
+            textOutputTokens={textOutputTokens}
             stopReason={stopReason}
             searchQuery={searchQuery}
             displayOption={displayOption}

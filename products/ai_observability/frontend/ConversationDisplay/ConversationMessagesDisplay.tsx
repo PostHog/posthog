@@ -76,13 +76,18 @@ function getInitialMessageShowStates(
 // string still has to reach the empty-output notice. posthog-ai below 7.3.0 sent them as
 // `{ total, noCache, cacheRead }`. Ingestion normalizes that now, but events captured before it
 // still hold the object shape.
-function billedTokenCount(value: unknown): number | null {
+function tokenCountOf(value: unknown): number | null {
     const unwrapped =
         value !== null && typeof value === 'object' && !Array.isArray(value) && 'total' in value
             ? (value as { total: unknown }).total
             : value
     const parsed = typeof unwrapped === 'string' ? Number(unwrapped) : unwrapped
-    return typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0 ? parsed : null
+    return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null
+}
+
+function billedTokenCount(value: unknown): number | null {
+    const count = tokenCountOf(value)
+    return count !== null && count > 0 ? count : null
 }
 
 // Stop reasons that explain an empty output. Each provider spells the same outcome its own way, and
@@ -117,7 +122,12 @@ function describeStopReason(value: unknown): string | null {
 // why it stopped, so it outranks anything inferred from token counts. Providers disagree on whether
 // reasoning tokens sit inside the output count or beside it, so name each count that is present
 // rather than deriving one from the other.
-function describeEmptyOutput(outputTokens: unknown, reasoningTokens: unknown, stopReason: unknown): string | null {
+function describeEmptyOutput(
+    outputTokens: unknown,
+    reasoningTokens: unknown,
+    textOutputTokens: unknown,
+    stopReason: unknown
+): string | null {
     const output = billedTokenCount(outputTokens)
     const reasoning = billedTokenCount(reasoningTokens)
     const namedCause = describeStopReason(stopReason)
@@ -132,9 +142,13 @@ function describeEmptyOutput(outputTokens: unknown, reasoningTokens: unknown, st
         return namedCause
     }
 
-    // Reasoning only explains the gap when it accounts for the whole billed output. A small
-    // reasoning count beside a large output count leaves non-reasoning tokens unaccounted for.
-    const reasoningExplainsOutput = reasoning !== null && (output === null || reasoning >= output)
+    // Reasoning only explains the gap when it accounts for the whole billed output.
+    // `$ai_text_output_tokens` states that directly when a provider reports it. Comparing the
+    // counts is the fallback: exact for providers that count reasoning inside the output, and
+    // conservative for those that count it separately.
+    const textOutput = tokenCountOf(textOutputTokens)
+    const reasoningExplainsOutput =
+        reasoning !== null && (textOutput !== null ? textOutput === 0 : output === null || reasoning >= output)
     const cause =
         namedCause ??
         (reasoningExplainsOutput
@@ -153,6 +167,7 @@ export function ConversationMessagesDisplay({
     raisedError,
     outputTokens,
     reasoningTokens,
+    textOutputTokens,
     stopReason,
     bordered = false,
     searchQuery,
@@ -172,6 +187,8 @@ export function ConversationMessagesDisplay({
     outputTokens?: unknown
     /** `$ai_reasoning_tokens`. Some providers bill only these, so they alone can explain an empty output. */
     reasoningTokens?: unknown
+    /** `$ai_text_output_tokens`. An explicit zero says every billed output token was reasoning. */
+    textOutputTokens?: unknown
     /** `$ai_stop_reason`. The provider's own account of why it stopped, so it outranks any inference. */
     stopReason?: unknown
     bordered?: boolean
@@ -368,7 +385,9 @@ export function ConversationMessagesDisplay({
     // event, or told us why it stopped. Name that, so an empty box isn't mistaken for a provider
     // that said nothing.
     const emptyOutputExplanation =
-        outputNormalized.length === 0 ? describeEmptyOutput(outputTokens, reasoningTokens, stopReason) : null
+        outputNormalized.length === 0
+            ? describeEmptyOutput(outputTokens, reasoningTokens, textOutputTokens, stopReason)
+            : null
 
     return (
         <>

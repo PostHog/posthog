@@ -471,10 +471,11 @@ describe('ConversationMessagesDisplay', () => {
         }
     })
 
-    it.each<[string, unknown, unknown, unknown, string | null]>([
+    it.each<[string, unknown, unknown, unknown, unknown, string | null]>([
         [
             'only output tokens were billed',
             2048,
+            undefined,
             undefined,
             undefined,
             'The provider reported 2,048 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
@@ -484,12 +485,14 @@ describe('ConversationMessagesDisplay', () => {
             undefined,
             442,
             undefined,
+            undefined,
             'The provider reported 442 reasoning tokens but no content was captured. The model may have spent its budget on reasoning.',
         ],
         [
             'reasoning accounts for the whole billed output',
             442,
             442,
+            undefined,
             undefined,
             'The provider reported 442 output tokens and 442 reasoning tokens but no content was captured. The model may have spent its budget on reasoning.',
         ],
@@ -498,11 +501,13 @@ describe('ConversationMessagesDisplay', () => {
             '512',
             undefined,
             undefined,
+            undefined,
             'The provider reported 512 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
         ],
         [
             'a provider spelled the token limit in upper case',
             2048,
+            undefined,
             undefined,
             'MAX_TOKENS',
             'The provider reported 2,048 output tokens but no content was captured. The response hit its token limit.',
@@ -511,6 +516,7 @@ describe('ConversationMessagesDisplay', () => {
             'the stop reason outranks the reasoning-token guess',
             undefined,
             442,
+            undefined,
             'length',
             'The provider reported 442 reasoning tokens but no content was captured. The response hit its token limit.',
         ],
@@ -518,12 +524,14 @@ describe('ConversationMessagesDisplay', () => {
             'the provider blocked the response without billing anything',
             0,
             0,
+            undefined,
             'PROHIBITED_CONTENT',
             'The provider blocked the response.',
         ],
         [
             'the stop reason describes a normal ending',
             2048,
+            undefined,
             undefined,
             'end_turn',
             'The provider reported 2,048 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
@@ -533,11 +541,29 @@ describe('ConversationMessagesDisplay', () => {
             2048,
             12,
             undefined,
+            undefined,
             'The provider reported 2,048 output tokens and 12 reasoning tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        [
+            'the text-token split says every billed token was reasoning',
+            169,
+            56,
+            0,
+            undefined,
+            'The provider reported 169 output tokens and 56 reasoning tokens but no content was captured. The model may have spent its budget on reasoning.',
+        ],
+        [
+            'the text-token split says text was billed too',
+            442,
+            442,
+            113,
+            undefined,
+            'The provider reported 442 output tokens and 442 reasoning tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
         ],
         [
             'a provider hyphenated the stop reason',
             2048,
+            undefined,
             undefined,
             'content-filter',
             'The provider reported 2,048 output tokens but no content was captured. The provider blocked the response.',
@@ -547,33 +573,38 @@ describe('ConversationMessagesDisplay', () => {
             { total: 10585, noCache: 10585, cacheRead: 0 },
             undefined,
             undefined,
+            undefined,
             'The provider reported 10,585 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
         ],
-        ['the provider billed nothing', 0, 0, undefined, null],
-        ['no token counts arrived', undefined, undefined, undefined, null],
-    ])('empty output explains the gap when %s', (_label, outputTokens, reasoningTokens, stopReason, expected) => {
-        const { container } = render(
-            <Provider>
-                <ConversationMessagesDisplay
-                    inputNormalized={inputNormalized}
-                    outputNormalized={[]}
-                    errorData={null}
-                    raisedError={false}
-                    outputTokens={outputTokens}
-                    reasoningTokens={reasoningTokens}
-                    stopReason={stopReason}
-                />
-            </Provider>
-        )
+        ['the provider billed nothing', 0, 0, undefined, undefined, null],
+        ['no token counts arrived', undefined, undefined, undefined, undefined, null],
+    ])(
+        'empty output explains the gap when %s',
+        (_label, outputTokens, reasoningTokens, textOutputTokens, stopReason, expected) => {
+            const { container } = render(
+                <Provider>
+                    <ConversationMessagesDisplay
+                        inputNormalized={inputNormalized}
+                        outputNormalized={[]}
+                        errorData={null}
+                        raisedError={false}
+                        outputTokens={outputTokens}
+                        reasoningTokens={reasoningTokens}
+                        textOutputTokens={textOutputTokens}
+                        stopReason={stopReason}
+                    />
+                </Provider>
+            )
 
-        expect(screen.getByText('No output')).toBeInTheDocument()
-        const explanation = container.querySelector('[data-attr="ai-empty-output-explanation"]')
-        if (expected !== null) {
-            expect(explanation).toHaveTextContent(expected)
-        } else {
-            expect(explanation).toBeNull()
+            expect(screen.getByText('No output')).toBeInTheDocument()
+            const explanation = container.querySelector('[data-attr="ai-empty-output-explanation"]')
+            if (expected !== null) {
+                expect(explanation).toHaveTextContent(expected)
+            } else {
+                expect(explanation).toBeNull()
+            }
         }
-    })
+    )
 })
 
 describe('ImageMessageDisplay', () => {

@@ -38,6 +38,7 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
                     raisedError={raisedError}
                     outputTokens={event.properties.$ai_output_tokens}
                     reasoningTokens={event.properties.$ai_reasoning_tokens}
+                    textOutputTokens={event.properties.$ai_text_output_tokens}
                     stopReason={event.properties.$ai_stop_reason}
                     traceId={event.properties.$ai_trace_id}
                 />

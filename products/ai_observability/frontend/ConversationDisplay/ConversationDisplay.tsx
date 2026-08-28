@@ -102,6 +102,7 @@ export function ConversationDisplay({
                     raisedError={eventProperties.$ai_is_error}
                     outputTokens={eventProperties.$ai_output_tokens}
                     reasoningTokens={eventProperties.$ai_reasoning_tokens}
+                    textOutputTokens={eventProperties.$ai_text_output_tokens}
                     stopReason={eventProperties.$ai_stop_reason}
                     bordered
                     traceId={eventProperties.$ai_trace_id}
