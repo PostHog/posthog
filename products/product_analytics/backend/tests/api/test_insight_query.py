@@ -57,7 +57,7 @@ class TestMCPInsightSerializer(SimpleTestCase):
             }
         )
 
-        assert query.display == schema.ChartDisplayType.BOX_PLOT
+        assert query.display == schema.AssistantDataVisualizationDisplayType.BOX_PLOT
         assert query.chartSettings is not None
         assert query.chartSettings.boxPlot is not None
         assert query.chartSettings.boxPlot.medianColumn == "median"
