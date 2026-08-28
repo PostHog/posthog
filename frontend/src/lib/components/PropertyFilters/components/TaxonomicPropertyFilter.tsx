@@ -261,13 +261,15 @@ export function TaxonomicPropertyFilter({
               })
             : null
 
+    const filterType = filter?.type as PropertyFilterType | undefined
+
     const filterContent =
         filter?.type === 'cohort'
             ? cohortName || `Cohort #${filter?.value}`
             : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
               ? filter.label || `Group ${filter?.value}`
               : (filter?.type === PropertyFilterType.Flag ||
-                      filter?.type === PropertyFilterType.AccountRelationship ||
+                      filterType === PropertyFilterType.AccountRelationship ||
                       filter?.type === PropertyFilterType.AccountCustomProperty) &&
                   filter?.label
                 ? filter.label
