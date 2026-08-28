@@ -61,16 +61,18 @@ CREATE INDEX IF NOT EXISTS idx_cohort_membership_sweeps_status
 -- pods. A sweep waits until this passes the high watermarks its run captured, so it can never
 -- delete rows whose re-asserting snapshot messages are still in flight.
 CREATE TABLE IF NOT EXISTS cohort_membership_consumer_progress (
-    -- The broker list the consumer read the offsets from. Offsets are only comparable within one
-    -- cluster: after a topic moves clusters, rows keyed to the old brokers would report large
-    -- retained offsets against the new cluster's small watermarks, and the gate would pass
-    -- vacuously. Keying by cluster makes a move start from no progress, which can only hold the
-    -- gate closed, never open it early.
+    -- The feed the consumer read the offsets from: broker list plus topic. Offsets only mean
+    -- something against the exact feed that produced them. After a cluster move, rows keyed to
+    -- the old brokers would report large retained offsets against the new cluster's small
+    -- watermarks; after a topic rename on the same brokers, the old topic's offsets would stand
+    -- in for the new one's. Either way the gate would pass vacuously. Keying by both makes a
+    -- move start from no progress, which can only hold the gate closed, never open it early.
     cluster TEXT NOT NULL,
+    topic TEXT NOT NULL,
     partition INT NOT NULL,
     -- The next offset to consume, not the last consumed one: Kafka's own committed-offset
     -- convention, which makes the comparison against a high watermark exact.
     next_offset BIGINT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (cluster, partition)
+    PRIMARY KEY (cluster, topic, partition)
 );
