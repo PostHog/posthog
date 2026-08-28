@@ -559,8 +559,6 @@ export class TaskCreationSaga extends Saga<
                 additionalDirectories: input.additionalDirectories,
                 channelMode: !!scratchCwd && agentCwd === scratchCwd,
               },
-              projectTrustPath:
-                workspace?.folderPath ?? repoPath ?? scratchCwd ?? undefined,
               prompt,
               model: input.model,
               thinkingLevel,
