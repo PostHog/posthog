@@ -24,6 +24,7 @@ import {
 } from "@posthog/ui/features/billing/useSpendStop";
 import { showOfflineToast } from "@posthog/ui/features/connectivity/connectivityToast";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { getCodeCommandInputError } from "@posthog/ui/features/message-editor/commands";
 import type { AttachmentUploadStatus } from "@posthog/ui/features/message-editor/components/AttachmentsBar";
 import {
   PromptInput,
@@ -516,6 +517,11 @@ export function SessionView({
     (text: string, clearEditor: () => void): boolean => {
       if (!isOnline) {
         showOfflineToast();
+        return false;
+      }
+      const commandInputError = getCodeCommandInputError(text);
+      if (commandInputError) {
+        toast.error(commandInputError);
         return false;
       }
       return onBeforeSubmit ? onBeforeSubmit(text, clearEditor) : true;
