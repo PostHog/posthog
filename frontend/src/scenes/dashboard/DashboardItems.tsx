@@ -14,6 +14,7 @@ import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboard
 import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { setDashboardDragActive } from 'lib/components/Cards/InsightCard/insightVizMountScheduler'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -162,6 +163,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             if (dragEndTimeout.current) {
                 window.clearTimeout(dragEndTimeout.current)
             }
+            setDashboardDragActive(false)
             scrollContainerRef.current = null
             scrollContainerRectRef.current = null
         }
@@ -411,6 +413,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 return
             }
             startInteraction(layout, newItem, 'drag')
+            // Hold canvas mounts for the duration of the drag: the auto-scroll below pushes tiles across
+            // the viewport boundary, and mounting their charts mid-drag makes the dragged tile lag the cursor.
+            setDashboardDragActive(true)
             scrollContainerRef.current = document.getElementById('main-content')
             scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
         },
@@ -462,6 +467,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     )
 
     const handleDragStop = useCallback(() => {
+        setDashboardDragActive(false)
         if (scrollAnimationRef.current) {
             cancelAnimationFrame(scrollAnimationRef.current)
             scrollAnimationRef.current = null

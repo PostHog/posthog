@@ -49,13 +49,24 @@ describe('InsightCard', () => {
             expected: false,
         },
         {
-            name: 'unmounts an offscreen table',
+            name: 'keeps an offscreen table mounted so it does not blank and rebuild on scroll',
             input: {
                 isStorybook: false,
                 placement: DashboardPlacement.Dashboard,
                 inView: false,
                 isPageVisible: true,
                 query: tableQuery,
+            },
+            expected: true,
+        },
+        {
+            name: 'unmounts an offscreen canvas chart to release its backing store',
+            input: {
+                isStorybook: false,
+                placement: DashboardPlacement.Dashboard,
+                inView: false,
+                isPageVisible: true,
+                query: canvasQuery,
             },
             expected: false,
         },

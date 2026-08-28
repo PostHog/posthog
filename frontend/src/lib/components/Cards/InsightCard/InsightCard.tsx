@@ -3,7 +3,7 @@ import './InsightCard.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
@@ -48,6 +48,7 @@ import type { AlertType } from 'products/alerts/frontend/types'
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
+import { requestInsightVizMount } from './insightVizMountScheduler'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
 
@@ -68,11 +69,34 @@ export function shouldRenderInsightCardViz({
         return true
     }
 
-    if (!inView) {
-        return false
+    // Cheap DOM/SVG vizes (tables, numbers, funnel flows) stay mounted even offscreen or when the page is
+    // hidden. Unmounting them only blanks the tile and forces a rebuild on the way back, with no memory win.
+    if (!queryVizDefinitelyRendersToCanvas(query)) {
+        return true
     }
 
-    return isPageVisible || !queryVizDefinitelyRendersToCanvas(query)
+    // Canvas-backed charts release their backing store when offscreen or when the page is hidden.
+    // See https://wiki.whatwg.org/wiki/Canvas_Context_Loss_and_Restoration.
+    return inView && isPageVisible
+}
+
+/**
+ * Gates when a canvas viz actually mounts. Cheap DOM/SVG vizes render at once. Canvas vizes wait for a
+ * scheduler slot, so a burst of tiles entering view together doesn't mount every chart in the same frame.
+ */
+function useStaggeredVizMount(eligible: boolean, isCanvas: boolean): boolean {
+    const staggered = isCanvas && !IS_STORYBOOK
+    const [ready, setReady] = useState(false)
+
+    useEffect(() => {
+        if (!eligible || !staggered) {
+            return
+        }
+        setReady(false)
+        return requestInsightVizMount(() => setReady(true))
+    }, [eligible, staggered])
+
+    return eligible && (!staggered || ready)
 }
 
 const LazyEditAlertModal = React.lazy(() =>
@@ -271,18 +295,17 @@ function InsightCardInternal(
 
     const rendersToCanvas = queryVizRendersToCanvas(insight.query)
 
-    /**
-     * Hidden canvas visualizations are unmounted to release their backing stores and reduce the risk of context loss.
-     * When the page is hidden, DOM and SVG visualizations stay mounted to preserve state such as table scroll position.
-     * See https://wiki.whatwg.org/wiki/Canvas_Context_Loss_and_Restoration.
-     */
-    const shouldRenderViz = shouldRenderInsightCardViz({
+    const vizEligible = shouldRenderInsightCardViz({
         isStorybook: IS_STORYBOOK,
         placement,
         inView,
         isPageVisible,
         query: insight.query,
     })
+
+    // Even once eligible, a canvas viz waits for a mount slot so several tiles entering view together
+    // don't each mount a chart in the same frame — the burst that freezes the page on fast scrolling.
+    const shouldRenderViz = useStaggeredVizMount(vizEligible, rendersToCanvas)
 
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
@@ -426,9 +449,13 @@ function InsightCardInternal(
     }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement])
 
     // Only canvas viz (charts) redraw per resize frame; tables/numbers/maps are cheap DOM/SVG and stay fully live.
+    // While the viz is unmounted or awaiting a mount slot, a placeholder holds the tile height so it doesn't
+    // collapse to an empty box.
     const vizContent = shouldRenderViz ? (
         <ResizeThrottledViz throttled={!!isResizing && rendersToCanvas}>{vizInner}</ResizeThrottledViz>
-    ) : null
+    ) : (
+        <div className="InsightCard__viz" aria-hidden />
+    )
 
     return (
         <div
