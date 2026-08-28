@@ -89,7 +89,7 @@ class TestRepoCorrections(BaseTest):
         self._dismiss(report, reason="other", note="meh")
         assert wrong_repo_corrections_block(self.team.id) is None
 
-    def test_window_and_malformed_rows_are_skipped(self):
+    def test_window_malformed_and_deleted_rows_are_skipped(self):
         stale = self._report("Old mistake")
         self._dismiss(stale, selected="acme/a", corrected="acme/b", created_at=timezone.now() - timedelta(days=200))
         broken = self._report("Broken row")
@@ -99,6 +99,11 @@ class TestRepoCorrections(BaseTest):
             type=SignalReportArtefact.ArtefactType.DISMISSAL,
             content="not json",
         )
+        # Deletion is a status flip, so the dismissal artefact survives; the deleted report's
+        # title and note must stop feeding the selection prompt regardless.
+        deleted = self._report("Deleted report")
+        self._dismiss(deleted, selected="acme/a", corrected="acme/c")
+        SignalReport.objects.filter(id=deleted.id).update(status=SignalReport.Status.DELETED)
         assert wrong_repo_corrections_block(self.team.id) is None
 
 

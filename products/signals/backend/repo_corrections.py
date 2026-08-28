@@ -83,6 +83,10 @@ def recent_wrong_repo_corrections(team_id: int) -> list[RepoCorrection]:
             created_at__gte=cutoff,
             content__contains=_WRONG_REPO_CONTENT_NEEDLE,
         )
+        # Report deletion is a status flip, not a row delete, and every other read path stops
+        # serving a deleted report's content. A deleted report's title and reviewer note must
+        # not keep reaching the selection prompt either.
+        .exclude(report__status=SignalReport.Status.DELETED)
         .order_by("-created_at")
         .values_list("report_id", "content", "created_at", named=True)[:_SCAN_CAP]
     )
