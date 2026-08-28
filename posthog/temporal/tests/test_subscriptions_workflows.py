@@ -21,7 +21,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
 from posthog.email import EmailDeliveryError
 from posthog.errors import CHQueryErrorS3Error
@@ -1906,6 +1906,13 @@ async def test_export_error_slo_outcome(
             None,
             None,
             id="user_error_keeps_slo_success",
+        ),
+        pytest.param(
+            lambda: TableAccessDeniedError("stripe_customer"),
+            SloOutcome.SUCCESS,
+            None,
+            None,
+            id="table_access_denied_keeps_slo_success",
         ),
     ],
 )

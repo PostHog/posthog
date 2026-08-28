@@ -12,6 +12,7 @@ from posthog.hogql.errors import (
     QueryError,
     ResolutionError,
     SyntaxError as HogQLSyntaxError,
+    TableAccessDeniedError,
 )
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -184,6 +185,9 @@ USER_QUERY_ERRORS = (
     CHQueryErrorUnknownTable,
     ExcelColumnLimitExceeded,
     InvalidExportContext,
+    # Subclass of QueryError, but listed explicitly: the name-based path below (used for
+    # Temporal cross-process classification) checks exact class names, not inheritance.
+    TableAccessDeniedError,
 )
 
 TIMEOUT_ERRORS = (

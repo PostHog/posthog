@@ -34,6 +34,7 @@ class TestIsUserQueryErrorType(TestCase):
             ("ExcelColumnLimitExceeded", True),
             ("InvalidExportContext", True),
             ("ValidationError", True),  # DRF validation of the user's query (e.g. one-step funnel export)
+            ("TableAccessDeniedError", True),  # subclass of QueryError; must match by name too
             # Non-user errors - should return False
             ("TimeoutError", False),
             ("ValueError", False),
@@ -66,6 +67,7 @@ class TestClassifyFailureType(TestCase):
             ("ExcelColumnLimitExceeded", FAILURE_TYPE_USER),
             ("InvalidExportContext", FAILURE_TYPE_USER),
             ("ValidationError", FAILURE_TYPE_USER),
+            ("TableAccessDeniedError", FAILURE_TYPE_USER),
             # System errors (from EXCEPTIONS_TO_RETRY)
             ("CHQueryErrorS3Error", FAILURE_TYPE_SYSTEM),
             ("OperationalError", FAILURE_TYPE_SYSTEM),
