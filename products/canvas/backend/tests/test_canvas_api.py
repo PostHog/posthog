@@ -30,8 +30,8 @@ from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSer
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
-from products.tasks.backend.logic.services.staged_artifacts import build_task_artifact_entry, cache_task_staged_artifact
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
 
 
@@ -1473,17 +1473,19 @@ class TestCanvasAssets(CanvasAPIBaseTest):
             )
         staged_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/abc123/pixel.png"
         self.storage.write(staged_path, PIXEL_PNG, extras={"ContentType": "image/png"})
-        cache_task_staged_artifact(
-            task,
-            build_task_artifact_entry(
-                artifact_id="abc123",
-                name="pixel.png",
-                artifact_type="user_attachment",
-                source="user_attachment",
-                size=len(PIXEL_PNG),
-                content_type="image/png",
-                storage_path=staged_path,
-            ),
+        tasks_facade.finalize_task_staged_artifacts(
+            task.id,
+            self.team.id,
+            self.user.id,
+            artifacts=[
+                {
+                    "id": "abc123",
+                    "name": "pixel.png",
+                    "type": "user_attachment",
+                    "content_type": "image/png",
+                    "storage_path": staged_path,
+                }
+            ],
         )
 
         response = self.client.post(

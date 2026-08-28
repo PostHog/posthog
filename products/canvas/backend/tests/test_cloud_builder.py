@@ -85,11 +85,11 @@ class TestCanvasCloudBuilder(SimpleTestCase):
     def test_builds_vanilla_typescript_with_the_shared_contract(self) -> None:
         result = run_cloud_builder(self._project('document.querySelector("#root")!.textContent = "Hello"'))
 
-        files, _asset_paths, manifest, diagnostics = validate_builder_output(result)
-        self.assertEqual(diagnostics, [])
-        self.assertEqual(manifest["entryHtml"], "index.html")
-        self.assertFalse(manifest["capabilities"]["posthog"]["inlineQueries"])
-        self.assertTrue(any(file["path"].endswith(".js") for file in files))
+        output = validate_builder_output(result)
+        self.assertEqual(output.diagnostics, [])
+        self.assertEqual(output.manifest["entryHtml"], "index.html")
+        self.assertFalse(output.manifest["capabilities"]["posthog"]["inlineQueries"])
+        self.assertTrue(any(file["path"].endswith(".js") for file in output.files))
 
     def test_bundles_every_allowlisted_platform_library(self) -> None:
         # Transitive versions are not pinned, so a caret range can drift onto a
@@ -480,10 +480,10 @@ bridge.port1.close();
             "network": {"origins": ["https://api.example.com"]},
         }
 
-        files, _asset_paths, manifest, _ = validate_builder_output(run_cloud_builder(project))
+        output = validate_builder_output(run_cloud_builder(project))
 
-        self.assertEqual(manifest["capabilities"], project["capabilities"])
-        html = next(file["content"] for file in files if file["path"] == "index.html")
+        self.assertEqual(output.manifest["capabilities"], project["capabilities"])
+        html = next(file["content"] for file in output.files if file["path"] == "index.html")
         self.assertIn("connect-src https://api.example.com", html)
         self.assertIn("style-src 'self' 'unsafe-inline' https://api.example.com", html)
         self.assertIn("img-src 'self' data: blob: https://api.example.com", html)
@@ -503,10 +503,10 @@ bridge.port1.close();
             "network": {"origins": ["https://styles.example.com"]},
         }
 
-        files, _asset_paths, _manifest, diagnostics = validate_builder_output(run_cloud_builder(project))
+        output = validate_builder_output(run_cloud_builder(project))
 
-        self.assertEqual(diagnostics, [])
-        html = next(file["content"] for file in files if file["path"] == "index.html")
+        self.assertEqual(output.diagnostics, [])
+        html = next(file["content"] for file in output.files if file["path"] == "index.html")
         # A declared remote stylesheet is not a local build entry, so it stays in
         # the HTML and loads at runtime under the widened style-src CSP, instead
         # of failing the build with entry_not_found.

@@ -213,6 +213,16 @@ class BuildAssetSource:
     inline_bytes: bytes | None
 
 
+@frozen
+class ValidatedBuilderOutput:
+    """A builder result checked against its manifest and declared asset sources."""
+
+    files: list[dict[str, Any]]
+    asset_paths: list[str]
+    manifest: dict[str, Any]
+    diagnostics: list[dict[str, Any]]
+
+
 def _prepare_project_assets(project: dict[str, Any]) -> tuple[dict[str, Any], dict[str, BuildAssetSource]]:
     """Strip image bytes out of the project before it enters the build sandbox.
 
@@ -256,7 +266,7 @@ def _prepare_project_assets(project: dict[str, Any]) -> tuple[dict[str, Any], di
 def validate_builder_output(
     result: dict[str, Any],
     asset_sources: dict[str, BuildAssetSource] | None = None,
-) -> tuple[list[dict[str, Any]], list[str], dict[str, Any], list[dict[str, Any]]]:
+) -> ValidatedBuilderOutput:
     limits = contract_limits()
     if result.get("contractVersion") != 1 or result.get("status") != "ready":
         raise ValueError("canvas builder did not return a ready contract")
@@ -355,7 +365,9 @@ def validate_builder_output(
     entry = manifest.get("entryHtml")
     if not isinstance(entry, str) or entry not in seen:
         raise ValueError("canvas build does not contain its entry HTML")
-    return files, asset_paths, manifest, diagnostics[:500]
+    return ValidatedBuilderOutput(
+        files=files, asset_paths=asset_paths, manifest=manifest, diagnostics=diagnostics[:500]
+    )
 
 
 # Retention policy: every referenced source version is kept for the canvas's
@@ -1048,7 +1060,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
             builder_diagnostics = result.get("diagnostics")
             _finish_failed(build, builder_diagnostics[:500] if isinstance(builder_diagnostics, list) else [])
             return
-        files, asset_paths, manifest, diagnostics = validate_builder_output(result, asset_sources)
+        output = validate_builder_output(result, asset_sources)
     except (
         subprocess.TimeoutExpired,
         OSError,
@@ -1079,7 +1091,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         return
 
     prefix = artifact_object_prefix(build.team_id, build.canvas_id, build.id)
-    manifest_assets = {asset["path"]: asset for asset in manifest["assets"]}
+    manifest_assets = {asset["path"]: asset for asset in output.manifest["assets"]}
     uploaded_keys: list[str] = []
     # Renew the lease as the upload runs so a slow object store can't let the
     # sweeper reclaim (and re-drive) a healthy in-flight build. The claim sets
@@ -1098,7 +1110,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
             last_lease_touch = now
 
     try:
-        for artifact in files:
+        for artifact in output.files:
             renew_lease()
             content_type = _artifact_content_type(artifact["path"])
             key = f"{prefix}/{artifact['path']}"
@@ -1112,7 +1124,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         # Image assets are side-loaded from outside the builder: the bytes are
         # re-verified against the manifest hash here because that hash is the
         # serving credential on the unauthenticated artifact origin.
-        for asset_path in asset_paths:
+        for asset_path in output.asset_paths:
             renew_lease()
             source = asset_sources[asset_path]
             if source.inline_bytes is not None:
@@ -1164,14 +1176,16 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         _cleanup_artifact_objects(build, uploaded_keys)
         _requeue_or_fail(build, code="artifact_upload_failed", message="Artifact storage is unavailable.")
         return
-    integrity = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    integrity = hashlib.sha256(
+        json.dumps(output.manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
     if not _finalize_ready(
         build,
         prefix=prefix,
         integrity=integrity,
-        manifest=manifest,
-        diagnostics=diagnostics,
+        manifest=output.manifest,
+        diagnostics=output.diagnostics,
     ):
         # A lost race can mean another attempt of this SAME build finalized READY first
         # (its lease lapsed mid-upload and a redelivery overtook it). The artifact prefix
@@ -1189,7 +1203,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
     CANVAS_BUILD_DURATION_SECONDS.labels(outcome="ready").observe(
         max(0, ((build.finished_at or timezone.now()) - build.created_at).total_seconds())
     )
-    CANVAS_BUILD_ARTIFACT_BYTES.observe(sum(asset["sizeBytes"] for asset in manifest["assets"]))
+    CANVAS_BUILD_ARTIFACT_BYTES.observe(sum(asset["sizeBytes"] for asset in output.manifest["assets"]))
     _capture_build_completed(build, outcome="ready")
 
 
