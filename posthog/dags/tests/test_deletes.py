@@ -781,3 +781,53 @@ def test_a_rerun_stages_over_the_previous_runs_object(cluster: ClickhouseCluster
     finally:
         cluster.any_host(dictionary.drop).result()
         cluster.any_host(table.drop).result()
+
+
+@pytest.mark.django_db
+def test_person_deletes_run_when_no_overrides_are_pending(cluster: ClickhouseCluster):
+    # deletes_job runs off the squash succeeding, and the squash deletes the overrides it applied,
+    # so an empty overrides table is an ordinary state. The bound is derived from that table, and
+    # min() over an empty one answers 1970-01-01, which excludes every person deletion instead of
+    # admitting them all. The run stays green either way, so nothing surfaces the skip.
+    team_id = 424244
+    deleted_person = UUID(int=21)
+    surviving_person = UUID(int=22)
+    # Comfortably in the past: the bound with no overrides is "now", and the request has to predate
+    # it by more than any clock skew between the test's naive local time and ClickHouse's UTC.
+    requested_at = datetime.now() - timedelta(days=1)
+
+    def insert_events(client: Client) -> None:
+        client.execute(
+            "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp) VALUES",
+            [
+                (team_id, "a", deleted_person, requested_at - timedelta(days=1)),
+                (team_id, "b", surviving_person, requested_at - timedelta(days=1)),
+            ],
+        )
+
+    def surviving_person_ids(client: Client) -> set[UUID]:
+        rows = client.execute(
+            "SELECT DISTINCT person_id FROM events WHERE team_id = %(team_id)s AND _row_exists = 1",
+            {"team_id": team_id},
+        )
+        return {row[0] for row in rows}
+
+    cluster.any_host(insert_events).result()
+
+    deletion = AsyncDeletion.objects.create(
+        team_id=team_id,
+        deletion_type=DeletionType.Person,
+        key=str(deleted_person),
+        delete_verified_at=None,
+    )
+    deletion.created_at = requested_at
+    deletion.save()
+
+    # No overrides inserted: person_distinct_id_overrides is empty for this run.
+    assert cluster.any_host(surviving_person_ids).result() == {deleted_person, surviving_person}
+
+    deletes_job.execute_in_process(resources={"cluster": cluster})
+
+    assert cluster.any_host(surviving_person_ids).result() == {surviving_person}
+    deletion.refresh_from_db()
+    assert deletion.delete_verified_at is not None
