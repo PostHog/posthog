@@ -16,10 +16,12 @@ LLMS_TXT_MAX_REDIRECTS = 3
 LLMS_TXT_CONNECT_TIMEOUT_SECONDS = 3.05
 LLMS_TXT_READ_TIMEOUT_SECONDS = 10.0
 LLMS_TXT_TOTAL_BUDGET_SECONDS = 20.0
+LLMS_TXT_REJECTED_MEDIA_TYPES = frozenset({"text/html", "application/xhtml+xml"})
 LLMS_TXT_FETCH_FAILURE_MESSAGES: dict[PublicUrlFetchFailure, str] = {
     "blocked": "Enter a publicly accessible HTTP or HTTPS URL.",
     "compressed": "The URL returned a compressed file. Serve llms.txt as plain text.",
     "deadline": "The file took too long to load.",
+    "media_type": "The URL returned an HTML page instead of an llms.txt file.",
     "read": "Could not read the file.",
     "too_large": "The file is larger than 1 MB.",
     "transport": "Could not reach the URL.",
@@ -54,6 +56,7 @@ def fetch_llms_txt(url: str) -> FetchedLlmsTxt:
                 deadline=deadline,
                 connect_timeout_seconds=LLMS_TXT_CONNECT_TIMEOUT_SECONDS,
                 read_timeout_seconds=LLMS_TXT_READ_TIMEOUT_SECONDS,
+                rejected_media_types=LLMS_TXT_REJECTED_MEDIA_TYPES,
             )
         except PublicUrlFetchError as error:
             raise LlmsTxtFetchError(LLMS_TXT_FETCH_FAILURE_MESSAGES[error.failure]) from error
@@ -67,11 +70,6 @@ def fetch_llms_txt(url: str) -> FetchedLlmsTxt:
 
         if response.status_code < 200 or response.status_code >= 300:
             raise LlmsTxtFetchError(f"The URL returned HTTP {response.status_code}.")
-
-        content_type = response.headers.get("content-type", "")
-        media_type = content_type.split(";", 1)[0].strip().lower()
-        if media_type in {"text/html", "application/xhtml+xml"}:
-            raise LlmsTxtFetchError("The URL returned an HTML page instead of an llms.txt file.")
 
         content = response.body.decode("utf-8-sig", errors="replace")
         if not content.strip():

@@ -9,7 +9,7 @@ from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 
 logger = structlog.get_logger(__name__)
 
-PublicUrlFetchFailure = Literal["blocked", "compressed", "deadline", "read", "too_large", "transport"]
+PublicUrlFetchFailure = Literal["blocked", "compressed", "deadline", "media_type", "read", "too_large", "transport"]
 
 PUBLIC_URL_READ_CHUNK_BYTES = 64 * 1024
 PUBLIC_URL_ACCEPTED_CONTENT_ENCODINGS = {"", "identity"}
@@ -62,6 +62,7 @@ def fetch_public_url(
     deadline: float,
     connect_timeout_seconds: float,
     read_timeout_seconds: float,
+    rejected_media_types: frozenset[str] = frozenset(),
 ) -> FetchedPublicUrl:
     if max_bytes < 1:
         raise ValueError("max_bytes must be positive")
@@ -84,21 +85,25 @@ def fetch_public_url(
                 stream=True,
             )
             try:
-                headers = {name.lower(): value for name, value in response.headers.items()}
-                if response.status_code in PUBLIC_URL_REDIRECT_STATUSES:
-                    return FetchedPublicUrl(status_code=response.status_code, headers=headers, body=b"")
+                response_headers = {name.lower(): value for name, value in response.headers.items()}
+                if not 200 <= response.status_code < 300:
+                    return FetchedPublicUrl(status_code=response.status_code, headers=response_headers, body=b"")
 
-                content_encoding = response.headers.get("Content-Encoding", "").strip().lower()
+                media_type = response_headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                if media_type in rejected_media_types:
+                    raise PublicUrlFetchError("media_type")
+
+                content_encoding = response_headers.get("content-encoding", "").strip().lower()
                 if content_encoding not in PUBLIC_URL_ACCEPTED_CONTENT_ENCODINGS:
                     raise PublicUrlFetchError("compressed")
 
-                declared_size = response.headers.get("Content-Length")
+                declared_size = response_headers.get("content-length")
                 if declared_size and declared_size.isdigit() and int(declared_size) > max_bytes:
                     raise PublicUrlFetchError("too_large")
 
                 return FetchedPublicUrl(
                     status_code=response.status_code,
-                    headers=headers,
+                    headers=response_headers,
                     body=_read_response_body(response, deadline=deadline, max_bytes=max_bytes),
                 )
             finally:

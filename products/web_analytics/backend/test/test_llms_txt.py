@@ -91,14 +91,33 @@ def test_fetch_llms_txt_stops_streams_over_the_size_limit(pinned_session_mock: M
         fetch_llms_txt("https://example.com/llms.txt")
 
 
-@pytest.mark.parametrize("header_name", ["Content-Type", "content-type", "Content-type"])
+@pytest.mark.parametrize(
+    ("status_code", "headers", "expected_message"),
+    [
+        (200, {"Content-Type": "text/html"}, "HTML page"),
+        (200, {"content-type": "text/html; charset=utf-8"}, "HTML page"),
+        (200, {"Content-type": "application/xhtml+xml"}, "HTML page"),
+        (404, {"Content-Type": "text/plain"}, "HTTP 404"),
+        (500, {"Content-Type": "text/plain"}, "HTTP 500"),
+    ],
+)
 @patch("products.web_analytics.backend.public_url_fetch.pinned_session")
-def test_fetch_llms_txt_rejects_html_responses(pinned_session_mock: Mock, header_name: str) -> None:
-    response = _response(headers={header_name: "text/html"}, chunks=[b"<html>Not found</html>"])
+def test_fetch_llms_txt_rejects_a_response_without_reading_its_body(
+    pinned_session_mock: Mock, status_code: int, headers: dict[str, str], expected_message: str
+) -> None:
+    reads: list[int] = []
+    response = _response(
+        status_code=status_code,
+        headers=headers,
+        chunks=[b"x" * LLMS_TXT_MAX_BYTES],
+        on_read=lambda: reads.append(1),
+    )
     pinned_session_mock.return_value = nullcontext(_session(response))
 
-    with pytest.raises(LlmsTxtFetchError, match="HTML page"):
+    with pytest.raises(LlmsTxtFetchError, match=expected_message):
         fetch_llms_txt("https://example.com/llms.txt")
+
+    assert reads == []
 
 
 @patch("products.web_analytics.backend.public_url_fetch.pinned_session")
