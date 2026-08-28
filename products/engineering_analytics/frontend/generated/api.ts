@@ -16,11 +16,13 @@ import type {
     CISignalsConfigApi,
     CISignalsConfigUpdateApi,
     CurrentBranchHealthApi,
+    DoraOverviewApi,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsBrokenTestsParams,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
     EngineeringAnalyticsCurrentBranchHealthParams,
+    EngineeringAnalyticsDoraParams,
     EngineeringAnalyticsFlakyTestsParams,
     EngineeringAnalyticsJobAggregatesParams,
     EngineeringAnalyticsMasterFailuresParams,
@@ -259,6 +261,36 @@ export const engineeringAnalyticsCurrentBranchHealth = async (
     options?: RequestInit
 ): Promise<CurrentBranchHealthApi> => {
     return apiMutator<CurrentBranchHealthApi>(getEngineeringAnalyticsCurrentBranchHealthUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsDoraUrl = (projectId: string, params?: EngineeringAnalyticsDoraParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/dora/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/dora/`
+}
+
+/**
+ * DORA-style deploy metrics over the GitHub deployments + deployment_statuses warehouse pair, each headline with its previous-window twin: deployment frequency, merge-to-deploy lead time (with a per-bucket box-plot series), and honest proxies for change failure rate and time to restore (deploy-status based — no incident data is linked). deploy_data_available is false when the deploy tables aren't synced.
+ */
+export const engineeringAnalyticsDora = async (
+    projectId: string,
+    params?: EngineeringAnalyticsDoraParams,
+    options?: RequestInit
+): Promise<DoraOverviewApi> => {
+    return apiMutator<DoraOverviewApi>(getEngineeringAnalyticsDoraUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
