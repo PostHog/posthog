@@ -462,20 +462,31 @@ jobs:
                   permission-contents: read
                   permission-actions: read
 
-            # Build the CLI from the newest released vX.Y.Z-cli tag: immutable
-            # and reviewed, never a moving branch like main (which would run
-            # unreviewed CLI code in this credentialed job). Resolved at runtime,
-            # so there is no HOGLAND_CLI_REF var to bump on each CLI release — the
-            # CLI only orchestrates the bake (create/snapshot/alias) and does not
-            # change the golden's contents. Still guard the minimum the scripts need.
-            - name: Resolve latest hogland CLI release
+            # Build the CLI from an immutable, reviewed hogland ref — never a
+            # moving branch like main (which would run unreviewed CLI code in this
+            # credentialed job). The bake stores no bearer: the CLI mints and
+            # re-mints the OIDC token via HOG_TOKEN_COMMAND, which landed on
+            # hogland after v1.5.0-cli. So a released tag at or below that floor
+            # has no HOG_TOKEN_COMMAND and dies on the first authenticated call.
+            # Until a -cli release above the floor is cut, pin to the hogland
+            # commit that added HOG_TOKEN_COMMAND — a commit SHA is as immutable
+            # and reviewed as a tag. Clear the pin to go back to the newest
+            # release, which the floor check then requires to be strictly newer
+            # than v1.5.0-cli.
+            - name: Resolve hogland CLI ref
               if: env.skip != 'true'
               id: cli-ref
               env:
                   GH_TOKEN: ${{ steps.hogland-token.outputs.token }}
               run: |
                   set -euo pipefail
+                  HOGLAND_CLI_PIN=7bcb07d
                   MIN_CLI_VERSION=1.5.0
+                  if [[ -n "$HOGLAND_CLI_PIN" ]]; then
+                      echo "ref=${HOGLAND_CLI_PIN}" >> "$GITHUB_OUTPUT"
+                      echo "::notice::building hogland CLI from pinned commit ${HOGLAND_CLI_PIN}"
+                      exit 0
+                  fi
                   ref=$(gh api --paginate repos/PostHog/hogland/releases --jq '.[].tag_name' \
                       | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-cli$' | sort -V | tail -1)
                   if [[ -z "$ref" ]]; then
@@ -483,22 +494,36 @@ jobs:
                       exit 1
                   fi
                   cli_version="${ref#v}"; cli_version="${cli_version%-cli}"
-                  lowest=$(printf '%s\n%s\n' "$MIN_CLI_VERSION" "$cli_version" | sort -V | head -1)
-                  if [[ "$cli_version" != "$MIN_CLI_VERSION" && "$lowest" != "$MIN_CLI_VERSION" ]]; then
-                      echo "::error::latest hogland CLI release ${ref} is below the minimum v${MIN_CLI_VERSION}-cli"
+                  # Require strictly newer than the floor: the highest of the two
+                  # must be the release AND the two must differ. A tag equal to or
+                  # below the floor fails here loudly, not mid-bake with no bearer.
+                  highest=$(printf '%s\n%s\n' "$MIN_CLI_VERSION" "$cli_version" | sort -V | tail -1)
+                  if [[ "$cli_version" == "$MIN_CLI_VERSION" || "$highest" != "$cli_version" ]]; then
+                      echo "::error::latest hogland CLI release ${ref} is not newer than v${MIN_CLI_VERSION}-cli (needs HOG_TOKEN_COMMAND); cut a newer -cli release or update the pin"
                       exit 1
                   fi
                   echo "ref=${ref}" >> "$GITHUB_OUTPUT"
                   echo "::notice::building hogland CLI from ${ref}"
 
+            # Full commit graph (blob-less) so the resolved ref checks out whether
+            # it is a release tag or a commit SHA; blobs fetch lazily on checkout.
+            # actions/checkout's `ref:` cannot take a short commit SHA, so resolve
+            # it locally in the next step.
             - name: Check out hogland CLI source
               if: env.skip != 'true'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   repository: PostHog/hogland
-                  ref: ${{ steps.cli-ref.outputs.ref }}
                   token: ${{ steps.hogland-token.outputs.token }}
                   path: hogland-src
+                  fetch-depth: 0
+                  filter: blob:none
+
+            - name: Check out the resolved hogland CLI ref
+              if: env.skip != 'true'
+              env:
+                  CLI_REF: ${{ steps.cli-ref.outputs.ref }}
+              run: git -C hogland-src checkout "$CLI_REF"
 
             - name: Set up Go
               if: env.skip != 'true'
