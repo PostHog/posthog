@@ -286,9 +286,8 @@ DuckLakeObjectStorageSecret = DuckLakeS3Secret | DuckLakeAzureSecret
 class DuckLakeCompiledQuery:
     """A HogQL query compiled to DuckDB SQL, with the secrets its self-managed tables need.
 
-    ``object_storage_secrets`` covers only the self-managed tables the compiled schema still
-    exposed after warehouse access control, so a caller cannot install credentials for a table
-    its query was not allowed to read.
+    ``object_storage_secrets`` covers only the self-managed tables the query referenced through
+    the access-control-pruned schema.
     """
 
     sql: str

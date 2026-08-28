@@ -23,7 +23,7 @@ class TestSelfManagedObjectStorageSecrets:
             fields={},
         )
 
-        secrets = _object_storage_secrets_for_database(database)
+        secrets = _object_storage_secrets_for_database(database, {"01234567-89ab-cdef-0123-456789abcdef"})
 
         assert len(secrets) == 1
         assert isinstance(secrets[0], DuckLakeS3Secret)
@@ -43,7 +43,7 @@ class TestSelfManagedObjectStorageSecrets:
             fields={},
         )
 
-        secrets = _object_storage_secrets_for_database(database)
+        secrets = _object_storage_secrets_for_database(database, {"01234567-89ab-cdef-0123-456789abcdef"})
 
         assert secrets == ()
 
@@ -60,7 +60,7 @@ class TestSelfManagedObjectStorageSecrets:
             fields={},
         )
 
-        secrets = _object_storage_secrets_for_database(database)
+        secrets = _object_storage_secrets_for_database(database, {"01234567-89ab-cdef-0123-456789abcdef"})
 
         assert len(secrets) == 1
         assert isinstance(secrets[0], DuckLakeAzureSecret)

@@ -130,14 +130,15 @@ def _set_search_path(conn: psycopg.Connection[Any], extra_schemas: list[str] | N
     conn.execute(sql)
 
 
-def _object_storage_secrets_for_database(database: Database) -> tuple[DuckLakeObjectStorageSecret, ...]:
-    """Collect the secrets the self-managed tables of a built HogQL database need.
+def _object_storage_secrets_for_database(
+    database: Database, referenced_table_ids: set[str]
+) -> tuple[DuckLakeObjectStorageSecret, ...]:
+    """Collect secrets for referenced self-managed tables in a built HogQL database.
 
-    The table set comes from the database the query was compiled against, so warehouse access
-    control has already pruned anything the querier may not read. Reading it from the team's
-    tables instead would let a restricted table's credentials serve an allowed one: DuckDB
-    matches a secret on its ``s3://bucket/key`` scope alone, ignoring the endpoint, and breaks
-    a scope tie by picking the lexicographically smaller secret name.
+    The referenced IDs come from tables printed through the access-control-pruned database.
+    Reading credentials from the team's tables instead would let a restricted table's credentials
+    serve an allowed one: DuckDB matches a secret on its ``s3://bucket/key`` scope alone, ignoring
+    the endpoint, and breaks a scope tie by picking the lexicographically smaller secret name.
     """
     secrets: list[DuckLakeObjectStorageSecret] = []
     for table_name in database.get_warehouse_table_names():
@@ -146,7 +147,12 @@ def _object_storage_secrets_for_database(database: Database) -> tuple[DuckLakeOb
         except Exception:
             continue
         # Connector-synced tables are rebound to their DuckLake copy and read no object storage.
-        if not isinstance(table, S3Table) or table.external_data_source_id or table.table_id is None:
+        if (
+            not isinstance(table, S3Table)
+            or table.external_data_source_id
+            or table.table_id is None
+            or table.table_id not in referenced_table_ids
+        ):
             continue
         if table.format not in DUCKDB_SELF_MANAGED_SUPPORTED_FORMATS or not table.access_key or not table.access_secret:
             continue
@@ -296,7 +302,9 @@ def compile_hogql_to_ducklake_sql(
         sql=postgres_sql,
         values=dict(postgres_context.values),
         hogql=hogql_pretty,
-        object_storage_secrets=_object_storage_secrets_for_database(database),
+        object_storage_secrets=_object_storage_secrets_for_database(
+            database, postgres_context.referenced_self_managed_table_ids
+        ),
     )
 
 

@@ -8,7 +8,6 @@ import duckdb
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DecimalDatabaseField, StringDatabaseField
 from posthog.hogql.database.s3_table import (
     DuckDBAzureSource,
     DuckDBS3Source,
@@ -356,11 +355,8 @@ class TestS3TableDuckDBPrinting:
                 access_key="access-key",
                 access_secret="access-secret",
                 column_names=("order_id", "amount"),
-                fields={
-                    "order_id": StringDatabaseField(name="order_id"),
-                    # Decimals have no exact DuckDB counterpart, so this column stays sniffed
-                    "amount": DecimalDatabaseField(name="amount"),
-                },
+                clickhouse_column_types=("String", "Decimal256(2)"),
+                fields={},
             )
 
             sql = table.to_printed_duckdb(context)
@@ -372,6 +368,32 @@ class TestS3TableDuckDBPrinting:
                 rows = connection.execute(f"SELECT * FROM {positional_sql}", values).fetchall()
 
         assert rows == [("12345", 12.5)]
+
+    def test_csv_reader_preserves_unsigned_integer_range(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_path = Path(temp_dir) / "orders"
+            source_path.write_text("order_id\n18446744073709551615\n")
+            context = HogQLContext(team_id=1)
+            table = S3Table(
+                name="orders",
+                url="s3://bucket/orders",
+                format="CSVWithNames",
+                access_key="access-key",
+                access_secret="access-secret",
+                column_names=("order_id",),
+                clickhouse_column_types=("UInt64",),
+                fields={},
+            )
+
+            sql = table.to_printed_duckdb(context)
+            positional_sql = re.sub(r"%\([^)]+\)s", "?", sql)
+            values = list(context.values.values())
+            values[0] = str(source_path)
+
+            with duckdb.connect() as connection:
+                rows = connection.execute(f"SELECT * FROM {positional_sql}", values).fetchall()
+
+        assert rows == [(18446744073709551615,)]
 
     def test_azure_uses_native_reader(self) -> None:
         context = HogQLContext(team_id=1)

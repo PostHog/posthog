@@ -20,3 +20,4 @@ def test_hogql_definition_exposes_recorded_column_order_to_duckdb() -> None:
 
     assert isinstance(definition, HogQLDataWarehouseTable)
     assert definition.column_names == ("order_id", "amount")
+    assert definition.clickhouse_column_types == ("String", "String")

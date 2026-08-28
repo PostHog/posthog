@@ -321,11 +321,52 @@ class TestSelfManagedObjectStorageSecrets:
         # Access control prunes the schema through this same entry point.
         database.prune_to_table_names({"allowed_orders"})
 
-        secrets = _object_storage_secrets_for_database(database)
+        secrets = _object_storage_secrets_for_database(database, {str(allowed.id), "restricted-table-id"})
 
         assert [secret.name for secret in secrets] == [f"self_managed_{allowed.id.hex}"]
         assert isinstance(secrets[0], DuckLakeS3Secret)
         assert secrets[0].key_id == "allowed-key"
+
+    def test_only_referenced_self_managed_tables_get_secrets(self) -> None:
+        from posthog.models import Organization, Team
+
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+        org = Organization.objects.create(name="ducklake-self-managed-references")
+        team = Team.objects.create(organization=org)
+        columns = {"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}}
+        referenced_credential = DataWarehouseCredential.objects.create(
+            team=team,
+            access_key="referenced-key",
+            access_secret="referenced-secret",
+        )
+        unused_credential = DataWarehouseCredential.objects.create(
+            team=team,
+            access_key="unused-key",
+            access_secret="unused-secret",
+        )
+        referenced = DataWarehouseTable.objects.create(
+            name="referenced_orders",
+            format="Parquet",
+            team=team,
+            credential=referenced_credential,
+            url_pattern="https://referenced-bucket.s3.amazonaws.com/data/*.parquet",
+            columns=columns,
+        )
+        DataWarehouseTable.objects.create(
+            name="unused_orders",
+            format="Parquet",
+            team=team,
+            credential=unused_credential,
+            url_pattern="https://unused-bucket.s3.amazonaws.com/data/*.parquet",
+            columns=columns,
+        )
+
+        compiled = compile_hogql_to_ducklake_sql(team.pk, HogQLQuery(query="SELECT id FROM referenced_orders"))
+
+        assert [secret.name for secret in compiled.object_storage_secrets] == [f"self_managed_{referenced.id.hex}"]
+        assert isinstance(compiled.object_storage_secrets[0], DuckLakeS3Secret)
+        assert compiled.object_storage_secrets[0].key_id == "referenced-key"
 
 
 class TestDuckgresShadowCompilation:

@@ -730,8 +730,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
         columns = self.columns or {}
 
+        ordered_columns = reconstruct_ordered_columns(columns, self.column_order)
         fields, structure = hogql_fields_and_structure_for_columns(columns, modifiers, column_order=self.column_order)
-        column_names = tuple(name for name, _ in reconstruct_ordered_columns(columns, self.column_order))
+        column_names = tuple(name for name, _ in ordered_columns)
+        clickhouse_column_types = tuple(
+            column_definition if isinstance(column_definition, str) else column_definition["clickhouse"]
+            for _, column_definition in ordered_columns
+        )
 
         if self.external_data_source and self.external_data_source.is_direct_postgres:
             postgres_catalog = (
@@ -967,6 +972,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             fields=fields,
             structure=", ".join(structure),
             column_names=column_names,
+            clickhouse_column_types=clickhouse_column_types,
             table_id=str(self.id),
             external_data_source_id=str(self.external_data_source_id) if self.external_data_source_id else None,
             source_type=self.external_data_source.source_type if self.external_data_source else None,

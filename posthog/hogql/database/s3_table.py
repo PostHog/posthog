@@ -7,16 +7,7 @@ from urllib.parse import urlparse, urlunparse
 from django.conf import settings
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import (
-    BooleanDatabaseField,
-    DatabaseField,
-    DateDatabaseField,
-    DateTimeDatabaseField,
-    FloatDatabaseField,
-    FunctionCallTable,
-    IntegerDatabaseField,
-    StringDatabaseField,
-)
+from posthog.hogql.database.models import FunctionCallTable
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.escape_sql import escape_duckdb_identifier, escape_hogql_identifier
 
@@ -37,18 +28,22 @@ _AZURE_ACCOUNT_KEY_RE = re.compile(r"[A-Za-z0-9+/]+={0,2}")
 DUCKDB_SELF_MANAGED_SUPPORTED_FORMATS: frozenset[str] = frozenset(
     {"CSV", "CSVWithNames", "Delta", "JSONEachRow", "Parquet"}
 )
-# CSV carries no types, so DuckDB guesses them per file while HogQL resolves the same columns
-# against the saved schema. Only the types that translate exactly are pinned; anything else
-# (decimals, JSON, arrays, structs, UUIDs) keeps DuckDB's guess, because a wrong pin turns a
-# readable file into a failed read. Parquet, Delta, and newline-delimited JSON carry their own
-# types and need no pinning.
-_DUCKDB_CSV_TYPES_BY_FIELD: dict[type[DatabaseField], str] = {
-    StringDatabaseField: "VARCHAR",
-    IntegerDatabaseField: "BIGINT",
-    FloatDatabaseField: "DOUBLE",
-    BooleanDatabaseField: "BOOLEAN",
-    DateDatabaseField: "DATE",
-    DateTimeDatabaseField: "TIMESTAMP",
+_DUCKDB_CSV_INTEGER_TYPES: dict[str, str] = {
+    "Int8": "TINYINT",
+    "Int16": "SMALLINT",
+    "Int32": "INTEGER",
+    "Int64": "BIGINT",
+    "Int128": "HUGEINT",
+    "UInt8": "UTINYINT",
+    "UInt16": "USMALLINT",
+    "UInt32": "UINTEGER",
+    "UInt64": "UBIGINT",
+    "UInt128": "UHUGEINT",
+}
+_DUCKDB_CSV_DECIMAL_PRECISIONS: dict[str, int] = {
+    "Decimal32": 9,
+    "Decimal64": 18,
+    "Decimal128": 38,
 }
 
 
@@ -148,6 +143,54 @@ def build_duckdb_azure_connection_string(
         f"AccountKey={account_key};"
         "EndpointSuffix=core.windows.net"
     )
+
+
+def _unwrap_clickhouse_type(type_name: str, wrapper: str) -> str | None:
+    prefix = f"{wrapper}("
+    if type_name.startswith(prefix) and type_name.endswith(")"):
+        return type_name[len(prefix) : -1].strip()
+    return None
+
+
+def _duckdb_csv_type_for_clickhouse_type(clickhouse_type: str) -> str | None:
+    type_name = clickhouse_type.strip()
+    while True:
+        unwrapped = _unwrap_clickhouse_type(type_name, "Nullable") or _unwrap_clickhouse_type(
+            type_name, "LowCardinality"
+        )
+        if unwrapped is None:
+            break
+        type_name = unwrapped
+
+    if type_name in _DUCKDB_CSV_INTEGER_TYPES:
+        return _DUCKDB_CSV_INTEGER_TYPES[type_name]
+    if type_name in {"String", "Bool", "Boolean", "Date", "Date32", "UUID"}:
+        return {
+            "String": "VARCHAR",
+            "Bool": "BOOLEAN",
+            "Boolean": "BOOLEAN",
+            "Date": "DATE",
+            "Date32": "DATE",
+            "UUID": "UUID",
+        }[type_name]
+    if type_name == "Float32":
+        return "FLOAT"
+    if type_name == "Float64":
+        return "DOUBLE"
+    if type_name.startswith("DateTime"):
+        return "TIMESTAMP"
+
+    decimal_match = re.fullmatch(r"Decimal\((\d+)\s*,\s*(\d+)\)", type_name)
+    if decimal_match is not None:
+        precision = int(decimal_match.group(1))
+        scale = int(decimal_match.group(2))
+        return f"DECIMAL({precision}, {scale})" if precision <= 38 and scale <= precision else None
+    decimal_width_match = re.fullmatch(r"(Decimal(?:32|64|128))\((\d+)\)", type_name)
+    if decimal_width_match is not None:
+        precision = _DUCKDB_CSV_DECIMAL_PRECISIONS[decimal_width_match.group(1)]
+        scale = int(decimal_width_match.group(2))
+        return f"DECIMAL({precision}, {scale})" if scale <= precision else None
+    return None
 
 
 def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
@@ -361,6 +404,7 @@ class S3Table(FunctionCallTable):
     access_secret: Optional[str] = None
     structure: Optional[str] = None
     column_names: tuple[str, ...] = ()
+    clickhouse_column_types: tuple[str, ...] = ()
     table_id: Optional[str] = None
     table_size_mib: Optional[float] = None
     # Set for connector-synced warehouse tables (backed by an ExternalDataSource); None for self-managed S3 tables.
@@ -389,16 +433,18 @@ class S3Table(FunctionCallTable):
         The ClickHouse reader pins them through ``structure``; without the same pinning here a
         quoted ``"12345"`` saved as a string comes back as a number, so the same table answers
         differently under DuckLake and fails to bind the string operations HogQL allows on it.
-        Pinning is keyed by name, so it needs the saved column names, and a name DuckDB can't
-        find in the file fails the read. Column names go through the DuckDB identifier escape,
-        and ``%`` names are left alone because psycopg reads one as a parameter placeholder.
+        Pinning is keyed by name, so it needs the saved column names and ClickHouse types. A type
+        without an exact DuckDB counterpart stays sniffed. Column names go through the DuckDB
+        identifier escape, and ``%`` names stay sniffed because psycopg reads one as a placeholder.
         """
-        pinned = []
-        for name in self.column_names:
-            field = self.fields.get(name)
-            if not isinstance(field, DatabaseField) or "%" in name:
+        if len(self.column_names) != len(self.clickhouse_column_types):
+            return ""
+
+        pinned: list[str] = []
+        for name, clickhouse_type in zip(self.column_names, self.clickhouse_column_types):
+            if "%" in name:
                 continue
-            duckdb_type = _DUCKDB_CSV_TYPES_BY_FIELD.get(type(field))
+            duckdb_type = _duckdb_csv_type_for_clickhouse_type(clickhouse_type)
             if duckdb_type is None:
                 continue
             pinned.append(f"{escape_duckdb_identifier(name)} := '{duckdb_type}'")
@@ -431,6 +477,9 @@ class S3Table(FunctionCallTable):
                 "Make sure the storage account name matches the table URL and the account key is valid, "
                 "or run the query without DuckLake."
             )
+
+        if self.table_id is not None and self.external_data_source_id is None:
+            context.referenced_self_managed_table_ids.add(self.table_id)
 
         uri = context.add_value(source.uri)
         if self.format == "Parquet":

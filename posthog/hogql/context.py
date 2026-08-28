@@ -100,6 +100,7 @@ class HogQLContext:
     # Data warehouse sync warnings collected while resolving warehouse tables referenced by the query.
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
+    referenced_self_managed_table_ids: set[str] = field(default_factory=set)
 
     # Resources with object-level access restrictions referenced by the query, collected while printing
     # system tables. A set dedupes when several system tables share an access scope (e.g. system.dashboards
