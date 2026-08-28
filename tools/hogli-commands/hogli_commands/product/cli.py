@@ -179,7 +179,7 @@ def cmd_isolate_move(name: str, views: tuple[str, ...], dry_run: bool) -> None:
     if dry_run:
         click.echo("\n(dry run — nothing changed)")
     else:
-        click.echo("\nNext: review `git status`, then run tach check + lint-imports + hogli product:lint")
+        click.echo("\nNext: review `git status`, then run hogli lint:tach + lint-imports + hogli product:lint")
 
 
 @click.command(

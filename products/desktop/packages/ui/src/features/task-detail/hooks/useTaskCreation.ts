@@ -1,3 +1,4 @@
+import { getIsOnline } from "@posthog/core/connectivity/connectivityStore";
 import { partitionLocalMcpServersForRun } from "@posthog/core/local-mcp/localMcpImport";
 import {
   getErrorTitle,
@@ -67,7 +68,6 @@ import { useTourStore } from "../../tour/tourStore";
 import { createFirstTaskTour } from "../../tour/tours/createFirstTaskTour";
 import { useExistingWorktreeConfirmStore } from "../stores/existingWorktreeConfirmStore";
 import { useRemoteBranchConfirmStore } from "../stores/remoteBranchConfirmStore";
-import { restoreTaskInputTab } from "../taskInputTab";
 
 const log = logger.scope("task-creation");
 
@@ -361,6 +361,12 @@ export function useTaskCreation({
               id: a.id,
               label: a.label,
             })),
+            // The serialized content restores file chips and attachments on
+            // recovery, so an interrupted prompt comes back whole, not as bare
+            // text.
+            contentXml: serializedContent,
+            // Reopen recovery in the space the prompt was submitted in.
+            channelId: channelId ?? undefined,
           });
           // Fade the composer out before the chat fades in, so the phases
           // hand over instead of cutting.
@@ -571,11 +577,32 @@ export function useTaskCreation({
               });
             }
             if (pendingTaskKey) {
-              pendingTaskPromptStoreApi.clear(pendingTaskKey);
+              // Never drop the prompt on failure. Keep the record and flag it
+              // interrupted so the pending view offers to recover or discard it,
+              // instead of navigating back to a composer that may not have it.
+              const interruptedKey = createdTaskId ?? pendingTaskKey;
+              // Read connectivity live, not the value captured at submit: the
+              // submit guard forced isOnline true then, so a connection dropped
+              // during setup only shows in the store now.
+              pendingTaskPromptStoreApi.markInterrupted(
+                interruptedKey,
+                getIsOnline() ? "failed" : "offline",
+              );
+              // If onTaskReady already navigated the origin tab to
+              // /tasks/$taskId (the worktree path notifies ready before later
+              // steps), a rolled-back task leaves it on a dead detail view.
+              // Return it to the pending route for the moved record so the
+              // Recover/Discard actions actually show.
               if (createdTaskId) {
-                pendingTaskPromptStoreApi.clear(createdTaskId);
+                navigateBrowserTab(
+                  originTabId,
+                  {
+                    href: `/tasks/pending/${interruptedKey}`,
+                    title: "New task",
+                  },
+                  () => navigateToTaskPending(interruptedKey),
+                );
               }
-              restoreTaskInputTab(originTabId, channelContextId ?? channelId);
             }
           }
           return result.success;
@@ -586,11 +613,24 @@ export function useTaskCreation({
           toastError("Failed to create task", error);
           log.error("Unexpected error during task creation", { error });
           if (pendingTaskKey) {
-            pendingTaskPromptStoreApi.clear(pendingTaskKey);
+            // Keep the prompt recoverable from the pending view.
+            const interruptedKey = createdTaskId ?? pendingTaskKey;
+            // Live connectivity, not the submit-time value, so a drop during
+            // setup is classified as offline (see the failed-result branch).
+            pendingTaskPromptStoreApi.markInterrupted(
+              interruptedKey,
+              getIsOnline() ? "failed" : "offline",
+            );
+            // A throw after onTaskReady leaves the origin tab on the
+            // rolled-back task's detail view; return it to the pending route so
+            // recovery stays reachable.
             if (createdTaskId) {
-              pendingTaskPromptStoreApi.clear(createdTaskId);
+              navigateBrowserTab(
+                originTabId,
+                { href: `/tasks/pending/${interruptedKey}`, title: "New task" },
+                () => navigateToTaskPending(interruptedKey),
+              );
             }
-            restoreTaskInputTab(originTabId, channelContextId ?? channelId);
           }
           return false;
         }
