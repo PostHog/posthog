@@ -82,8 +82,8 @@ tools:
             capabilities in `project.capabilities`. Exact HTTPS network origins widen the enforcing CSP of the built
             draft, not the edit-mode preview or remote scripts; they do not bypass a remote server's CORS policy. A
             project that shows PostHog data must make every figure verifiable before staging: an insight-backed metric
-            links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure exposes
-            the exact query that ran in a modal or collapsed area.
+            links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure
+            exposes the exact query that ran in a modal or collapsed area.
         param_overrides:
             id:
                 description: ID of the canvas to stage a draft for.
@@ -263,10 +263,10 @@ tools:
             the canvas's runtime capabilities (insights, capture events, inline queries, and exact HTTPS network
             origins) in `project.capabilities`. Declared origins widen the enforcing CSP of the built artifact, not the
             edit-mode preview or remote scripts. They do not bypass CORS: sandboxed artifact requests use an opaque
-            `Origin: null`, which the remote server must accept. A project that shows PostHog data must make every figure
-            verifiable before publishing: an insight-backed metric links its saved insight (ph.openExternal with a URL
-            from generate-app-url); an ad-hoc ph.query figure exposes the exact query that ran in a modal or collapsed
-            area. The canvas lives in PostHog, not on disk — this tool is what saves it.
+            `Origin: null`, which the remote server must accept. A project that shows PostHog data must make every
+            figure verifiable before publishing: an insight-backed metric links its saved insight (ph.openExternal with
+            a URL from generate-app-url); an ad-hoc ph.query figure exposes the exact query that ran in a modal or
+            collapsed area. The canvas lives in PostHog, not on disk — this tool is what saves it.
         param_overrides:
             id:
                 description: ID of the canvas whose source to publish.
@@ -356,9 +356,9 @@ tools:
             Validate a candidate canvas source project without publishing it. Returns structured diagnostics (severity,
             code, message, file, line); `valid: false` means a publish would be rejected. Side-effect free — call it as
             often as needed while iterating, and fix every error-severity diagnostic (including undeclared-capability
-            errors) before publishing. Validation confirms declared network origins can enter a built artifact's CSP;
-            it cannot prove that a remote server accepts the sandbox's `Origin: null` CORS request. Direct network
-            access remains blocked in the edit-mode preview.
+            errors) before publishing. Validation confirms declared network origins can enter a built artifact's CSP; it
+            cannot prove that a remote server accepts the sandbox's `Origin: null` CORS request. Direct network access
+            remains blocked in the edit-mode preview.
         param_overrides:
             id:
                 description: ID of the canvas the project is for.
