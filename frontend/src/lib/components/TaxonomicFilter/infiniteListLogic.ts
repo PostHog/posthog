@@ -59,6 +59,7 @@ import {
 } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
 import { floatToFront } from 'lib/components/TaxonomicFilter/utils/floatToFront'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
+import { resolveItemValue } from 'lib/components/TaxonomicFilter/utils/resolveItemValue'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
@@ -2226,14 +2227,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const isDisabledItem = selectedItem && itemGroup?.getIsDisabled?.(selectedItem)
 
                 if (!isDisabledItem && itemGroup) {
-                    // Recent rows are stripped to { name, id? }, so getValue on the source group
-                    // returns undefined. Fall back to the canonical sourceValue, mirroring
-                    // InfiniteListRow, so keyboard selection resolves the same value as a click.
-                    const itemValue = selectedItem
-                        ? hasRecentContext(selectedItem)
-                            ? (selectedItem._recentContext.sourceValue ?? itemGroup.getValue?.(selectedItem))
-                            : itemGroup.getValue?.(selectedItem)
-                        : null
+                    const itemValue = resolveItemValue(selectedItem, itemGroup)
                     actions.selectItem(itemGroup, itemValue ?? null, selectedItem, {
                         position: values.index,
                     })

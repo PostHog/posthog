@@ -1,4 +1,7 @@
-import { taxonomicPropertyFilterLogic } from 'lib/components/PropertyFilters/components/taxonomicPropertyFilterLogic'
+import {
+    TaxonomicSelectedItem,
+    taxonomicPropertyFilterLogic,
+} from 'lib/components/PropertyFilters/components/taxonomicPropertyFilterLogic'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'
@@ -270,11 +273,12 @@ describe('taxonomicPropertyFilterLogic', () => {
             searchPlaceholder: 'recent filters',
         } as TaxonomicFilterGroup
 
-        const recentItem = {
+        const recentItem: TaxonomicSelectedItem = {
             name: '$browser',
             _recentContext: {
                 sourceGroupType: TaxonomicFilterGroupType.EventProperties,
                 sourceGroupName: 'Event properties',
+                sourceValue: '$browser',
                 propertyFilter: {
                     key: '$browser',
                     value: 'Chrome',
