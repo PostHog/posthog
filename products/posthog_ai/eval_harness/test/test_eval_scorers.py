@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
+from products.posthog_ai.eval_harness.log_parser import SKILL_TOOL_NAME
 from products.posthog_ai.evals.error_tracking.scorers import (
     ERROR_TRACKING_WRITE_TOOLS,
     QUERY_ISSUE_EVENTS_TOOL,
@@ -12,6 +15,7 @@ from products.posthog_ai.evals.error_tracking.scorers import (
     IssuesListToolUsed,
     _recordings_text_has_results,
 )
+from products.posthog_ai.evals.retrieval.scorers import SkillTriggered
 
 
 def _raw_tool_log(calls: list[tuple[str, dict[str, Any], object]]) -> str:
@@ -142,3 +146,43 @@ def test_issue_drilldown_order_accepts_non_empty_events() -> None:
     )
 
     assert score.score == 1.0
+
+
+_SKILL = "instrument-feature-flags"
+
+
+@pytest.mark.parametrize(
+    "load_call,should_load,expected_score",
+    [
+        ((SKILL_TOOL_NAME, {"skill": _SKILL}), True, 1.0),
+        (("Read", {"file_path": f"/root/.claude/skills/{_SKILL}/SKILL.md"}), True, 1.0),
+        (("Bash", {"command": f"cat /scripts/plugins/posthog/skills/{_SKILL}/SKILL.md"}), True, 1.0),
+        (None, False, 1.0),
+        (None, True, 0.0),
+        ((SKILL_TOOL_NAME, {"skill": _SKILL}), False, 0.0),
+    ],
+)
+def test_skill_triggered_grades_against_the_expected_direction(
+    load_call: tuple[str, dict[str, Any]] | None, should_load: bool, expected_score: float
+) -> None:
+    calls: list[tuple[str, dict[str, Any], object]] = [("Read", {"file_path": "src/app/page.tsx"}, "ok")]
+    if load_call is not None:
+        calls.append((*load_call, "loaded"))
+
+    score = SkillTriggered(_SKILL, name="trigger")._run_eval_sync(
+        {"raw_log": _raw_tool_log(calls)},
+        {"trigger": {"should_load": should_load}},
+    )
+
+    assert score.score == expected_score
+    assert score.metadata["loaded"] is (load_call is not None)
+
+
+@pytest.mark.parametrize("expected", [None, {}, {"trigger": {}}, {"trigger": None}])
+def test_skill_triggered_skips_when_the_case_declares_no_direction(expected: dict | None) -> None:
+    score = SkillTriggered(_SKILL, name="trigger")._run_eval_sync(
+        {"raw_log": _raw_tool_log([(SKILL_TOOL_NAME, {"skill": _SKILL}, "loaded")])},
+        expected,
+    )
+
+    assert score.score is None

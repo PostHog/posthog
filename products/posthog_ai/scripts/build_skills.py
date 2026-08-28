@@ -49,6 +49,20 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _BINARY_CHECK_SIZE = 8192
 _MAX_SKILL_DESCRIPTION_LENGTH = 1024
 _ALLOWED_SUBDIRS = {"references", "scripts"}
+# Skills authored in PostHog/context-mill. Every shipping consumer unzips this
+# repo's skills first and then unzips the context-mill release on top, so a
+# same-named skill here is overwritten instead of shipped — a failure that is
+# silent without this check, because the copy still builds and still publishes.
+OMNIBUS_SKILL_NAMES = frozenset(
+    {
+        "instrument-integration",
+        "instrument-product-analytics",
+        "instrument-feature-flags",
+        "instrument-error-tracking",
+        "instrument-llm-analytics",
+        "instrument-logs",
+    }
+)
 
 # Tool/skill reference linting: skills must only reference MCP tools and skills that exist.
 # The valid tool names come from the checked-in MCP schema registries (kept in sync with the
@@ -641,6 +655,14 @@ class SkillBuilder:
                 )
             else:
                 seen[skill.name] = skill
+
+            if skill.name in OMNIBUS_SKILL_NAMES:
+                errors.append(
+                    f"'{skill.name}' is owned by PostHog/context-mill, which every consumer "
+                    f"overlays on top of this repo's skills, so a copy here is overwritten "
+                    f"rather than shipped. Remove {skill.source_file.relative_to(self.repo_root)} "
+                    f"and change the context-mill source instead."
+                )
 
         tool_names = _load_mcp_tool_names(self.repo_root)
         if tool_names is None:
