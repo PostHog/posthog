@@ -171,10 +171,6 @@
             "purpose": "Read webhooks for data syncing"
         },
         {
-            "permission": "webhook_write",
-            "purpose": "Create new webhooks for syncing data in real-time"
-        },
-        {
             "permission": "provisioning_account_request_write",
             "purpose": "Allows PostHog Stripe app to create and sign in to PostHog accounts."
         }

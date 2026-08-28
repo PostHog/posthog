@@ -366,6 +366,32 @@ jobs:
                         - 'services/mcp/src/templates/sections/**/*'
                         - 'services/mcp/schema/exec-command-reference.md'
 
+            # Merging a manifest change does not ship it. Version 1.4.0 sat merged for 18 days
+            # while every install stayed on 1.3.0, because its upload had failed and nothing said
+            # so. CI cannot verify an upload happened, so this only makes the extra step visible.
+            - name: Warn that the Stripe App manifest needs uploading
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  MANIFEST="services/stripe-app/stripe-app.json"
+                  git fetch --no-tags --depth=1 origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+                  if ! git cat-file -e "origin/$BASE_REF:$MANIFEST" 2>/dev/null; then
+                      exit 0
+                  fi
+
+                  BASE_VERSION=$(git show "origin/$BASE_REF:$MANIFEST" | jq -r '.version')
+                  HEAD_VERSION=$(jq -r '.version' "$MANIFEST")
+
+                  if [ "$BASE_VERSION" == "$HEAD_VERSION" ]; then
+                      exit 0
+                  fi
+
+                  echo "::warning file=$MANIFEST::Stripe App manifest version $BASE_VERSION -> $HEAD_VERSION. Merging does not publish it. Run 'pnpm run upload' from services/stripe-app, then publish the version in the Stripe dashboard. Installs stay on the published version until then."
+
     detect-snapshot-mode:
         name: Detect snapshot mode
         runs-on: depot-ubuntu-24.04

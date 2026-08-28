@@ -1451,12 +1451,24 @@ class TestStripeAppManifestCoversSourcePermissions:
     # in April, rak_coupon_read in July), each time leaving OAuth users unable to create a webhook
     # or import coupons while the key path worked. The manifest is the checked-in source of truth
     # for the OAuth grant, so it must cover every scope the source asks a key for.
+    # Stripe rejects an app manifest that requests these, with "requesting <name> permission is
+    # disallowed", so the app can never hold them however much the source wants them. A restricted
+    # key still can, and the key-creation form still asks for them. Listing one here says the OAuth
+    # path goes without it, not that the source stopped needing it.
+    MANIFEST_DISALLOWED = {"webhook_write"}
+
     def test_every_source_permission_is_requested_by_the_app(self):
         manifest_path = Path(settings.BASE_DIR) / "services" / "stripe-app" / "stripe-app.json"
         granted = {entry["permission"] for entry in orjson.loads(manifest_path.read_bytes())["permissions"]}
 
         # A restricted-key scope is the app permission name with a `rak_` prefix.
-        required = {permission.removeprefix("rak_") for permission in PERMISSIONS}
+        required = {permission.removeprefix("rak_") for permission in PERMISSIONS} - self.MANIFEST_DISALLOWED
 
         assert required, "PERMISSIONS is empty, so this assertion would pass vacuously"
         assert required - granted == set()
+
+    def test_manifest_omits_every_disallowed_permission(self):
+        manifest_path = Path(settings.BASE_DIR) / "services" / "stripe-app" / "stripe-app.json"
+        granted = {entry["permission"] for entry in orjson.loads(manifest_path.read_bytes())["permissions"]}
+
+        assert granted & self.MANIFEST_DISALLOWED == set()
