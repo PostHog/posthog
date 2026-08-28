@@ -3744,7 +3744,7 @@
           lower(severity_text) AS severity_text,
           pattern
       FROM posthog_test.logs34
-      WHERE pattern != ''
+      WHERE pattern_version != 0
   )
   GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern
   

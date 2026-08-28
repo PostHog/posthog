@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -7,7 +8,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.logs import LOGS34_TO_VOLUME_BUCKETS_MV
+from posthog.clickhouse.logs import LOGS34_TO_PATTERN_BUCKETS_MV, LOGS34_TO_VOLUME_BUCKETS_MV
 
 from products.logs.backend.temporal.volume_tick.aggregation import (
     _ENVIRONMENT_KEYS,
@@ -209,11 +210,21 @@ class TestVolumeBucketAggregation(ClickhouseTestMixin, BaseTest):
         self.assertEqual(self._preview().rollup_rows, 1)
 
 
-def test_mv_matches_the_detector_grid_and_dimension_keys() -> None:
-    sql = LOGS34_TO_VOLUME_BUCKETS_MV()
+@parameterized.expand(
+    [
+        ("volume", LOGS34_TO_VOLUME_BUCKETS_MV),
+        ("pattern", LOGS34_TO_PATTERN_BUCKETS_MV),
+    ]
+)
+def test_mv_matches_the_detector_grid_and_dimension_keys(_name: str, build_mv: Callable[[], str]) -> None:
+    sql = build_mv()
 
     assert f"toIntervalSecond({BUCKET_SECONDS})" in sql
     assert "lower(severity_text)" in sql
     for chain in (_ENVIRONMENT_KEYS, _NAMESPACE_KEYS):
         first_seen = [sql.index(f"'{key}'") for key in chain]
         assert first_seen == sorted(first_seen)
+
+
+def test_pattern_mv_selects_stamped_rows_by_version() -> None:
+    assert "WHERE pattern_version != 0" in LOGS34_TO_PATTERN_BUCKETS_MV()
