@@ -834,7 +834,7 @@ export interface TraceTreeNode {
 
 export interface EnrichedTraceTreeNode extends TraceTreeNode {
     children?: EnrichedTraceTreeNode[]
-    displayTotalCost: number
+    displayTotalCost: number | null
     displayLatency: number
     displayUsage: string | null
     attachedFeedback: LLMTraceEvent[]
@@ -848,8 +848,11 @@ export interface SpanAggregation {
     hasGenerationChildren: boolean
 }
 
-function extractTotalCost(event: LLMTraceEvent): number {
-    return event.properties.$ai_total_cost_usd || 0
+// Null, not 0, when the event carries no cost. A generation whose provider never
+// reported usage has no cost to show, and $0.00 would read as a free call.
+export function extractTotalCost(event: LLMTraceEvent): number | null {
+    const totalCost = event.properties.$ai_total_cost_usd
+    return typeof totalCost === 'number' ? totalCost : null
 }
 
 function extractLatency(event: LLMTraceEvent): number {

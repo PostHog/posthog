@@ -5,6 +5,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import {
     TraceTreeNode,
     buildFeedbackAttachmentMap,
+    extractTotalCost,
     getEffectiveEventId,
     getHighlightedEventId,
     getInitialFocusEventId,
@@ -363,6 +364,26 @@ describe('getHighlightedEventId', () => {
         ['null', null, null],
     ])('returns correct id for %s', (_label, event, expected) => {
         expect(getHighlightedEventId(event)).toBe(expected)
+    })
+})
+
+describe('extractTotalCost', () => {
+    // Absent and zero are different facts: zero is a priced call that cost
+    // nothing, absent is a call whose usage was never reported. Coercing absent
+    // to 0 renders $0.00 in the trace tree, which reads as a free call.
+    it.each([
+        { call: 'a priced call', properties: { $ai_total_cost_usd: 0.0042 }, expected: 0.0042 },
+        { call: 'a call that cost nothing', properties: { $ai_total_cost_usd: 0 }, expected: 0 },
+        { call: 'a call with no reported cost', properties: {}, expected: null },
+    ])('returns $expected for $call', ({ properties, expected }) => {
+        const event: LLMTraceEvent = {
+            id: '1',
+            event: '$ai_generation',
+            properties,
+            createdAt: '2024-01-01T00:00:00Z',
+        }
+
+        expect(extractTotalCost(event)).toBe(expected)
     })
 })
 

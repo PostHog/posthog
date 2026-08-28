@@ -1214,7 +1214,7 @@ function TraceSidebar({
                         topLevelTrace={trace}
                         node={{
                             event: trace,
-                            displayTotalCost: trace.totalCost || 0,
+                            displayTotalCost: trace.totalCost ?? null,
                             displayLatency: trace.totalLatency || 0,
                             displayUsage: formatLLMUsage(trace),
                         }}
@@ -1272,7 +1272,7 @@ const TreeNode = React.memo(function TraceNode({
     topLevelTrace: LLMTrace
     node:
         | EnrichedTraceTreeNode
-        | { event: LLMTrace; displayTotalCost: number; displayLatency: number; displayUsage: string | null }
+        | { event: LLMTrace; displayTotalCost: number | null; displayLatency: number; displayUsage: string | null }
     isSelected: boolean
     searchQuery?: string
     showBillingInfo?: boolean
