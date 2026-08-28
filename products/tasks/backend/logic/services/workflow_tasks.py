@@ -389,15 +389,20 @@ def validate_connectors(team_id: int, owner_id: int, mcp_installation_ids: list[
 
 def validate_service_account(team_id: int, service_account_id: str) -> None:
     """Raise `WorkflowTaskServiceAccountInvalid` unless `service_account_id` names an
-    active service account on this team.
+    active, custom service account on this team.
 
     Called both when a run actually starts and, from the workflows product, when a
     "Create AI task" action is saved — so a deleted, paused, or foreign service account
-    fails at save time instead of only on the workflow's next fire.
+    fails at save time instead of only on the workflow's next fire. Built-in accounts
+    (support, scout) are excluded: their grants are scoped to their own product surface,
+    and a workflow author must not be able to run an arbitrary prompt through them to
+    reach connections a team only meant for support replies or scout runs.
     """
     summary = get_service_account_summary(team_id, service_account_id)
     if summary is None:
         raise WorkflowTaskServiceAccountInvalid(service_account_id, reason="was not found")
+    if summary.kind != "custom":
+        raise WorkflowTaskServiceAccountInvalid(service_account_id, reason="is a built-in agent, not a service account")
     if summary.status != "active":
         raise WorkflowTaskServiceAccountInvalid(service_account_id, reason="is paused")
 

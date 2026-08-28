@@ -252,6 +252,18 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
+    def test_rejects_a_built_in_agent_as_service_account(self) -> None:
+        from products.mcp_store.backend.agents import sync_built_in_agents
+
+        support_agent = next(
+            account for account in sync_built_in_agents(self.team) if account.handle == "posthog-support"
+        )
+
+        response = self._post({"service_account": str(support_agent.id)})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+
     def test_rejects_an_unknown_service_account(self) -> None:
         response = self._post({"service_account": str(uuid4())})
 

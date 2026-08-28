@@ -878,6 +878,14 @@ class TestGetInstallationsForSandbox(BaseTest):
         assert missing_results == []
         assert paused_results == []
 
+    def test_built_in_agent_id_stamped_as_service_account_mounts_nothing(self) -> None:
+        self._create_installation(scope="shared")
+        support_agent = self._support_agent()
+
+        results = get_installations_for_sandbox(self.team.id, task_service_account_id=str(support_agent.id))
+
+        assert results == []
+
     def test_service_account_stamp_honored_regardless_of_gateway_flag_rollout(self) -> None:
         self.enforcement_enabled_mock.return_value = False
         account = self._create_custom_account()

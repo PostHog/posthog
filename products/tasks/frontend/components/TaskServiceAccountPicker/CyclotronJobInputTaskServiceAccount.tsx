@@ -11,15 +11,17 @@ export default function CyclotronJobInputTaskServiceAccount({
     value,
     onChange,
 }: CustomInputRendererProps): JSX.Element {
-    const { serviceAccounts, serviceAccountsLoading } = useValues(taskServiceAccountPickerLogic)
+    const { selectableServiceAccounts, serviceAccountsLoading } = useValues(taskServiceAccountPickerLogic)
 
     const selectedId: string | null = typeof value === 'string' && value ? value : null
 
-    const options: { value: string; label: string; disabledReason?: string }[] = serviceAccounts.map((account) => ({
-        value: account.id,
-        label: account.name,
-        disabledReason: account.status !== 'active' ? 'This service account is paused.' : undefined,
-    }))
+    const options: { value: string; label: string; disabledReason?: string }[] = selectableServiceAccounts.map(
+        (account) => ({
+            value: account.id,
+            label: account.name,
+            disabledReason: account.status !== 'active' ? 'This service account is paused.' : undefined,
+        })
+    )
     // The stored id may name a service account since deleted; still render it so the person
     // editing can see it and clear the field.
     if (selectedId && !options.some((option) => option.value === selectedId)) {

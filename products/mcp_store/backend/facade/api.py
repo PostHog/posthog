@@ -472,10 +472,16 @@ def _parsed_service_account_id(service_account_id: str) -> uuid.UUID | None:
 
 
 def _active_service_account(team_id: int, service_account_id: str) -> MCPServiceAccount | None:
+    """A task-stamped service account eligible to mount its grants.
+
+    Built-in agents (support, scout) are excluded here too, not just at
+    workflow-save time: their grants are scoped to their own product surface, and this
+    is the point that actually decides what mounts into the sandbox.
+    """
     parsed = _parsed_service_account_id(service_account_id)
     if parsed is None:
         return None
-    return MCPServiceAccount.objects.for_team(team_id).filter(id=parsed, status="active").first()
+    return MCPServiceAccount.objects.for_team(team_id).filter(id=parsed, status="active", kind="custom").first()
 
 
 def get_service_account_summary(team_id: int, service_account_id: str) -> ServiceAccountSummary | None:
