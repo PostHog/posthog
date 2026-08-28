@@ -102,6 +102,12 @@ const SHADOW_BUILDS: &str = "flags_cache_shadow_builds_total";
 const SHADOW_MISMATCH: &str = "flags_cache_shadow_mismatch_total";
 const SHADOW_MISMATCH_FIRST_SIGHT: &str = "flags_cache_shadow_mismatch_first_sight_total";
 const SHADOW_FAILURES: &str = "flags_cache_shadow_build_failures_total";
+// Failures of the mismatch tracker's Redis state, with an `op` label for which
+// access failed (read / write / clear). Every one of them costs confirmations and
+// none of them fail a build, so like the rest of the shadow telemetry this must
+// not feed the real-build failure alert. A sustained rate here means
+// SHADOW_MISMATCH is undercounting.
+const SHADOW_TRACKER_STORE_ERRORS: &str = "flags_cache_shadow_tracker_store_errors_total";
 // Per-team wall time for one shadow compare (build + live read + diff). Shadow
 // teams run sequentially after the batch's real builds, so this is the quantity
 // that sets how long a batch of shadow work delays the next real invalidation —
@@ -109,7 +115,7 @@ const SHADOW_FAILURES: &str = "flags_cache_shadow_build_failures_total";
 // same buckets as the real-build duration histogram.
 const SHADOW_BUILD_DURATION_SECONDS: &str = "flags_cache_shadow_build_duration_seconds";
 
-/// Caps on the confirmed-mismatch log line (see `summarize_diffs`).
+/// Caps on the mismatch log lines (see `summarize_diffs`).
 const SHADOW_LOG_MAX_ENTRIES: usize = 20;
 const SHADOW_LOG_MAX_BYTES: usize = 4096;
 
@@ -178,9 +184,11 @@ struct BuilderConfig {
     #[envconfig(from = "KAFKA_DLQ_TOPIC", default = "flags_cache_invalidation_dlq")]
     dlq_topic: String,
 
-    /// How long a team's last shadow mismatch stays eligible to confirm a repeat.
-    /// Long enough that quiet teams (two shadow builds days apart would miss a
-    /// 1h window) still confirm persistent drift; short enough to bound memory.
+    /// How long a team's last shadow mismatch stays eligible to confirm a repeat,
+    /// written as the TTL on the tracker's Redis key. Long enough that quiet
+    /// teams (two shadow builds days apart would miss a 1h window) still confirm
+    /// persistent drift; short enough that a disagreement Python has since
+    /// repaired stops counting as the team's previous observation.
     #[envconfig(from = "FLAGS_CACHE_SHADOW_MISMATCH_TTL", default = "86400")]
     shadow_mismatch_ttl_seconds: u64,
 }
@@ -271,7 +279,7 @@ async fn main() -> anyhow::Result<()> {
         .expect("Failed to create database pool");
     let pg_reader: PostgresReader = Arc::new(pg_pool);
 
-    let (writer, live_reader) = build_cache_clients(&infra).await;
+    let (writer, live_reader, redis_client) = build_cache_clients(&infra).await;
     let writer = Arc::new(writer);
     let live_reader = Arc::new(live_reader);
 
@@ -294,6 +302,7 @@ async fn main() -> anyhow::Result<()> {
             pg_reader,
             writer,
             live_reader,
+            redis_client,
             dlq_producer,
             builder_cfg,
             loop_handle.clone(),
@@ -307,10 +316,18 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Build the cache writer (real builds) and a reader over the same Redis + config
-/// (shadow builds). The reader is used Redis-only via `get_typed_from_redis`, so
-/// its S3 client is never exercised; sharing the writer's keeps one construction
-/// path and one set of connections.
-async fn build_cache_clients(infra: &InfraConfig) -> (HyperCacheWriter, HyperCacheReader) {
+/// (shadow builds), and hand back the Redis client they share. The reader is used
+/// Redis-only via `get_typed_from_redis`, so its S3 client is never exercised;
+/// sharing the writer's keeps one construction path and one set of connections.
+/// The returned client is the shadow mismatch tracker's store, for the same
+/// reason: one connection pool against `FLAGS_REDIS_URL`, not three.
+async fn build_cache_clients(
+    infra: &InfraConfig,
+) -> (
+    HyperCacheWriter,
+    HyperCacheReader,
+    Arc<dyn common_redis::Client + Send + Sync>,
+) {
     tracing::info!("Connecting to Redis");
     let Some(redis_client) = create_redis_client(
         &infra.flags_redis_url,
@@ -336,8 +353,8 @@ async fn build_cache_clients(infra: &InfraConfig) -> (HyperCacheWriter, HyperCac
     );
 
     let writer = HyperCacheWriter::new(redis_client.clone(), s3_client.clone(), config.clone());
-    let reader = HyperCacheReader::new_with_s3_client(redis_client, s3_client, config);
-    (writer, reader)
+    let reader = HyperCacheReader::new_with_s3_client(redis_client.clone(), s3_client, config);
+    (writer, reader, redis_client)
 }
 
 /// The consumer hot loop. Returns when `shutdown` is cancelled (graceful drain).
@@ -347,14 +364,17 @@ async fn consume_loop(
     pg_reader: PostgresReader,
     writer: Arc<HyperCacheWriter>,
     live_reader: Arc<HyperCacheReader>,
+    redis_client: Arc<dyn common_redis::Client + Send + Sync>,
     dlq_producer: FutureProducer<KafkaContext>,
     cfg: BuilderConfig,
     health: Handle,
     shutdown: CancellationToken,
 ) {
     let coalesce = Duration::from_millis(cfg.coalesce_window_ms);
-    let mut mismatch_tracker =
-        MismatchTracker::new(Duration::from_secs(cfg.shadow_mismatch_ttl_seconds));
+    let mismatch_tracker = MismatchTracker::new(
+        redis_client,
+        Duration::from_secs(cfg.shadow_mismatch_ttl_seconds),
+    );
 
     loop {
         // Reporting healthy each iteration covers the idle case: with no traffic
@@ -435,7 +455,7 @@ async fn consume_loop(
                 let offsets = process_shadow_team(
                     &pg_reader,
                     &live_reader,
-                    &mut mismatch_tracker,
+                    &mismatch_tracker,
                     team_id,
                     team_batch,
                 )
@@ -620,7 +640,7 @@ impl ShadowOutcome {
 async fn process_shadow_team(
     pg_reader: &PostgresReader,
     live_reader: &HyperCacheReader,
-    tracker: &mut MismatchTracker,
+    tracker: &MismatchTracker,
     team_id: TeamId,
     team_batch: TeamBatch,
 ) -> Vec<Offset> {
@@ -645,11 +665,24 @@ async fn process_shadow_team(
                 metrics::counter!(SHADOW_MISMATCH_FIRST_SIGHT, "issue_type" => diff.issue_type.as_label())
                     .increment(1);
             }
+            // A first sighting logs at WARN and a confirmed mismatch at ERROR,
+            // because a single-shot disagreement is expected: a shadow build races
+            // Python's own rebuild. `mismatch_stage` splits the two in a log query
+            // without a text match on the message.
             if !observation.confirmed.is_empty() {
                 tracing::error!(
                     team_id,
+                    mismatch_stage = "confirmed",
                     diff = %summarize_diffs(&observation.confirmed, SHADOW_LOG_MAX_ENTRIES, SHADOW_LOG_MAX_BYTES),
                     "Shadow compare mismatch persisted across consecutive builds"
+                );
+            }
+            if !observation.first_sight.is_empty() {
+                tracing::warn!(
+                    team_id,
+                    mismatch_stage = "first_sight",
+                    diff = %summarize_diffs(&observation.first_sight, SHADOW_LOG_MAX_ENTRIES, SHADOW_LOG_MAX_BYTES),
+                    "Shadow compare mismatch seen for the first time"
                 );
             }
         }
@@ -671,7 +704,7 @@ async fn process_shadow_team(
 async fn shadow_compare(
     pg_reader: &PostgresReader,
     live_reader: &HyperCacheReader,
-    tracker: &mut MismatchTracker,
+    tracker: &MismatchTracker,
     team_id: TeamId,
 ) -> ShadowOutcome {
     let built = match build_flags_cache(pg_reader.clone(), team_id).await {
@@ -691,7 +724,12 @@ async fn shadow_compare(
     };
 
     let diffs = diff_live_entry(&built, &live);
-    let observation = tracker.observe(team_id, diffs, Instant::now());
+    let observation = tracker.observe(team_id, diffs).await;
+    // Counted here and not next to the outcome metrics, because a clean build can
+    // fail to clear its pending state, and that build reports as a match.
+    for op in &observation.store_errors {
+        metrics::counter!(SHADOW_TRACKER_STORE_ERRORS, "op" => op.as_label()).increment(1);
+    }
     if observation.is_match() {
         ShadowOutcome::Match
     } else {
@@ -1204,17 +1242,25 @@ mod tests {
 
     /// Build a real `ShadowObservation` through the public diff + tracker API:
     /// one observation is a first sighting (suppressed), two consecutive ones
-    /// confirm.
-    fn shadow_observation(
+    /// confirm. The tracker's pending state lives in Redis, so the second
+    /// observation has to read what the first wrote. `MockRedisClient` records
+    /// writes but serves no reads, so the recorded write is replayed into the
+    /// client the second observation reads from.
+    ///
+    /// `next_build` in `flags::cache_shadow`'s tests does the same replay for the
+    /// tracker's own tests. A change to what the mock records has to reach both.
+    async fn shadow_observation(
         confirmed: bool,
     ) -> feature_flags::flags::cache_shadow::ShadowObservation {
+        use common_redis::{MockRedisClient, MockRedisValue};
         use feature_flags::flags::cache_shadow::{
             diff_live_entry, MismatchTracker, ShadowLiveEntry,
         };
         use feature_flags::flags::flag_models::{
             EvaluationMetadata, FeatureFlag, HypercacheFlagsWrapper,
         };
-        use std::time::{Duration as StdDuration, Instant};
+        use std::sync::Arc;
+        use std::time::Duration as StdDuration;
 
         let flag = |has_experiment: bool| -> FeatureFlag {
             serde_json::from_value(serde_json::json!({
@@ -1239,21 +1285,30 @@ mod tests {
             cohorts: Some(Vec::new()),
         };
 
-        let mut tracker = MismatchTracker::new(StdDuration::from_secs(3600));
-        let now = Instant::now();
-        let first = tracker.observe(1, diff_live_entry(&built, &live), now);
+        let ttl = StdDuration::from_secs(3600);
+        let redis = MockRedisClient::new();
+        let first = MismatchTracker::new(Arc::new(redis.clone()), ttl)
+            .observe(1, diff_live_entry(&built, &live))
+            .await;
         if !confirmed {
             return first;
         }
-        tracker.observe(
-            1,
-            diff_live_entry(&built, &live),
-            now + StdDuration::from_secs(1),
-        )
+
+        let mut next = MockRedisClient::new();
+        for call in redis.get_calls() {
+            if let ("setex", MockRedisValue::StringWithTTL(value, _)) =
+                (call.op.as_str(), call.value)
+            {
+                next.get_ret(&call.key, Ok(value));
+            }
+        }
+        MismatchTracker::new(Arc::new(next), ttl)
+            .observe(1, diff_live_entry(&built, &live))
+            .await
     }
 
-    #[test]
-    fn shadow_outcome_maps_to_exactly_the_documented_labels() {
+    #[tokio::test]
+    async fn shadow_outcome_maps_to_exactly_the_documented_labels() {
         // The outcome label is the shadow window's primary telemetry; a wrong
         // label here misreads the ramp with no other test catching it.
         let cases = [
@@ -1264,11 +1319,11 @@ mod tests {
                 "error",
             ),
             (
-                ShadowOutcome::Mismatch(shadow_observation(false)),
+                ShadowOutcome::Mismatch(shadow_observation(false).await),
                 "mismatch_suppressed",
             ),
             (
-                ShadowOutcome::Mismatch(shadow_observation(true)),
+                ShadowOutcome::Mismatch(shadow_observation(true).await),
                 "mismatch_confirmed",
             ),
         ];

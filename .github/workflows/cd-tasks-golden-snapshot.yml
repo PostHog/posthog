@@ -131,7 +131,12 @@ jobs:
         if: vars.HOG_TASKS_GOLDEN_ENABLED == 'true' && github.ref == 'refs/heads/master'
         name: Render agent skills from source
         runs-on: ubuntu-latest
-        timeout-minutes: 30
+        # `Run migrations` needs a database: 24 skill templates call
+        # `render_hogql_example`, which reads `Team.objects.first()`. The schema
+        # cache below makes migrate a top-up, but a cache miss is a 22-29 minute
+        # cold migrate (see cd-sandbox-base-image.yml), so budget an hour for
+        # ample headroom over that worst case.
+        timeout-minutes: 60
         permissions:
             contents: read
 
@@ -140,6 +145,83 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ needs.validate_ref.outputs.ref }}
+                  # Deep + blob-less: enough history for the schema cache merge-base key.
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Fetch base branch for merge-base computation
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              # Scoped, blob-less, no-tags: without an explicit refspec, git fetch
+              # falls back to remote.origin.fetch and pulls every branch.
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+            - name: Compute schema cache keys
+              id: schema-key
+              # Restores the schema dump ci-backend saves on master pushes, so the
+              # migrate step below only tops up what is newer instead of replaying the
+              # full migration history. On a PR the migration-set key is the merge-base's;
+              # on a push or dispatch it is HEAD's. A cache miss falls through to a full
+              # migrate, so an absent or wrong key is never a correctness risk.
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  IS_PR: ${{ github.event_name == 'pull_request' }}
+                  # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in
+                  # ci-backend.yml, which saves these caches on master pushes.
+                  SCHEMA_CACHE_EPOCH: v2
+              run: |
+                  if [ "$IS_PR" != "true" ]; then
+                      # Pushed or dispatched commit is checked out directly: no merge
+                      # commit, no base ref. The per-SHA key would point at this same
+                      # push's cache (saved concurrently by ci-backend, so racy); rely
+                      # on the stable migration-set key below.
+                      REF=HEAD
+                  else
+                      # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                      MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                      if [ -z "$MERGE_BASE" ]; then
+                          echo "key=" >> $GITHUB_OUTPUT
+                          echo "migrations_key=" >> $GITHUB_OUTPUT
+                          echo "::notice::merge-base not found (branch too stale?), so the schema cache is skipped"
+                          exit 0
+                      fi
+                      # Routing decides which app labels reach the dump, so an edited routing
+                      # config matches no master dump: drop both keys and migrate from scratch.
+                      DB_ROUTING_BASE=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                      DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                      if [ "$DB_ROUTING_BASE" != "$DB_ROUTING_HEAD" ]; then
+                          echo "key=" >> $GITHUB_OUTPUT
+                          echo "migrations_key=" >> $GITHUB_OUTPUT
+                          echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
+                          exit 0
+                      fi
+                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                      REF="$MERGE_BASE"
+                  fi
+                  # Last-resort restore prefix: matches the newest saved dump when the exact
+                  # keys miss. Gated on checkout age because a re-run of an old commit could
+                  # restore a dump newer than its code, which forward-only migrate cannot repair.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
+                  # Must match ci-backend.yml's save-side computation byte for byte or the key never hits.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
+                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  # Routing decides which app labels are in the dump, so these inputs belong in the key.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  PG_IMAGE=$(git show "${REF}:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::no migration files matched, so restore falls back to the SHA schema key"
+                  else
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
+                      echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Start Docker services
               env:
@@ -182,6 +264,41 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: bin/ci-wait-for-docker wait
+
+            - name: Restore schema cache from master
+              if: steps.schema-key.outputs.migrations_key != '' || steps.schema-key.outputs.key != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  # Prefer the shared content key; fall back to the exact merge-base SHA
+                  # key, then to the newest dump of any migration set.
+                  key: ${{ steps.schema-key.outputs.migrations_key || steps.schema-key.outputs.key }}
+                  restore-keys: |
+                      ${{ steps.schema-key.outputs.key }}
+                      ${{ steps.schema-key.outputs.prefix_key }}
+
+            - name: Prime posthog from cached schema
+              # db:restore-schema-fresh restores the dump and seeds the RunPython data a
+              # schema-only dump lacks; the migrate step below layers anything newer on
+              # top. On failure it leaves a fresh empty db, so migrate runs the full history.
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  REDIS_URL: 'redis://localhost'
+                  OBJECT_STORAGE_ENABLED: 'False'
+                  TEST: 1
+                  DEBUG: 1
+                  TARGET_DB: posthog
+              run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Schema cache miss, so the migrate step below runs the full history"
+                      exit 0
+                  fi
+                  mkdir -p .postgres-backups
+                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
+                  if ! ./bin/hogli db:restore-schema-fresh; then
+                      echo "::warning::Schema restore failed (stale or incompatible cached dump?), so the migrate step below runs the full history"
+                  fi
 
             - name: Run migrations
               env:
@@ -335,40 +452,51 @@ jobs:
               id: hogland-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app-id: ${{ secrets.GH_APP_HOGLAND_CLI_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_HOGLAND_CLI_PRIVATE_KEY }}
+                  app-id: ${{ secrets.GH_APP_HOGLAND_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_HOGLAND_DEPLOYER_PRIVATE_KEY }}
                   owner: PostHog
                   repositories: hogland
+                  # Read-only: the deployer App may hold write on hogland, but
+                  # this job only reads it — checks out the CLI source to build,
+                  # and the quiet-window guard lists hogland Actions runs.
+                  permission-contents: read
+                  permission-actions: read
 
-            # Build the CLI from a released, immutable tag, never a moving branch
-            # like main — a rebuilt CLI must be reproducible across bakes. Require
-            # at least v1.5.0-cli: every flag and JSON field the bake/smoke scripts
-            # use (notably --kind) exists from that tag; older tags predate them.
-            - name: Require a pinned hogland CLI tag
+            # Build the CLI from the newest released vX.Y.Z-cli tag: immutable
+            # and reviewed, never a moving branch like main (which would run
+            # unreviewed CLI code in this credentialed job). Resolved at runtime,
+            # so there is no HOGLAND_CLI_REF var to bump on each CLI release — the
+            # CLI only orchestrates the bake (create/snapshot/alias) and does not
+            # change the golden's contents. Still guard the minimum the scripts need.
+            - name: Resolve latest hogland CLI release
               if: env.skip != 'true'
+              id: cli-ref
               env:
-                  CLI_REF: ${{ vars.HOGLAND_CLI_REF }}
+                  GH_TOKEN: ${{ steps.hogland-token.outputs.token }}
               run: |
                   set -euo pipefail
                   MIN_CLI_VERSION=1.5.0
-                  if [[ ! "$CLI_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-cli$ ]]; then
-                      echo "::error::HOGLAND_CLI_REF must be a released vX.Y.Z-cli tag (got '${CLI_REF:-<unset>}'); a moving branch like main is not allowed"
+                  ref=$(gh api --paginate repos/PostHog/hogland/releases --jq '.[].tag_name' \
+                      | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-cli$' | sort -V | tail -1)
+                  if [[ -z "$ref" ]]; then
+                      echo "::error::no vX.Y.Z-cli release found on PostHog/hogland"
                       exit 1
                   fi
-                  cli_version="${CLI_REF#v}"
-                  cli_version="${cli_version%-cli}"
+                  cli_version="${ref#v}"; cli_version="${cli_version%-cli}"
                   lowest=$(printf '%s\n%s\n' "$MIN_CLI_VERSION" "$cli_version" | sort -V | head -1)
                   if [[ "$cli_version" != "$MIN_CLI_VERSION" && "$lowest" != "$MIN_CLI_VERSION" ]]; then
-                      echo "::error::HOGLAND_CLI_REF ${CLI_REF} is below the minimum v${MIN_CLI_VERSION}-cli; the bake relies on flags/fields introduced there"
+                      echo "::error::latest hogland CLI release ${ref} is below the minimum v${MIN_CLI_VERSION}-cli"
                       exit 1
                   fi
+                  echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+                  echo "::notice::building hogland CLI from ${ref}"
 
             - name: Check out hogland CLI source
               if: env.skip != 'true'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   repository: PostHog/hogland
-                  ref: ${{ vars.HOGLAND_CLI_REF }}
+                  ref: ${{ steps.cli-ref.outputs.ref }}
                   token: ${{ steps.hogland-token.outputs.token }}
                   path: hogland-src
 
