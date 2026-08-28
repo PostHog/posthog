@@ -433,7 +433,11 @@ export class EmailService {
 
             // Project-wide pacing from the team's trust tier. Sits next to the per-workflow limit
             // above and behaves the same way: it delays, never drops, and test sends bypass it.
-            const capDelay = await this.claimTeamSendingBudget(invocation, isTest)
+            // Charged per recipient, not per send: SES counts every to/cc/bcc address against its
+            // own quota, so a send with many copies must spend that many tokens.
+            const capRecipients =
+                1 + extractEmailsFromAddressList(params.cc).length + extractEmailsFromAddressList(params.bcc).length
+            const capDelay = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
             if (capDelay) {
                 result.finished = false
                 // Re-attach the email payload before rescheduling, for the same reason as the
@@ -558,7 +562,8 @@ export class EmailService {
     }
 
     /**
-     * Claims one send against the team's trust-tier buckets.
+     * Claims one send (as `recipients` tokens, one per delivered copy) against the team's
+     * trust-tier buckets.
      *
      * Returns the delay to reschedule with when a cap is reached, or null when the send may go out.
      * Two buckets, not one: the daily cap bounds how much damage a team can do to the shared SES
@@ -571,7 +576,8 @@ export class EmailService {
      */
     private async claimTeamSendingBudget(
         invocation: CyclotronJobInvocationHogFunction,
-        isTest: boolean
+        isTest: boolean,
+        recipients: number = 1
     ): Promise<{ retryDelayMs: number; label: string } | null> {
         const mode: TeamEmailCapMode = this.sesConfig.teamEmailCapMode ?? 'off'
         if (mode === 'off' || isTest || !this.teamEmailRateLimiter) {
@@ -602,16 +608,23 @@ export class EmailService {
         const buckets = teamEmailCapBuckets(invocation.teamId, hourlyCaps[tier], dailyCaps[tier])
         let firstDenial: TeamEmailCapBucket | null = null
         for (const bucket of buckets) {
+            // Clamped to the bucket's capacity: a send with more copies than the whole allowance
+            // could never be granted in full and would reschedule forever. It charges the entire
+            // bucket instead, so it still waits for full capacity and pays everything there is.
+            const requested = Math.min(Math.max(1, recipients), bucket.capacity)
             const granted = await this.teamEmailRateLimiter.claimUpTo({
                 key: bucket.key,
-                requested: 1,
+                requested,
                 capacity: bucket.capacity,
                 refillPerSecond: bucket.refillPerSecond,
                 ttlSeconds: bucket.ttlSeconds,
             })
-            if (granted > 0) {
+            if (granted >= requested) {
                 continue
             }
+            // A partial grant is a denial: the copies of one email cannot be split across retries.
+            // The partially granted tokens are spent on a send that does not go out, which is the
+            // safe direction (it only ever allows fewer sends), same as the hour/day ordering note.
             teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: bucket.name, mode })
             if (mode === 'enforce') {
                 return {
