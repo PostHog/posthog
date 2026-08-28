@@ -26,6 +26,7 @@ import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkil
 import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
 import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
 import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
+import { webVitalsEmptyState } from 'products/web_analytics/frontend/emptyState/webVitalsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
 import { ProductEmptyStateStory, productEmptyStateStory } from './storybookHelpers'
@@ -272,4 +273,19 @@ export const SessionReplayWaitingForData: ProductEmptyStateStory = productEmptyS
     sessionReplayEmptyState,
     'waiting-for-data',
     { mocks: sessionReplayMocks }
+)
+
+// Web vitals detection asks event definitions on mount - answer "none yet".
+const webVitalsMocks = {
+    get: { '/api/projects/:team_id/event_definitions/': [200, { results: [] }] },
+} as const
+
+export const WebVitalsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(webVitalsEmptyState, 'needs-setup', {
+    mocks: webVitalsMocks,
+})
+
+export const WebVitalsWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
+    webVitalsEmptyState,
+    'waiting-for-data',
+    { mocks: webVitalsMocks }
 )
