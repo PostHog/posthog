@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { formatMsAsSeconds } from './dashboard/formatters'
@@ -13,6 +14,8 @@ jest.mock('~/queries/query', () => ({
 }))
 
 const mockApi = api as jest.Mocked<typeof api>
+
+const emptyToolRowsResponse = { results: [], totalCount: 0 }
 
 function dailyStat(overrides: Partial<DailyToolStat> & { day: string }): DailyToolStat {
     return { calls: 0, errors: 0, p50: 0, p95: 0, p99: 0, ...overrides }
@@ -75,7 +78,9 @@ describe('mcpAnalyticsToolQualityLogic', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
-            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+            jest.spyOn(mockApi, 'query').mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery ? emptyToolRowsResponse : { results: [] }
+            )
         })
 
         // An open-ended relative window always ends in the bucket that is still collecting, and a
@@ -98,7 +103,9 @@ describe('mcpAnalyticsToolQualityLogic', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
-            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+            jest.spyOn(mockApi, 'query').mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery ? emptyToolRowsResponse : { results: [] }
+            )
         })
 
         function queryCallsSince(callIndex: number): Record<string, any>[] {
@@ -157,8 +164,12 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             last_seen: '',
         })
 
-        it('clears the selected tool when a reload no longer includes it', async () => {
-            mockApi.query.mockResolvedValue({ results: [toolRowResult('tool_a')] })
+        it('clears the selected tool when the category scope changes', async () => {
+            mockApi.query.mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery
+                    ? { ...emptyToolRowsResponse, results: [toolRowResult('tool_a')], totalCount: 1 }
+                    : { results: [] }
+            )
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -167,7 +178,6 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.selectedTool).toBe('tool_a')
 
-            mockApi.query.mockResolvedValue({ results: [toolRowResult('tool_b')] })
             await expectLogic(logic, () => {
                 logic.actions.setSelectedCategories(['some-category'])
             }).toFinishAllListeners()
@@ -175,18 +185,59 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             expect(logic.values.selectedTool).toBeNull()
         })
 
-        it('keeps the selected tool when a reload still includes it', async () => {
-            mockApi.query.mockResolvedValue({ results: [toolRowResult('tool_a'), toolRowResult('tool_b')] })
+        it('keeps the selected tool while searching, sorting, or changing pages', async () => {
+            mockApi.query.mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery
+                    ? { ...emptyToolRowsResponse, results: [toolRowResult('tool_b')], totalCount: 100 }
+                    : { results: [] }
+            )
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
             logic.actions.setSelectedTool('tool_a')
             await expectLogic(logic, () => {
-                logic.actions.setSelectedCategories(['some-category'])
+                logic.actions.setToolQualityPageIndex(1)
+                logic.actions.setSearchTerm('tool_b')
+                logic.actions.setToolQualitySort('error_rate_pct', 'DESC')
             }).toFinishAllListeners()
 
             expect(logic.values.selectedTool).toBe('tool_a')
+        })
+
+        it('sends search, global sort, and page offsets to the rows query', async () => {
+            mockApi.query.mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery
+                    ? { ...emptyToolRowsResponse, results: [toolRowResult('tool_a')], totalCount: 151 }
+                    : { results: [] }
+            )
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            let callsBefore = mockApi.query.mock.calls.length
+            await expectLogic(logic, () => {
+                logic.actions.setToolQualityPageIndex(2)
+            }).toFinishAllListeners()
+            let rowsQuery = queryCallsSince(callsBefore).find(
+                (query) => query.kind === NodeKind.MCPToolQualityRowsQuery
+            )
+            expect(rowsQuery).toMatchObject({ limit: 50, offset: 100 })
+
+            callsBefore = mockApi.query.mock.calls.length
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('needle')
+            }).toFinishAllListeners()
+            rowsQuery = queryCallsSince(callsBefore).find((query) => query.kind === NodeKind.MCPToolQualityRowsQuery)
+            expect(logic.values.toolQualityPageIndex).toBe(0)
+            expect(rowsQuery).toMatchObject({ search: 'needle', limit: 50, offset: 0 })
+
+            callsBefore = mockApi.query.mock.calls.length
+            await expectLogic(logic, () => {
+                logic.actions.setToolQualitySort('error_rate_pct', 'ASC')
+            }).toFinishAllListeners()
+            rowsQuery = queryCallsSince(callsBefore).find((query) => query.kind === NodeKind.MCPToolQualityRowsQuery)
+            expect(rowsQuery).toMatchObject({ sortColumn: 'error_rate_pct', sortDirection: 'ASC', offset: 0 })
         })
 
         it('refetches the charts at the picked grouping, leaving the table alone', async () => {

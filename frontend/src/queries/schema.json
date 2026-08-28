@@ -10987,6 +10987,10 @@
                     },
                     "type": "array"
                 },
+                "totalCount": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of tools matching the date, category, and search filters."
+                },
                 "used_data_warehouse_sources": {
                     "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                     "items": {
@@ -11015,7 +11019,8 @@
                 "last_refresh",
                 "next_allowed_client_refresh",
                 "results",
-                "timezone"
+                "timezone",
+                "totalCount"
             ],
             "type": "object"
         },
@@ -27387,14 +27392,6 @@
                     "description": "Protocol of the item, defaults to \"project://\"",
                     "type": "string"
                 },
-                "reason": {
-                    "$ref": "#/definitions/UserProductListReason",
-                    "description": "Reason for custom product suggestion (from UserProductList)"
-                },
-                "reasonText": {
-                    "description": "Custom reason text for custom product suggestion (from UserProductList)",
-                    "type": ["string", "null"]
-                },
                 "ref": {
                     "description": "Object's ID or other unique reference",
                     "type": "string"
@@ -33539,7 +33536,7 @@
         },
         "MCPToolQualityRowsQuery": {
             "additionalProperties": false,
-            "description": "One row per $mcp_tool_name — call volume, error rate, latency percentiles, and reach — over the window.",
+            "description": "One row per effective MCP tool name, with server-side search, sorting, and pagination.",
             "properties": {
                 "categories": {
                     "description": "Restrict to these $mcp_tool_category values; empty or omitted means all categories.",
@@ -33555,12 +33552,32 @@
                     "const": "MCPToolQualityRowsQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Page size. The server defaults to 50 and caps this at 100."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of matching tools to skip."
+                },
                 "response": {
                     "$ref": "#/definitions/MCPToolQualityRowsQueryResponse"
+                },
+                "search": {
+                    "description": "Case-insensitive substring search on the effective tool name.",
+                    "type": "string"
+                },
+                "sortColumn": {
+                    "$ref": "#/definitions/MCPToolQualitySortColumn",
+                    "description": "Aggregate column used to order tools. Defaults to total_calls."
+                },
+                "sortDirection": {
+                    "$ref": "#/definitions/MCPToolQualitySortDirection",
+                    "description": "Sort direction. Defaults to DESC."
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -33613,6 +33630,10 @@
                     },
                     "type": "array"
                 },
+                "totalCount": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of tools matching the date, category, and search filters."
+                },
                 "used_data_warehouse_sources": {
                     "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                     "items": {
@@ -33635,8 +33656,25 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": ["results", "totalCount"],
             "type": "object"
+        },
+        "MCPToolQualitySortColumn": {
+            "enum": [
+                "total_calls",
+                "error_rate_pct",
+                "p50_duration_ms",
+                "p95_duration_ms",
+                "p99_duration_ms",
+                "users",
+                "sessions",
+                "last_seen"
+            ],
+            "type": "string"
+        },
+        "MCPToolQualitySortDirection": {
+            "enum": ["ASC", "DESC"],
+            "type": "string"
         },
         "MCPToolSampleIntentItem": {
             "additionalProperties": false,
@@ -47787,6 +47825,10 @@
                             },
                             "type": "array"
                         },
+                        "totalCount": {
+                            "$ref": "#/definitions/integer",
+                            "description": "Number of tools matching the date, category, and search filters."
+                        },
                         "used_data_warehouse_sources": {
                             "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                             "items": {
@@ -47809,7 +47851,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": ["results", "totalCount"],
                     "type": "object"
                 },
                 {
@@ -55085,32 +55127,12 @@
                 "product_path": {
                     "type": "string"
                 },
-                "reason": {
-                    "$ref": "#/definitions/UserProductListReason"
-                },
-                "reason_text": {
-                    "type": ["string", "null"]
-                },
                 "updated_at": {
                     "type": "string"
                 }
             },
-            "required": ["id", "product_path", "enabled", "reason", "reason_text", "created_at", "updated_at"],
+            "required": ["id", "product_path", "enabled", "created_at", "updated_at"],
             "type": "object"
-        },
-        "UserProductListReason": {
-            "enum": [
-                "default",
-                "onboarding",
-                "product_intent",
-                "used_by_colleagues",
-                "used_similar_products",
-                "used_on_separate_team",
-                "new_product",
-                "sales_led",
-                "onboarding_delegated"
-            ],
-            "type": "string"
         },
         "UserUIConfiguration": {
             "additionalProperties": {},
