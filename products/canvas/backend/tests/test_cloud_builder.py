@@ -81,6 +81,69 @@ class TestCanvasCloudBuilder(SimpleTestCase):
             "canvasSdkVersion": "0.1.0",
         }
 
+    def _notebook_project(self, source: str) -> dict[str, Any]:
+        project = self._project(source)
+        project["capabilities"] = {
+            "posthog": {
+                "insights": [],
+                "inlineQueries": False,
+                "captureEvents": [],
+                "state": ["user"],
+                "notebookFrames": True,
+            },
+            "network": {"origins": []},
+        }
+        return project
+
+    def test_notebook_runtime_is_isolated_from_generated_source(self) -> None:
+        result = run_cloud_builder(self._notebook_project("void ph.readFrame"))
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        generated = "\n".join(
+            file["content"]
+            for file in result["files"]
+            if file["path"].endswith(".js") and file["path"] != "assets/canvas-runtime.js"
+        )
+        self.assertIn('type:"notebook-connect"', runtime)
+        self.assertIn("__posthog_notebook_frame__:", runtime)
+        self.assertIn("blockNavigation", runtime)
+        self.assertNotIn("notebook-connect", generated)
+
+    @parameterized.expand(
+        [
+            ("computed_location", 'globalThis["loc" + "ation"]["href"] = "https://example.com"'),
+            (
+                "event_view_alias",
+                "function leak(event: UIEvent) { const browser = event.view; browser!.location.href = 'https://example.com' }",
+            ),
+            ("anchor_jsx", "const link = <a href='https://example.com'>Leave</a>"),
+            ("anchor_factory", "const link = React.createElement('a', { href: 'https://example.com' })"),
+            ("iframe_factory", "const frame = document.createElement('iframe')"),
+            ("function_constructor", "const global = Function('return this')()"),
+            ("indirect_constructor", "const global = (() => {}).constructor('return this')()"),
+            (
+                "shadowed_window",
+                'function render(window: unknown) { return window }; window["location"]["href"] = "https://example.com"',
+            ),
+        ]
+    )
+    def test_notebook_builder_rejects_navigation_primitives(self, _name: str, source: str) -> None:
+        result = run_cloud_builder(self._notebook_project(source))
+
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("notebook_navigation_not_allowed", [item["code"] for item in result["diagnostics"]])
+
+    def test_notebook_builder_allows_data_properties_and_canvas_textures(self) -> None:
+        source = (
+            'const row = { location: "Brussels" }; const field = "location"; void row[field]; '
+            'const texture = document.createElement("canvas"); void texture'
+        )
+
+        result = run_cloud_builder(self._notebook_project(source))
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+
     def test_builds_vanilla_typescript_with_the_shared_contract(self) -> None:
         result = run_cloud_builder(self._project('document.querySelector("#root")!.textContent = "Hello"'))
 

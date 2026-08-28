@@ -594,6 +594,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
     "Notebook": [
         "text_content",
+        "widget_instances",
     ],
     "FeatureFlag": [
         "experiment",

@@ -1,3 +1,4 @@
+import { parse } from '@babel/parser'
 import { Scanner } from '@tailwindcss/oxide'
 import { build } from 'esbuild'
 import { createHash } from 'node:crypto'
@@ -23,11 +24,13 @@ const htmlAttribute = /([a-zA-Z][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g
 const forbiddenHtml = /(?:src|href)\s*=\s*["']\s*(javascript|data:text\/html|vbscript)/i
 const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.css', '.json', '.svg', '.txt']
 const runtimePath = 'assets/canvas-runtime.js'
+const notebookFrameKeyPrefix = '__posthog_notebook_frame__:'
 // The host only delivers the MessagePort after the artifact iframe's load
 // event, which fires after the app's module scripts have already run, so any
 // ph.* call issued during mount lands before the port exists. Those messages
 // queue (bounded, in case the host never connects) and flush on connect.
 const runtime = `(()=>{const channel="posthog-canvas",pending=new Map,queued=[];let sequence=0,port;const post=(message)=>{const payload={channel,...message};if(port){port.postMessage(payload)}else if(queued.length<256){queued.push(payload)}};const call=(method,payload)=>new Promise((resolve,reject)=>{if(!port&&(method==="actionInvoke"||method==="agentRequest")){reject(new Error("Canvas actions require a user action"));return}const id=String(++sequence);const timer=setTimeout(()=>{pending.delete(id);const queuedIndex=queued.findIndex((message)=>message.type==="data-request"&&message.id===id);if(queuedIndex>-1)queued.splice(queuedIndex,1);reject(new Error("Canvas request timed out"));},30000);pending.set(id,{resolve,reject,timer});post({type:"data-request",id,method,payload});});const applyTheme=(theme)=>{if(theme!=="dark"&&theme!=="light")return;const dark=theme==="dark";document.documentElement.classList.toggle("dark",dark);document.documentElement.style.colorScheme=dark?"dark":"light";};const fragmentParams=new URLSearchParams(location.hash.slice(1));applyTheme(fragmentParams.get("theme"));let config={};try{const rawConfig=fragmentParams.get("config");if(rawConfig)config=Object.freeze(JSON.parse(rawConfig))}catch{config={}};const receive=(event)=>{if(event.data?.channel!==channel)return;if(event.data.type==="set-theme"){applyTheme(event.data.theme);return}if(event.data.type!=="data-response")return;const request=pending.get(event.data.id);if(!request)return;pending.delete(event.data.id);clearTimeout(request.timer);event.data.ok?request.resolve(event.data.result):request.reject(new Error(event.data.error??"Canvas request failed"));};const capture=(event,properties,distinctId)=>{const normalized=properties??{};let serialized;try{serialized=JSON.stringify(normalized)}catch{throw new Error("Canvas capture properties must be serializable")};if(typeof serialized!=="string"||serialized.length>16384)throw new Error("Canvas capture properties are too large");return call("capture",{event,properties:normalized,distinctId})};const openExternal=(value)=>{const url=new URL(value);if(url.protocol!=="https:"||!(url.hostname==="posthog.com"||url.hostname.endsWith(".posthog.com")))throw new Error("Canvas external URL is not allowed");post({type:"open-external",url:url.href})};window.ph={config,loadInsight:(shortId,options)=>call("loadInsight",{shortId,dateRange:options?.dateRange,variables:options?.variables,refresh:options?.refresh}),query:(query,params,options)=>call("query",typeof query==="string"?{hogql:query,params:params??{},refresh:options?.refresh}:{query,params:params??{},refresh:options?.refresh}),capture,openExternal,agent:{request:(prompt)=>call("agentRequest",{prompt})},state:{get:(key,opts)=>call("stateGet",{key,scope:opts?.scope||"user"}),set:(key,value,opts)=>call("stateSet",{key,value:value===undefined?null:value,scope:opts?.scope||"user"}),list:(opts)=>call("stateList",{scope:opts?.scope})},actions:{invoke:(verb,payload)=>call("actionInvoke",{verb,payload:payload??{}})}};addEventListener("message",(event)=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",receive);port.start();while(queued.length)port.postMessage(queued.shift());if(document.readyState!=="loading")post({type:"ready"});if(document.readyState==="complete")post({type:"rendered"});});addEventListener("error",(event)=>post({type:"error",message:event.message||"Canvas runtime error",stack:event.error?.stack}));addEventListener("unhandledrejection",(event)=>post({type:"error",message:event.reason instanceof Error?event.reason.message:String(event.reason),stack:event.reason instanceof Error?event.reason.stack:undefined}));const cspSeen=new Set();addEventListener("securitypolicyviolation",(event)=>{const directive=event.effectiveDirective||"unknown";if(cspSeen.has(directive))return;cspSeen.add(directive);post({type:"error",message:"SecurityPolicyViolationError: "+directive})});addEventListener("DOMContentLoaded",()=>post({type:"ready"}));addEventListener("load",()=>post({type:"rendered"}));})();`
+const notebookRuntime = `(()=>{const channel="posthog-canvas",bridge=new MessageChannel;dispatchEvent(new MessageEvent("message",{data:{channel,type:"connect"},source:parent,ports:[bridge.port1]}));parent.postMessage({channel,type:"notebook-connect"},"*",[bridge.port2]);const blockNavigation=event=>event.preventDefault();globalThis.navigation?.addEventListener("navigate",blockNavigation);document.addEventListener("click",event=>{if(event.target instanceof Element&&event.target.closest("a"))blockNavigation(event)},true);document.addEventListener("submit",blockNavigation,true);Object.defineProperty(globalThis,"open",{value:()=>undefined,writable:false,configurable:false});Object.defineProperty(ph,"readFrame",{value:(name,options={})=>ph.state.get(${JSON.stringify(notebookFrameKeyPrefix)}+encodeURIComponent(name)+":"+(options.offset??0)+":"+(options.limit??100),{scope:"user"}),writable:false,configurable:false});})();`
 // A published canvas runs the runtime baked into its artifact by this builder,
 // while an unpublished one runs the desktop's sandbox document — two copies of
 // the same selection behavior. The pair below is ported from the desktop's
@@ -356,6 +359,230 @@ function validate(project) {
             diagnostic('forbidden_url_scheme', 'Canvas HTML contains a forbidden URL scheme', project.entryHtml)
         )
     }
+    diagnostics.push(...validateNotebookNavigation(project))
+    return diagnostics
+}
+
+const notebookGlobalRoots = new Set([
+    'window',
+    'globalThis',
+    'self',
+    'top',
+    'parent',
+    'frames',
+    'opener',
+    'location',
+    'navigation',
+    'history',
+    'document',
+])
+const notebookGlobalProperties = new Set(['view', 'defaultView', 'ownerDocument', 'contentWindow', 'contentDocument'])
+const notebookNavigationElements = new Set(['a', 'base', 'embed', 'form', 'iframe', 'meta', 'object'])
+const notebookDynamicCodeProperties = new Set(['constructor', '__proto__'])
+const notebookCodeExtensions = new Set(['.js', '.jsx', '.ts', '.tsx'])
+
+function walkSyntax(node, visit, parent = null, parents = new WeakMap()) {
+    if (!node || typeof node !== 'object') {
+        return parents
+    }
+    if (typeof node.type === 'string') {
+        parents.set(node, parent)
+        visit(node, parent, parents)
+    }
+    for (const [key, value] of Object.entries(node)) {
+        if (key === 'loc' || key === 'start' || key === 'end' || key === 'extra') {
+            continue
+        }
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                walkSyntax(item, visit, node, parents)
+            }
+        } else if (value && typeof value === 'object') {
+            walkSyntax(value, visit, node, parents)
+        }
+    }
+    return parents
+}
+
+function staticString(node) {
+    if (node?.type === 'StringLiteral') {
+        return node.value
+    }
+    if (node?.type === 'TemplateLiteral' && node.expressions.length === 0) {
+        return node.quasis[0]?.value.cooked ?? node.quasis[0]?.value.raw ?? null
+    }
+    if (node?.type === 'BinaryExpression' && node.operator === '+') {
+        const left = staticString(node.left)
+        const right = staticString(node.right)
+        return left === null || right === null ? null : left + right
+    }
+    return null
+}
+
+function memberProperty(node) {
+    if (node?.type !== 'MemberExpression' && node?.type !== 'OptionalMemberExpression') {
+        return null
+    }
+    return node.computed
+        ? staticString(node.property)
+        : node.property?.type === 'Identifier'
+          ? node.property.name
+          : null
+}
+
+function isAllowedNotebookCanvasFactory(node, parents) {
+    if (
+        (node?.type !== 'MemberExpression' && node?.type !== 'OptionalMemberExpression') ||
+        node.object?.type !== 'Identifier' ||
+        node.object.name !== 'document' ||
+        memberProperty(node) !== 'createElement'
+    ) {
+        return false
+    }
+    const call = parents.get(node)
+    return call?.type === 'CallExpression' && call.callee === node && staticString(call.arguments[0]) === 'canvas'
+}
+
+function isGlobalExpression(node, tainted) {
+    if (!node || typeof node !== 'object') {
+        return false
+    }
+    if (node.type === 'Identifier') {
+        return tainted.has(node.name)
+    }
+    if (
+        node.type === 'TSAsExpression' ||
+        node.type === 'TSTypeAssertion' ||
+        node.type === 'TSNonNullExpression' ||
+        node.type === 'ParenthesizedExpression' ||
+        node.type === 'ChainExpression'
+    ) {
+        return isGlobalExpression(node.expression, tainted)
+    }
+    if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
+        return isGlobalExpression(node.object, tainted) || notebookGlobalProperties.has(memberProperty(node))
+    }
+    return false
+}
+
+function isPropertyName(node, parent) {
+    return (
+        ((parent?.type === 'MemberExpression' || parent?.type === 'OptionalMemberExpression') &&
+            parent.property === node &&
+            !parent.computed) ||
+        ((parent?.type === 'ObjectProperty' || parent?.type === 'ObjectMethod') &&
+            parent.key === node &&
+            !parent.computed)
+    )
+}
+
+function validateNotebookNavigation(project) {
+    if (!project.capabilities?.posthog?.notebookFrames) {
+        return []
+    }
+    const diagnostics = []
+    const seen = new Set()
+    const report = (path, node) => {
+        const line = node.loc?.start?.line
+        const key = `${path}:${line ?? 0}`
+        if (seen.has(key)) {
+            return
+        }
+        seen.add(key)
+        diagnostics.push(
+            diagnostic(
+                'notebook_navigation_not_allowed',
+                'Notebook widgets cannot access browser navigation primitives.',
+                path,
+                line
+            )
+        )
+    }
+    for (const [filePath, source] of Object.entries(project.files ?? {})) {
+        if (typeof source !== 'string' || !notebookCodeExtensions.has(path.posix.extname(filePath))) {
+            continue
+        }
+        let syntax
+        try {
+            syntax = parse(source, { sourceType: 'module', plugins: ['jsx', 'typescript'] })
+        } catch {
+            continue
+        }
+        const parents = walkSyntax(syntax, () => {})
+        const tainted = new Set(notebookGlobalRoots)
+        let changed = true
+        while (changed) {
+            changed = false
+            walkSyntax(syntax, (node) => {
+                if (
+                    node.type === 'VariableDeclarator' &&
+                    node.id?.type === 'Identifier' &&
+                    isGlobalExpression(node.init, tainted) &&
+                    !tainted.has(node.id.name)
+                ) {
+                    tainted.add(node.id.name)
+                    changed = true
+                }
+                if (
+                    node.type === 'AssignmentExpression' &&
+                    node.left?.type === 'Identifier' &&
+                    isGlobalExpression(node.right, tainted) &&
+                    !tainted.has(node.left.name)
+                ) {
+                    tainted.add(node.left.name)
+                    changed = true
+                }
+            })
+        }
+        walkSyntax(syntax, (node, parent) => {
+            if (node.type === 'Identifier' && tainted.has(node.name) && !isPropertyName(node, parent)) {
+                if (
+                    node.name !== 'document' ||
+                    !isAllowedNotebookCanvasFactory(parent, parents) ||
+                    parent.object !== node
+                ) {
+                    report(filePath, node)
+                }
+            }
+            if (node.type === 'CallExpression' || node.type === 'NewExpression') {
+                if (node.callee?.type === 'Identifier' && ['eval', 'Function', 'open'].includes(node.callee.name)) {
+                    report(filePath, node)
+                }
+                if (memberProperty(node.callee) === 'createElement') {
+                    const element = staticString(node.arguments[0])
+                    if (element && notebookNavigationElements.has(element.toLowerCase())) {
+                        report(filePath, node)
+                    }
+                }
+            }
+            if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
+                if (isAllowedNotebookCanvasFactory(node, parents)) {
+                    return
+                }
+                if (
+                    isGlobalExpression(node.object, tainted) ||
+                    notebookDynamicCodeProperties.has(memberProperty(node))
+                ) {
+                    report(filePath, node)
+                }
+            }
+            if (node.type === 'JSXOpeningElement' && node.name?.type === 'JSXIdentifier') {
+                if (notebookNavigationElements.has(node.name.name.toLowerCase())) {
+                    report(filePath, node)
+                }
+                if (
+                    node.attributes?.some(
+                        (attribute) =>
+                            attribute.type === 'JSXAttribute' &&
+                            attribute.name?.type === 'JSXIdentifier' &&
+                            attribute.name.name === 'dangerouslySetInnerHTML'
+                    )
+                ) {
+                    report(filePath, node)
+                }
+            }
+        })
+    }
     return diagnostics
 }
 
@@ -540,7 +767,13 @@ async function buildCanvas(project) {
     }
     const cssPath = `assets/canvas-platform-${sha256(platformCss).slice(0, 10)}.css`
     files.push(artifact(cssPath, platformCss))
-    files.push(artifact(runtimePath, `${runtime}\n${selectionRuntime}\n${highlightRuntime}\n${keyboardRuntime}`))
+    const notebookBridge = project.capabilities?.posthog?.notebookFrames ? `\n${notebookRuntime}` : ''
+    files.push(
+        artifact(
+            runtimePath,
+            `${runtime}${notebookBridge}\n${selectionRuntime}\n${highlightRuntime}\n${keyboardRuntime}`
+        )
+    )
     const networkOrigins = project.capabilities?.network?.origins ?? []
     const externalSources = networkOrigins.join(' ')
     const projectCsp = externalSources

@@ -12,6 +12,6 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 - `<Widget>` is the canonical notebook markdown tag. Legacy `<GeneratedWidget>` and `<GenUI>` tags normalize to it while preserving widget identity.
 - Organizations must approve AI data processing before a job is queued and when its worker starts.
 - Production creation and data-frame reads require the `notebook-generated-widgets` feature flag. Keep it disabled until the generated-code data boundary and mixed-version Canvas rollout are approved.
-- Local artifact URLs use `CANVAS_ARTIFACT_SIGNING_KEYS` from `.env.development`.
+- Artifact URLs use Django's rotating `SECRET_KEY` values by default. Deployments can set `CANVAS_ARTIFACT_SIGNING_KEYS` for independent rotation.
 
 “Widget” is the umbrella term. Data visualizations are one possible widget type.

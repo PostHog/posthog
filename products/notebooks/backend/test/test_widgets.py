@@ -20,6 +20,7 @@ from products.canvas.backend.notebook_integration import (
     CanvasGenerationState,
     NotebookCanvasVersion,
     _source_project,
+    _strip_legacy_frame_bridge,
     validate_notebook_canvas_source,
 )
 from products.notebooks.backend.models import (
@@ -315,6 +316,7 @@ class TestWidgetGeneration(SimpleTestCase):
         [
             ("location_assignment", 'window.location = "https://example.com"'),
             ("location_method", 'location.replace("https://example.com")'),
+            ("computed_location", 'globalThis["location"]["href"] = "https://example.com"'),
             ("window_open", 'window.open("https://example.com")'),
             ("anchor_element", 'return <a href="https://example.com">Leave</a>'),
         ]
@@ -344,13 +346,22 @@ class TestWidgetGeneration(SimpleTestCase):
 
         assert not [item for item in diagnostics if item.get("severity") == "error"]
 
-    def test_canvas_runtime_blocks_navigation_before_generated_source(self) -> None:
-        project = _source_project("export default function Canvas() { return <div /> }")
+    def test_canvas_source_keeps_the_trusted_bridge_out_of_generated_code(self) -> None:
+        generated_source = "export default function Canvas() { return <div /> }"
+        project = _source_project(generated_source)
         source = project["files"]["src/canvas.tsx"]
 
-        assert source.index('globalThis.navigation?.addEventListener("navigate"') < source.index("export default")
-        assert 'document.addEventListener("click"' in source
-        assert 'document.addEventListener("submit"' in source
+        assert source == generated_source
+        assert "notebook-connect" not in source
+        assert "blockNavigation" not in source
+
+    def test_legacy_canvas_source_hides_the_former_injected_bridge(self) -> None:
+        source = (
+            "/* __POSTHOG_NOTEBOOK_BRIDGE_START__ */\nlegacy runtime\n"
+            "/* __POSTHOG_NOTEBOOK_BRIDGE_END__ */\n\nexport default function Canvas() { return <div /> }"
+        )
+
+        assert _strip_legacy_frame_bridge(source) == "export default function Canvas() { return <div /> }"
 
     @parameterized.expand(
         [("widget", "Widget"), ("legacy_generated_widget", "GeneratedWidget"), ("legacy_genui", "GenUI")]

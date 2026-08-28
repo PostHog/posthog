@@ -11,8 +11,6 @@ from products.canvas.backend.artifacts import create_canvas_artifact_url
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import has_errors, synthetic_source_project, validate_source_project
 
-NOTEBOOK_FRAME_KEY_PREFIX = "__posthog_notebook_frame__:"
-
 _READ_FRAME_RE = re.compile(r"\bph\s*\.\s*readFrame\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 _NETWORK_DIAGNOSTICS = {"network_fetch", "network_xhr"}
 _NAVIGATION_RE = re.compile(
@@ -21,32 +19,12 @@ _NAVIGATION_RE = re.compile(
     r"|\bhistory\s*\.\s*(?:back|forward|go|pushState|replaceState)\s*\(|<\s*a(?=\s|/?>))",
     re.IGNORECASE,
 )
-_FRAME_BRIDGE_START = "/* __POSTHOG_NOTEBOOK_BRIDGE_START__ */"
-_FRAME_BRIDGE_END = "/* __POSTHOG_NOTEBOOK_BRIDGE_END__ */"
-_FRAME_BRIDGE = f"""
-const notebookChannel = "posthog-canvas"
-const notebookBridge = new MessageChannel()
-dispatchEvent(new MessageEvent("message", {{
-    data: {{ channel: notebookChannel, type: "connect" }},
-    source: parent,
-    ports: [notebookBridge.port1],
-}}))
-parent.postMessage({{ channel: notebookChannel, type: "notebook-connect" }}, "*", [notebookBridge.port2])
-const blockNavigation = (event) => event.preventDefault()
-globalThis.navigation?.addEventListener("navigate", blockNavigation)
-document.addEventListener("click", (event) => {{
-    if (event.target instanceof Element && event.target.closest("a")) blockNavigation(event)
-}}, true)
-document.addEventListener("submit", blockNavigation, true)
-Object.defineProperty(globalThis, "open", {{ value: () => undefined, writable: false, configurable: false }})
-Object.assign(ph, {{
-    readFrame: (name, options = {{}}) => ph.state.get(
-        `{NOTEBOOK_FRAME_KEY_PREFIX}${{encodeURIComponent(name)}}:${{options.offset ?? 0}}:${{options.limit ?? 100}}`,
-        {{ scope: "user" }}
-    ),
-}})
-""".strip()
-_FRAME_BRIDGE_PREFIX = f"{_FRAME_BRIDGE_START}\n{_FRAME_BRIDGE}\n{_FRAME_BRIDGE_END}\n\n"
+_COMPUTED_NAVIGATION_RE = re.compile(
+    r"\b(?:window|globalThis|self|top|parent)\s*\[\s*[\"'](?:location|open|navigation|history)[\"']\s*\]",
+    re.IGNORECASE,
+)
+_LEGACY_FRAME_BRIDGE_START = "/* __POSTHOG_NOTEBOOK_BRIDGE_START__ */"
+_LEGACY_FRAME_BRIDGE_END = "/* __POSTHOG_NOTEBOOK_BRIDGE_END__ */"
 
 
 @frozen
@@ -109,7 +87,7 @@ def create_notebook_canvas(*, team_id: int, user_id: int, channel_id: UUID, name
 
 
 def _source_project(source: str) -> dict[str, Any]:
-    project = synthetic_source_project(f"{_FRAME_BRIDGE_PREFIX}{source}")
+    project = synthetic_source_project(source)
     files = project["files"]
     if isinstance(files, dict) and isinstance(index_html := files.get("index.html"), str):
         files["index.html"] = index_html.replace(
@@ -129,6 +107,14 @@ def _source_project(source: str) -> dict[str, Any]:
     return project
 
 
+def _strip_legacy_frame_bridge(source: str) -> str:
+    if source.startswith(_LEGACY_FRAME_BRIDGE_START):
+        _, separator, user_source = source.partition(_LEGACY_FRAME_BRIDGE_END)
+        if separator:
+            return user_source.removeprefix("\n\n")
+    return source
+
+
 def validate_notebook_canvas_source(source: str, input_names: list[str]) -> list[dict[str, Any]]:
     allowed_frames = set(input_names)
     diagnostics = validate_source_project(_source_project(source))
@@ -136,7 +122,7 @@ def validate_notebook_canvas_source(source: str, input_names: list[str]) -> list
         {**diagnostic, "severity": "error"} if diagnostic.get("code") in _NETWORK_DIAGNOSTICS else diagnostic
         for diagnostic in diagnostics
     ]
-    if _NAVIGATION_RE.search(source):
+    if _NAVIGATION_RE.search(source) or _COMPUTED_NAVIGATION_RE.search(source):
         diagnostics.append(
             {
                 "severity": "error",
@@ -315,11 +301,7 @@ def get_notebook_canvas_source(*, team_id: int, canvas_id: UUID, version_id: UUI
     source = files.get("src/canvas.tsx") if isinstance(files, dict) else None
     if not isinstance(source, str):
         raise NotebookCanvasSourceInvalidError
-    if source.startswith(_FRAME_BRIDGE_START):
-        _, separator, user_source = source.partition(_FRAME_BRIDGE_END)
-        if separator:
-            return user_source.removeprefix("\n\n")
-    return source
+    return _strip_legacy_frame_bridge(source)
 
 
 def get_canvas_generation_state(*, team_id: int, canvas_id: UUID) -> CanvasGenerationState | None:
