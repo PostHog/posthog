@@ -1047,7 +1047,9 @@ class TeamAdmin(admin.ModelAdmin):
             previous_tier=previous_tier,
             new_tier=tier,
             pinned=pinned,
-            triggered_by=request.user.email,
+            # The admin guarantees an authenticated staff user, but the typed request carries
+            # User | AnonymousUser.
+            triggered_by=getattr(request.user, "email", ""),
         )
         self.message_user(
             request,
