@@ -18,7 +18,7 @@ import pyarrow.parquet as pq
 
 from posthog.hogql.resolver import ResolverFactory
 
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
@@ -1682,12 +1682,16 @@ class TestHogqlTableModifiers:
             ),
         ],
     )
-    async def test_compiles_the_view_with_the_team_default_modifiers(self, ateam, query, team_modifiers, expected_sql):
+    async def test_compiles_the_view_with_the_team_default_modifiers(
+        self, ateam: Team, query: str, team_modifiers: dict[str, Any], expected_sql: str
+    ) -> None:
         ateam.modifiers = team_modifiers
         await database_sync_to_async(ateam.save)()
-        captured_sql = None
+        captured_sql: str | None = None
 
-        async def fake_astream_query_as_arrow(self, query, *args, **kwargs):
+        async def fake_astream_query_as_arrow(
+            _client: Any, query: str, *args: Any, **kwargs: Any
+        ) -> AsyncIterator[pa.RecordBatch]:
             nonlocal captured_sql
             captured_sql = query
             return
