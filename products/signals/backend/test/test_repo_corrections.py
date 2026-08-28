@@ -42,10 +42,12 @@ class TestRepoCorrections(BaseTest):
     def test_block_dedupes_by_report_and_lesson_and_keeps_only_wrong_repo(self):
         corrected_report = self._report("Checkout errors")
         self._dismiss(corrected_report, selected="acme/website", created_at=timezone.now() - timedelta(days=2))
+        # Mixed case (only reachable through the artefacts POST API) must render lowercased,
+        # matching the candidate list, and dedupe case-insensitively against the flood below.
         self._dismiss(
             corrected_report,
             selected="acme/website",
-            corrected="acme/checkout",
+            corrected="Acme/Checkout",
             note="belongs in checkout\n- injected line",
         )
         # Same lesson on another report (the bulk-dismissal shape): must not occupy a second slot.

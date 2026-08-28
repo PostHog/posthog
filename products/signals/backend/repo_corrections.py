@@ -153,9 +153,12 @@ def _render(correction: RepoCorrection) -> str:
 
 
 def _repo_or_none(value: str | None) -> str | None:
-    if not value or len(value) > _MAX_REPO_CHARS or not _REPO_SHAPE_RE.match(value):
+    # Lowercased to match the candidate list the selection agent sees. The state API already
+    # lowercases on write, but the generic artefacts API does not normalize these fields.
+    cleaned = (value or "").strip().lower()
+    if not cleaned or len(cleaned) > _MAX_REPO_CHARS or not _REPO_SHAPE_RE.match(cleaned):
         return None
-    return value
+    return cleaned
 
 
 def _clean(value: str | None) -> str | None:

@@ -153,7 +153,9 @@ export function buildSuppressRequest(
     state: "suppressed",
     dismissal_reason: dismissal.reason,
     dismissal_note: dismissal.note.slice(0, 4000),
-    ...(dismissal.correctedRepository
+    // The API rejects corrected_repository with any other reason, so the gate lives here
+    // rather than in every caller that builds a DismissReportInput.
+    ...(dismissal.reason === "wrong_repo" && dismissal.correctedRepository
       ? { corrected_repository: dismissal.correctedRepository }
       : {}),
   };

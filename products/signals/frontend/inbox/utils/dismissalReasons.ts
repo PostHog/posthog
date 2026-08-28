@@ -57,7 +57,11 @@ export function suppressDismissalPayload(dismissal: DismissalFeedback): {
     return {
         dismissal_reason: dismissal.reason,
         ...(note ? { dismissal_note: note } : {}),
-        ...(dismissal.correctedRepository ? { corrected_repository: dismissal.correctedRepository } : {}),
+        // The API rejects corrected_repository with any other reason, so the gate lives here
+        // rather than in every dialog that builds a DismissalFeedback.
+        ...(dismissal.reason === 'wrong_repo' && dismissal.correctedRepository
+            ? { corrected_repository: dismissal.correctedRepository }
+            : {}),
     }
 }
 
