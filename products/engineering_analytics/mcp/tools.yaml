@@ -157,9 +157,6 @@ tools:
     engineering-analytics-quarantine-request:
         operation: engineering_analytics_quarantine_request
         enabled: false
-    engineering-analytics-trunk-quarantine:
-        operation: engineering_analytics_trunk_quarantine
-        enabled: false
     engineering-analytics-repo-overview:
         operation: engineering_analytics_repo_overview
         enabled: false
@@ -246,6 +243,9 @@ tools:
         feature_flag: engineering-analytics
     engineering-analytics-team-merge-trend:
         operation: engineering_analytics_team_merge_trend
+        enabled: false
+    engineering-analytics-trunk-quarantine:
+        operation: engineering_analytics_trunk_quarantine
         enabled: false
     engineering-analytics-workflow-jobs:
         operation: engineering_analytics_workflow_jobs
