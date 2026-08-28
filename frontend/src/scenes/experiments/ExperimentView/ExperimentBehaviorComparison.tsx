@@ -13,11 +13,11 @@ import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { hasEnded } from 'scenes/experiments/experimentStatus'
 import { asDisplay } from 'scenes/persons/person-utils'
 
 import { Experiment } from '~/types'
 
+import { hasEnded } from 'products/experiments/frontend/experimentStatus'
 import {
     ExperimentWatchCardStrengthEnumApi,
     ExperimentWatchCardKindEnumApi,

@@ -1,0 +1,12 @@
+{
+    "id": "KA4",
+    "file": "products/review_hog/backend/receivers.py",
+    "lines": "144-160",
+    "priority": "must_fix",
+    "title": "Stamphog ignores opt-ins from non-acting reviewers",
+    "problem": "The resolver selects one acting reviewer before it checks the Stamphog toggle. The PR requires a review when any assigned reviewer opts in. A secondary reviewer cannot enable Stamphog unless this function selects that reviewer. The initial trigger and later webhook checks both have this error.",
+    "suggestion": "Resolve all assigned reviewers. Load their settings and select one reviewer whose `stamphog_review_inbox_prs` value is true. Keep the existing preferred-reviewer rule among opted-in reviewers for stable attribution. Add a test where the first reviewer opts out and a later reviewer opts in.",
+    "cluster": 57,
+    "cluster_issue": "Stamphog gate keys on a single canonical acting reviewer's toggle, so an opted-in non-canonical assigned reviewer is ignored, contradicting the PR's 'any assigned reviewer opted in' contract",
+    "cluster_verified": "2/11"
+}

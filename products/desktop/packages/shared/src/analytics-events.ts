@@ -1120,6 +1120,8 @@ export interface CanvasRuntimeErrorProperties {
    * source fragments, query results, or secrets that must not cross into analytics.
    */
   error_type: string;
+  /** CSP directive only; blocked URLs never cross into analytics. */
+  csp_directive?: string;
 }
 
 export type ContextActionType = "save_version" | "generate_started" | "discard";

@@ -22,6 +22,7 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
     PrepareSandboxForRepositoryOutput,
+    _dev_stack_preview_resources,
     _prepare_posthog_desktop_cloud_task,
     _prewarmed_resume_needs_fresh_agent,
     _sandbox_image_kind,
@@ -46,6 +47,27 @@ def _context_for_desktop_bootstrap(
         custom_image_name=image_name,
         desktop_workspace_warm_enabled=warm_enabled,
     )
+
+
+@pytest.mark.parametrize(
+    "preview_enabled, state, expected",
+    [
+        (False, {}, {}),
+        (True, {}, {"memory_gb": 32.0}),
+        (True, {"sandbox_memory_gb": 48}, {"memory_gb": 48.0}),
+        (
+            True,
+            {"sandbox_cpu_cores": 4, "sandbox_memory_gb": 48},
+            {"cpu_cores": 4.0, "memory_gb": 48.0},
+        ),
+    ],
+)
+def test_dev_stack_preview_sizes_the_sandbox_without_overriding_the_task(preview_enabled, state, expected):
+    context = _context_for_desktop_bootstrap()
+    context.dev_stack_preview_enabled = preview_enabled
+    context.state = state
+
+    assert _dev_stack_preview_resources(context) == expected
 
 
 def test_prepares_desktop_workspace_for_posthog_dev_stack_task(mocker):

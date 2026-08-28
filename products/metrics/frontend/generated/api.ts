@@ -13,12 +13,14 @@ import type {
     AppMetricsTotalsResponseApi,
     MetricsAttributeValuesRetrieveParams,
     MetricsAttributesRetrieveParams,
+    MetricsErrorSpikesRetrieveParams,
     MetricsValuesRetrieveParams,
     _HasMetricsResponseApi,
     _MetricAnomalyReportApi,
     _MetricAnomalyRequestApi,
     _MetricAttributeKeysResponseApi,
     _MetricAttributeValuesResponseApi,
+    _MetricErrorSpikesResponseApi,
     _MetricExplainRequestApi,
     _MetricExplainResponseApi,
     _MetricNamesResponseApi,
@@ -155,6 +157,38 @@ export const metricsCharacterizeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_metricAnomalyRequestApi),
+    })
+}
+
+export const getMetricsErrorSpikesRetrieveUrl = (projectId: string, params: MetricsErrorSpikesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/error_spikes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/error_spikes/`
+}
+
+/**
+ * Error Tracking issue spikes detected in a time window — backs the
+ * metrics chart's error-spike overlay (PoC). Team-wide: not yet scoped
+ * to the metric's own service.
+ */
+export const metricsErrorSpikesRetrieve = async (
+    projectId: string,
+    params: MetricsErrorSpikesRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricErrorSpikesResponseApi> => {
+    return apiMutator<_MetricErrorSpikesResponseApi>(getMetricsErrorSpikesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
