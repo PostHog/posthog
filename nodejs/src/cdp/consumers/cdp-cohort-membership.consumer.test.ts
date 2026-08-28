@@ -208,6 +208,53 @@ describe('CdpCohortMembershipConsumer', () => {
             expect(result.rows[0].in_cohort).toBe(false)
         })
 
+        it.each([
+            ['seed' as const, new UUIDT().toString()],
+            ['reconcile' as const, new UUIDT().toString()],
+        ])('should carry origin=%s and run_id through parsing', (origin, runId) => {
+            const message = createKafkaMessage(
+                createCohortMembershipEvent({
+                    person_id: personId1,
+                    cohort_id: 456,
+                    team_id: 1,
+                    origin,
+                    run_id: runId,
+                }),
+                { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }
+            )
+
+            const [change] = consumer['_parseAndValidateBatch']([message])
+
+            expect(change.origin).toBe(origin)
+            expect(change.run_id).toBe(runId)
+        })
+
+        it('should carry an unknown origin through parsing without rejecting the batch', () => {
+            const runId = new UUIDT().toString()
+            const message = createKafkaMessage(
+                createCohortMembershipEvent({
+                    person_id: personId1,
+                    cohort_id: 456,
+                    team_id: 1,
+                    status: 'entered',
+                    origin: 'snapshot',
+                    run_id: runId,
+                }),
+                { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }
+            )
+
+            const [change] = consumer['_parseAndValidateBatch']([message])
+
+            expect(change.origin).toBe('snapshot')
+            expect(change.run_id).toBe(runId)
+            expect(change).toMatchObject({
+                person_id: personId1,
+                cohort_id: 456,
+                team_id: 1,
+                status: 'entered',
+            })
+        })
+
         it('should reject entire batch when invalid messages are present', async () => {
             const validEvent = {
                 person_id: personId1,
