@@ -101,8 +101,8 @@ export function ModelSwitchCacheDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Switch model mid-session?</AlertDialogTitle>
           <AlertDialogDescription>
-            Cached context does not carry between models. If you want to lower
-            what the new model must process, compact the conversation first.
+            Cached context does not carry between models. Switching now resends
+            the full conversation to the new model.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="flex flex-col gap-4 px-4 pb-4">
