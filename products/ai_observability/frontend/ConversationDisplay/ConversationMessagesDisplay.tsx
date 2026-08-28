@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import React from 'react'
 
 import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled, IconWrench } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
@@ -385,7 +385,13 @@ export function ConversationMessagesDisplay({
                                 <div className="italic">No output</div>
                                 {emptyOutputExplanation && (
                                     <div className="mt-1 text-xs" data-attr="ai-empty-output-explanation">
-                                        {emptyOutputExplanation}
+                                        {emptyOutputExplanation}{' '}
+                                        <Link
+                                            to="https://posthog.com/docs/ai-observability/troubleshooting#why-does-my-generation-show-no-output"
+                                            target="_blank"
+                                        >
+                                            Learn more
+                                        </Link>
                                     </div>
                                 )}
                             </div>
