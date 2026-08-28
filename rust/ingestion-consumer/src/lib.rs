@@ -12,6 +12,5 @@ pub mod readiness;
 pub mod routing;
 pub mod stash;
 pub mod transport;
-pub mod transports;
 pub mod types;
 pub mod worker_registry;
