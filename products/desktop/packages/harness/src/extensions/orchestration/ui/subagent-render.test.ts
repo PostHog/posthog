@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { SingleRunResult } from "./run-agent";
+import type { SingleRunResult } from "../run-agent";
 import {
   __resetOrchestrationForTesting,
   upsertAgentRun,

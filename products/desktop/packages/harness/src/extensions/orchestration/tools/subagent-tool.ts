@@ -3,19 +3,22 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { PiSubagentToolDetails } from "@posthog/shared";
 import { Type } from "typebox";
-import type { AgentConfig } from "./agents";
+import type { AgentConfig } from "../agents";
 import {
   type AgentScope,
   discoverAgents,
   gateProjectAgents,
-} from "./discovery";
+} from "../discovery";
 import {
   formatParallelSummary,
   getResultOutput,
   truncateForModel,
-} from "./format";
-import { isFailedResult, runAgent, type SingleRunResult } from "./run-agent";
-import { renderSubagentCall, renderSubagentResult } from "./subagent-render";
+} from "../format";
+import { isFailedResult, runAgent, type SingleRunResult } from "../run-agent";
+import {
+  renderSubagentCall,
+  renderSubagentResult,
+} from "../ui/subagent-render";
 
 const MAX_CONCURRENT_TASKS = 4;
 

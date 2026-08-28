@@ -5,14 +5,14 @@ const { runAgentMock } = vi.hoisted(() => ({
   runAgentMock: vi.fn(),
 }));
 
-vi.mock("./run-agent", async () => {
+vi.mock("../run-agent", async () => {
   const actual =
-    await vi.importActual<typeof import("./run-agent")>("./run-agent");
+    await vi.importActual<typeof import("../run-agent")>("../run-agent");
   return { ...actual, runAgent: runAgentMock };
 });
 
-import type { SingleRunResult } from "./run-agent";
-import { __resetOrchestrationForTesting } from "./status-registry";
+import type { SingleRunResult } from "../run-agent";
+import { __resetOrchestrationForTesting } from "../ui/status-registry";
 import { registerSubagentTool } from "./subagent-tool";
 
 function successResult(

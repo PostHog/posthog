@@ -6,17 +6,17 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { AgentConfig } from "./agents";
-import { discoverAgents } from "./discovery";
-import { getResultOutput, truncateForModel } from "./format";
-import { isFailedResult, runAgent, type SingleRunResult } from "./run-agent";
-import { removeWorkflow, upsertWorkflow } from "./status-registry";
+import type { AgentConfig } from "../agents";
+import { discoverAgents } from "../discovery";
+import { getResultOutput, truncateForModel } from "../format";
+import { isFailedResult, runAgent, type SingleRunResult } from "../run-agent";
+import { removeWorkflow, upsertWorkflow } from "../ui/status-registry";
 import {
   previewOf,
   renderWorkflowCall,
   renderWorkflowResult,
   type WorkflowSnapshot,
-} from "./workflow-render";
+} from "../ui/workflow-render";
 import {
   extractWorkflowName,
   extractWorkflowPhaseMetadata,

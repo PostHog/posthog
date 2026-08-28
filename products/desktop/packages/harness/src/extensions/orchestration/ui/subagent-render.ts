@@ -1,7 +1,7 @@
 /**
  * Custom `renderCall`/`renderResult` for the `subagent` tool: collapsed
  * (default) and expanded (Ctrl+O) completed-result views and per-run usage
- * stats. Live task state belongs in `status-overlay.ts`. Purely presentational over `format.ts`'s
+ * stats. Live task state belongs in `subagent-status-overlay.ts`. Purely presentational over `format.ts`'s
  * pure data — no behavior change to any other module. Modes: `single` and
  * `parallel` only — there is no chain mode.
  */
@@ -20,12 +20,12 @@ import {
   Text,
   truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { getFinalOutput } from "./format";
+import { getFinalOutput } from "../format";
 import {
   isFailedResult,
   type SingleRunResult,
   type UsageStats,
-} from "./run-agent";
+} from "../run-agent";
 
 /** `theme.fg()` only resets its own escape at the *end* of the string it's given —
  * calling it once around text that already contains literal newlines leaves

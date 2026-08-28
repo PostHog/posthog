@@ -30,7 +30,7 @@ import {
 } from "./lifecycle";
 import { applyModelScope, SubagentPolicyError } from "./policy";
 import { applyAgentOverrides, loadSubagentSettings } from "./settings";
-import { removeAgentRun, upsertAgentRun } from "./status-registry";
+import { removeAgentRun, upsertAgentRun } from "./ui/status-registry";
 
 export interface UsageStats {
   input: number;

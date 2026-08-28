@@ -10,7 +10,8 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
-import { getFinalOutput } from "./format";
+import { getFinalOutput } from "../format";
+import type { WorkflowInputs } from "../tools/workflow-runtime";
 import {
   getWorkflow,
   subscribeToOrchestration,
@@ -19,7 +20,6 @@ import {
 } from "./status-registry";
 import { formatUsageStats, styleMultiline } from "./subagent-render";
 import { schemaSummary } from "./workflow-render";
-import type { WorkflowInputs } from "./workflow-runtime";
 
 function formatElapsed(startedAt: number): string {
   const seconds = Math.round((Date.now() - startedAt) / 1000);

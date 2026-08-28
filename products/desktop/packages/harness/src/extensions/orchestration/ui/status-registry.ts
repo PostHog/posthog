@@ -1,7 +1,7 @@
 import type { Message } from "@earendil-works/pi-ai";
-import type { UsageStats } from "./run-agent";
+import type { UsageStats } from "../run-agent";
+import type { WorkflowPhaseMetadata } from "../tools/workflow-runtime";
 import type { WorkflowAgentStatus } from "./workflow-render";
-import type { WorkflowPhaseMetadata } from "./workflow-runtime";
 
 export interface AgentRunSnapshot {
   runId: string;

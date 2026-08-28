@@ -3,13 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { runAgentMock } = vi.hoisted(() => ({ runAgentMock: vi.fn() }));
 
-vi.mock("./run-agent", async () => {
+vi.mock("../run-agent", async () => {
   const actual =
-    await vi.importActual<typeof import("./run-agent")>("./run-agent");
+    await vi.importActual<typeof import("../run-agent")>("../run-agent");
   return { ...actual, runAgent: runAgentMock };
 });
 
-import type { SingleRunResult } from "./run-agent";
+import type { SingleRunResult } from "../run-agent";
 import { registerWorkflowTool } from "./workflow-tool";
 
 function successResult(

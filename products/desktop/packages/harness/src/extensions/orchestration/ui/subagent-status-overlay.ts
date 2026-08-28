@@ -12,7 +12,7 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
-import { getFinalOutput } from "./format";
+import { getFinalOutput } from "../format";
 import { listAgentRuns, subscribeToOrchestration } from "./status-registry";
 import { formatUsageStats, styleMultiline } from "./subagent-render";
 

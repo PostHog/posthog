@@ -6,17 +6,17 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { resolveOrchestrationResource } from "./resources";
-import { OrchestrationStatusEditor } from "./status-editor";
-import { renderOrchestrationFooterLines } from "./status-footer";
+import { registerSubagentTool } from "./tools/subagent-tool";
+import { registerWorkflowTool } from "./tools/workflow-tool";
+import { OrchestrationStatusEditor } from "./ui/status-editor";
+import { renderOrchestrationFooterLines } from "./ui/status-footer";
 import {
   hasActiveAgentRuns,
   hasActiveWorkflows,
   subscribeToOrchestration,
-} from "./status-registry";
-import { showSubagentStatusOverlay } from "./subagent-status-overlay";
-import { registerSubagentTool } from "./subagent-tool";
-import { showWorkflowStatusOverlay } from "./workflow-status-overlay";
-import { registerWorkflowTool } from "./workflow-tool";
+} from "./ui/status-registry";
+import { showSubagentStatusOverlay } from "./ui/subagent-status-overlay";
+import { showWorkflowStatusOverlay } from "./ui/workflow-status-overlay";
 
 export function createOrchestrationExtension(): ExtensionFactory {
   return (pi: ExtensionAPI) => {

@@ -3,7 +3,7 @@
  * phase-grouped progress while the script runs, and a collapsed/expanded
  * (Ctrl+O) result view with per-agent result previews, workflow logs, token
  * spend, and the final synthesized result. Purely presentational over the
- * `WorkflowSnapshot` built in `workflow-tool.ts`.
+ * `WorkflowSnapshot` built by the workflow tool.
  */
 import type {
   AgentToolResult,
@@ -25,7 +25,7 @@ import {
   extractWorkflowName,
   type WorkflowInputs,
   type WorkflowPhaseMetadata,
-} from "./workflow-runtime";
+} from "../tools/workflow-runtime";
 
 /** Belt-and-suspenders: guarantee every rendered line fits `width`, regardless of what nested components did. */
 function widthSafe(component: Component): Component {
