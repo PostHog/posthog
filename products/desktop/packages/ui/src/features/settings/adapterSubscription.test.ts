@@ -1,6 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { registerAdapterSubscription } = vi.hoisted(() => ({
+  registerAdapterSubscription: vi.fn(),
+}));
+
+vi.mock("@posthog/ui/shell/posthogAnalyticsImpl", () => ({
+  registerAdapterSubscription,
+}));
+
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import {
   effectiveModelAccess,
+  registerSubscriptionAtBoot,
   subscriptionNeedsConnection,
 } from "./adapterSubscription";
 
@@ -90,5 +101,43 @@ describe("adapter subscription gating", () => {
     ],
   ])("%s", (_name, input, expected) => {
     expect(subscriptionNeedsConnection(input)).toBe(expected);
+  });
+
+  describe("registerSubscriptionAtBoot", () => {
+    beforeEach(() => {
+      registerAdapterSubscription.mockClear();
+      useSettingsStore.setState({
+        _hasHydrated: true,
+        claudeModelAccess: "own-subscription",
+      });
+    });
+
+    it("reports the access value even when the login check fails", async () => {
+      await expect(
+        registerSubscriptionAtBoot(
+          "claude",
+          () => Promise.reject(new Error("claude auth status timed out")),
+          true,
+        ),
+      ).rejects.toThrow("claude auth status timed out");
+
+      expect(registerAdapterSubscription).toHaveBeenCalledWith("claude", {
+        access: "own-subscription",
+        connected: false,
+      });
+    });
+
+    it("reports the login state once the check answers", async () => {
+      await registerSubscriptionAtBoot(
+        "claude",
+        () => Promise.resolve({ loggedIn: true }),
+        true,
+      );
+
+      expect(registerAdapterSubscription).toHaveBeenLastCalledWith("claude", {
+        access: "own-subscription",
+        connected: true,
+      });
+    });
   });
 });

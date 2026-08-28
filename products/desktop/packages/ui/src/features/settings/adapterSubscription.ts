@@ -97,14 +97,12 @@ export async function registerSubscriptionAtBoot(
   flagEnabled: boolean,
 ): Promise<void> {
   await settingsHydrated();
-  const status = await fetchStatus();
   const access: ModelAccess = flagEnabled
     ? SPECS[adapter].readAccess(useSettingsStore.getState())
     : "posthog-gateway";
-  registerAdapterSubscription(adapter, {
-    access,
-    connected: status.loggedIn,
-  });
+  registerAdapterSubscription(adapter, { access, connected: false });
+  const status = await fetchStatus();
+  registerAdapterSubscription(adapter, { access, connected: status.loggedIn });
 }
 
 function settingsHydrated(): Promise<void> {
