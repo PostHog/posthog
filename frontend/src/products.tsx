@@ -907,7 +907,11 @@ export const productConfiguration: Record<string, any> = {
     Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog' },
     StamphogRuns: { projectBased: true, name: 'Stamphog runs', iconType: 'stamphog' },
     StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
-    StreamlitApps: { name: 'Streamlit apps', projectBased: true },
+    StreamlitApps: {
+        name: 'Streamlit apps',
+        description: 'Build and share custom Python apps that run on your PostHog data.',
+        projectBased: true,
+    },
     StreamlitApp: { name: 'Streamlit app', projectBased: true },
     StreamlitAppEdit: { name: 'Edit Streamlit app', projectBased: true },
     Subscriptions: {
@@ -954,7 +958,13 @@ export const productConfiguration: Record<string, any> = {
     },
     UserInterview: { name: 'Interview topic', projectBased: true, activityScope: 'UserInterview' },
     UserInterviewResponse: { name: 'Interview response', projectBased: true, activityScope: 'UserInterview' },
-    VisualReviewIndex: { name: 'Visual review', projectBased: true, iconType: 'visual_review' },
+    VisualReviewIndex: {
+        name: 'Visual review',
+        description:
+            'Catch unintended UI changes by reviewing screenshot diffs from CI, with the approved baselines committed back to your repo.',
+        projectBased: true,
+        iconType: 'visual_review',
+    },
     VisualReviewRuns: { name: 'Runs', projectBased: true, iconType: 'visual_review' },
     VisualReviewRun: { name: 'Visual review run', projectBased: true, iconType: 'visual_review' },
     VisualReviewSettings: { name: 'Visual review settings', projectBased: true, iconType: 'visual_review' },
