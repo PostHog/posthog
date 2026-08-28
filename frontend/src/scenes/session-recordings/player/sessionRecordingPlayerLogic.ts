@@ -2470,11 +2470,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         actions.setIsFullScreen(true)
                     }
                     const timestampParam = Number(searchParams.timestamp)
-                    const tParam = Number(searchParams.t) * 1000
+                    const tNumber = Number(searchParams.t)
+                    const UNIX_TIMESTAMP_THRESHOLD_MS = 1e11
+
                     if (searchParams.timestamp && Number.isFinite(timestampParam)) {
                         actions.seekToTimestamp(timestampParam, true)
-                    } else if (searchParams.t && Number.isFinite(tParam)) {
-                        actions.seekToTime(tParam)
+                    } else if (searchParams.timestamp && dayjs(searchParams.timestamp).isValid()) {
+                        // FIX: Handle ISO timestamp strings that evaluate to NaN when parsed as Number (e.g. from Slack integration)
+                        actions.seekToTimestamp(dayjs(searchParams.timestamp).valueOf(), true)
+                    } else if (searchParams.t && Number.isFinite(tNumber)) {
+                        if (tNumber > UNIX_TIMESTAMP_THRESHOLD_MS) {
+                            actions.seekToTimestamp(tNumber, true)
+                        } else {
+                            actions.seekToTime(tNumber * 1000)
+                        }
+                    } else if (searchParams.t && dayjs(searchParams.t).isValid()) {
+                        // FIX: Handle ISO timestamp strings in the 't' parameter (e.g. t=2026-09-01T10:00:30.000Z)
+                        actions.seekToTimestamp(dayjs(searchParams.t).valueOf(), true)
                     } else {
                         actions.setSkipToFirstMatchingEvent(true)
                     }
@@ -3406,15 +3418,26 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (shouldPause && !values.pauseForced) {
                 actions.forcePause()
             }
+            const UNIX_TIMESTAMP_THRESHOLD_MS = 1e11
             if (searchParams.timestamp) {
                 const desiredStartTime = Number(searchParams.timestamp)
                 if (!isNaN(desiredStartTime)) {
                     actions.seekToTimestamp(desiredStartTime, true)
+                } else if (dayjs(searchParams.timestamp).isValid()) {
+                    // FIX: Gracefully parse valid ISO timestamp strings to milliseconds
+                    actions.seekToTimestamp(dayjs(searchParams.timestamp).valueOf(), true)
                 }
             } else if (searchParams.t) {
-                const desiredStartTime = Number(searchParams.t) * 1000
+                const desiredStartTime = Number(searchParams.t)
                 if (!isNaN(desiredStartTime)) {
-                    actions.seekToTime(desiredStartTime)
+                    if (desiredStartTime > UNIX_TIMESTAMP_THRESHOLD_MS) {
+                        actions.seekToTimestamp(desiredStartTime, true)
+                    } else {
+                        actions.seekToTime(desiredStartTime * 1000)
+                    }
+                } else if (dayjs(searchParams.t).isValid()) {
+                    // FIX: Gracefully parse valid ISO timestamp strings to milliseconds
+                    actions.seekToTimestamp(dayjs(searchParams.t).valueOf(), true)
                 }
             }
         },
