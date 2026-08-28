@@ -45,9 +45,10 @@ pub struct InjectArgs {
     /// In `event` release mode, do not embed `_posthogReleaseId` into the chunks. The injected
     /// bytes then depend only on the content-addressed chunk id, so identical input produces
     /// identical output on every deploy. Use this for content-hashed bundles, where a per-release
-    /// id rewrites unchanged chunks and poisons caches. The server still rebuilds the release from
-    /// the `$app_namespace` / `$app_version` / `$app_build` on each event, and symbolication is
-    /// unaffected because frames resolve by chunk id. No effect in `symbol-set` mode.
+    /// id rewrites unchanged chunks and poisons caches. Trade-off: exceptions from web and Node
+    /// bundles then carry no release, because that id is their only release locator; React Native
+    /// keeps its release, which the server rebuilds from event app metadata. Symbolication is
+    /// unaffected either way, because frames resolve by chunk id. No effect in `symbol-set` mode.
     #[arg(long)]
     pub no_embed_release: bool,
 }
@@ -85,14 +86,6 @@ pub fn inject_impl(
         no_embed_release,
     } = args;
 
-    // `--no-embed-release` forces the release id out of the chunks, the same as the
-    // `AppMetadata` source, so deterministic output survives regardless of the runtime source.
-    let event_release_source = if *no_embed_release {
-        EventReleaseSource::AppMetadata
-    } else {
-        event_release_source
-    };
-
     info!("injecting selection: {}", file_selection);
 
     let iterator = FileSelection::try_from(file_selection.clone())?;
@@ -111,17 +104,30 @@ pub fn inject_impl(
             // stamped into the sourcemap, so the release exists but nothing binds a symbol set
             // to it. When the SDK reads the release from the app instead, only the chunk ids go
             // in. The upload then creates the release row that the server resolves onto.
-            let release_id = match event_release_source {
-                EventReleaseSource::EmbeddedInChunk => {
-                    let release_id = resolve_release_id(release.clone(), existing_release)?;
-                    if release_id.is_none() {
-                        warn!(
-                            "no release could be resolved, injecting chunk ids only — events will carry no release"
-                        );
-                    }
-                    release_id
+            let release_id = if *no_embed_release {
+                // The user chose byte-stable output over a per-event release. Web and Node
+                // bundles have no other release locator, so warn that their exceptions report
+                // no release. React Native carries none in the chunk anyway and resolves its
+                // release from app metadata, so it loses nothing — stay quiet there.
+                if event_release_source == EventReleaseSource::EmbeddedInChunk {
+                    warn!(
+                        "--no-embed-release: chunks carry no release id, so exceptions from web and Node bundles report no release; symbolication still resolves by chunk id"
+                    );
                 }
-                EventReleaseSource::AppMetadata => None,
+                None
+            } else {
+                match event_release_source {
+                    EventReleaseSource::EmbeddedInChunk => {
+                        let release_id = resolve_release_id(release.clone(), existing_release)?;
+                        if release_id.is_none() {
+                            warn!(
+                                "no release could be resolved, injecting chunk ids only — events will carry no release"
+                            );
+                        }
+                        release_id
+                    }
+                    EventReleaseSource::AppMetadata => None,
+                }
             };
             pairs = inject_pairs(pairs, release_id.as_deref(), *no_embed_release)?;
         }
@@ -535,7 +541,10 @@ mod tests {
         .expect("first inject should succeed");
         let first = injected_pair(dir.path());
         let chunk_id = first.get_chunk_id().expect("first run injects a chunk id");
-        assert_eq!(first.get_injected_release_id(), Some(release.id.to_string()));
+        assert_eq!(
+            first.get_injected_release_id(),
+            Some(release.id.to_string())
+        );
 
         // Re-running with the flag over the already-injected dist must remove the embedded id
         // while keeping the content-addressed chunk id.

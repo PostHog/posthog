@@ -65,8 +65,8 @@ pub struct ProcessArgs {
 
     /// In `event` release mode, do not embed `_posthogReleaseId` into the chunks, so identical
     /// input produces identical output on every deploy. Use this for content-hashed bundles.
-    /// The server still rebuilds the release from event app metadata. No effect in `symbol-set`
-    /// mode.
+    /// Trade-off: exceptions from web and Node bundles then carry no release. Symbolication is
+    /// unaffected, because frames resolve by chunk id. No effect in `symbol-set` mode.
     #[arg(long)]
     pub no_embed_release: bool,
 }

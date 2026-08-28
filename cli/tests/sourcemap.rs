@@ -267,7 +267,7 @@ fn test_reinject_is_idempotent() {
     assert_eq!(pairs.len(), 1);
     let source_before = pairs.first().unwrap().source.inner.content.clone();
 
-    let injected_pairs = inject_pairs(pairs, None).expect("Failed to inject pairs");
+    let injected_pairs = inject_pairs(pairs, None, false).expect("Failed to inject pairs");
     let first_pair = injected_pairs.first().expect("Failed to get first pair");
 
     assert_eq!(first_pair.source.get_chunk_id().as_deref(), Some("0"));
@@ -308,13 +308,14 @@ fn test_reinject_refreshes_stale_release_id() {
     let case_path = get_case_path("inject");
     let pairs =
         read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
-    let injected = inject_pairs(pairs, Some("release-a")).expect("Failed to inject pairs");
+    let injected = inject_pairs(pairs, Some("release-a"), false).expect("Failed to inject pairs");
     let chunk_id = injected
         .first()
         .and_then(|p| p.get_chunk_id())
         .expect("chunk id");
 
-    let refreshed = inject_pairs(injected, Some("release-b")).expect("Failed to re-inject pairs");
+    let refreshed =
+        inject_pairs(injected, Some("release-b"), false).expect("Failed to re-inject pairs");
     let pair = refreshed.first().expect("Failed to get first pair");
 
     assert_eq!(pair.get_chunk_id().as_deref(), Some(chunk_id.as_str()));
@@ -333,10 +334,10 @@ fn test_reinject_without_release_keeps_embedded_release_id() {
     let case_path = get_case_path("inject");
     let pairs =
         read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
-    let injected = inject_pairs(pairs, Some("release-a")).expect("Failed to inject pairs");
+    let injected = inject_pairs(pairs, Some("release-a"), false).expect("Failed to inject pairs");
     let source_before = injected.first().unwrap().source.inner.content.clone();
 
-    let reinjected = inject_pairs(injected, None).expect("Failed to re-inject pairs");
+    let reinjected = inject_pairs(injected, None, false).expect("Failed to re-inject pairs");
 
     assert_eq!(
         reinjected.first().unwrap().source.inner.content,
@@ -351,13 +352,14 @@ fn test_reinject_adds_release_to_releaseless_chunk() {
     let case_path = get_case_path("inject");
     let pairs =
         read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
-    let injected = inject_pairs(pairs, None).expect("Failed to inject pairs");
+    let injected = inject_pairs(pairs, None, false).expect("Failed to inject pairs");
     let chunk_id = injected
         .first()
         .and_then(|p| p.get_chunk_id())
         .expect("chunk id");
 
-    let refreshed = inject_pairs(injected, Some("release-a")).expect("Failed to re-inject pairs");
+    let refreshed =
+        inject_pairs(injected, Some("release-a"), false).expect("Failed to re-inject pairs");
     let pair = refreshed.first().expect("Failed to get first pair");
 
     assert_eq!(pair.get_chunk_id().as_deref(), Some(chunk_id.as_str()));
@@ -380,7 +382,8 @@ fn test_inject_with_release_embeds_id_in_source() {
     assert_eq!(pairs.len(), 1);
     let release_id = "0199f7c2-1c4e-7c3a-9f8b-2d6e4a1b7c05";
 
-    let injected_pairs = inject_pairs(pairs, Some(release_id)).expect("Failed to inject pairs");
+    let injected_pairs =
+        inject_pairs(pairs, Some(release_id), false).expect("Failed to inject pairs");
     let first_pair = injected_pairs.first().expect("Failed to get first pair");
 
     let source = &first_pair.source.inner.content;
@@ -492,16 +495,20 @@ fn test_event_mode_content_hash_is_stable_across_release_states() {
             .expect("event mode always sets a content hash")
     };
 
-    let releaseless = hash_of(inject_pairs(load(), None).expect("Failed to inject pairs"));
+    let releaseless = hash_of(inject_pairs(load(), None, false).expect("Failed to inject pairs"));
     let with_release = hash_of(
-        inject_pairs(load(), Some("11111111-2222-4333-8444-555555555555"))
+        inject_pairs(load(), Some("11111111-2222-4333-8444-555555555555"), false)
             .expect("Failed to inject pairs"),
     );
     let transitioned = {
-        let injected = inject_pairs(load(), None).expect("Failed to inject pairs");
+        let injected = inject_pairs(load(), None, false).expect("Failed to inject pairs");
         hash_of(
-            inject_pairs(injected, Some("99999999-8888-4777-8666-000000000000"))
-                .expect("Failed to re-inject pairs"),
+            inject_pairs(
+                injected,
+                Some("99999999-8888-4777-8666-000000000000"),
+                false,
+            )
+            .expect("Failed to re-inject pairs"),
         )
     };
 
@@ -552,7 +559,7 @@ fn test_inject_adopts_bundler_debug_id() {
     let source_before = source_with_debug_id(BUNDLER_DEBUG_ID);
     let pair = make_pair(&source_before, map_with_debug_id(Some(BUNDLER_DEBUG_ID)));
 
-    let injected = inject_pairs(vec![pair], None).expect("Failed to inject pairs");
+    let injected = inject_pairs(vec![pair], None, false).expect("Failed to inject pairs");
     let pair = injected.first().unwrap();
 
     assert_eq!(
@@ -590,7 +597,7 @@ fn test_inject_ignores_malformed_debug_id() {
         map_with_debug_id(None),
     );
 
-    let injected = inject_pairs(vec![pair], None).expect("Failed to inject pairs");
+    let injected = inject_pairs(vec![pair], None, false).expect("Failed to inject pairs");
     let chunk_id = injected.first().unwrap().source.get_chunk_id().unwrap();
 
     assert_ne!(chunk_id, "not-a-uuid");
@@ -607,7 +614,7 @@ fn test_inject_prefers_chunk_debug_id_over_sourcemap() {
         map_with_debug_id(Some(map_debug_id)),
     );
 
-    let injected = inject_pairs(vec![pair], None).expect("Failed to inject pairs");
+    let injected = inject_pairs(vec![pair], None, false).expect("Failed to inject pairs");
     let pair = injected.first().unwrap();
 
     assert_eq!(
@@ -633,16 +640,17 @@ fn test_event_mode_content_hash_is_stable_across_releases_for_adopted_ids() {
     };
 
     let fresh = upload_of(
-        inject_pairs(vec![load()], Some("release-a"))
+        inject_pairs(vec![load()], Some("release-a"), false)
             .expect("Failed to inject pairs")
             .into_iter()
             .next()
             .unwrap(),
     );
     let transitioned = {
-        let injected = inject_pairs(vec![load()], Some("release-a")).expect("Failed to inject");
+        let injected =
+            inject_pairs(vec![load()], Some("release-a"), false).expect("Failed to inject");
         upload_of(
-            inject_pairs(injected, Some("release-b"))
+            inject_pairs(injected, Some("release-b"), false)
                 .expect("Failed to re-inject pairs")
                 .into_iter()
                 .next()
