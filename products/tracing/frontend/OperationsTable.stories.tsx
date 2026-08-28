@@ -48,7 +48,10 @@ const meta: Meta<typeof OperationsTable> = {
     tags: ['autodocs'],
     decorators: [
         (Story) => (
-            <div className="flex flex-col h-100">
+            // A definite width, not just height: without one, AutoSizer and Storybook's
+            // shrink-to-fit layout chase each other's size forever.
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ display: 'flex', flexDirection: 'column', width: 1300, height: 400 }}>
                 <Story />
             </div>
         ),
@@ -68,4 +71,8 @@ export const Empty: Story = {
 
 export const Loading: Story = {
     args: { rows: [], loading: true, windowMs: 3_600_000 },
+    parameters: {
+        // The spinner never resolves, so don't wait for it to disappear before snapshotting.
+        testOptions: { waitForLoadersToDisappear: false },
+    },
 }

@@ -12,13 +12,10 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 
 import { buildRows, changeMagnitude, type CompareRow, type CompareRowStatus, isLowSample } from './compareUtils'
+import { ResizableColumnSpec } from './components/TableColumns/columnWidths'
 import { TableCell } from './components/TableColumns/TableCell'
 import { TableHeaderCell } from './components/TableColumns/TableHeaderCell'
-import {
-    ResizableColumnSpec,
-    ResizableColumns,
-    useResizableColumns,
-} from './components/TableColumns/useResizableColumns'
+import { ResizableColumns, useResizableColumns } from './components/TableColumns/useResizableColumns'
 import { formatDuration } from './TraceWaterfallView'
 
 const ROW_HEIGHT = 44
