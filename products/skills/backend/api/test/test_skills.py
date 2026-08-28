@@ -566,6 +566,27 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["description"] == "New desc."
 
+    def test_publish_rejects_legacy_description_carried_into_new_version(self):
+        skill = self.create_skill(
+            name="legacy-description",
+            description="x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1),
+            body="# V1",
+        )
+
+        response = self.client.patch(
+            self._url("name/legacy-description"),
+            data={"body": "# V2", "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            f"Shorten the skill description to {SPEC_DESCRIPTION_MAX_LENGTH} characters before creating a new version."
+        )
+        skill.refresh_from_db()
+        assert skill.is_latest is True
+        assert not LLMSkill.objects.filter(name="legacy-description", version=2).exists()
+
     def test_publish_with_version_conflict_fails(self):
         self.create_skill(name="conflict-skill", body="# V1")
         self.client.patch(
@@ -933,6 +954,24 @@ class TestLLMSkillAPI(APIBaseTest):
         copy_skill = LLMSkill.objects.get(name="the-copy", deleted=False)
         assert LLMSkillFile.objects.filter(skill=copy_skill).count() == 1
 
+    def test_duplicate_rejects_legacy_description_over_spec_limit(self):
+        self.create_skill(
+            name="legacy-description",
+            description="x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1),
+        )
+
+        response = self.client.post(
+            self._url("name/legacy-description/duplicate"),
+            data={"new_name": "legacy-copy"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            f"Shorten the source skill description to {SPEC_DESCRIPTION_MAX_LENGTH} characters before duplicating it."
+        )
+        assert not LLMSkill.objects.filter(name="legacy-copy").exists()
+
     @parameterized.expand(
         [
             ("plain-name-copy", "", ""),
@@ -1010,6 +1049,26 @@ class TestLLMSkillAPI(APIBaseTest):
         assert {(f["path"], f["content_type"]) for f in data["files"]} == {("scripts/setup.sh", "text/plain")}
         stored = LLMSkillFile.objects.get(skill__name="crud-create", skill__is_latest=True, path="scripts/setup.sh")
         assert stored.content == "#!/bin/bash\necho hi"
+
+    def test_create_file_rejects_legacy_description_carried_into_new_version(self):
+        skill = self.create_skill(
+            name="legacy-description-file",
+            description="x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1),
+        )
+
+        response = self.client.post(
+            self._url("name/legacy-description-file/files"),
+            data={"path": "references/new.md", "content": "new"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            f"Shorten the skill description to {SPEC_DESCRIPTION_MAX_LENGTH} characters before creating a new version."
+        )
+        skill.refresh_from_db()
+        assert skill.is_latest is True
+        assert not LLMSkill.objects.filter(name="legacy-description-file", version=2).exists()
 
     def test_create_file_carries_existing_files_forward(self):
         skill = self.create_skill(name="crud-carry")

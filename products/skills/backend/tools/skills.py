@@ -13,6 +13,7 @@ from posthog.sync import database_sync_to_async
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.skills.backend.api.skill_serializers import RESERVED_SKILL_NAMES, SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.api.skill_services import (
+    LLMSkillDescriptionTooLongError,
     LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
     LLMSkillFileLimitError,
@@ -259,6 +260,8 @@ def _publish_error_message(err: Exception, skill_name: str) -> str:
         )
     if isinstance(err, LLMSkillFileLimitError):
         return f"Skill '{skill_name}' has reached the maximum of {err.max_count} bundled files."
+    if isinstance(err, LLMSkillDescriptionTooLongError):
+        return f"Shorten the description for skill '{skill_name}' to {err.max_length} characters before creating a new version."
     if isinstance(err, LLMSkillEditError):
         detail = err.message
         if err.edit_index is not None:
@@ -418,6 +421,8 @@ class CreateLLMSkillTool(MaxTool):
             raise MaxToolFatalError("Duplicate file paths are not allowed in `files`.")
         except LLMSkillFileLimitError as err:
             raise MaxToolFatalError(f"Cannot attach more than {err.max_count} bundled files to a skill.")
+        except LLMSkillDescriptionTooLongError as err:
+            raise MaxToolFatalError(f"Shorten the skill description to {err.max_length} characters before creating it.")
 
         return (
             f"Created skill '{skill.name}' at v{skill.version}. It is now discoverable via `list_llm_skills`.",
@@ -472,6 +477,7 @@ class UpdateLLMSkillTool(MaxTool):
             LLMSkillVersionConflictError,
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
+            LLMSkillDescriptionTooLongError,
             LLMSkillEditError,
         ) as err:
             raise MaxToolFatalError(_publish_error_message(err, skill_name))
