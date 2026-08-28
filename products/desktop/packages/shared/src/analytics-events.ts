@@ -398,6 +398,19 @@ export interface SessionConfigChangedProperties {
   to_value: string;
 }
 
+export interface ModelSwitchWarningShownProperties {
+  task_id?: string;
+  from_model: string;
+  to_model: string;
+  context_tokens?: number;
+}
+
+export interface ModelSwitchWarningActionProperties
+  extends ModelSwitchWarningShownProperties {
+  action: "cancel" | "copy_handoff_summary" | "switch_now";
+  result?: "failed" | "succeeded";
+}
+
 // Tour events
 type TourAction = "started" | "step_advanced" | "dismissed" | "completed";
 
@@ -1434,6 +1447,8 @@ export const ANALYTICS_EVENTS = {
 
   // Session config events
   SESSION_CONFIG_CHANGED: "Session config changed",
+  MODEL_SWITCH_WARNING_SHOWN: "Model switch warning shown",
+  MODEL_SWITCH_WARNING_ACTION: "Model switch warning action",
 
   // Settings events
   SETTING_CHANGED: "Setting changed",
@@ -1627,6 +1642,8 @@ export type EventPropertyMap = {
 
   // Session config events
   [ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED]: SessionConfigChangedProperties;
+  [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_SHOWN]: ModelSwitchWarningShownProperties;
+  [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION]: ModelSwitchWarningActionProperties;
 
   // Settings events
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
