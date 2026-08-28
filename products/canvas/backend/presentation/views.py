@@ -761,18 +761,25 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Copy an image attached to a task conversation into the canvas's asset store.
 
         Use this for images a user uploaded into the conversation, instead of
-        re-encoding them as base64: pass the task and the attachment's
-        storage_path, and reference the returned sha256 from the source project.
+        re-encoding them as base64: name the attached file, and reference the
+        returned sha256 from the source project as an objectRef asset.
         """
         canvas = self.get_object()
         payload = CanvasAssetAttachSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
+        task_id = payload.validated_data.get("task_id") or self._sandbox_task_id(request)
+        if task_id is None:
+            return Response(
+                {"detail": "Pass task_id: this credential is not bound to a task.", "code": "invalid_input"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         user = self._request_user()
         attachment = tasks_facade.read_task_attachment(
-            payload.validated_data["task_id"],
+            task_id,
             self.team_id,
             user.id if user else None,
-            storage_path=payload.validated_data["storage_path"],
+            storage_path=payload.validated_data.get("storage_path"),
+            file_name=payload.validated_data.get("file_name"),
         )
         if attachment is None:
             raise NotFound("The task attachment was not found.")

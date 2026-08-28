@@ -55,6 +55,9 @@ class InMemoryStorage:
             return None
         return {"ContentLength": len(self.objects[key]), "ContentType": self.extras.get(key, {}).get("ContentType")}
 
+    def list_objects(self, prefix, bucket=None):
+        return sorted(key for key in self.objects if key.startswith(prefix)) or None
+
     def tag(self, key, tags):
         pass
 
@@ -63,7 +66,7 @@ class CanvasAPIBaseTest(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.storage = InMemoryStorage()
-        for attribute in ("write", "read_bytes", "delete_objects", "head_object", "tag"):
+        for attribute in ("write", "read_bytes", "delete_objects", "head_object", "tag", "list_objects"):
             patcher = patch.object(build_service.object_storage, attribute, getattr(self.storage, attribute))
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -1347,6 +1350,57 @@ class TestCanvasAssets(CanvasAPIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
             {"task_id": str(task.id), "storage_path": storage_path},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["sha256"] == hashlib.sha256(PIXEL_PNG).hexdigest()
+
+    def test_attach_by_file_name_uses_the_agents_own_task(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={})
+            storage_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{run.id}/ab12_pixel.png"
+            run.artifacts = [{"id": "ab12", "name": "pixel.png", "storage_path": storage_path}]
+            run.save(update_fields=["artifacts"])
+        self.storage.write(storage_path, PIXEL_PNG, extras={"ContentType": "image/png"})
+
+        client = self._sandbox_client(task.id)
+        response = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+            {"file_name": "pixel.png"},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(task.id),
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["sha256"] == hashlib.sha256(PIXEL_PNG).hexdigest()
+
+    def test_attach_by_file_name_falls_back_to_staged_uploads(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        staged_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/abc123/pixel.png"
+        self.storage.write(staged_path, PIXEL_PNG, extras={"ContentType": "image/png"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+            {"task_id": str(task.id), "file_name": "pixel.png"},
             format="json",
         )
 

@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    CanvasesAssetsAttachCreateBody,
+    CanvasesAssetsAttachCreateParams,
     CanvasesBuildsRetrieveParams,
     CanvasesBuildsRetrieveQueryParams,
     CanvasesCreateBody,
@@ -138,6 +140,33 @@ const canvasDraftsRetrieve = (): ToolBase<typeof CanvasDraftsRetrieveSchema, Sch
                 limit: params.limit,
                 offset: params.offset,
             },
+        })
+        return result
+    },
+})
+
+const CanvasAssetAttachSchema = CanvasesAssetsAttachCreateParams.omit({ project_id: true })
+    .extend(CanvasesAssetsAttachCreateBody.shape)
+    .extend({
+        id: CanvasesAssetsAttachCreateParams.shape['id'].describe('ID of the canvas to attach the image to.'),
+        file_name: CanvasesAssetsAttachCreateBody.shape['file_name'].describe(
+            'The attached file\'s name exactly as it appears in the conversation (e.g. "photo.png").'
+        ),
+    })
+
+const canvasAssetAttach = (): ToolBase<typeof CanvasAssetAttachSchema, Schemas.CanvasAsset> => ({
+    name: 'canvas-asset-attach',
+    schema: CanvasAssetAttachSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasAssetAttachSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.file_name !== undefined) {
+            body['file_name'] = params.file_name
+        }
+        const result = await context.api.request<Schemas.CanvasAsset>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/assets/attach/`,
+            body,
         })
         return result
     },
@@ -457,6 +486,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-create': canvasCreate,
     'canvas-draft-create': canvasDraftCreate,
     'canvas-drafts-retrieve': canvasDraftsRetrieve,
+    'canvas-asset-attach': canvasAssetAttach,
     'canvas-edit-create': canvasEditCreate,
     'canvas-layout-get': canvasLayoutGet,
     'canvas-layout-patch': canvasLayoutPatch,

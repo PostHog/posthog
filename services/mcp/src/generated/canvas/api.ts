@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -78,6 +78,34 @@ export const CanvasesCreateBody = /* @__PURE__ */ zod
             .describe('Canvas template identifier.'),
     })
     .describe('Payload for creating a new, empty canvas in a channel.')
+
+/**
+ * Copy an image attached to a task conversation into the canvas's asset store.
+ *
+ * Use this for images a user uploaded into the conversation, instead of
+ * re-encoding them as base64: name the attached file, and reference the
+ * returned sha256 from the source project as an objectRef asset.
+ */
+export const CanvasesAssetsAttachCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const canvasesAssetsAttachCreateBodyFileNameMax = 255
+
+export const CanvasesAssetsAttachCreateBody = /* @__PURE__ */ zod
+    .object({
+        file_name: zod
+            .string()
+            .max(canvasesAssetsAttachCreateBodyFileNameMax)
+            .optional()
+            .describe("Name of the attached file as it appears in the conversation (e.g. 'logo.png')."),
+    })
+    .describe("Copy an image attached to a task conversation into the canvas's asset store.")
 
 /**
  * Read the canvas's build lifecycle: live pointers plus recent builds.

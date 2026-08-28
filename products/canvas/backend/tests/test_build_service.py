@@ -50,7 +50,7 @@ class BuildServiceBaseTest(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.storage = InMemoryStorage()
-        for attribute in ("write", "read_bytes", "delete_objects", "head_object", "tag"):
+        for attribute in ("write", "read_bytes", "delete_objects", "head_object", "tag", "list_objects"):
             patcher = patch.object(build_service.object_storage, attribute, getattr(self.storage, attribute))
             patcher.start()
             self.addCleanup(patcher.stop)

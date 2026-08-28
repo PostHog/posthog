@@ -250,13 +250,13 @@ export const getCanvasesAssetsAttachCreateUrl = (projectId: string, id: string) 
  * Copy an image attached to a task conversation into the canvas's asset store.
  *
  * Use this for images a user uploaded into the conversation, instead of
- * re-encoding them as base64: pass the task and the attachment's
- * storage_path, and reference the returned sha256 from the source project.
+ * re-encoding them as base64: name the attached file, and reference the
+ * returned sha256 from the source project as an objectRef asset.
  */
 export const canvasesAssetsAttachCreate = async (
     projectId: string,
     id: string,
-    canvasAssetAttachApi: CanvasAssetAttachApi,
+    canvasAssetAttachApi?: CanvasAssetAttachApi,
     options?: RequestInit
 ): Promise<CanvasAssetApi> => {
     return apiMutator<CanvasAssetApi>(getCanvasesAssetsAttachCreateUrl(projectId, id), {

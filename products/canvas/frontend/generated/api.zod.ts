@@ -111,20 +111,31 @@ export const CanvasesAssetsCreateBody = /* @__PURE__ */ zod
  * Copy an image attached to a task conversation into the canvas's asset store.
  *
  * Use this for images a user uploaded into the conversation, instead of
- * re-encoding them as base64: pass the task and the attachment's
- * storage_path, and reference the returned sha256 from the source project.
+ * re-encoding them as base64: name the attached file, and reference the
+ * returned sha256 from the source project as an objectRef asset.
  */
+export const canvasesAssetsAttachCreateBodyFileNameMax = 255
+
 export const canvasesAssetsAttachCreateBodyStoragePathMax = 1024
 
 export const CanvasesAssetsAttachCreateBody = /* @__PURE__ */ zod
     .object({
-        task_id: zod.uuid().describe('Task the attachment was uploaded to.'),
+        file_name: zod
+            .string()
+            .max(canvasesAssetsAttachCreateBodyFileNameMax)
+            .optional()
+            .describe("Name of the attached file as it appears in the conversation (e.g. 'logo.png')."),
+        task_id: zod
+            .uuid()
+            .optional()
+            .describe("Task the file was attached to. Omit to use the calling agent's own task."),
         storage_path: zod
             .string()
             .max(canvasesAssetsAttachCreateBodyStoragePathMax)
-            .describe("The attachment's storage_path, from the task artifact it was staged as."),
+            .optional()
+            .describe("The attachment's exact storage path. Pass file_name instead when you only know the name."),
     })
-    .describe("Copy a task (conversation) attachment into the canvas's asset store.")
+    .describe("Copy an image attached to a task conversation into the canvas's asset store.")
 
 /**
  * Apply a lifecycle action (retry, pin, unpin, cancel) to one build.

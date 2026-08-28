@@ -3634,13 +3634,21 @@ def read_task_run_artifact(
 
 
 def read_task_attachment(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, storage_path: str
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    storage_path: str | None = None,
+    file_name: str | None = None,
 ) -> tuple[bytes, str] | None:
-    """Read one of a task's attachments (staged conversation uploads or run outputs) by storage path.
+    """Read one of a task's attachments (staged conversation uploads or run outputs).
 
-    Returns ``(content, content_type)``, or ``None`` when the task is not visible, the path is
-    outside the task's artifact prefix, or the object is missing. The prefix check is the
-    authorization boundary: every task artifact key embeds its team and task ids.
+    Address it by ``storage_path``, or by ``file_name`` — which resolves against the task's run
+    artifact manifests (newest run first) and then the staged-upload prefix in object storage,
+    so an agent can name a conversation attachment without knowing where it is stored.
+    Returns ``(content, content_type)``, or ``None`` when the task is not visible, nothing
+    matches, or the object is missing. The prefix check is the authorization boundary: every
+    task artifact key embeds its team and task ids.
     """
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
@@ -3648,6 +3656,21 @@ def read_task_attachment(
     if task is None:
         return None
     prefix = f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{task.team_id}/task_{task.id}/"
+    if storage_path is None:
+        if not file_name:
+            return None
+        for run in TaskRun.objects.filter(task_id=task.id, team_id=team_id).order_by("-created_at"):
+            for artifact in reversed(run.artifacts or []):
+                if artifact.get("name") == file_name and isinstance(artifact.get("storage_path"), str):
+                    storage_path = artifact["storage_path"]
+                    break
+            if storage_path is not None:
+                break
+        if storage_path is None:
+            staged = object_storage.list_objects(f"{prefix}staged/") or []
+            storage_path = next((key for key in staged if key.rsplit("/", 1)[-1] == file_name), None)
+        if storage_path is None:
+            return None
     if not storage_path.startswith(prefix):
         return None
     try:

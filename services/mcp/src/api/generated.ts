@@ -15576,16 +15576,21 @@ export namespace Schemas {
     }
 
     /**
-     * Copy a task (conversation) attachment into the canvas's asset store.
+     * Copy an image attached to a task conversation into the canvas's asset store.
      */
     export interface CanvasAssetAttach {
-      /** Task the attachment was uploaded to. */
-      task_id: string;
       /**
-         * The attachment's storage_path, from the task artifact it was staged as.
+         * Name of the attached file as it appears in the conversation (e.g. 'logo.png').
+         * @maxLength 255
+         */
+      file_name?: string;
+      /** Task the file was attached to. Omit to use the calling agent's own task. */
+      task_id?: string;
+      /**
+         * The attachment's exact storage path. Pass file_name instead when you only know the name.
          * @maxLength 1024
          */
-      storage_path: string;
+      storage_path?: string;
     }
 
     /**

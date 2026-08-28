@@ -792,13 +792,27 @@ class CanvasAssetUploadSerializer(serializers.Serializer):
 
 
 class CanvasAssetAttachSerializer(serializers.Serializer):
-    """Copy a task (conversation) attachment into the canvas's asset store."""
+    """Copy an image attached to a task conversation into the canvas's asset store."""
 
-    task_id = serializers.UUIDField(help_text="Task the attachment was uploaded to.")
-    storage_path = serializers.CharField(
-        max_length=1024,
-        help_text="The attachment's storage_path, from the task artifact it was staged as.",
+    file_name = serializers.CharField(
+        required=False,
+        max_length=255,
+        help_text="Name of the attached file as it appears in the conversation (e.g. 'logo.png').",
     )
+    task_id = serializers.UUIDField(
+        required=False,
+        help_text="Task the file was attached to. Omit to use the calling agent's own task.",
+    )
+    storage_path = serializers.CharField(
+        required=False,
+        max_length=1024,
+        help_text="The attachment's exact storage path. Pass file_name instead when you only know the name.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not attrs.get("file_name") and not attrs.get("storage_path"):
+            raise serializers.ValidationError("Pass file_name (or storage_path) to identify the attachment.")
+        return attrs
 
 
 class CanvasAssetSerializer(serializers.Serializer):
