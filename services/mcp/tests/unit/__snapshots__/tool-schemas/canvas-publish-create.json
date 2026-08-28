@@ -26,19 +26,22 @@
             "properties": {
                 "assets": {
                     "additionalProperties": {
+                        "description": "One binary asset: inline base64 bytes, or a reference to an uploaded canvas asset.",
                         "properties": {
                             "content": {
+                                "description": "Base64-encoded bytes. Required for base64 encoding.",
                                 "maxLength": 2796204,
                                 "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
                                 "type": "string"
                             },
                             "contentType": {
-                                "description": "* `image/png` - image/png\n* `image/jpeg` - image/jpeg\n* `image/gif` - image/gif\n* `image/webp` - image/webp\n* `image/svg+xml` - image/svg+xml\n* `font/woff` - font/woff\n* `font/woff2` - font/woff2\n* `application/wasm` - application/wasm\n* `application/octet-stream` - application/octet-stream",
+                                "description": "MIME type of the asset bytes. Image types are emitted as artifact files a plain <img> tag can reference.\n\n* `image/png` - image/png\n* `image/jpeg` - image/jpeg\n* `image/gif` - image/gif\n* `image/webp` - image/webp\n* `image/avif` - image/avif\n* `image/svg+xml` - image/svg+xml\n* `font/woff` - font/woff\n* `font/woff2` - font/woff2\n* `application/wasm` - application/wasm\n* `application/octet-stream` - application/octet-stream",
                                 "enum": [
                                     "image/png",
                                     "image/jpeg",
                                     "image/gif",
                                     "image/webp",
+                                    "image/avif",
                                     "image/svg+xml",
                                     "font/woff",
                                     "font/woff2",
@@ -48,12 +51,22 @@
                                 "type": "string"
                             },
                             "encoding": {
-                                "description": "* `base64` - base64",
-                                "enum": ["base64"],
+                                "description": "How the bytes are carried: \"base64\" inline in `content`, or \"objectRef\" naming an asset already uploaded to this canvas's asset store by its sha256 (images only).\n\n* `base64` - base64\n* `objectRef` - objectRef",
+                                "enum": ["base64", "objectRef"],
                                 "type": "string"
+                            },
+                            "sha256": {
+                                "description": "Hex sha256 identifying the uploaded asset, as returned by the asset upload endpoint. Required for objectRef encoding.",
+                                "pattern": "^[0-9a-f]{64}$",
+                                "type": "string"
+                            },
+                            "sizeBytes": {
+                                "description": "Byte size of the uploaded asset, as returned by the asset upload endpoint. Required for objectRef encoding.",
+                                "minimum": 1,
+                                "type": "number"
                             }
                         },
-                        "required": ["encoding", "contentType", "content"],
+                        "required": ["encoding", "contentType"],
                         "type": "object"
                     },
                     "description": "Optional base64-encoded binary assets keyed by safe project-relative paths.",

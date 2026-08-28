@@ -24,8 +24,37 @@
         "operations": {
             "description": "Edits applied in order to the canvas's current source project.",
             "items": {
-                "description": "One per-file edit: set a file's content, or delete it.",
+                "description": "One per-path edit: set a file's content, set a stored-asset reference, or delete.",
                 "properties": {
+                    "asset": {
+                        "description": "Set this path to an image asset uploaded to the canvas's asset store, so <img> tags and imports can reference it. Mutually exclusive with content.",
+                        "properties": {
+                            "contentType": {
+                                "description": "MIME type of the uploaded asset, from the upload or attach response.\n\n* `image/png` - image/png\n* `image/jpeg` - image/jpeg\n* `image/gif` - image/gif\n* `image/webp` - image/webp\n* `image/avif` - image/avif\n* `image/svg+xml` - image/svg+xml",
+                                "enum": [
+                                    "image/png",
+                                    "image/jpeg",
+                                    "image/gif",
+                                    "image/webp",
+                                    "image/avif",
+                                    "image/svg+xml"
+                                ],
+                                "type": "string"
+                            },
+                            "sha256": {
+                                "description": "Hex sha256 identifying the uploaded asset, from the upload or attach response.",
+                                "pattern": "^[0-9a-f]{64}$",
+                                "type": "string"
+                            },
+                            "sizeBytes": {
+                                "description": "Byte size of the uploaded asset, from the upload or attach response.",
+                                "minimum": 1,
+                                "type": "number"
+                            }
+                        },
+                        "required": ["sha256", "contentType", "sizeBytes"],
+                        "type": "object"
+                    },
                     "content": {
                         "anyOf": [
                             {
@@ -35,10 +64,10 @@
                                 "type": "null"
                             }
                         ],
-                        "description": "The file's complete new content. Null (or omitted) deletes the file."
+                        "description": "The file's complete new content. With no content and no asset, the path is deleted."
                     },
                     "path": {
-                        "description": "Project-relative path of the file to write or delete (e.g. \"src/canvas.tsx\").",
+                        "description": "Project-relative path of the file or asset to write or delete (e.g. \"src/canvas.tsx\").",
                         "type": "string"
                     }
                 },
