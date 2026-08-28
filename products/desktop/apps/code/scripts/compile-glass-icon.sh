@@ -32,6 +32,8 @@ echo "Compiling liquid glass icon..."
 if ! command -v actool &> /dev/null; then
   echo "⚠ actool not found - Xcode is required to compile liquid glass icons"
   echo "  Skipping compilation (app will use standard .icns icon)"
+  # Drop any stale catalog so packaging falls back to the .icns icon
+  rm -f "$OUTPUT_PATH"
   exit 0
 fi
 
@@ -53,6 +55,8 @@ if ! actool "$ICON_PATH" \
   echo "⚠ actool failed - Xcode is required to compile liquid glass icons"
   echo "  Skipping compilation (app will use standard .icns icon)"
   rm -rf "$TEMP_DIR"
+  # Drop any stale catalog so packaging falls back to the .icns icon
+  rm -f "$OUTPUT_PATH"
   exit 0
 fi
 
@@ -62,6 +66,8 @@ if [ -f "$TEMP_DIR/Assets.car" ]; then
   echo "✓ Compiled Assets.car to $OUTPUT_PATH"
 else
   echo "⚠ Assets.car not generated - skipping"
+  # Drop any stale catalog so packaging falls back to the .icns icon
+  rm -f "$OUTPUT_PATH"
 fi
 
 # Clean up
