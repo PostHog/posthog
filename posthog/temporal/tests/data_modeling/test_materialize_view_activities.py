@@ -1713,10 +1713,19 @@ class TestHogqlTableEmptyResults:
 
 
 class TestHogqlTableDescribeSettings:
-    async def test_describe_probe_drops_global_subqueries(self, ateam: Team) -> None:
+    @pytest.mark.parametrize(
+        "operator,global_function",
+        [("IN", "globalIn("), ("NOT IN", "globalNotIn(")],
+    )
+    async def test_describe_probe_drops_global_subqueries(
+        self, ateam: Team, operator: str, global_function: str
+    ) -> None:
         client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
         client.describe_body = b"distinct_id\tString\n"
-        query = "SELECT distinct_id FROM events WHERE distinct_id IN (SELECT distinct_id FROM events WHERE event = 'x')"
+        query = (
+            f"SELECT distinct_id FROM events WHERE distinct_id {operator} "
+            "(SELECT distinct_id FROM events WHERE event = 'x')"
+        )
 
         @contextlib.asynccontextmanager
         async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
@@ -1728,8 +1737,8 @@ class TestHogqlTableDescribeSettings:
             _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
         assert client.describe_settings == {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
-        assert client.describe_query is not None and "globalIn(" not in client.describe_query
-        assert client.arrow_query is not None and "globalIn(" in client.arrow_query
+        assert client.describe_query is not None and global_function not in client.describe_query
+        assert client.arrow_query is not None and global_function in client.arrow_query
 
 
 class _SlowDescribeClient(_EmptyArrowClient):
