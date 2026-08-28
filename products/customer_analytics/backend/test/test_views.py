@@ -2056,7 +2056,16 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert listed.status_code == status.HTTP_200_OK
         assert [s["id"] for s in listed.json()["results"]] == [source_id]
 
-        toggled = self.client.patch(f"{self.endpoint}{source_id}/", {"is_enabled": False}, format="json")
+        detail_endpoint = f"{self.endpoint}{source_id}/"
+        retrieved = self.client.get(detail_endpoint)
+        assert retrieved.status_code == status.HTTP_200_OK
+        assert retrieved.json()["column_property_map"] is None
+        assert retrieved.json()["column_descriptions"] is None
+
+        round_tripped = self.client.patch(detail_endpoint, retrieved.json(), format="json")
+        assert round_tripped.status_code == status.HTTP_200_OK, round_tripped.content
+
+        toggled = self.client.patch(detail_endpoint, {"is_enabled": False}, format="json")
         assert toggled.status_code == status.HTTP_200_OK
         assert toggled.json()["is_enabled"] is False
 
@@ -2089,6 +2098,30 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert body["external_data_schema"] == str(schema.id)
         assert body["column_property_map"] == {"plan": "plan_tier"}
         assert body["saved_query"] is None
+
+    def test_patch_person_source_mapping_round_trip_and_validation(self):
+        source_id = self._create_person_source()
+
+        patched = self.client.patch(
+            f"{self.endpoint}{source_id}/",
+            {
+                "column_property_map": {"plan": "plan_tier", "seats": "seat_count"},
+                "column_descriptions": {"seats": " Seat count "},
+            },
+            format="json",
+        )
+
+        assert patched.status_code == status.HTTP_200_OK, patched.content
+        assert patched.json()["id"] == source_id
+        assert patched.json()["column_property_map"] == {"plan": "plan_tier", "seats": "seat_count"}
+        assert patched.json()["column_descriptions"] == {"seats": "Seat count"}
+
+        invalid = self.client.patch(f"{self.endpoint}{source_id}/", {"column_property_map": {}}, format="json")
+        assert invalid.status_code == status.HTTP_400_BAD_REQUEST, invalid.content
+
+        cleared = self.client.patch(f"{self.endpoint}{source_id}/", {"column_descriptions": None}, format="json")
+        assert cleared.status_code == status.HTTP_200_OK, cleared.content
+        assert cleared.json()["column_descriptions"] == {}
 
     @patch("products.customer_analytics.backend.presentation.views.views.report_user_action")
     def test_mapping_lifecycle_emits_usage_events(self, report_user_action):
@@ -2166,7 +2199,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_person_source_actions_when_enabled(self, _flag, mock_trigger_sync, mock_start_backfill):
         # Wiring guard: the actions route through the facade to the temporal seam, return the typed
-        # response, and the backfill pre-creates a running run the runs feed then surfaces.
+        # response, and an in-flight sync still sends the manual latest-revision follow-up.
         source_id = self._create_person_source()
 
         synced = self.client.post(f"{self.endpoint}{source_id}/sync/")
@@ -2176,7 +2209,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
 
         backfilled = self.client.post(f"{self.endpoint}{source_id}/backfill/")
         assert backfilled.status_code == status.HTTP_202_ACCEPTED, backfilled.content
-        assert backfilled.json() == {"status": "started", "already_running": False}
+        assert backfilled.json() == {"status": "already_running", "already_running": True}
         mock_start_backfill.assert_called_once()
 
         runs = self.client.get(f"{self.endpoint}{source_id}/runs/")
@@ -2212,6 +2245,15 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         )
         assert created.status_code == status.HTTP_201_CREATED, created.content
         assert created.json()["external_data_schema"] == str(schema.id)
+
+        patched = self.client.patch(
+            f"{self.endpoint}{created.json()['id']}/",
+            {"column_property_map": {"plan": "group_plan_tier"}},
+            format="json",
+        )
+        assert patched.status_code == status.HTTP_200_OK, patched.content
+        assert patched.json()["id"] == created.json()["id"]
+        assert patched.json()["column_property_map"] == {"plan": "group_plan_tier"}
 
     @parameterized.expand(
         [

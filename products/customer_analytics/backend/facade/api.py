@@ -1783,8 +1783,13 @@ def _enqueue_custom_property_sync(team_id: int, saved_query_id: str) -> None:
 
 def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
     """Run an initial sync after the source is saved so its values populate immediately rather than
-    waiting for the next materialization. Skips disabled sources and ones whose view was deleted."""
-    if not source.is_enabled or source.saved_query_id is None:
+    waiting for the next materialization. This Celery path owns account sources only; person/group
+    sources use their warehouse binding workflow even when that binding is a saved query."""
+    if (
+        not source.is_enabled
+        or source.saved_query_id is None
+        or source.definition.target_type in _WAREHOUSE_PROFILE_TARGETS
+    ):
         return
     team_id, saved_query_id = source.team_id, str(source.saved_query_id)
     transaction.on_commit(lambda: _enqueue_custom_property_sync(team_id, saved_query_id))
@@ -1833,10 +1838,10 @@ def _expire_stale_running_runs(team_id: int, runs: "Iterable[CustomPropertySyncR
 def _create_running_runs(team_id: int, binding: "WarehouseBinding", trigger: str) -> list[Any]:
     """Insert a 'running' run for each enabled person/group source on the binding that isn't already
     running. The UI shows these as in-progress and disables the trigger while they exist; the sync and
-    backfill activities reconcile them to their terminal state (see record_sync_run). Skipping sources
-    that already have a running run makes this a no-op when a run for the table is already in flight
-    (coalesced). Returns the source ids a placeholder was created for, so the caller can reconcile them
-    to FAILED if the workflow start never happens (see ``_fail_created_runs``)."""
+    backfill activities reconcile them to their terminal state (see record_sync_run). An existing row
+    suppresses only a duplicate placeholder; the binding workflow still receives a signal and opens a
+    new row when its follow-up starts. Returns the source ids a placeholder was created for, so the
+    caller can reconcile them to FAILED if the workflow start never happens (see ``_fail_created_runs``)."""
     # A source and a run name the same binding through different columns: a source's schema binding is
     # the `external_data_schema` FK, a run's is the plain `schema_id`.
     source_field = "saved_query_id" if binding.is_saved_query else "external_data_schema_id"
@@ -1918,12 +1923,37 @@ def _start_backfill(team_id: int, binding: "WarehouseBinding", trigger: str) -> 
 def _start_person_backfill_if_enabled(source: CustomPropertySource) -> None:
     """Auto-start a backfill after a person/group source is created/enabled so historical rows populate
     immediately rather than waiting for the next warehouse run. Profile sources only (an account source
-    has its own Celery sync); deduped per table by the workflow id."""
+    has its own Celery sync); serialized per table by the workflow id."""
     binding = _profile_binding(source)
     if not source.is_enabled or binding is None:
         return
     team_id = source.team_id
     transaction.on_commit(lambda: _start_backfill(team_id, binding, "backfill"))
+
+
+def _stamp_profile_source_provenance(source: CustomPropertySource, binding: "WarehouseBinding") -> None:
+    """Apply the source's current mapping metadata without waiting for a value-hash change."""
+    from products.warehouse_sources.backend.facade.person_property_provenance import (  # noqa: PLC0415
+        stamp_person_property_provenance,
+    )
+
+    column_property_map = source.column_property_map or {}
+    column_descriptions = source.column_descriptions or {}
+    property_descriptions = {
+        column_property_map[column]: description
+        for column, description in column_descriptions.items()
+        if column in column_property_map and description
+    }
+    stamp_person_property_provenance(
+        team_id=source.team_id,
+        binding=binding,
+        source_id=str(source.id),
+        definition_id=str(source.definition_id),
+        target=source.definition.target_type,
+        group_type_index=source.definition.group_type_index,
+        property_names=column_property_map.values(),
+        property_descriptions=property_descriptions,
+    )
 
 
 def _triggerable_profile_binding(team_id: int, source_id: str) -> "WarehouseBinding | None":
@@ -2032,22 +2062,24 @@ def trigger_person_property_sync(
 def trigger_person_property_backfill(
     *, team_id: int, source_id: str, trigger: str = "manual", user_access_control: "UserAccessControl | None" = None
 ) -> bool | None:
-    """Start a backfill for a profile source's table. Returns True (started), False (already running →
-    coalesced), or None for an invalid source (→ 400). Requires editor access to the warehouse object
-    (→ 403)."""
+    """Request a backfill for a profile source's table. Returns True when a new visible run starts,
+    False when an existing run receives a guaranteed latest-state follow-up, or None for an invalid
+    source (→ 400). Requires editor access to the warehouse object (→ 403)."""
     binding = _triggerable_profile_binding(team_id, source_id)
     if binding is None:
         return None
     _assert_warehouse_editor(team_id, binding, user_access_control)
     # Placeholder rows before starting, so the activity always finds a running row to reconcile.
     created_source_ids = _create_running_runs(team_id, binding, trigger)
+    started_new_run = bool(created_source_ids)
     from products.warehouse_sources.backend.facade.temporal import (  # noqa: PLC0415
         WarehouseBindingMissingError,
         start_person_property_backfill,
     )
 
     try:
-        return start_person_property_backfill(team_id=team_id, binding=binding, trigger=trigger)
+        start_person_property_backfill(team_id=team_id, binding=binding, trigger=trigger)
+        return started_new_run
     except WarehouseBindingMissingError:
         # The warehouse table or view was deleted after the placeholders were created; reconcile them
         # so the source isn't stuck 'running', and report an invalid source (→ 400) rather than a
@@ -2199,27 +2231,60 @@ def create_custom_property_source(
     return _to_custom_property_source_view(source, user_access_control)
 
 
+@transaction.atomic
 def update_custom_property_source(
     *, team_id: int, source_id: str, fields: dict[str, Any], user_access_control: "UserAccessControl | None" = None
 ) -> contracts.CustomPropertySourceView | None:
-    """Apply ``fields`` (source_column / key_column / is_enabled) to a team-scoped source. Re-enabling
-    (is_enabled False→True) resets the failure streak and clears the last error. Returns None (→ 404)
-    when no source matches."""
-    source = CustomPropertySource.objects.for_team(team_id).select_related("definition").filter(id=source_id).first()
+    """Apply writable fields to a team-scoped source. Re-enabling (is_enabled False→True) resets the
+    failure streak and clears the last error. Returns None (→ 404) when no source matches."""
+    source = (
+        CustomPropertySource.objects.for_team(team_id)
+        .select_for_update(of=("self",))
+        .select_related("definition")
+        .filter(id=source_id)
+        .first()
+    )
     if source is None:
         return None
+    fields = dict(fields)
+    profile_mapping_fields = {"column_property_map", "column_descriptions"}.intersection(fields)
+    if profile_mapping_fields:
+        if source.definition.target_type not in _WAREHOUSE_PROFILE_TARGETS:
+            if any(fields[field] is not None for field in profile_mapping_fields):
+                raise CustomPropertySourceValidationError(
+                    "An account property source uses saved_query + source_column, not external_data_schema."
+                )
+            # Account GET responses include these profile-only fields as null. Treating those nulls as
+            # absent keeps the writable representation compatible with a GET/PATCH round trip.
+            for field in profile_mapping_fields:
+                fields.pop(field)
+            profile_mapping_fields.clear()
+        else:
+            validated_map = _validate_column_property_map(fields.get("column_property_map", source.column_property_map))
+            if "column_property_map" in fields:
+                fields["column_property_map"] = validated_map
+            if "column_descriptions" in fields:
+                fields["column_descriptions"] = _validate_column_descriptions(
+                    fields["column_descriptions"], set(validated_map)
+                )
+            elif "column_property_map" in fields:
+                fields["column_descriptions"] = _validate_column_descriptions(
+                    source.column_descriptions, set(validated_map)
+                )
     reenabling = fields.get("is_enabled") is True and not source.is_enabled
+    mapping_changed = "column_property_map" in fields and fields["column_property_map"] != source.column_property_map
+    descriptions_changed = (
+        "column_descriptions" in fields and fields["column_descriptions"] != source.column_descriptions
+    )
     columns_changed = any(
         attr in fields and fields[attr] != getattr(source, attr) for attr in ("source_column", "key_column")
     )
-    # A profile source's backfill drives a real warehouse run, so any change that will trigger one —
-    # re-enabling, or changing the mapped columns while it stays enabled — requires the caller's editor
-    # access on the warehouse object, not account-scope editor alone (matching create). Both routes reach
-    # _start_person_backfill_if_enabled below via ``reenabling or columns_changed``; ``is_enabled`` here is
-    # the post-update state that decides whether that helper actually starts a backfill.
+    columns_changed = columns_changed or mapping_changed
+    # Profile mapping fields always require editor access to the bound warehouse object, including while
+    # disabled. Existing re-enable/column changes require it when they will trigger a backfill.
     will_be_enabled = fields.get("is_enabled", source.is_enabled) is True
     binding = _profile_binding(source)
-    if binding is not None and will_be_enabled and (reenabling or columns_changed):
+    if binding is not None and (profile_mapping_fields or (will_be_enabled and (reenabling or columns_changed))):
         _assert_warehouse_editor(team_id, binding, user_access_control)
     for attr, value in fields.items():
         setattr(source, attr, value)
@@ -2227,10 +2292,13 @@ def update_custom_property_source(
         source.consecutive_failures = 0
         source.last_sync_error = None
     source.save()
+    if binding is not None and (mapping_changed or descriptions_changed):
+        _stamp_profile_source_provenance(source, binding)
     # Only re-sync on a change that affects what gets written — not on every (possibly no-op) PATCH.
     if reenabling or columns_changed:
         _enqueue_sync_if_enabled(source)
-        _start_person_backfill_if_enabled(source)
+        if will_be_enabled:
+            _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source, user_access_control)
 
 

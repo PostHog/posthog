@@ -305,6 +305,9 @@ class PersonPropertyBackfillActivityInputs:
     # "backfill" (auto on create/enable) or "manual" (a user asked to re-run). Recorded on the run.
     trigger: str
     saved_query_id: uuid.UUID | None = None
+    # Signal-with-start uses an empty workflow seed, then supplies the real activity input via its
+    # start signal. The default preserves replay for executions started before that trigger existed.
+    skip_initial_run: bool = False
 
     @property
     def binding(self) -> WarehouseBinding:
