@@ -7004,7 +7004,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_events_recent', '{replica}', _timestamp)
   PARTITION BY toStartOfDay(inserted_at)
   ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
-  TTL toDateTime(inserted_at) + INTERVAL 7 DAY
+  TTL toDate(inserted_at) + INTERVAL 9 DAY
   
   SETTINGS ttl_only_drop_parts = 1
   
@@ -12038,7 +12038,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_events_recent', '{replica}', _timestamp)
   PARTITION BY toStartOfDay(inserted_at)
   ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
-  TTL toDateTime(inserted_at) + INTERVAL 7 DAY
+  TTL toDate(inserted_at) + INTERVAL 9 DAY
   SETTINGS storage_policy = 'hot_to_cold'
   SETTINGS ttl_only_drop_parts = 1
   
