@@ -337,7 +337,7 @@ export function SkillsView() {
               })}
             />
 
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="ph-dotted-surface min-h-0 flex-1 overflow-y-auto">
               <div className="mx-auto w-full max-w-5xl px-4 pb-3">
                 {isLoading && skills.length === 0 ? (
                   <div className="pt-2">
@@ -375,7 +375,7 @@ export function SkillsView() {
                       <div key={section.key} className="flex flex-col">
                         <button
                           type="button"
-                          className="sticky top-0 z-10 flex items-center gap-1.5 bg-gray-1 py-1.5 text-left"
+                          className="ph-dotted-surface sticky top-0 z-10 flex items-center gap-1.5 py-1.5 text-left"
                           onClick={() =>
                             setCollapsed((current) =>
                               current.includes(section.key)
