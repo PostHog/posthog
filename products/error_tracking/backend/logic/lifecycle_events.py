@@ -69,15 +69,13 @@ def _current_assignee_property(issue: ErrorTrackingIssue) -> Optional[str]:
     return None
 
 
-def issue_fingerprint_for_links(issue: ErrorTrackingIssue) -> Optional[str]:
-    # Deterministic anchor: prefer the issue's own founding fingerprint. `version`
-    # counts reassignments (merge/split bump it; cymbal inserts at 0), so a
-    # version-0 row was born attached to this issue and cannot be a merged-in
-    # fingerprint that a later split would point at another issue. Callers whose
-    # mutation moves fingerprints (merge) must still snapshot this before mutating.
+def _issue_fingerprint_for_links(issue: ErrorTrackingIssue) -> Optional[str]:
+    # Legacy destination templates deep-link issues through the fingerprint
+    # redirect page, which resolves to the fingerprint's current owner. Any
+    # attached fingerprint works; the ordering only keeps the pick deterministic.
     return (
         ErrorTrackingIssueFingerprintV2.objects.filter(team_id=issue.team_id, issue_id=issue.id)
-        .order_by("version", "first_seen", "id")
+        .order_by("first_seen", "id")
         .values_list("fingerprint", flat=True)
         .first()
     )
@@ -89,19 +87,15 @@ def produce_issue_lifecycle_event_on_commit(
     issue: ErrorTrackingIssue,
     user: Optional[User],
     status: Optional[str] = None,
-    fingerprint: Optional[str] = None,
     extra_properties: Optional[dict[str, Any]] = None,
 ) -> None:
     # Snapshot everything now: the issue row may be mutated again (or deleted, for
     # merge sources) before the surrounding transaction commits.
     team_id = issue.team_id
-    # Destination message templates deep-link issues via `fingerprint` (see the
-    # error tracking sub-templates). Manual transitions have no triggering
-    # exception, so one of the issue's own fingerprints keeps those links working;
-    # `exception_timestamp` stays absent so the issue scene falls back to the
-    # issue's latest exception instead of an empty window around the mutation.
-    if fingerprint is None:
-        fingerprint = issue_fingerprint_for_links(issue)
+    # `exception_timestamp` stays absent on manual transitions so the issue scene
+    # falls back to the issue's latest exception instead of an empty window around
+    # the mutation.
+    fingerprint = _issue_fingerprint_for_links(issue)
     current_assignee = _current_assignee_property(issue)
     # Same issue-property set the ingestion-driven producer emits (see
     # produce_issue_lifecycle_internal_event), so destination property filters

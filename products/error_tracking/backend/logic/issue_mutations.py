@@ -26,7 +26,6 @@ from products.error_tracking.backend.logic.lifecycle_events import (
     ISSUE_UNASSIGNED_EVENT,
     STATUS_CHANGE_EVENTS,
     assignee_property,
-    issue_fingerprint_for_links,
     produce_issue_lifecycle_event_on_commit,
     status_label,
 )
@@ -171,10 +170,6 @@ def merge_issues(
     issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
     # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
     ids = [x for x in source_ids if x != str(issue.id)]
-    # Snapshot before the merge moves source fingerprints onto this issue: a link
-    # built from a merged-in fingerprint would retarget if that fingerprint is
-    # later split back out.
-    fingerprint_before_merge = issue_fingerprint_for_links(issue)
     result, merged_issue_ids = issue.merge(issue_ids=ids)
 
     if result == ErrorTrackingIssueMergeResult.MERGED:
@@ -200,7 +195,6 @@ def merge_issues(
             event=ISSUE_MERGED_EVENT,
             issue=issue,
             user=user,
-            fingerprint=fingerprint_before_merge,
             extra_properties={"merged_issue_ids": merged_id_strings},
         )
 
