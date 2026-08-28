@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs, sync::Arc};
 
 use axum::{body::Body, http::Request};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use common_types::error_tracking::FrameId;
 use cymbal::{
     error::UnhandledError,
@@ -830,6 +830,33 @@ async fn new_issue_uses_newest_fingerprint_version(db: PgPool) {
     assert_eq!(
         event.properties["$exception_fingerprint_record"],
         json!(v2.record)
+    );
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn new_issue_stores_event_timestamp_as_fingerprint_first_seen(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let mut input = resolved_stack_event("src/app.js");
+    input.timestamp = "2020-02-03T04:05:06.789Z".to_string();
+
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    assert!(status.is_success());
+
+    let event = body.first_event().as_ref().unwrap();
+    let fingerprint = event.properties["$exception_fingerprint"]
+        .as_str()
+        .expect("fingerprint should be a string");
+    let stored_first_seen: Option<DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT first_seen FROM posthog_errortrackingissuefingerprintv2 WHERE team_id = 1 AND fingerprint = $1",
+    )
+    .bind(fingerprint)
+    .fetch_one(&harness.db)
+    .await
+    .expect("first_seen should be queryable");
+
+    assert_eq!(
+        stored_first_seen,
+        Some(input.timestamp.parse().expect("timestamp should be valid"))
     );
 }
 
