@@ -191,6 +191,7 @@ def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
             ChartDisplayType.ACTIONS_BAR_VALUE
             | ChartDisplayType.BOLD_NUMBER
             | ChartDisplayType.ACTIONS_PIE
+            | ChartDisplayType.ACTIONS_DONUT
             | ChartDisplayType.ACTIONS_TABLE
         ):
             # total value
