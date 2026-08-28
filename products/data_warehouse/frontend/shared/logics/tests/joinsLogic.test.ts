@@ -62,6 +62,25 @@ describe('joinsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadJoins', 'loadJoinsFailure']).toMatchValues({ joins: [] })
     })
 
+    it('keeps previously loaded joins when a refresh fails with a suppressed status', async () => {
+        const listMock = jest.spyOn(api.dataWarehouseViewLinks, 'list')
+        listMock.mockResolvedValueOnce(responseWithJoin)
+        listMock.mockRejectedValueOnce(new ApiError('unavailable', 503))
+
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadJoins', 'loadJoinsSuccess'])
+            .toMatchValues({ joins: [join] })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadJoins()
+        })
+            .toDispatchActions(['loadJoins', 'loadJoinsSuccess'])
+            .toNotHaveDispatchedActions(['loadJoinsFailure'])
+            .toMatchValues({ joins: [join] })
+    })
+
     it('loads joins from the view links endpoint', async () => {
         jest.spyOn(api.dataWarehouseViewLinks, 'list').mockResolvedValue(responseWithJoin)
 
