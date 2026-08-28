@@ -4,6 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@posthog/quill";
 import { useGravatarUrl } from "@posthog/ui/features/auth/useGravatarUrl";
 import { getUserInitials } from "@posthog/ui/features/auth/userInitials";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
 
 type AvatarSize = "lg" | "default" | "sm" | "xs";
 
@@ -20,6 +21,10 @@ interface UserAvatarProps {
   title?: string;
 }
 
+const imageStatus = new Map<string, "loaded" | "error">();
+
+const KNOWN_IMAGE_FALLBACK_DELAY_MS = 300;
+
 // A person's avatar: Gravatar (by email) when one exists, otherwise a colored
 // initials bubble. The color is seeded off a stable identifier so each person keeps
 // one hue everywhere. When the Gravatar image loads it covers the colored fallback.
@@ -30,15 +35,30 @@ export function UserAvatar({
   title,
 }: UserAvatarProps) {
   const gravatarUrl = useGravatarUrl(user?.email);
+  const src = gravatarUrl ? cachedImageUrl(gravatarUrl) : undefined;
+  const knownStatus = src ? imageStatus.get(src) : undefined;
   const seed = user?.uuid ?? user?.email ?? userDisplayName(user);
   const color = avatarColor(seed);
 
   return (
     <Avatar size={size} className={className} title={title}>
-      {gravatarUrl ? (
-        <AvatarImage src={gravatarUrl} alt={userDisplayName(user)} />
+      {src && knownStatus !== "error" ? (
+        <AvatarImage
+          src={src}
+          alt={userDisplayName(user)}
+          onLoadingStatusChange={(status) => {
+            if (status === "loaded" || status === "error") {
+              imageStatus.set(src, status);
+            }
+          }}
+        />
       ) : null}
-      <AvatarFallback style={{ backgroundColor: color.bg, color: color.text }}>
+      <AvatarFallback
+        delay={
+          knownStatus === "loaded" ? KNOWN_IMAGE_FALLBACK_DELAY_MS : undefined
+        }
+        style={{ backgroundColor: color.bg, color: color.text }}
+      >
         {getUserInitials(user)}
       </AvatarFallback>
     </Avatar>
