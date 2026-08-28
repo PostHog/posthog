@@ -26,9 +26,11 @@ from posthog.schema import (
     CurrencyCode,
     DataTableNode,
     DataVisualizationNode,
+    DateRange,
     EventsNode,
     EventsQuery,
     GroupsQuery,
+    HogQLFilters,
     HogQLQuery,
     HogQLQueryModifiers,
     InCohortVia,
@@ -2021,6 +2023,13 @@ class TestRunnersBuildDatabaseOnce(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("hogql", HogQLQuery(query="select count() from events")),
+            (
+                "hogql_filtered",
+                HogQLQuery(
+                    query="select count() from events where {filters}",
+                    filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+                ),
+            ),
             ("events", EventsQuery(select=["event"])),
             ("sessions", SessionsQuery(select=["session_id"])),
             ("actors", ActorsQuery(select=["person"])),

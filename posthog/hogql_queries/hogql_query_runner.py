@@ -144,7 +144,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         finder = find_placeholders(parsed_select)
         with self.timings.measure("filters"):
             if self.query.filters and finder.has_filters:
-                parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
+                # Resolve {filters} against the shared database so a filtered query builds the schema
+                # once, instead of replace_filters building a throwaway one. With a connection id the
+                # schema is the external connection's, so keep the per-call build there.
+                database = self.shared_database if self.query.connectionId is None else None
+                parsed_select = replace_filters(parsed_select, self.query.filters, self.team, database)
         if self.query.variables:
             with self.timings.measure("replace_variables"):
                 parsed_select = replace_variables(parsed_select, list(self.query.variables.values()), self.team)
