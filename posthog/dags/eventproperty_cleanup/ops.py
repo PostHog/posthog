@@ -147,10 +147,12 @@ def score_dormant_teams(
 ) -> tuple[list[DormancyVerdict], list[WorkUnit]]:
     """Score the largest tenants; return every verdict and the delete units for approved eligible teams."""
     verdicts: list[DormancyVerdict] = []
-    for team_id, est_rows in top_teams(cursor, config.dormant_top_n):
-        if team_id in config.never_delete_team_ids:
+    for tenant in top_teams(cursor, config.dormant_top_n):
+        if tenant.team_id in config.never_delete_team_ids:
             continue
-        signals = score_team(cursor, team_id, est_rows, config.dormant_days, persons_probe, clickhouse_probe)
+        signals = score_team(
+            cursor, tenant.team_id, tenant.est_rows, config.dormant_days, persons_probe, clickhouse_probe
+        )
         verdicts.append(evaluate(signals, config.dormant_days, now))
     approved = set(config.dormant_approved_team_ids)
     units = [dormant_unit(v) for v in verdicts if v.eligible and v.signals.team_id in approved]

@@ -4,13 +4,13 @@ from posthog.dags import (
     delete_persons_from_trigger_log,
     detach_distinct_id,
     distinct_id_usage,
-    eventproperty_cleanup,
     ingestion_assets,
     person_property_reconciliation,
     persondistinctids_without_person_cleanup,
     persons_new_backfill,
     persons_without_distinct_ids_cleanup,
 )
+from posthog.dags.eventproperty_cleanup.ops import eventproperty_cleanup_job
 
 from . import loggers, resources
 
@@ -22,7 +22,7 @@ defs = dagster.Definitions(
         delete_persons_from_trigger_log.delete_persons_from_trigger_log_job,
         detach_distinct_id.detach_distinct_id_job,
         distinct_id_usage.distinct_id_usage_monitoring,
-        eventproperty_cleanup.eventproperty_cleanup_job,
+        eventproperty_cleanup_job,
         person_property_reconciliation.person_property_reconciliation_job,
         persondistinctids_without_person_cleanup.persondistinctids_without_person_cleanup_job,
         persons_new_backfill.persons_new_backfill_job,

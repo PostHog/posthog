@@ -16,8 +16,23 @@ from posthog.dataclasses import frozen
 from . import sql
 from .units import WorkUnit
 
-PersonsProbe = Callable[[int, int], tuple[bool | None, bool | None]]
+
+@frozen
+class PersonsProbeResult:
+    # None when the probe timed out or errored; the tenant is then not eligible.
+    has_rows: bool | None
+    created_recently: bool | None
+
+
+@frozen
+class TenantEstimate:
+    team_id: int
+    est_rows: int
+
+
+PersonsProbe = Callable[[int, int], PersonsProbeResult]
 ClickHouseProbe = Callable[[int, int], int | None]
+PROBE_UNAVAILABLE = PersonsProbeResult(has_rows=None, created_recently=None)
 
 
 @frozen
@@ -35,7 +50,7 @@ class DormancySignals:
     is_pending_deletion: bool | None
     events_usage: int | None
     last_login: datetime | None
-    last_api_key_use: datetime | None
+    last_personal_key_use: datetime | None
     last_insight_view: datetime | None
     last_activity_log: datetime | None
     active_batch_exports: int | None
@@ -85,7 +100,7 @@ def evaluate(signals: DormancySignals, days: int, now: datetime) -> DormancyVerd
         failures.append("organization event usage not zero")
     if not _older_than(signals.last_login, cutoff):
         failures.append("member logged in inside window")
-    if not _older_than(signals.last_api_key_use, cutoff):
+    if not _older_than(signals.last_personal_key_use, cutoff):
         failures.append("personal API key used inside window")
     if not _older_than(signals.last_insight_view, cutoff):
         failures.append("insight viewed inside window")
@@ -108,10 +123,10 @@ def evaluate(signals: DormancySignals, days: int, now: datetime) -> DormancyVerd
     return DormancyVerdict(signals=signals, failures=tuple(failures))
 
 
-def top_teams(cursor, top_n: int) -> list[tuple[int, int]]:
-    """Largest owners of posthog_eventproperty from planner statistics, as (team_id, est_rows)."""
+def top_teams(cursor, top_n: int) -> list[TenantEstimate]:
+    """Largest owners of posthog_eventproperty from planner statistics."""
     cursor.execute(sql.DORMANT_TOP_TEAMS, {"top_n": top_n})
-    return [(int(row[0]), int(row[1])) for row in cursor.fetchall()]
+    return [TenantEstimate(team_id=int(row[0]), est_rows=int(row[1])) for row in cursor.fetchall()]
 
 
 def score_team(
@@ -144,7 +159,7 @@ def score_team(
         cursor.execute(sql.DORMANT_HUMAN_ACTIVITY, {"team_id": team_id, "organization_id": organization_id})
         activity = cursor.fetchone()
 
-    persons_has_rows, persons_created_recently = persons_probe(team_id, days)
+    persons = persons_probe(team_id, days)
     clickhouse_recent_events = clickhouse_probe(team_id, days)
 
     return DormancySignals(
@@ -161,14 +176,14 @@ def score_team(
         is_pending_deletion=is_pending_deletion,
         events_usage=int(events_usage) if events_usage is not None else None,
         last_login=activity[0],
-        last_api_key_use=activity[1],
+        last_personal_key_use=activity[1],
         last_insight_view=activity[2],
         last_activity_log=activity[3],
         active_batch_exports=activity[4],
         live_surveys=activity[5],
         active_flags=activity[6],
-        persons_has_rows=persons_has_rows,
-        persons_created_recently=persons_created_recently,
+        persons_has_rows=persons.has_rows,
+        persons_created_recently=persons.created_recently,
         clickhouse_recent_events=clickhouse_recent_events,
     )
 
@@ -176,7 +191,7 @@ def score_team(
 def persons_probe_for(connection, statement_timeout: str) -> PersonsProbe:
     """Probe the persons DB reader under a short statement_timeout. Any error reads as unknown."""
 
-    def probe(team_id: int, days: int) -> tuple[bool | None, bool | None]:
+    def probe(team_id: int, days: int) -> PersonsProbeResult:
         try:
             with connection.cursor() as cursor:
                 cursor.execute("SET statement_timeout = %s", (statement_timeout,))
@@ -185,10 +200,10 @@ def persons_probe_for(connection, statement_timeout: str) -> PersonsProbe:
                 cursor.execute(sql.PERSONS_CREATED_RECENTLY, {"team_id": team_id, "days": days})
                 created_recently = bool(_scalar(cursor.fetchone()))
             connection.rollback()
-            return has_rows, created_recently
+            return PersonsProbeResult(has_rows=has_rows, created_recently=created_recently)
         except Exception:
             connection.rollback()
-            return None, None
+            return PROBE_UNAVAILABLE
 
     return probe
 
@@ -242,7 +257,7 @@ SCORECARD_COLUMNS = (
     "has_customer_id",
     "events_usage",
     "last_login",
-    "last_api_key_use",
+    "last_personal_key_use",
     "last_insight_view",
     "last_activity_log",
     "active_batch_exports",
@@ -274,7 +289,7 @@ def scorecard_csv(verdicts: list[DormancyVerdict]) -> str:
                 s.has_customer_id,
                 s.events_usage,
                 s.last_login,
-                s.last_api_key_use,
+                s.last_personal_key_use,
                 s.last_insight_view,
                 s.last_activity_log,
                 s.active_batch_exports,

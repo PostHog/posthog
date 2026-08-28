@@ -12,7 +12,7 @@ from parameterized import parameterized
 
 from posthog.dags.eventproperty_cleanup import ops
 from posthog.dags.eventproperty_cleanup.config import EventPropertyCleanupConfig
-from posthog.dags.eventproperty_cleanup.dormancy import DormancySignals, evaluate
+from posthog.dags.eventproperty_cleanup.dormancy import PROBE_UNAVAILABLE, DormancySignals, TenantEstimate, evaluate
 from posthog.dags.eventproperty_cleanup.engine import (
     MAX_RETRY_ATTEMPTS,
     DeleteEngine,
@@ -171,7 +171,7 @@ def dormant_signals(**overrides: Any) -> DormancySignals:
         is_pending_deletion=False,
         events_usage=0,
         last_login=old,
-        last_api_key_use=None,
+        last_personal_key_use=None,
         last_insight_view=old,
         last_activity_log=None,
         active_batch_exports=0,
@@ -198,7 +198,7 @@ class TestDormancyEvaluate:
             ("usage", {"events_usage": 12}, "organization event usage not zero"),
             ("usage_unknown", {"events_usage": None}, "organization event usage not zero"),
             ("login", {"last_login": NOW - timedelta(days=1)}, "member logged in inside window"),
-            ("api_key", {"last_api_key_use": NOW}, "personal API key used inside window"),
+            ("api_key", {"last_personal_key_use": NOW}, "personal API key used inside window"),
             ("insight", {"last_insight_view": NOW}, "insight viewed inside window"),
             ("activity", {"last_activity_log": NOW}, "activity log inside window"),
             ("exports", {"active_batch_exports": 1}, "active batch exports"),
@@ -229,10 +229,16 @@ class TestScoreDormantTeams:
         by_team = {1: eligible_a, 2: eligible_b, 3: active}
 
         with (
-            patch.object(ops, "top_teams", return_value=[(1, 10), (2, 20), (3, 30), (4, 40)]),
+            patch.object(
+                ops,
+                "top_teams",
+                return_value=[TenantEstimate(team_id=t, est_rows=t * 10) for t in (1, 2, 3, 4)],
+            ),
             patch.object(ops, "score_team", side_effect=lambda cursor, team_id, *a, **k: by_team[team_id]),
         ):
-            verdicts, units = ops.score_dormant_teams(MagicMock(), config, lambda *_: (None, None), lambda *_: 0, NOW)
+            verdicts, units = ops.score_dormant_teams(
+                MagicMock(), config, lambda *_: PROBE_UNAVAILABLE, lambda *_: 0, NOW
+            )
 
         assert [v.signals.team_id for v in verdicts] == [1, 2, 3]
         assert [(u.team_id, u.mode) for u in units] == [(1, "dormant")]
@@ -254,8 +260,11 @@ class TestPredicatesAgainstPostgres:
     def add_row(self, event: str, prop: str) -> None:
         EventProperty.objects.create(team=self.team, project_id=self.project_id, event=event, property=prop)
 
-    def rows(self) -> set[tuple[str, str]]:
-        return set(EventProperty.objects.filter(team=self.team).values_list("event", "property"))
+    def rows(self) -> set[str]:
+        return {
+            f"{event}:{prop}"
+            for event, prop in EventProperty.objects.filter(team=self.team).values_list("event", "property")
+        }
 
     def run_units(self, units: list[WorkUnit]) -> int:
         backend = DjangoPostgresBackend()
@@ -275,7 +284,7 @@ class TestPredicatesAgainstPostgres:
 
         assert [(u.team_id, u.key) for u in units] == [(self.team.id, "$initial_geoip_city_name")]
         assert self.run_units(units) == 2
-        assert self.rows() == {("$pageview", "$browser")}
+        assert self.rows() == {"$pageview:$browser"}
 
     def test_pollution_delete_recheck_keeps_rows_when_event_definition_appears_late(self):
         self.add_propdef("plan", PropertyDefinition.Type.PERSON)
@@ -287,7 +296,7 @@ class TestPredicatesAgainstPostgres:
         self.add_propdef("plan", PropertyDefinition.Type.EVENT)
 
         assert self.run_units(units) == 0
-        assert self.rows() == {("upgrade", "plan")}
+        assert self.rows() == {"upgrade:plan"}
 
     def test_retention_deletes_stale_events_only(self):
         stale, fresh, unknown = "old_event", "new_event", "unknown_event"
@@ -304,7 +313,7 @@ class TestPredicatesAgainstPostgres:
 
         assert [u.key for u in units] == [(stale,)]
         assert self.run_units(units) == 1
-        assert self.rows() == {(fresh, "$browser"), (unknown, "$browser")}
+        assert self.rows() == {f"{fresh}:$browser", f"{unknown}:$browser"}
 
     def test_never_delete_team_ids_removes_the_team_from_discovery(self):
         self.add_propdef("$initial_referrer", PropertyDefinition.Type.PERSON)

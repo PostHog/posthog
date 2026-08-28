@@ -149,7 +149,7 @@ SELECT (SELECT max(u.last_login)
        (SELECT max(k.last_used_at)
         FROM posthog_personalapikey k
         JOIN posthog_organizationmembership m ON m.user_id = k.user_id
-        WHERE m.organization_id = %(organization_id)s) AS last_api_key_use,
+        WHERE m.organization_id = %(organization_id)s) AS last_personal_key_use,
        (SELECT max(last_viewed_at) FROM posthog_insightviewed WHERE team_id = %(team_id)s) AS last_insight_view,
        (SELECT max(created_at) FROM posthog_activitylog WHERE team_id = %(team_id)s) AS last_activity_log,
        (SELECT count(*) FROM posthog_batchexport WHERE team_id = %(team_id)s AND NOT paused) AS active_batch_exports,
