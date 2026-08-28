@@ -31,6 +31,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CISignalsConfig,
     CITestRunner,
     CurrentBranchHealth,
+    DoraOverview,
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
@@ -480,6 +481,26 @@ def get_repo_overview(
         date_from=date_from,
         date_to=date_to,
         include_series=include_series,
+    )
+
+
+def get_dora_overview(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    environment: str | None = None,
+    github_team: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> DoraOverview:
+    return logic.build_dora_overview(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        date_from=date_from,
+        date_to=date_to,
+        environment=environment,
+        github_team=github_team,
     )
 
 
