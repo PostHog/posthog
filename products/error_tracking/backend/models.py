@@ -407,10 +407,6 @@ class ErrorTrackingSymbolSet(UUIDTModel):
         # No (team_id, ref) index here on purpose: `unique_ref_per_team` below already
         # provides one on the same columns, so a second is pure write and storage cost.
         indexes = [
-            # Composite covers the cleanup filter's two OR branches: `last_used < cutoff`
-            # (leading column) and `last_used IS NULL AND created_at < cutoff` (NULL group
-            # then created_at range), so batch cleanup avoids a full PK-ordered scan.
-            models.Index(fields=["last_used", "created_at"], name="et_symset_used_created_idx"),
             models.Index(
                 symbol_set_cleanup_bucket_expression(),
                 models.F("last_used"),
