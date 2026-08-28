@@ -112,7 +112,7 @@ def _print_untouched(
 
 async def _describe_columns(
     printed: str, query_parameters: dict[str, typing.Any], query_settings: dict[str, str] | None
-) -> list[tuple[str, str]]:
+) -> dict[str, str]:
     async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
         async with client.apost_query(
             query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
@@ -121,10 +121,10 @@ async def _describe_columns(
             settings=query_settings,
         ) as ch_response:
             table_describe_response = await ch_response.content.read()
-    columns: list[tuple[str, str]] = []
+    columns: dict[str, str] = {}
     for line in table_describe_response.decode("utf-8").splitlines():
         column_name, ch_type = line.strip().split("\t")
-        columns.append((column_name, ch_type))
+        columns[column_name] = ch_type
     return columns
 
 
@@ -603,7 +603,7 @@ async def hogql_table(
         described_columns = await _describe_columns(untouched, context.values, None)
 
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    for column_name, ch_type in described_columns:
+    for column_name, ch_type in described_columns.items():
         if _needs_conversion(ch_type):
             query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
         else:
