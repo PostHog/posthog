@@ -186,6 +186,7 @@ describe('ErrorTrackingConsumer', () => {
                     'test'
                 ),
             }),
+            postgres: infra.postgres,
             teamManager: infra.teamManager,
             hogTransformer: mockHogTransformer,
             groupTypeManager: new ReadOnlyGroupTypeManager({

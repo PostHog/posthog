@@ -13,6 +13,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { COOKIELESS_SENTINEL_VALUE, CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { ok } from '~/ingestion/framework/results'
@@ -53,6 +54,7 @@ describe('ErrorTrackingPipeline', () => {
     let mockCymbalClient: jest.Mocked<CymbalClient>
     let mockGroupTypeManager: jest.Mocked<ReadOnlyGroupTypeManager>
     let mockEventIngestionRestrictionManager: jest.Mocked<EventIngestionRestrictionManager>
+    let mockEventFilterManager: jest.Mocked<EventFilterManager>
     let mockCookielessManager: jest.Mocked<CookielessManager>
     let promiseScheduler: PromiseScheduler
     let pipelineConfig: ErrorTrackingPipelineConfig
@@ -135,6 +137,7 @@ describe('ErrorTrackingPipeline', () => {
             headers: [
                 { token: Buffer.from(token) },
                 { distinct_id: Buffer.from(distinctId) },
+                { event: Buffer.from(event) },
                 { uuid: Buffer.from(eventUuid) },
                 { timestamp: Buffer.from(timestamp) },
             ],
@@ -272,6 +275,10 @@ describe('ErrorTrackingPipeline', () => {
             forceRefresh: jest.fn(),
         } as unknown as jest.Mocked<EventIngestionRestrictionManager>
 
+        mockEventFilterManager = {
+            getFilter: jest.fn().mockReturnValue(null),
+        } as unknown as jest.Mocked<EventFilterManager>
+
         // Passthrough: non-cookieless events round-trip unchanged. The apply step
         // extracts `.value.event` from each result and reuses the original input
         // wrapper, so returning `ok(input)` is enough to leave events untouched.
@@ -317,6 +324,7 @@ describe('ErrorTrackingPipeline', () => {
             groupTypeManager: mockGroupTypeManager,
             cookielessManager: mockCookielessManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
+            eventFilterManager: mockEventFilterManager,
             overflowMode: 'disabled',
             preservePartitionLocality: false,
             topHog: mockTopHog,
@@ -575,6 +583,50 @@ describe('ErrorTrackingPipeline', () => {
             expect(getProducedEvents()).toHaveLength(0)
             expect(getDLQMessages()).toHaveLength(0)
             expect(getOverflowMessages()).toHaveLength(0)
+        })
+
+        it('drops $exception events matched by a live customer event filter', async () => {
+            mockEventFilterManager.getFilter.mockReturnValue({
+                id: 'filter-1',
+                team_id: 123,
+                mode: 'live',
+                filter_tree: { type: 'condition', field: 'event_name', operator: 'exact', value: '$exception' },
+            })
+
+            const message = createKafkaMessage({})
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            // Filtered events are dropped before Cymbal symbolication and person fetch.
+            expect(mockCymbalClient.processExceptions).not.toHaveBeenCalled()
+            expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
+
+            expect(getProducedEvents()).toHaveLength(0)
+            expect(getDLQMessages()).toHaveLength(0)
+            expect(getOverflowMessages()).toHaveLength(0)
+        })
+
+        it('keeps $exception events when the customer event filter runs in dry_run mode', async () => {
+            mockEventFilterManager.getFilter.mockReturnValue({
+                id: 'filter-1',
+                team_id: 123,
+                mode: 'dry_run',
+                filter_tree: { type: 'condition', field: 'event_name', operator: 'exact', value: '$exception' },
+            })
+
+            const cymbalResponse = createCymbalResponseWithEnrichedProperties({
+                $exception_list: [{ type: 'Error', value: 'Test error' }],
+            })
+            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+
+            const message = createKafkaMessage({})
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            // dry_run records the match but must not drop the event.
+            expect(getProducedEvents()).toHaveLength(1)
         })
 
         it('redirects events to overflow when FORCE_OVERFLOW restriction is set', async () => {
