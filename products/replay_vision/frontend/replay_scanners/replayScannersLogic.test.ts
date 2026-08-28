@@ -460,6 +460,56 @@ describe('replayScannersLogic', () => {
         })
     })
 
+    describe('duplicateScanner', () => {
+        it('calls the duplicate endpoint and routes to the configure page of the copy', async () => {
+            const duplicated: string[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team/vision/scanners/:id/duplicate/': ({ params }: { params: any }) => {
+                        duplicated.push(String(params.id))
+                        return [201, makeScanner({ id: 'new-id', name: 'Confused checkout (copy)', enabled: false })]
+                    },
+                },
+            })
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => logic.actions.duplicateScanner('a')).toFinishAllListeners()
+
+            expect(duplicated).toEqual(['a'])
+            expect(router.values.location.pathname).toContain('/replay-vision/new-id/configure')
+            expect(logic.values.duplicatingIds).toEqual([])
+        })
+
+        it.each([
+            {
+                case: 'a validation failure with a detail',
+                response: [400, { type: 'validation_error', code: 'invalid', detail: 'Bad config' }],
+                expectedMessage: 'Failed to duplicate scanner: Bad config',
+            },
+            {
+                case: 'a failure with no error body',
+                response: [500, null],
+                expectedMessage: 'Failed to duplicate scanner',
+            },
+        ])(
+            'shows an error, stays put, and releases the in-flight guard on $case',
+            async ({ response, expectedMessage }) => {
+                useMocks({
+                    post: { '/api/projects/:team/vision/scanners/:id/duplicate/': () => response },
+                })
+                const errorToast = jest.spyOn(lemonToast, 'error')
+                logic.actions.loadScannersSuccess(scanners, scanners.length)
+                const pathBefore = router.values.location.pathname
+
+                await expectLogic(logic, () => logic.actions.duplicateScanner('a')).toFinishAllListeners()
+
+                expect(errorToast).toHaveBeenCalledWith(expectedMessage)
+                expect(router.values.location.pathname).toBe(pathBefore)
+                expect(logic.values.duplicatingIds).toEqual([])
+            }
+        )
+    })
+
     it('setChartDateRange updates the chart date range', async () => {
         await expectLogic(logic, () => logic.actions.setChartDateRange('-90d', null)).toMatchValues({
             chartDateFrom: '-90d',
