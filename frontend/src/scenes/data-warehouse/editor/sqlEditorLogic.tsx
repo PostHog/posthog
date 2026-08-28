@@ -850,6 +850,9 @@ export interface sqlEditorLogicActions {
     _setSuggestionPayload: (payload: SuggestionPayload | null) => {
         payload: SuggestionPayload | null
     }
+    applyQueryFix: (edits: HogQLFixEdit[]) => {
+        edits: HogQLFixEdit[]
+    }
     closeAccessControlModal: () => {
         value: true
     }
@@ -1068,9 +1071,6 @@ export interface sqlEditorLogicActions {
     }
     setEditorSource: (source: SqlEditorSource) => {
         source: SqlEditorSource
-    }
-    applyQueryFix: (edits: HogQLFixEdit[]) => {
-        edits: HogQLFixEdit[]
     }
     setError: (error: string | null) => {
         error: string | null
