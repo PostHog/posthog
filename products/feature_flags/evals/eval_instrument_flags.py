@@ -36,6 +36,10 @@ The pair is a baseline, not a quality bar: it measures whether the description
 fires on the right request, not whether the workflow the skill teaches is good.
 Both cases are ``SandboxedPrivateEval`` so they run without a Braintrust key.
 
+**Claude runtime only.** Under ``--agent-runtime codex`` the guard refuses the
+cases rather than scoring them. See ``_CODEX_UNSUPPORTED`` for the two reasons and
+where each fix belongs.
+
 To run, invoke the command below once. It builds the local skill cache, then the
 guard prints the overlay command. Apply that overlay and run the command again: the
 second run reuses the cache, so the overlay survives.
@@ -79,8 +83,33 @@ Editing any products/*/skills/ file invalidates the cache, so the next run rebui
 and wipes the overlay again. Re-apply it after that run, not before."""
 
 
+_CODEX_UNSUPPORTED = f"""\
+This suite measures the claude runtime only, so it refuses to run under codex.
+
+Two gaps make a codex run report a number that looks like a trigger result but is not:
+
+1. The local overlay reaches the bind-mounted plugin directory, but codex discovers
+   skills from $HOME/.agents/skills, which only install-skills.sh populates when the
+   base image is baked. A reused docker image therefore serves stale or missing
+   skills while this guard, which stats the host copy, still passes.
+2. `RequiredToolCall` matches Edit, Write and MultiEdit. Codex carries no named file
+   tools, so `edited_a_file` scores 0 even when the agent edits a file.
+
+Both fixes land outside this product, in sandbox provisioning and in the shared
+scorers, and need a live docker plus codex run to validate. Until then, measuring
+claude and refusing codex beats reporting a corrupt mean. Run without
+`--agent-runtime codex`."""
+
+
 def require_instrument_skill(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    """Fail the case as infra error when the graded skill is absent from the sandbox."""
+    """Fail the case as infra error when it cannot be measured in this sandbox.
+
+    A seeder exception is an infra error the harness excludes from score averages,
+    which is what both refusals want: no measurement rather than a wrong one.
+    """
+    if context.runtime_adapter == "codex":
+        raise RuntimeError(_CODEX_UNSUPPORTED)
+
     skill_file = Path(settings.BASE_DIR) / _BUILT_SKILLS_DIR / SKILL_NAME / "SKILL.md"
     if not skill_file.is_file():
         raise RuntimeError(_OVERLAY_HINT)
