@@ -118,7 +118,7 @@ export type IngestionConsumerConfig = {
     // Maximum in-flight batches per worker (BatchingPipeline.concurrentBatches).
     // Mirrors INGESTION_WORKER_CONCURRENT_BATCHES on the Rust consumer side —
     // both values MUST agree, otherwise either the Rust consumer over-limits
-    // (idle worker capacity) or the worker rejects with HTTP 503.
+    // (idle worker capacity) or the worker stalls stream reads at capacity.
     INGESTION_WORKER_CONCURRENT_BATCHES: number
 
     // Feed-order sentinel (ingestion API server only): checks that each
@@ -130,11 +130,9 @@ export type IngestionConsumerConfig = {
     // least-recently-seen key is dropped and rebaselines unchecked.
     INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: number
 
-    // Streaming ingest (ingestion API server only): serve
-    // ingestion.worker.v1.WorkerIngest over gRPC alongside HTTP /ingest.
-    // The stream delivers each consumer's sub-batches in order, closing the
-    // wire-reordering window concurrent HTTP requests leave open.
-    INGESTION_API_GRPC_ENABLED: boolean
+    // Streaming ingest (ingestion API server only): the port serving
+    // ingestion.worker.v1.WorkerIngest. The stream delivers each consumer's
+    // sub-batches in order.
     INGESTION_API_GRPC_PORT: number
     // Concurrency caps for the gRPC listener. Legitimate load is roughly one
     // stream per connected consumer, so these are generous ceilings that bound
@@ -324,7 +322,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_WORKER_CONCURRENT_BATCHES: 1,
         INGESTION_API_FEED_ORDER_SENTINEL_ENABLED: true,
         INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: 200_000,
-        INGESTION_API_GRPC_ENABLED: false,
         INGESTION_API_GRPC_PORT: 6739,
         INGESTION_API_GRPC_MAX_STREAMS: 256,
         INGESTION_API_GRPC_MAX_SESSIONS: 256,
