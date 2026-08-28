@@ -978,4 +978,26 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "MrAnandPortfolio": BotDefinition(
         "MrAnandPortfolio", "http_client", "Bot", "mranand.com", documentation_url="https://mranand.com"
     ),
+    # Self-declared crawlers observed in production `$http_log` traffic (second batch)
+    # Uptime / monitors / scanners
+    "Uptime-Monitor": BotDefinition("Uptime Monitor", "monitoring", "Bot", "Unknown"),
+    "Watchcrew": BotDefinition(
+        "Watchcrew", "monitoring", "Bot", "Watchcrew", documentation_url="https://watchcrew.io/docs/allowlist"
+    ),
+    "ARF-Scanner": BotDefinition("ARF Scanner", "monitoring", "Bot", "Unknown"),
+    # Search / index crawlers
+    "MetaInspector": BotDefinition(
+        "MetaInspector",
+        "search_crawler",
+        "Bot",
+        "MetaInspector",
+        documentation_url="https://github.com/jaimeiniesta/metainspector",
+    ),
+    "thejury-bailiff": BotDefinition(
+        "thejury bailiff", "search_crawler", "Bot", "thejury", documentation_url="https://thejury.lol/about"
+    ),
+    "ZentariBot": BotDefinition(
+        "Zentari", "search_crawler", "Bot", "Zentari", documentation_url="https://zentari.top/bot"
+    ),
+    "ClarityNewsBot": BotDefinition("Clarity News", "search_crawler", "Bot", "Unknown"),
 }
