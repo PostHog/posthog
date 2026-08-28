@@ -78,8 +78,11 @@ These are structural limits of today's snapshot data — state them, don't paper
   failure; lead with status, not a verdict.
 - **CI for a PR is the head-SHA join, nothing else.** The `ci` rollup reflects only the latest commit's runs. There
   is no other link between a PR and its checks.
-- **No reviews, approvals, per-check/job, or deploys yet.** Don't infer review behaviour or DORA metrics from their
-  absence; that data hasn't landed. `pr-lifecycle` is `partial` for the same reason.
+- **Review reads are deferred by choice.** The GitHub `reviews` endpoint syncs review submissions with their timestamps, but reads stay deferred until a wedge tool needs them. Don't infer review behaviour from their absence.
+  `pr-lifecycle` is `partial` for the same reason.
+- **Deploy metrics live on `engineering-analytics-dora`**, from the GitHub deployments tables when synced
+  (`deploy_data_available`). Its change-failure and time-to-restore fields are deploy-status proxies (no incident
+  link) — report them under their honest field names, never as the true DORA definitions.
 - **Bots and drafts are present in `pull-requests` output, excluded by convention.** Filter out `author.is_bot`
   (nested under `author`, not a row-level field) and `is_draft` for throughput / merge-time questions; keep them in
   for bot-impact questions.
@@ -124,7 +127,8 @@ CI before merging."
 - Don't call `open_to_merge_seconds` cycle time or review time — it's coarse open-to-merge;
   `ready_to_merge_seconds` is the cycle-time figure, and only where non-null.
 - Don't report a CI count as a settled failure when `pending > 0` — it may be unsettled or stale.
-- Don't infer reviews, approvals, per-check counts, or deploys — that data isn't ingested yet.
+- Don't infer reviews or approvals — review reads stay deferred until a wedge tool needs them. Don't infer per-check counts. Deploys come from
+  `engineering-analytics-dora`, not from inference.
 - Don't turn per-author buckets into a leaderboard — they're for finding stuck work, not ranking people.
 - Don't reach for these tools to fetch raw PR contents or diffs — they surface pipeline signal, not the PR thread.
 
