@@ -129,6 +129,20 @@ describe("loadSubagentSettings", () => {
     expect(untrustedSettings.agentOverrides?.worker).toBeUndefined();
   });
 
+  it("accepts max as a thinking level, matching the SDK", () => {
+    const userDir = path.join(tmpHome, ".pi", "agent");
+    fs.mkdirSync(userDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(userDir, "settings.json"),
+      JSON.stringify({
+        subagents: { agentOverrides: { worker: { thinking: "max" } } },
+      }),
+    );
+
+    const settings = loadSubagentSettings(tmpProject, true);
+    expect(settings.agentOverrides?.worker?.thinking).toBe("max");
+  });
+
   it("keeps a valid enforced modelScope when a sibling override is invalid", () => {
     const userDir = path.join(tmpHome, ".pi", "agent");
     fs.mkdirSync(userDir, { recursive: true });
