@@ -81,6 +81,9 @@ _MIN_SCREEN_FILTER_CHARS = 3
 # v2 filter pages become ONE multi-value visited_page property, which ORs its values, so several are
 # safe. More than this and the filter stops describing one flow.
 _MAX_FILTER_PAGES = 5
+# Replaces a collapsed ":id" run when building the page regex. Matches one path segment, so the
+# literal segments on both sides of the id stay anchored to the real URL structure.
+_ID_WILDCARD = "[^/]+"
 
 
 class DraftError(Exception):
@@ -720,19 +723,26 @@ def _build_user_content_v2(
     return "\n".join(lines)
 
 
-def _page_filter_value(pathname: str) -> str | None:
-    """The `icontains` filter value for a grounded page, or None when the page cannot filter.
+def _page_filter_regex(pathname: str) -> str | None:
+    """A ClickHouse regex matching real URLs for a collapsed grounding path, or None when the path
+    cannot narrow.
 
-    The grounding list collapses identifier segments to ":id", but real URLs contain the real IDs, so
-    a value holding ":id" matches nothing. The prefix up to the first ":id" still matches every such
-    URL — broader than the exact page, and under OR semantics broader only adds sessions.
+    The grounding list collapses identifier segments to ":id", but real URLs hold real IDs. Replacing
+    each ":id" with a single-segment wildcard keeps the WHOLE path specific: the collapsed page
+    "/project/:id/replay-vision/scanners" becomes a regex matching "/project/<id>/replay-vision/
+    scanners" and nothing broader. Matching a single static substring instead would lose the segments
+    around the id and could collapse to a bare prefix that matches every page.
     """
-    value = pathname.split(":id")[0] if ":id" in pathname else pathname
-    if len(value.strip().replace("/", "")) < _MIN_SCREEN_FILTER_CHARS:
-        # `icontains` on "/" or a two-letter prefix matches nearly every URL: it would render as a
-        # narrowing filter while narrowing nothing.
+    # The literal segments, ignoring the ":id" runs, are the only real content to match on. A path
+    # with too little (e.g. "/", "/:id", or "/ab") would match nearly every URL, so draft no filter
+    # rather than one that narrows nothing. Any other shape is kept: the scanner watches the
+    # customer's product, so we don't assume their URL structure.
+    static_chars = len(pathname.replace(":id", "").replace("/", ""))
+    if static_chars < _MIN_SCREEN_FILTER_CHARS:
         return None
-    return value
+    # Escape the literal parts so a path character like "." or "-" cannot act as a regex
+    # metacharacter, then rejoin with the id wildcard.
+    return _ID_WILDCARD.join(re.escape(part) for part in pathname.split(":id"))
 
 
 def _strip_page_count(page: str) -> str:
@@ -743,15 +753,16 @@ def _strip_page_count(page: str) -> str:
 def _v2_query(pathnames: Sequence[str], events: Sequence[str]) -> dict[str, Any] | None:
     """The scanner's recording filter from the grounded pages and events.
 
-    Pages become ONE multi-value `visited_page` property (its values OR). Events go in the `events`
-    list, where each event ANDs, with the other events and with the page property. The estimate the
-    caller runs, and the review page's Save-at-zero gate, catch an over-constrained AND before it
-    ever becomes a scanner.
+    Pages become ONE multi-value `visited_page` property (its values OR). Each value is a regex that
+    matches the collapsed page against real URLs, with ":id" runs wildcarded. Events go in the
+    `events` list, where each event ANDs, with the other events and with the page property. The
+    estimate the caller runs, and the review page's Save-at-zero gate, catch an over-constrained AND
+    before it ever becomes a scanner.
     """
     query: dict[str, Any] = {"kind": "RecordingsQuery"}
-    values = list(dict.fromkeys(v for p in pathnames if (v := _page_filter_value(p)) is not None))
+    values = list(dict.fromkeys(v for p in pathnames if (v := _page_filter_regex(p)) is not None))
     if values:
-        query["properties"] = [{"type": "recording", "key": "visited_page", "value": values, "operator": "icontains"}]
+        query["properties"] = [{"type": "recording", "key": "visited_page", "value": values, "operator": "regex"}]
     if events:
         # The shape the replay filter UI produces for an event condition.
         query["events"] = [{"id": event, "name": event, "type": "events", "order": 0} for event in events]
