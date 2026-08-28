@@ -24,4 +24,9 @@ class Migration(migrations.Migration):
             name="email_sending_tier_updated_at",
             field=models.DateTimeField(blank=True, null=True),
         ),
+        migrations.AddField(
+            model_name="teamworkflowsconfig",
+            name="email_sending_tier_demoted_at",
+            field=models.DateTimeField(blank=True, null=True),
+        ),
     ]

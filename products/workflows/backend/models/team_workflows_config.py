@@ -53,6 +53,10 @@ class TeamWorkflowsConfig(models.Model):
     # db_default so raw INSERTs from non-Django writers keep working.
     email_sending_tier = models.IntegerField(default=0, db_default=0)
     email_sending_tier_updated_at = models.DateTimeField(null=True, blank=True)
+    # When the team was last demoted for dirty rates, an auto-pause, or a HIGH tenant reputation
+    # impact. Separate from email_sending_tier_updated_at so promotions and staff writes do not arm
+    # the demotion cooldown, and a demotion does not have to share its anchor with the dwell clock.
+    email_sending_tier_demoted_at = models.DateTimeField(null=True, blank=True)
     # Staff override. While set, automatic promotion and demotion both skip this team, so a team
     # can be held at a tier that its sending history would not give it.
     email_sending_tier_pinned = models.BooleanField(default=False, db_default=False)

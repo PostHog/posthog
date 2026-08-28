@@ -1274,7 +1274,10 @@ WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_R
 WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS", 7))
 # After a rate-based demotion, further rate-based demotions wait this long. Without it the daily
 # sweep re-reads the same dirty window every run and one incident cascades a team to the bottom.
-WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS", 3))
+# Keep this at least as long as the demotion window: at that length the incident that caused the
+# last demotion has aged out of the window by the time demotions resume, so a second demotion can
+# only come from new evidence.
+WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS", 7))
 # A team above the lowest tier that sends nothing for this long drops one tier per period. Mailbox
 # providers keep about 30 days of reputation history, so a long-dormant allowance is unearned and a
 # comeback blast from a stale list is exactly what the caps exist to prevent. 0 disables decay.
