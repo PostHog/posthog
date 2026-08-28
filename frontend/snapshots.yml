@@ -3084,6 +3084,10 @@ snapshots:
         hash: v1.k794b7964.6a12fde8bafde8512108c5b628d9b2e6e283d393ae2ed693704b4919c8a09a74.uLxKWKPhM06nOSIxUCw4GXdsfmp45YXAG0yss_yimaQ
     insights-trendspiechart--default--light:
         hash: v1.k794b7964.c2d804d7876a9ba388449487e49eb7bd737ea4ba68257c96a9cd6481989a7af6.AhOWv6SHzg8Xa_yN2Q8vV8Sr3PocOqpF-3ii5OJV_Ug
+    insights-trendspiechart--donut--dark:
+        hash: v1.k794b7964.2e725d7e97dd347113a5b7cc57e5200e4a14f11b20cc1e6513a928f51e066efa.db9VqgQ1zMEkeqv5NNyD_k-DEsyVBA6zARqZFIrYMB4
+    insights-trendspiechart--donut--light:
+        hash: v1.k794b7964.ad773dd40d22834aba5aa072345fe2a707ad4e0ba5769631f12a1a95eb1e4afe.rKpatgv7Utgx6ZtDcFZqe_feSR-Hu7614aJMtPjUf5E
     insights-trendspiechart--min-height-parent--dark:
         hash: v1.k794b7964.9b44378c8b23c54996de740b079e0029d0a474c9ca7f977b7d7aab07eece7f8e.DH5BI-XTKBTeGu8xAITjb7Ktz0BulqIqgPauao-MDpU
     insights-trendspiechart--min-height-parent--light:
@@ -3293,9 +3297,9 @@ snapshots:
     lemon-ui-icons1--shelf-c--light:
         hash: v1.k794b7964.bcc72041caca2f6489c727b9b7e959b2aef82008a96be378607d714259a989c8.MMxMd03IZGikl5Kpd8piZkmHBNT4Vea4VWgpaZ8cNf4
     lemon-ui-icons1--shelf-d--dark:
-        hash: v1.k794b7964.90088b65c1799b3c4717d44c56dc7e46f78d8116ebf959b7f7539c43234c4ecc.pZvWLKRm4Fyuu57HD0XWw-FKvuRoB0oMZ2P8VtS7DmA
+        hash: v1.k794b7964.4c7daa2e1e3fa2be35ccd19051846f90c3e09bd639aefd6bc04c7b91065d774a._q44Zc8iL7uiQgo7UP44BxjuQEqZvD-LeOkBegmw1B8
     lemon-ui-icons1--shelf-d--light:
-        hash: v1.k794b7964.dd68e8a7aab00ab72d8a160d45678cfdea997986ca9ad8bb7afd3975e626d46f.NYhYaCh0r6bUQT7Tznin9JzB431fW7bnkUz6fWtj2CQ
+        hash: v1.k794b7964.29d9289514ad57d607aa72b27f1d0f9d160059a41e55b99291b8622977e7d458.QVPhsiT75MYVW_DW61heQU-62GxnrAy2XFvaiT41Gzo
     lemon-ui-icons1--shelf-e--dark:
         hash: v1.k794b7964.a6acc6d3a83a9b99c987d5b1d6d6f663dff6ce5dd78cb9e9d17af010736f66f1.tTNpKNbCq5Yktv4em0v5ak1b5H6uZc8SXc3qYncr3Fs
     lemon-ui-icons1--shelf-e--light:
