@@ -26,11 +26,11 @@ export function SceneCopyImageButton({
             menuItem
             onClick={() => copyImage(selector)}
             data-attr={`${dataAttrKey}-copy-image`}
-            tooltip="Copy the chart to your clipboard as an image"
+            tooltip="Copy the chart to your clipboard as a PNG"
             disabledReasons={{ ...disabledReasons, 'Copying…': isCopying }}
         >
             <IconImage />
-            Copy image
+            Copy as PNG
         </ButtonPrimitive>
     )
 }

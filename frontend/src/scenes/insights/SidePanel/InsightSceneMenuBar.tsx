@@ -278,7 +278,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                             data-attr={`${RESOURCE_TYPE}-menubar-copy-image`}
                         >
                             <IconImage />
-                            Copy image
+                            Copy as PNG
                         </SceneMenuBarItem>
                     )}
                     <SceneMenuBarItem
