@@ -17,7 +17,6 @@ import type {
     CanvasApi,
     CanvasAssetApi,
     CanvasAssetAttachApi,
-    CanvasAssetUploadApi,
     CanvasBuildActionApi,
     CanvasBuildApi,
     CanvasBuildsResponseApi,
@@ -44,6 +43,7 @@ import type {
     CanvasStateSetApi,
     CanvasValidateRequestApi,
     CanvasValidateResponseApi,
+    CanvasesAssetsCreateBody,
     CanvasesBuildsRetrieveParams,
     CanvasesDraftsRetrieveParams,
     CanvasesLayoutRetrieveParams,
@@ -206,11 +206,13 @@ export const getCanvasesAssetsCreateUrl = (projectId: string, id: string) => {
 export const canvasesAssetsCreate = async (
     projectId: string,
     id: string,
-    canvasAssetUploadApi: CanvasAssetUploadApi,
+    canvasesAssetsCreateBody?: CanvasesAssetsCreateBody,
     options?: RequestInit
 ): Promise<CanvasAssetApi> => {
     const formData = new FormData()
-    formData.append(`file`, canvasAssetUploadApi.file)
+    if (canvasesAssetsCreateBody?.file !== undefined) {
+        formData.append(`file`, canvasesAssetsCreateBody.file)
+    }
 
     return apiMutator<CanvasAssetApi>(getCanvasesAssetsCreateUrl(projectId, id), {
         ...options,

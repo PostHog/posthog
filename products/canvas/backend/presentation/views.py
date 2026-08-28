@@ -717,7 +717,22 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         operation_id="canvases_assets_create",
-        request=CanvasAssetUploadSerializer,
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": (
+                            "The image file (PNG, JPEG, GIF, WebP, AVIF, or SVG), at most 4 MB. "
+                            "The type is detected from the bytes."
+                        ),
+                    },
+                },
+                "required": ["file"],
+            }
+        },
         responses={
             201: CanvasAssetSerializer,
             400: OpenApiResponse(description="The file is empty, too large, or not a supported image."),

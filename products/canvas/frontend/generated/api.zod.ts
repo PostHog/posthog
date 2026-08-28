@@ -97,15 +97,13 @@ export const CanvasesActionsInvokeBody = /* @__PURE__ */ zod
  * `<img src="./assets/x.png">` works. Content-addressed and idempotent:
  * re-uploading the same bytes returns the same sha256.
  */
-export const CanvasesAssetsCreateBody = /* @__PURE__ */ zod
-    .object({
-        file: zod
-            .url()
-            .describe(
-                'The image file (PNG, JPEG, GIF, WebP, AVIF, or SVG), at most 4 MB. The type is detected from the bytes.'
-            ),
-    })
-    .describe("Multipart payload for uploading one image into the canvas's asset store.")
+export const CanvasesAssetsCreateBody = /* @__PURE__ */ zod.object({
+    file: zod
+        .instanceof(File)
+        .describe(
+            'The image file (PNG, JPEG, GIF, WebP, AVIF, or SVG), at most 4 MB. The type is detected from the bytes.'
+        ),
+})
 
 /**
  * Copy an image attached to a task conversation into the canvas's asset store.

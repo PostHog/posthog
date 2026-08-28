@@ -269,14 +269,6 @@ export interface CanvasActionResultApi {
 }
 
 /**
- * Multipart payload for uploading one image into the canvas's asset store.
- */
-export interface CanvasAssetUploadApi {
-    /** The image file (PNG, JPEG, GIF, WebP, AVIF, or SVG), at most 4 MB. The type is detected from the bytes. */
-    file: string
-}
-
-/**
  * A stored canvas image asset. Reference it from a source project as an objectRef assets entry.
  */
 export interface CanvasAssetApi {
@@ -1549,6 +1541,11 @@ export const CanvasesListKind = {
     Freeform: 'freeform',
     Grid: 'grid',
 } as const
+
+export type CanvasesAssetsCreateBody = {
+    /** The image file (PNG, JPEG, GIF, WebP, AVIF, or SVG), at most 4 MB. The type is detected from the bytes. */
+    file: Blob
+}
 
 export type CanvasesBuildsRetrieveParams = {
     /**
