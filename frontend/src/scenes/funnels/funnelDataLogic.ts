@@ -220,7 +220,22 @@ function applyQueryStepCustomNames(
         const resolvesNameLive =
             node.kind === NodeKind.ActionsNode ||
             (node.kind === NodeKind.GroupNode && node.nodes.some((n) => n.kind === NodeKind.ActionsNode))
-        const describesStep = node.kind !== NodeKind.EventsNode || step.action_id === (node.event ?? null)
+        // The node describes the step only while its content still matches the stored result. A changed
+        // event, warehouse table, or group of events leaves the old label on the previous run's counts,
+        // so the query name must not be applied. Each check mirrors how `base.py` derives the step:
+        // the event, the table name, and the raw events joined with ", " (a null event reads as
+        // "All events"). Actions are handled above, so they default to describing.
+        let describesStep = true
+        if (node.kind === NodeKind.EventsNode) {
+            describesStep = step.action_id === (node.event ?? null)
+        } else if (node.kind === NodeKind.FunnelsDataWarehouseNode) {
+            describesStep = step.name === node.table_name
+        } else if (node.kind === NodeKind.GroupNode) {
+            const groupEvents = node.nodes.flatMap((n) =>
+                n.kind === NodeKind.EventsNode ? [n.event ?? 'All events'] : []
+            )
+            describesStep = step.action_id === groupEvents.join(', ')
+        }
         const queryName = resolvesNameLive || !describesStep ? null : (node.name ?? null)
         const customName = node.custom_name || (queryName !== step.name ? queryName : null)
         // Nested rows are breakdown or compare variants of the same step, so they take the parent's
