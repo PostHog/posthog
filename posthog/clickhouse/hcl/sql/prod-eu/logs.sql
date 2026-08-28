@@ -46,21 +46,6 @@ CREATE TABLE posthog.kafka_trace_spans_avro (
   dropped_links_count Int32,
   status_code Int32
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_traces', kafka_format = 'kafka_format = \'Avro\'', kafka_group_name = 'kafka_group_name = \'clickhouse-traces-avro\'', kafka_num_consumers = 2, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_traces\'';
-CREATE TABLE posthog.log_attributes2 (
-  team_id Int32,
-  time_bucket DateTime64(0),
-  service_name LowCardinality(String),
-  resource_fingerprint UInt64 DEFAULT 0,
-  attribute_key LowCardinality(String),
-  attribute_value String CODEC(ZSTD(5)),
-  attribute_count SimpleAggregateFunction(sum, UInt64),
-  attribute_type LowCardinality(String) DEFAULT 'log',
-  original_expiry_time_bucket DateTime DEFAULT now(),
-  INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/logs/{shard}/log_attributes34', '{replica}') ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(15) SETTINGS deduplicate_merge_projection_mode = 'drop', index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.log_attributes3 (
   team_id Int32,
   time_bucket DateTime64(0),
