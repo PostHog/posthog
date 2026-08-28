@@ -3,7 +3,8 @@ import datetime
 from itertools import batched
 from uuid import UUID
 
-from django.db import close_old_connections, models, transaction
+from django.conf import settings
+from django.db import DEFAULT_DB_ALIAS, close_old_connections, models, transaction
 from django.db.models import F, Q
 from django.db.models.lookups import GreaterThan
 from django.utils import timezone
@@ -27,6 +28,10 @@ logger = structlog.get_logger(__name__)
 
 _DELETE_REQUEST_BATCH_SIZE = 1000
 _DELETE_REQUEST_PACING_SECONDS = 0.1
+
+
+def _cleanup_read_database() -> str:
+    return "replica" if "replica" in settings.DATABASES else DEFAULT_DB_ALIAS
 
 
 def _cleanup_branches(inputs: SymbolSetCleanupInputs) -> list[Q]:
@@ -71,7 +76,7 @@ def _cleanup_queryset(
     cursor: tuple[datetime.datetime | None, datetime.datetime, UUID] | None,
 ) -> models.QuerySet[ErrorTrackingSymbolSet]:
     queryset = (
-        ErrorTrackingSymbolSet.objects.select_for_update(skip_locked=True)
+        ErrorTrackingSymbolSet.objects.using(_cleanup_read_database())
         .alias(cleanup_bucket=symbol_set_cleanup_bucket_expression())
         .filter(query_filter, cleanup_bucket=bucket)
     )
@@ -97,9 +102,11 @@ def _assigned_buckets(inputs: SymbolSetCleanupInputs) -> list[int]:
 
 def _delete_symbol_set_batch(symbol_set_ids: list[str]) -> tuple[int, set[str]]:
     try:
-        with transaction.atomic():
-            ErrorTrackingStackFrame.objects.filter(symbol_set_id__in=symbol_set_ids, resolved=False).delete()
-            ErrorTrackingSymbolSet.objects.filter(id__in=symbol_set_ids).delete()
+        with transaction.atomic(using=DEFAULT_DB_ALIAS):
+            ErrorTrackingStackFrame.objects.using(DEFAULT_DB_ALIAS).filter(
+                symbol_set_id__in=symbol_set_ids, resolved=False
+            ).delete()
+            ErrorTrackingSymbolSet.objects.using(DEFAULT_DB_ALIAS).filter(id__in=symbol_set_ids).delete()
         return len(symbol_set_ids), set()
     except Exception as exc:
         if len(symbol_set_ids) == 1:
@@ -133,10 +140,11 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
     query_filter = _cleanup_filter(inputs)
 
     if inputs.dry_run:
-        eligible_count = ErrorTrackingSymbolSet.objects.filter(query_filter).count()
+        eligible_symbol_sets = ErrorTrackingSymbolSet.objects.using(_cleanup_read_database()).filter(query_filter)
+        eligible_count = eligible_symbol_sets.count()
         # Dry runs only log a bounded sample; never log more rows than the real run would process.
         sample_size = min(inputs.batch_size, inputs.total_per_run, eligible_count)
-        for symbol_set in ErrorTrackingSymbolSet.objects.filter(query_filter)[:sample_size]:
+        for symbol_set in eligible_symbol_sets[:sample_size]:
             logger.info(
                 "error_tracking.symbol_set_cleanup.dry_run_candidate",
                 symbol_set_id=str(symbol_set.id),
@@ -168,25 +176,22 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
             while total_processed < inputs.total_per_run:
                 remaining = inputs.total_per_run - total_processed
                 chunk_size = min(inputs.batch_size, remaining)
-                with transaction.atomic():
-                    queryset = _cleanup_queryset(
-                        query_filter=query_filter,
-                        bucket=bucket,
-                        cursor=cursor,
-                    )
-                    symbol_sets = list(
-                        queryset.values_list("id", "storage_ptr", "last_used", "created_at")[:chunk_size]
-                    )
+                queryset = _cleanup_queryset(
+                    query_filter=query_filter,
+                    bucket=bucket,
+                    cursor=cursor,
+                )
+                symbol_sets = list(queryset.values_list("id", "storage_ptr", "last_used", "created_at")[:chunk_size])
 
-                    if not symbol_sets:
-                        break
+                if not symbol_sets:
+                    break
 
-                    cursor = (symbol_sets[-1][2], symbol_sets[-1][3], symbol_sets[-1][0])
-                    symbol_set_ids = [str(symbol_set_id) for symbol_set_id, _, _, _ in symbol_sets]
-                    storage_ptrs_by_id = {
-                        str(symbol_set_id): storage_ptr for symbol_set_id, storage_ptr, _, _ in symbol_sets
-                    }
-                    deleted_count, batch_failed_ids = _delete_symbol_set_batch(symbol_set_ids)
+                cursor = (symbol_sets[-1][2], symbol_sets[-1][3], symbol_sets[-1][0])
+                symbol_set_ids = [str(symbol_set_id) for symbol_set_id, _, _, _ in symbol_sets]
+                storage_ptrs_by_id = {
+                    str(symbol_set_id): storage_ptr for symbol_set_id, storage_ptr, _, _ in symbol_sets
+                }
+                deleted_count, batch_failed_ids = _delete_symbol_set_batch(symbol_set_ids)
 
                 total_deleted += deleted_count
                 total_db_failed += len(batch_failed_ids)

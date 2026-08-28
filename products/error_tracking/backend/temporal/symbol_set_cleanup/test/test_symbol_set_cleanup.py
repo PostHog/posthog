@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, call, patch
 
+from django.conf import settings
 from django.db import connection
 from django.db.models import Q
 from django.utils import timezone
@@ -202,6 +203,17 @@ class TestSymbolSetCleanupActivity(BaseTest):
 
         assert result == SymbolSetCleanupResult(objects_processed=2, objects_deleted=2, objects_failed=0)
         assert ErrorTrackingSymbolSet.objects.count() == 1
+
+    def test_candidate_query_uses_replica_without_row_locks(self) -> None:
+        with patch.dict(settings.DATABASES, {"replica": settings.DATABASES["default"]}):
+            queryset = _cleanup_queryset(
+                query_filter=Q(last_used__isnull=False, last_used__lt=timezone.now() - timedelta(days=30)),
+                bucket=0,
+                cursor=None,
+            )
+
+        assert queryset.db == "replica"
+        assert not queryset.query.select_for_update
 
     def test_used_cursor_is_an_ordered_bucket_index_range(self) -> None:
         cursor = (
