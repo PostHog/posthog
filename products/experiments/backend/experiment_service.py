@@ -3356,21 +3356,20 @@ class ExperimentService:
             source_evaluation_contexts = list(
                 source_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
             )
+        # Explicit, including []: a context-less source must not pick up the target's defaults.
+        # The exception is a target that requires contexts, where an explicit [] makes the clone
+        # unsatisfiable — nothing in the duplicate or copy input accepts contexts, so the whole
+        # back catalogue of flags created while experiments were exempt would be un-clonable.
+        # There, None falls back to the create path's defaults.
+        clone_evaluation_contexts = (
+            source_evaluation_contexts if source_evaluation_contexts or not target.require_evaluation_contexts else None
+        )
         feature_flag_config: dict[str, Any] = {
             "filters": clone_filters,
             # bool() so a NULL continuity clones as off — the create path treats None as "unset" and
             # would substitute the target team's flags_persistence_default, changing SDK behavior.
             "ensure_experience_continuity": bool(source_experiment.feature_flag.ensure_experience_continuity),
-            # Explicit, including []: a context-less source must not pick up the target's defaults.
-            # The exception is a target that requires contexts, where an explicit [] makes the clone
-            # unsatisfiable — nothing in the duplicate or copy input accepts contexts, so the whole
-            # back catalogue of flags created while experiments were exempt would be un-clonable.
-            # There, fall back to the create path's defaults.
-            **(
-                {"evaluation_contexts": source_evaluation_contexts}
-                if source_evaluation_contexts or not target.require_evaluation_contexts
-                else {}
-            ),
+            "evaluation_contexts": clone_evaluation_contexts,
         }
 
         self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)

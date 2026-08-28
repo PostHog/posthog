@@ -355,9 +355,23 @@ describe('experimentWizardLogic', () => {
             await waitFor(() => {
                 expect(screen.queryByText(CONTEXTS_LABEL)).not.toBeInTheDocument()
             })
+
+            // The other half of the gate: without FLAG_EVALUATION_TAGS the field stays hidden even
+            // once the linked flag is cleared.
+            logic.actions.setLinkedFeatureFlag(null)
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            rerender(
+                <BindLogic logic={experimentWizardLogic} props={{}}>
+                    <AboutStep />
+                </BindLogic>
+            )
+
+            await waitFor(() => {
+                expect(screen.queryByText(CONTEXTS_LABEL)).not.toBeInTheDocument()
+            })
         })
 
-        it('picking a context lands in the flag config sent on save', async () => {
+        it('picking a context lands in the flag config', async () => {
             const { container } = render(
                 <BindLogic logic={experimentWizardLogic} props={{}}>
                     <AboutStep />
@@ -631,6 +645,12 @@ describe('experimentWizardLogic', () => {
                 ...MOCK_DEFAULT_TEAM,
                 require_evaluation_contexts: true,
             })
+            // The requirement waits out both requests that could lift it, and the order they land
+            // in isn't fixed, so wait on the flags they set rather than on the actions.
+            await waitFor(() => {
+                expect(logic.values.teamDefaultContextsSettled).toBe(true)
+                expect(logic.values.initialFlagCheckDone).toBe(true)
+            })
 
             logic.actions.markStepDeparted('about')
 
@@ -648,6 +668,21 @@ describe('experimentWizardLogic', () => {
                     about: expect.not.arrayContaining(['At least one evaluation context is required']),
                 }),
             })
+        })
+
+        it('holds off on the contexts error until the requests that could lift it land', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_EVALUATION_TAGS]: true })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                require_evaluation_contexts: true,
+            })
+
+            // A restored session departs the earlier steps at mount, so this is the state a returning
+            // user sees while the defaults and flags requests are still in flight.
+            logic.actions.markStepDeparted('about')
+
+            expect(logic.values.evaluationContextsRequired).toBe(false)
+            expect(logic.values.stepValidationErrors.about).not.toContain('At least one evaluation context is required')
         })
 
         it('team default contexts satisfy the requirement, since the backend applies them', async () => {

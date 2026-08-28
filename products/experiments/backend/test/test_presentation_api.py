@@ -2668,6 +2668,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             {"feature_flag": {"filters": {"payloads": {"test": '"v2"'}}, "evaluation_contexts": ["marketing-site"]}},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("evaluation_contexts only applies", str(response.json()))
 
     def test_create_experiment_with_only_evaluation_contexts_in_flag_object(self):
         # `evaluation_contexts` alone carries write intent: the gate that decides whether the

@@ -79,6 +79,7 @@ export interface experimentWizardLogicValues {
     evaluationContextsRequired: boolean
     hasFormErrors: boolean
     initialFlagCheckDone: boolean
+    teamDefaultContextsSettled: boolean
     isFirstStep: boolean
     isLastStep: boolean
     linkedFeatureFlag: FeatureFlagType | null
@@ -139,6 +140,20 @@ export interface experimentWizardLogicActions {
     reportExperimentWizardStarted: (guideVisible: boolean) => {
         guideVisible: boolean
     } // eventUsageLogic
+    loadDefaultEvaluationContextsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // defaultEvaluationContextsLogic
+    loadDefaultEvaluationContextsSuccess: (
+        defaultEvaluationContextsResponse: any,
+        payload?: any
+    ) => {
+        defaultEvaluationContextsResponse: any
+        payload?: any
+    } // defaultEvaluationContextsLogic
     loadFeatureFlagsForAutocomplete: () => {
         value: true
     } // selectExistingFeatureFlagModalLogic
@@ -204,7 +219,9 @@ export interface experimentWizardLogicMeta {
             evaluationContextsEnabled: boolean,
             currentTeam: TeamPublicType | TeamType | null,
             linkedFeatureFlag: FeatureFlagType | null,
-            appliedDefaultEvaluationContexts: string[]
+            appliedDefaultEvaluationContexts: string[],
+            teamDefaultContextsSettled: boolean,
+            initialFlagCheckDone: boolean
         ) => boolean
         stepValidationErrors: (
             experiment: Experiment & {
@@ -269,6 +286,8 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             ['validateFeatureFlagKey', 'clearFeatureFlagKeyValidation'],
             selectExistingFeatureFlagModalLogic,
             ['loadFeatureFlagsForAutocomplete', 'loadFeatureFlagsSuccess'],
+            defaultEvaluationContextsLogic,
+            ['loadDefaultEvaluationContextsSuccess', 'loadDefaultEvaluationContextsFailure'],
             eventUsageLogic,
             ['reportExperimentWizardStarted', 'reportExperimentWizardGuideToggled'],
         ],
@@ -296,6 +315,18 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             false,
             {
                 loadFeatureFlagsSuccess: () => true,
+                resetWizard: () => false,
+                saveExperimentSuccess: () => false,
+            },
+        ],
+        // Tracks whether the team's default contexts have come back, either way. Paired with
+        // initialFlagCheckDone it says the two inputs that can lift the contexts requirement have
+        // landed, so a restored session doesn't flash the about step red while they're in flight.
+        teamDefaultContextsSettled: [
+            false,
+            {
+                loadDefaultEvaluationContextsSuccess: () => true,
+                loadDefaultEvaluationContextsFailure: () => true,
                 resetWizard: () => false,
                 saveExperimentSuccess: () => false,
             },
@@ -374,17 +405,25 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 s.currentTeam,
                 s.linkedFeatureFlag,
                 s.appliedDefaultEvaluationContexts,
+                s.teamDefaultContextsSettled,
+                s.initialFlagCheckDone,
             ],
             (
                 evaluationContextsEnabled: boolean,
                 currentTeam: TeamPublicType | TeamType | null,
                 linkedFeatureFlag: FeatureFlagType | null,
-                appliedDefaults: string[]
+                appliedDefaults: string[],
+                teamDefaultContextsSettled: boolean,
+                initialFlagCheckDone: boolean
             ): boolean =>
                 evaluationContextsEnabled &&
                 !!currentTeam?.require_evaluation_contexts &&
                 !linkedFeatureFlag &&
-                appliedDefaults.length === 0,
+                appliedDefaults.length === 0 &&
+                // Both are empty until their requests land, so requiring contexts before then would
+                // go red on a restored session for the length of the round trip.
+                teamDefaultContextsSettled &&
+                initialFlagCheckDone,
         ],
         stepValidationErrors: [
             (s) => [

@@ -403,9 +403,10 @@ FEATURE_FLAG_CREATION_CONTEXT_CHOICES = (
 # never auto-create these flags otherwise. Default contexts are still applied when configured
 # (see apply_default_evaluation_contexts) - this exemption only covers the no-defaults gap.
 #
-# The list is narrower than that rule: "product_tours" also creates flags from a form with no
-# context field and is not exempt, so those teams already get a 400 there. Giving product tours
-# a context selector is the fix, rather than widening this list.
+# The list is narrower than that rule: other creation contexts also create flags from forms with
+# no context field and are not exempt. The toolbar's web experiments are the lasting case, and
+# that path doesn't apply the team's defaults either, so those teams get a 400 there whatever
+# they have configured. Giving those forms a context selector is the fix, not widening this list.
 #
 # Experiments are deliberately not exempt: their creation form has a context selector, so the
 # requirement is satisfiable there.
