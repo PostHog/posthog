@@ -52,7 +52,6 @@ import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
 import { toast } from "@posthog/ui/primitives/toast";
 import { TaskDetailSkeleton } from "@posthog/ui/router/routeSkeletons";
 import { logger } from "@posthog/ui/shell/logger";
-import { Box, Flex } from "@radix-ui/themes";
 import {
   type ReactElement,
   useCallback,
@@ -613,7 +612,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
     );
   }
 
-  if (!status && !hasTranscript && !isConnecting) {
+  if (!status && !hasTranscript && (!isConnecting || !isCloud)) {
     return <TaskDetailSkeleton />;
   }
 
@@ -640,7 +639,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
   const extensionDialog = currentExtensionState.dialogs[0];
 
   return (
-    <Flex direction="column" height="100%">
+    <div className="flex h-full flex-col">
       {extensionDialog && (
         <PiExtensionDialog
           key={extensionDialog.id}
@@ -661,7 +660,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           onRestart={restart}
         />
       )}
-      <Box className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1">
         <ChatThread
           events={session.events}
           isPromptPending={isStreaming}
@@ -670,8 +669,8 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           promptRecallRef={promptRecallRef}
           hasPendingPermission={Boolean(mcpPermission)}
         />
-      </Box>
-      <Box
+      </div>
+      <div
         className="mx-auto w-full px-2 pb-3"
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
       >
@@ -761,7 +760,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
             placement="belowEditor"
           />
         )}
-      </Box>
-    </Flex>
+      </div>
+    </div>
   );
 }
