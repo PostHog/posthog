@@ -8,6 +8,7 @@ from django.utils import timezone
 import structlog
 import temporalio
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
@@ -16,7 +17,11 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.agent_runtime import STEP_FEATURE_DISCOVERY, resolve_agent_runtime
-from products.signals.backend.features.discovery import persist_discovered_features, run_multi_turn_feature_discovery
+from products.signals.backend.features.discovery import (
+    FeatureDiscoveryOutputError,
+    persist_discovered_features,
+    run_multi_turn_feature_discovery,
+)
 from products.signals.backend.features.types import FeatureDiscoveryWorkflowInput
 from products.signals.backend.models import FeatureDiscoveryRun
 from products.signals.backend.temporal.agentic import (
@@ -191,6 +196,12 @@ async def run_feature_discovery_activity(input: FeatureDiscoveryWorkflowInput) -
             repository=input.repository,
             error=str(error),
         )
+        if isinstance(error, FeatureDiscoveryOutputError):
+            raise ApplicationError(
+                str(error),
+                type=FeatureDiscoveryOutputError.__name__,
+                non_retryable=True,
+            ) from error
         raise
 
 

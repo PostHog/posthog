@@ -5,18 +5,26 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic import ValidationError
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import AgentRuntime
-from products.signals.backend.artefact_schemas import FeatureLifecycle, FeatureStage, Priority, QuestionArtefact
+from products.signals.backend.artefact_schemas import (
+    MAX_CODE_REFERENCE_LINES,
+    FeatureLifecycle,
+    FeatureStage,
+    Priority,
+    QuestionArtefact,
+)
 from products.signals.backend.features.discovery import (
     DiscoveredFeatureCodeReference,
     DiscoveredFeatureDocument,
     DiscoveredFeatureOwner,
     FeatureDiscoveryContinuation,
     FeatureDiscoveryExploration,
+    FeatureDiscoveryOutputError,
     FeatureDiscoveryResult,
     persist_discovered_features,
     run_multi_turn_feature_discovery,
@@ -121,6 +129,23 @@ def test_feature_document_rejects_reactive_report_summaries(summary: str, expect
         DiscoveredFeatureDocument.model_validate(document)
 
 
+def test_feature_document_normalizes_oversized_code_reference() -> None:
+    document = _feature().model_dump()
+    source_lines = [f"line {index}" for index in range(MAX_CODE_REFERENCE_LINES + 5)]
+    document["code_references"][0].update(
+        start_line=40,
+        end_line=40 + len(source_lines) - 1,
+        contents="\n".join(source_lines),
+    )
+
+    parsed = DiscoveredFeatureDocument.model_validate(document)
+    reference = parsed.code_references[0]
+
+    assert reference.contents == "\n".join(source_lines[:MAX_CODE_REFERENCE_LINES])
+    assert reference.start_line == 40
+    assert reference.end_line == 40 + MAX_CODE_REFERENCE_LINES - 1
+
+
 @pytest.mark.asyncio
 async def test_feature_discovery_stops_when_agent_says_there_are_no_more_features() -> None:
     session = MagicMock()
@@ -152,13 +177,15 @@ async def test_feature_discovery_stops_when_agent_says_there_are_no_more_feature
     assert "## Current status" in feature_prompt
     assert "open_questions" in feature_prompt
     assert "Do not guess about intended behavior" in feature_prompt
+    assert "Target 5 to 12 contiguous lines" in feature_prompt
+    assert "end_line = start_line + line_count - 1" in feature_prompt
     session.end.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
 async def test_feature_discovery_corrects_an_invalid_feature_document() -> None:
     invalid_document = _feature().model_dump()
-    invalid_document["code_references"][0]["contents"] = "\n".join(f"line {index}" for index in range(21))
+    invalid_document["open_questions"] = [""]
     with pytest.raises(ValidationError) as validation_error:
         DiscoveredFeatureDocument.model_validate(invalid_document)
 
@@ -167,6 +194,7 @@ async def test_feature_discovery_corrects_an_invalid_feature_document() -> None:
     session.task_run.id = "run-id"
     session.send_followup = AsyncMock(
         side_effect=[
+            validation_error.value,
             validation_error.value,
             _feature(),
             FeatureDiscoveryContinuation(has_more=False, reason="No other feature remains."),
@@ -185,8 +213,9 @@ async def test_feature_discovery_corrects_an_invalid_feature_document() -> None:
         )
 
     assert [feature.title for feature in result.features] == ["Session replay"]
-    assert session.send_followup.await_count == 3
-    assert "must not exceed 20 lines" in session.send_followup.await_args_list[1].args[0]
+    assert session.send_followup.await_count == 4
+    assert "questions must not be blank" in session.send_followup.await_args_list[1].args[0]
+    assert "questions must not be blank" in session.send_followup.await_args_list[2].args[0]
     session.end.assert_awaited_once_with()
 
 
@@ -286,8 +315,9 @@ async def test_feature_discovery_cleanup_preserves_the_specific_activity_failure
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_feature_discovery_activity_persists_failure_before_workflow_cleanup(ateam: Team) -> None:
+async def test_feature_discovery_activity_does_not_retry_invalid_agent_output(ateam: Team) -> None:
     run = await database_sync_to_async(_create_discovery_run)(ateam)
+    output_error = FeatureDiscoveryOutputError("Agent returned invalid feature document")
 
     with (
         patch(
@@ -300,10 +330,10 @@ async def test_feature_discovery_activity_persists_failure_before_workflow_clean
         ),
         patch(
             "products.signals.backend.temporal.feature_discovery.run_multi_turn_feature_discovery",
-            new=AsyncMock(side_effect=RuntimeError("Agent session disconnected")),
+            new=AsyncMock(side_effect=output_error),
         ),
         patch("products.signals.backend.temporal.feature_discovery.Heartbeater"),
-        pytest.raises(RuntimeError, match="Agent session disconnected"),
+        pytest.raises(ApplicationError, match="Agent returned invalid feature document") as error,
     ):
         await run_feature_discovery_activity(
             FeatureDiscoveryWorkflowInput(
@@ -316,9 +346,10 @@ async def test_feature_discovery_activity_persists_failure_before_workflow_clean
         )
 
     saved_run = await database_sync_to_async(_load_discovery_run)(ateam.id, str(run.id))
+    assert error.value.non_retryable is True
     assert saved_run.status == FeatureDiscoveryRun.Status.FAILED
     assert saved_run.error == "Feature discovery failed. Check the repository connection and try again."
-    assert saved_run.failure_details == "Agent session disconnected"
+    assert saved_run.failure_details == "Agent returned invalid feature document"
 
 
 class TestPersistDiscoveredFeatures(APIBaseTest):

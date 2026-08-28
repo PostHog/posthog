@@ -285,7 +285,7 @@ class VideoSegment(RootModel[dict[str, Any] | list[Any]]):
 # Bounds for referenced source text: references are pointers with a small excerpt, not a vehicle
 # for shipping file contents into the report log.
 _MAX_CODE_LINE_LENGTH = 1000
-_MAX_CODE_REFERENCE_LINES = 20
+MAX_CODE_REFERENCE_LINES = 20
 
 
 class CodeReference(BaseModel):
@@ -299,7 +299,7 @@ class CodeReference(BaseModel):
     end_line: int = Field(ge=1, description="Last line of the referenced range (1-indexed, inclusive).")
     contents: str = Field(
         description=f"The exact source text of lines start_line through end_line. At most "
-        f"{_MAX_CODE_REFERENCE_LINES} lines of at most {_MAX_CODE_LINE_LENGTH} characters each."
+        f"{MAX_CODE_REFERENCE_LINES} lines of at most {_MAX_CODE_LINE_LENGTH} characters each."
     )
     relevance_note: str = Field(
         description="Short note on why this code is relevant to the report.",
@@ -316,8 +316,8 @@ class CodeReference(BaseModel):
     @classmethod
     def contents_must_be_bounded(cls, v: str) -> str:
         lines = v.split("\n")
-        if len(lines) > _MAX_CODE_REFERENCE_LINES:
-            raise ValueError(f"must not exceed {_MAX_CODE_REFERENCE_LINES} lines")
+        if len(lines) > MAX_CODE_REFERENCE_LINES:
+            raise ValueError(f"must not exceed {MAX_CODE_REFERENCE_LINES} lines")
         if any(len(line) > _MAX_CODE_LINE_LENGTH for line in lines):
             raise ValueError(f"lines must not exceed {_MAX_CODE_LINE_LENGTH} characters")
         return v
@@ -326,8 +326,8 @@ class CodeReference(BaseModel):
     def line_span_must_be_valid(self) -> CodeReference:
         if self.end_line < self.start_line:
             raise ValueError("end_line must be greater than or equal to start_line")
-        if self.end_line - self.start_line + 1 > _MAX_CODE_REFERENCE_LINES:
-            raise ValueError(f"the referenced range must not exceed {_MAX_CODE_REFERENCE_LINES} lines")
+        if self.end_line - self.start_line + 1 > MAX_CODE_REFERENCE_LINES:
+            raise ValueError(f"the referenced range must not exceed {MAX_CODE_REFERENCE_LINES} lines")
         return self
 
 
