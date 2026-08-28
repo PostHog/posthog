@@ -600,6 +600,30 @@ bridge.port1.close();
         self.assertEqual(manifest_entry["contentHash"], "ab" * 32)
         self.assertEqual(manifest_entry["sizeBytes"], 8)
 
+    def test_builds_css_url_image_references_against_the_emitted_stylesheet(self) -> None:
+        payload = self._project('document.body.dataset.ok = "1"')
+        payload["files"]["index.html"] = (
+            '<link rel="stylesheet" href="/src/styles.css" />'
+            '<div id="root"></div><script type="module" src="/src/main.ts"></script>'
+        )
+        payload["files"]["src/styles.css"] = 'body { background-image: url("./logo.png"); }'
+        payload["assets"] = {
+            "src/logo.png": {"encoding": "meta", "contentType": "image/png", "sizeBytes": 8, "sha256": "ab" * 32}
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        self.assertEqual(result["diagnostics"], [])
+        stylesheet = next(file["content"] for file in result["files"] if "background-image" in file["content"])
+        # The stylesheet lands under assets/ while the image is emitted at its
+        # source path, so the url() is rebased up one level, not inlined and not
+        # left pointing at the internal asset namespace.
+        self.assertIn("url(../src/logo.png)", stylesheet)
+        self.assertNotIn("data:image", stylesheet)
+        self.assertNotIn("canvas-asset", stylesheet)
+        self.assertEqual(result["assetRefs"], [{"path": "src/logo.png"}])
+
     def test_warns_on_img_src_with_no_declared_asset(self) -> None:
         payload = self._project("")
         payload["files"]["index.html"] = (

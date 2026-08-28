@@ -396,9 +396,16 @@ async function bundleEntry(project, entry) {
                         return { path: resolved, namespace: workerImport ? 'canvas-worker' : 'canvas' }
                     }
                     const asset = resolveFile(project.assets ?? {}, args.importer, specifier)
-                    return asset
-                        ? { path: asset, namespace: 'canvas-asset' }
-                        : { errors: [{ text: `cannot resolve "${args.path}"` }] }
+                    if (!asset) {
+                        return { errors: [{ text: `cannot resolve "${args.path}"` }] }
+                    }
+                    // A CSS url() token cannot load a JS module. Image assets are
+                    // emitted as artifact files at their source path, so point the
+                    // token at that file, rebased from the stylesheet's assets/ dir.
+                    if (args.kind === 'url-token' && imageContentTypes.has(project.assets[asset].contentType)) {
+                        return { path: path.posix.relative('assets', asset), external: true }
+                    }
+                    return { path: asset, namespace: 'canvas-asset' }
                 }
                 const name = packageName(args.path)
                 if (!Object.hasOwn(project.dependencies, name) || !Object.hasOwn(admitted, name)) {
