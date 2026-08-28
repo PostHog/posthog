@@ -1,4 +1,4 @@
-import { ApiError, isTransientServerError, shouldReportApiFailure } from './api-error'
+import { ApiError, isInfrastructureResponse, isTransientServerError, shouldReportApiFailure } from './api-error'
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -79,6 +79,28 @@ describe('api-error', () => {
             ['a bare object shaped like an error', { status: 503 }],
         ])('does not classify %s as transient', (_, error) => {
             expect(isTransientServerError(error)).toBe(false)
+        })
+    })
+
+    describe('isInfrastructureResponse', () => {
+        it.each([
+            // A proxy or WAF block: our API never returns HTML, so this did not come from the app.
+            ['a Cloudflare 403 block page', 403, 'text/html; charset=utf-8', true],
+            ['a WAF 429 challenge page', 429, 'text/html', true],
+            // A missing content type is ambiguous, so keep it a classified ApiError.
+            ['a 403 with no content type', 403, null, false],
+            // Our own responses always speak JSON, even for an error, so they stay a classified ApiError.
+            ['a DRF permission_denied 403', 403, 'application/json', false],
+            ['a DRF rate-limit 429', 429, 'application/json', false],
+            ['a 400 validation error', 400, 'application/json', false],
+            // The gateway statuses our edge emits and query flows react to by status.
+            ['a 502 bad gateway HTML page', 502, 'text/html', false],
+            ['a 503 with no content type', 503, null, false],
+            ['a 504 gateway timeout', 504, 'text/html', false],
+            // Not an error status, so there is nothing to reclassify.
+            ['a 200 OK', 200, 'text/html', false],
+        ])('classifies %s', (_, status, contentType, expected) => {
+            expect(isInfrastructureResponse(status, contentType)).toBe(expected)
         })
     })
 
