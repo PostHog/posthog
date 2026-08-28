@@ -5,6 +5,7 @@ use serde_json::Value;
 use sqlx::Executor;
 use uuid::Uuid;
 
+use crate::core::write_attribution::FrameWriteOutcome;
 use crate::error::UnhandledError;
 use crate::frames::{Context, Frame};
 
@@ -81,6 +82,35 @@ pub struct ErrorTrackingStackFrame {
     pub context: Option<Context>,
 }
 
+#[derive(Debug)]
+pub(crate) struct StoredFrameSnapshot {
+    pub records: Vec<ErrorTrackingStackFrame>,
+    pub fresh: bool,
+}
+
+pub(crate) fn classify_frame_snapshot(
+    existing: &[ErrorTrackingStackFrame],
+    current: &[ErrorTrackingStackFrame],
+) -> FrameWriteOutcome {
+    if existing.is_empty() {
+        return FrameWriteOutcome::Insert;
+    }
+
+    if existing.len() == current.len()
+        && existing.iter().zip(current).all(|(existing, current)| {
+            existing.id == current.id
+                && existing.symbol_set_id == current.symbol_set_id
+                && existing.contents == current.contents
+                && existing.resolved == current.resolved
+                && existing.context == current.context
+        })
+    {
+        FrameWriteOutcome::Unchanged
+    } else {
+        FrameWriteOutcome::Changed
+    }
+}
+
 impl ErrorTrackingStackFrame {
     pub fn new(
         id: FrameId,
@@ -99,7 +129,7 @@ impl ErrorTrackingStackFrame {
         }
     }
 
-    pub async fn save<'c, E>(&self, e: E) -> Result<(), UnhandledError>
+    pub async fn save<'c, E>(&self, e: E) -> Result<u64, UnhandledError>
     where
         E: Executor<'c, Database = sqlx::Postgres>,
     {
@@ -108,7 +138,7 @@ impl ErrorTrackingStackFrame {
         } else {
             None
         };
-        sqlx::query!(
+        let result = sqlx::query!(
             r#"
             INSERT INTO posthog_errortrackingstackframe (raw_id, part, team_id, created_at, symbol_set_id, contents, resolved, id, context)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -128,8 +158,10 @@ impl ErrorTrackingStackFrame {
             self.resolved,
             Uuid::now_v7(),
             context,
-        ).execute(e).await?;
-        Ok(())
+        )
+        .execute(e)
+        .await?;
+        Ok(result.rows_affected())
     }
 
     pub async fn load_all<'c, E>(
@@ -137,6 +169,22 @@ impl ErrorTrackingStackFrame {
         id: &RawFrameId,
         ttl_policy: FrameResultTtlPolicy,
     ) -> Result<Vec<Self>, UnhandledError>
+    where
+        E: Executor<'c, Database = sqlx::Postgres>,
+    {
+        let snapshot = Self::load_snapshot(e, id, ttl_policy).await?;
+        if snapshot.fresh {
+            Ok(snapshot.records)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    pub(crate) async fn load_snapshot<'c, E>(
+        e: E,
+        id: &RawFrameId,
+        ttl_policy: FrameResultTtlPolicy,
+    ) -> Result<StoredFrameSnapshot, UnhandledError>
     where
         E: Executor<'c, Database = sqlx::Postgres>,
     {
@@ -164,17 +212,10 @@ impl ErrorTrackingStackFrame {
         .fetch_all(e)
         .await?;
 
-        if res.is_empty() {
-            return Ok(Vec::new());
-        }
+        let result_ttl = ttl_policy.ttl_for_resolved_status(id, res.iter().all(|f| f.resolved));
+        let fresh = !res.is_empty() && res.iter().all(|f| f.created_at >= Utc::now() - result_ttl);
 
         let mut results = Vec::new();
-        let result_ttl = ttl_policy.ttl_for_resolved_status(id, res.iter().all(|f| f.resolved));
-        if res.iter().any(|f| f.created_at < Utc::now() - result_ttl) {
-            // If any resultant frame is too old, we should recalculate all of them
-            return Ok(Vec::new());
-        }
-
         for found in res {
             // Frame ID's lose team_id when they're serialized, so we fix that up here when loading them
             let frame_id = FrameId::new(found.raw_id, found.team_id, found.part);
@@ -204,7 +245,10 @@ impl ErrorTrackingStackFrame {
             })
         }
 
-        Ok(results)
+        Ok(StoredFrameSnapshot {
+            records: results,
+            fresh,
+        })
     }
 }
 
@@ -260,6 +304,77 @@ mod tests {
 
         let parts: Vec<i32> = loaded.iter().map(|record| record.id.part).collect();
         assert_eq!(parts, (0..8).collect::<Vec<i32>>());
+    }
+
+    #[test]
+    fn durable_snapshot_classification_covers_every_persisted_field() {
+        use crate::core::write_attribution::FrameWriteOutcome;
+
+        let id = FrameId::new("raw-frame-id".to_string(), 1, 0);
+        let frame = frame_with_part(id.clone(), 0);
+        let existing = ErrorTrackingStackFrame::new(id, None, frame, true, None);
+        let current = existing.clone();
+
+        assert_eq!(
+            classify_frame_snapshot(&[], std::slice::from_ref(&current)),
+            FrameWriteOutcome::Insert
+        );
+        assert_eq!(
+            classify_frame_snapshot(
+                std::slice::from_ref(&existing),
+                std::slice::from_ref(&current),
+            ),
+            FrameWriteOutcome::Unchanged
+        );
+
+        let mut changed_created_at = current.clone();
+        changed_created_at.created_at += Duration::hours(1);
+        assert_eq!(
+            classify_frame_snapshot(
+                std::slice::from_ref(&existing),
+                std::slice::from_ref(&changed_created_at),
+            ),
+            FrameWriteOutcome::Unchanged,
+            "created_at is an observation timestamp, not durable content"
+        );
+
+        let mut variants = Vec::new();
+
+        let mut changed_contents = current.clone();
+        changed_contents.contents.mangled_name = "different".to_string();
+        variants.push(("contents", changed_contents));
+
+        let mut changed_context = current.clone();
+        changed_context.context = Some(Context {
+            before: Vec::new(),
+            line: crate::frames::ContextLine {
+                number: 1,
+                line: "changed".to_string(),
+            },
+            after: Vec::new(),
+        });
+        variants.push(("context", changed_context));
+
+        let mut changed_resolved = current.clone();
+        changed_resolved.resolved = false;
+        variants.push(("resolved", changed_resolved));
+
+        let mut changed_symbol_set = current.clone();
+        changed_symbol_set.symbol_set_id = Some(Uuid::now_v7());
+        variants.push(("symbol_set_id", changed_symbol_set));
+
+        let mut changed_part = current;
+        changed_part.id.part = 1;
+        changed_part.contents.frame_id.part = 1;
+        variants.push(("ordered parts", changed_part));
+
+        for (field, changed) in variants {
+            assert_eq!(
+                classify_frame_snapshot(std::slice::from_ref(&existing), &[changed]),
+                FrameWriteOutcome::Changed,
+                "{field}"
+            );
+        }
     }
 
     #[test]
