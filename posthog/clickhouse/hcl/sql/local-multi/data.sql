@@ -450,6 +450,26 @@ CREATE TABLE posthog.marketing_costs_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_marketing_costs_preaggregated', cityHash64(source_name, campaign_id));
+CREATE TABLE posthog.marketing_sessions_dimensional_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  period_bucket DateTime,
+  session_id String,
+  person_id UUID,
+  start_timestamp DateTime64(6, 'UTC'),
+  min_event_timestamp DateTime64(6, 'UTC'),
+  max_event_timestamp DateTime64(6, 'UTC'),
+  channel_type String,
+  utm_source String,
+  utm_medium String,
+  utm_campaign String,
+  utm_term String,
+  utm_content String,
+  referring_domain String,
+  entry_pathname String,
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_marketing_sessions_dimensional_preaggregated', cityHash64(person_id));
 CREATE TABLE posthog.marketing_touchpoints_preaggregated (
   team_id Int64,
   job_id UUID,
