@@ -271,7 +271,9 @@ export function TaxonomicPropertyFilter({
               : (filter?.type === PropertyFilterType.Flag ||
                       filterType === PropertyFilterType.AccountRelationship ||
                       filter?.type === PropertyFilterType.AccountCustomProperty) &&
-                  filter?.label
+                  filter &&
+                  'label' in filter &&
+                  filter.label
                 ? filter.label
                 : filter?.key && (
                       <PropertyKeyInfo
