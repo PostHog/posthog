@@ -8,7 +8,8 @@ import { Breadcrumb } from '~/types'
 
 import { VISION_ROOT_BREADCRUMB, scannerBreadcrumb } from '../utils/breadcrumbs'
 
-export type ScannerEditorStep = 'template' | 'details' | 'configure' | 'triggers' | 'budget'
+export type ScannerEditorStep = 'template' | 'overview' | 'details' | 'configure' | 'triggers' | 'budget'
+// The manual wizard's stepper; overview belongs to the goal-based flow only, so it stays out.
 export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = [
     'template',
     'details',
@@ -18,13 +19,15 @@ export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = [
 ]
 export const SCANNER_EDITOR_STEP_ORDER: Record<ScannerEditorStep, number> = {
     template: 0,
-    details: 1,
-    configure: 2,
-    triggers: 3,
-    budget: 4,
+    overview: 1,
+    details: 2,
+    configure: 3,
+    triggers: 4,
+    budget: 5,
 }
 export const STEP_LABELS: Record<ScannerEditorStep, string> = {
     template: 'Template',
+    overview: 'Overview',
     details: 'Details',
     configure: 'Configure',
     triggers: 'Recordings',
@@ -45,6 +48,7 @@ export const UNVALIDATED_SCANNER_STEPS: readonly ScannerEditorStep[] = ['templat
 export function scannerStepErrors(errors: ScannerFieldErrors): Record<ScannerEditorStep, boolean> {
     return {
         template: false,
+        overview: false,
         details: false,
         configure: !!errors.scanner_config,
         triggers: !!errors.duration,
@@ -74,6 +78,8 @@ export function scannerStepUrl(step: ScannerEditorStep, scannerId: string): stri
     switch (step) {
         case 'template':
             return urls.replayVisionScannerTemplate(scannerId)
+        case 'overview':
+            return urls.replayVisionScannerOverview(scannerId)
         case 'details':
             return urls.replayVisionScannerDetails(scannerId)
         case 'configure':
@@ -171,6 +177,16 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                         path: scannerStepUrlWithParams('template', scannerId, searchParams),
                     })
                     if (step !== 'template') {
+                        // Editing a section reached from the goal overview: slot the overview in as the
+                        // back target, so leaving the edit returns there rather than to the template.
+                        if (searchParams.from === 'overview' && step !== 'overview') {
+                            const { from: _from, ...overviewParams } = searchParams
+                            crumbs.push({
+                                key: 'new-scanner-overview',
+                                name: STEP_LABELS.overview,
+                                path: scannerStepUrlWithParams('overview', scannerId, overviewParams),
+                            })
+                        }
                         crumbs.push({ key: 'new-scanner-step', name: STEP_LABELS[step] })
                     }
                     return crumbs
@@ -199,6 +215,15 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
             }
             if (values.step !== 'template') {
                 actions.setStep('template')
+            }
+        },
+        [urls.replayVisionScannerOverview(':id')]: ({ id }) => {
+            const scannerId = id || 'new'
+            if (scannerId !== values.scannerId) {
+                actions.setScannerId(scannerId)
+            }
+            if (values.step !== 'overview') {
+                actions.setStep('overview')
             }
         },
         [urls.replayVisionScannerDetails(':id')]: ({ id }) => {

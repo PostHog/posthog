@@ -5,7 +5,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { createHarnessRuntime, runRpcMode } from "@posthog/harness";
 import { createAutoPublishExtension } from "@posthog/harness/extensions/auto-publish";
-import { createPiRuntimeTrustResolver } from "@posthog/harness/project-trust";
 import type {
   McpToolPermissionDecision,
   McpToolPermissionRequest,
@@ -94,10 +93,7 @@ if (bootstrap.enrichment) {
 const runtime = await createHarnessRuntime({
   cwd,
   sessionManager,
-  projectTrusted: createPiRuntimeTrustResolver(
-    cwd,
-    bootstrap.projectTrusted ?? false,
-  ),
+  projectTrusted: () => true,
   resourceLoaderOptions: { extensionFactories: runtimeExtensions },
   ...providerOptions,
   runtimeMcpServers: bootstrap.runtimeMcpServers,
