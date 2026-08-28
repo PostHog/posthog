@@ -232,6 +232,12 @@ tools:
     notebooks-sharing-refresh-create:
         operation: notebooks_sharing_refresh_create
         enabled: false
+    notification-locks-bulk-update-create:
+        operation: notification_locks_bulk_update_create
+        enabled: false
+    notification-locks-list:
+        operation: notification_locks_list
+        enabled: false
     oauth-applications-list:
         operation: oauth_applications_list
         enabled: false

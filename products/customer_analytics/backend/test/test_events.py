@@ -407,6 +407,37 @@ class TestAccountRelationshipChangedEvent(BaseTest):
         assert properties["current_user_id"] is None
         assert properties["current_user_email"] is None
 
+    @parameterized.expand([("active", False), ("ended", True)])
+    def test_hard_delete_emits_only_for_active_assignment(self, mock_capture, _case, ended):
+        relationship = self._assign()
+        mock_capture.reset_mock()
+        if ended:
+            with self.captureOnCommitCallbacks(execute=True):
+                facade.end_account_relationship(
+                    team_id=self.team.id,
+                    account_id=self.account.id,
+                    relationship_id=relationship.id,
+                    actor=self.user,
+                )
+            mock_capture.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            assert facade.delete_account_relationship(
+                team_id=self.team.id,
+                account_id=self.account.id,
+                relationship_id=relationship.id,
+                actor=self.user,
+            )
+
+        if ended:
+            mock_capture.assert_not_called()
+        else:
+            mock_capture.assert_called_once()
+            (event,) = mock_capture.call_args.kwargs["events"]
+            assert event["properties"]["change_type"] == "unassigned"
+            assert event["properties"]["previous_user_id"] == self.user.id
+            assert event["properties"]["current_user_id"] is None
+
     def test_assigning_same_user_emits_nothing(self, mock_capture):
         self._assign()
         mock_capture.reset_mock()

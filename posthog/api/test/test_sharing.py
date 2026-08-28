@@ -1588,7 +1588,7 @@ class TestSharedAdhocQueryExport(APIBaseTest):
             team=self.team,
             export_format=ExportedAsset.ExportFormat.PNG,
             created_by=self.user,
-            export_context={"source": self._SOURCE_QUERY},
+            export_context={"source": self._SOURCE_QUERY, "title": "Weekly signups"},
         )
 
     @patch("posthog.api.sharing.process_query_dict")
@@ -1604,6 +1604,7 @@ class TestSharedAdhocQueryExport(APIBaseTest):
         exported_data = json.loads(mock_render_template.call_args[1]["context"]["exported_data"])
         assert exported_data["query"] == self._SOURCE_QUERY
         assert exported_data["query_results"] == {"results": [{"count": 42}], "cache_key": "abc"}
+        assert exported_data["query_title"] == "Weekly signups"
         # The read must be attributed to the export owner so warehouse access control resolves.
         assert mock_process_query.call_args[1]["user"] == self.user
 

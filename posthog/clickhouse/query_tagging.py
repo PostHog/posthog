@@ -626,6 +626,10 @@ def tag_queries(**kwargs) -> None:
     The purpose of tag_queries is to pass additional context for ClickHouse executed queries. The tags
     are serialized into ClickHouse' system.query_log.log_comment column.
 
+    Tags are last-write-wins, and HogQLQueryExecutor calls tag_queries(query_type=...) itself
+    immediately before execution. So a query_type set here before execute_hogql_query() never
+    reaches query_log; pass query_type= to execute_hogql_query() instead.
+
     :param kwargs: Key->value pairs of tags to be set.
     """
     current_tags = get_query_tags()

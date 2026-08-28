@@ -6936,6 +6936,10 @@ class SessionRecordingType(BaseModel):
     distinct_id: str | None = None
     email: str | None = None
     end_time: str = Field(..., description="When the recording ends in ISO format.")
+    event_count: float | None = Field(
+        default=None,
+        description=("Number of captured rrweb events in the recording. Only present once metadata is loaded."),
+    )
     expiry_time: str | None = Field(default=None, description="When the recording expires, in ISO format.")
     external_references: list[SessionRecordingExternalReference] | None = Field(
         default=None, description="External references to third party issues."
@@ -6973,6 +6977,12 @@ class SessionRecordingType(BaseModel):
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
     summary: str | None = None
+    total_size: float | None = Field(
+        default=None,
+        description=(
+            "Total stored size of the recording's snapshot data in bytes. Only present once metadata is loaded."
+        ),
+    )
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
