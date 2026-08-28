@@ -25,6 +25,7 @@ import {
   evidenceWebPath,
 } from "../../../utils/evidenceLinks";
 import { getObjectKind } from "../../../utils/objectKinds";
+import { ExperimentResultsSummary } from "../../posthog-objects/ExperimentResultsSummary";
 import { buildEvidenceComposerContent } from "../evidenceComposer";
 import {
   EVIDENCE_PREVIEW_STALE_TIME,
@@ -167,16 +168,12 @@ export function EvidenceSparkline({
   );
 }
 
-/**
- * The hover card, presentation only. `preview` is the live lookup result:
- * `undefined` while loading, `null` when there is nothing to show (unknown
- * kind, failed lookup, or no session).
- */
 export function EvidenceHoverCard({
   target,
   children,
   url,
   preview,
+  loadState = preview === undefined ? "loading" : preview ? "ready" : "missing",
   onOpen = openExternalUrl,
   onExpand,
 }: {
@@ -184,6 +181,7 @@ export function EvidenceHoverCard({
   children: ReactNode;
   url: string | null;
   preview: EvidenceCardData | null | undefined;
+  loadState?: "loading" | "error" | "missing" | "ready";
   onOpen?: (url: string) => void;
   onExpand?: (label: string) => void;
 }) {
@@ -202,7 +200,15 @@ export function EvidenceHoverCard({
         {/* For a query the source label duplicates the footer's open action. */}
         {!isQuery && <span className="ml-auto shrink-0">{meta.source}</span>}
       </div>
-      {preview === undefined ? (
+      {target.kind === "experiment" && loadState !== "ready" ? (
+        <div className="mt-3">
+          <ExperimentResultsSummary
+            display="compact"
+            loadState={loadState}
+            results={preview?.experimentResults}
+          />
+        </div>
+      ) : loadState === "loading" ? (
         <div className="mt-3 space-y-2" data-testid="evidence-preview-loading">
           <div className="h-4 w-3/5 animate-pulse rounded bg-(--gray-a4)" />
           <div className="h-9 w-full animate-pulse rounded bg-(--gray-a3)" />
@@ -258,6 +264,15 @@ export function EvidenceHoverCard({
                   {fact}
                 </span>
               ))}
+            </div>
+          )}
+          {target.kind === "experiment" && (
+            <div className="mt-2.5">
+              <ExperimentResultsSummary
+                display="compact"
+                loadState="ready"
+                results={preview.experimentResults}
+              />
             </div>
           )}
         </div>
@@ -371,12 +386,16 @@ function EvidenceHoverCardLoader({
     },
   );
   // No session means no lookup: show the static card, not an endless skeleton.
-  const preview =
-    !client || query.isError
-      ? null
+  const loadState = !client
+    ? "missing"
+    : query.isError
+      ? "error"
       : query.isFetched
-        ? (query.data ?? null)
-        : undefined;
+        ? query.data
+          ? "ready"
+          : "missing"
+        : "loading";
+  const preview = query.data ?? null;
   // A reference whose cited id has no page (an event name, a flag key) can
   // still link out once the preview resolves the canonical id.
   const resolvedUrl = useEvidenceUrl(
@@ -388,6 +407,7 @@ function EvidenceHoverCardLoader({
       target={target}
       url={url ?? resolvedUrl}
       preview={preview}
+      loadState={loadState}
       onExpand={onExpand}
     >
       {children}
