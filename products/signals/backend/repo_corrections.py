@@ -52,8 +52,9 @@ _MAX_REPO_CHARS = 140
 
 # `content` is compact JSON written by pydantic's model_dump_json, so a wrong_repo dismissal
 # always contains this exact substring (values with quotes are escaped, so a note can only
-# false-positive into the scan, where the typed parse below re-checks the reason).
-_WRONG_REPO_CONTENT_NEEDLE = f'"reason":"{DISMISSAL_REASON_WRONG_REPO}"'
+# false-positive into the scan, where the typed parse below re-checks the reason). Also used by the
+# report-persist guard (`_reviewer_selection_written_since`) to detect a mid-run correction.
+WRONG_REPO_CONTENT_NEEDLE = f'"reason":"{DISMISSAL_REASON_WRONG_REPO}"'
 
 
 @frozen
@@ -81,7 +82,7 @@ def recent_wrong_repo_corrections(team_id: int) -> list[RepoCorrection]:
             team_id=team_id,
             type=SignalReportArtefact.ArtefactType.DISMISSAL,
             created_at__gte=cutoff,
-            content__contains=_WRONG_REPO_CONTENT_NEEDLE,
+            content__contains=WRONG_REPO_CONTENT_NEEDLE,
         )
         # Report deletion is a status flip, not a row delete, and every other read path stops
         # serving a deleted report's content. A deleted report's title and reviewer note must

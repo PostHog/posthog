@@ -15,6 +15,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, Dismissal
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
@@ -43,6 +44,7 @@ from products.signals.backend.temporal.agentic.select_repository import (
 )
 from products.signals.backend.temporal.summary import MarkReportReadyInput, mark_report_ready_activity
 from products.signals.backend.temporal.types import SignalData
+from products.tasks.backend.models import Task  # tach-ignore
 
 
 @pytest_asyncio.fixture
@@ -473,6 +475,49 @@ async def test_run_agentic_report_activity_keeps_reviewer_selection_written_mid_
     assert [json.loads(selection.content)["repository"] for selection in selections] == [None]
     # A reviewer superseded the selection mid-run, so no auto-start may run against the rejected
     # repository — not even on the reviewer-resolved path, which never consults the eligibility flag.
+    autostart.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_detects_task_attributed_wrong_repo_dismissal(monkeypatch, ateam):
+    # An agent dismissing a report as wrong_repo through the MCP surface attributes the dismissal to
+    # its task, so the `dismissal` artefact carries a null created_by. The supersede guard must still
+    # detect it off the dismissal artefact; keying only off a user-attributed repo_selection row
+    # would miss it, and the run would bury the correction with its stale selection and auto-start.
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    as_of = datetime.now(UTC)
+    task = await database_sync_to_async(Task.objects.create)(team=ateam, title="agent", description="d")
+    await database_sync_to_async(SignalReportArtefact.append_dismissal)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=Dismissal(
+            reason=DISMISSAL_REASON_WRONG_REPO,
+            selected_repository="posthog/posthog",
+            corrected_repository="acme/other",
+        ),
+        attribution=ArtefactAttribution.from_task(str(task.id)),
+    )
+    autostart = AsyncMock()
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.maybe_autostart_implementation_task", autostart
+    )
+
+    await _run_activity_with_output(monkeypatch, ateam, report, _build_research_output(), repo_selection_as_of=as_of)
+
+    # Superseded by the agent's correction: the run must not persist its own stale selection on top,
+    # and must not auto-start against the rejected repository.
+    selections = await database_sync_to_async(
+        lambda: list(
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.REPO_SELECTION)
+        )
+    )()
+    assert selections == []
     autostart.assert_not_awaited()
 
 

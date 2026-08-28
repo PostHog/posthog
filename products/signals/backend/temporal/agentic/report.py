@@ -23,6 +23,7 @@ from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_
 from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.repo_corrections import WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
@@ -301,14 +302,34 @@ def _report_has_live_suggested_reviewers(report_id: str) -> bool:
 
 
 def _reviewer_selection_written_since(team_id: int, report_id: str, since: datetime) -> bool:
-    """Whether a person wrote a repo_selection artefact after `since` — a wrong-repo dismissal's
-    correction or clear that landed while the run was in flight."""
-    return SignalReportArtefact.objects.filter(
+    """Whether a reviewer superseded the run's repo selection after `since` — a wrong-repo
+    dismissal's correction or clear that landed while the run was in flight.
+
+    Two shapes count. A person editing the selection directly (a repo_selection artefact through
+    the artefacts API) carries a non-null `created_by`. A wrong-repo dismissal filed through the
+    state API records its correction on a `dismissal` artefact under the request's attribution —
+    which is null-`created_by` for an agent call, since the forwarded task id attributes the row and
+    attribution is exclusive — so filtering on `created_by` alone would miss an agent-issued
+    correction. Keying off the dismissal artefact instead is attribution-agnostic, and it cannot
+    false-positive on the activity's own retry (whose `repo_selection_as_of` does not advance past
+    its first attempt) because the pipeline never writes `dismissal` artefacts — only the
+    state-transition path does.
+    """
+    reviewer_edited_selection = SignalReportArtefact.objects.filter(
         team_id=team_id,
         report_id=report_id,
         type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
         created_at__gt=since,
         created_by__isnull=False,
+    ).exists()
+    if reviewer_edited_selection:
+        return True
+    return SignalReportArtefact.objects.filter(
+        team_id=team_id,
+        report_id=report_id,
+        type=SignalReportArtefact.ArtefactType.DISMISSAL,
+        created_at__gt=since,
+        content__contains=WRONG_REPO_CONTENT_NEEDLE,
     ).exists()
 
 
