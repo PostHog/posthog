@@ -428,8 +428,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.NotFound("Wizard gateway tokens are not available.")
 
         authenticator = OAuthAccessTokenAuthentication()
-        # authenticate() raises its own AuthenticationFailed (expired, disabled user,
-        # no application), so the count wraps the call, not just the checks.
+        # authenticate() raises its own AuthenticationFailed, so the count wraps the
+        # call rather than only the two checks below.
         try:
             result = authenticator.authenticate(request)
             if not result:
@@ -491,8 +491,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # program keeps running on legacy instead of dying. It still cannot mint.
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="program_unknown").inc()
             raise exceptions.NotFound("Unrecognized wizard program.")
-        # After every gate and before the mint: a refused request spends nothing,
-        # and the reservation is atomic so parallel requests cannot share a slot.
         try:
             reserved = reserve_wizard_mint(request, self)
         except exceptions.Throttled:
@@ -503,8 +501,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         try:
             minted = mint_wizard_gateway_token(obo=str(team.organization_id), user=distinct_id, product=product)
         except WizardGatewayMintError as e:
-            # Only a failure that proves no token was issued returns the slot; an
-            # ambiguous one keeps it rather than risk exceeding the daily ceiling.
+            # An ambiguous failure keeps the slot rather than risk the ceiling.
             if not e.token_may_exist:
                 refund_wizard_mint(reserved)
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="mint_failed").inc()

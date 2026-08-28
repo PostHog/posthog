@@ -677,8 +677,6 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     def _mock_oauth(self, mock_authentication, scope=None, scoped_teams=None, client_id="wizard-client-id"):
         mock_authenticator = mock_authentication.return_value
         mock_authenticator.authenticate.return_value = (self.user, None)
-        # `scope` is the token's own space-separated text, which is what the
-        # endpoint reads (not DOT's registry-filtered `scopes` dict).
         mock_authenticator.access_token.scope = "llm_gateway:read" if scope is None else scope
         mock_authenticator.access_token.scoped_teams = scoped_teams if scoped_teams is not None else [self.team.id]
         mock_authenticator.access_token.application.client_id = client_id
@@ -730,7 +728,6 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_token_from_another_application_is_401(self, mock_authentication, mock_authorized):
-        # llm_gateway:read is on every sandbox and agent token.
         self._mock_oauth(mock_authentication, client_id="sandbox-client-id")
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
@@ -739,7 +736,6 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_revoked_project_access_is_403(self, mock_authentication, mock_flag, mock_authorized):
-        # scoped_teams is frozen at consent.
         self._mock_oauth(mock_authentication)
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -794,8 +790,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     def test_a_failure_that_issued_no_token_returns_the_slot(
         self, mock_authentication, mock_flag, mock_authorized, mock_key
     ):
-        # The refund only runs through the view's exception handler, so nothing
-        # below the helper's own unit tests covers deleting or inverting it.
+        # Nothing below the helper's unit tests covers deleting or inverting this.
         self._mock_oauth(mock_authentication)
         with patch(
             "posthog.api.wizard.http.mint_wizard_gateway_token",
@@ -815,8 +810,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     def test_a_failure_that_may_have_issued_a_token_keeps_the_slot(
         self, mock_authentication, mock_flag, mock_authorized, mock_key
     ):
-        # The paired negative: refunding here would return a slot for a token the
-        # gateway may hold, which is what the guard exists to prevent.
+        # The paired negative: the gateway may hold this token.
         self._mock_oauth(mock_authentication)
         with patch(
             "posthog.api.wizard.http.mint_wizard_gateway_token",
@@ -876,8 +870,6 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_a_throttled_mint_is_counted(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
-        # The reservation raises inside the action body, after DRF's own throttle
-        # check admitted the request, so the throttled() hook never sees this one.
         self._mock_oauth(mock_authentication)
         before = _gateway_token_outcome("throttled")
 
@@ -893,8 +885,6 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert _gateway_token_outcome("throttled") == before + 1
 
     def test_an_unresolvable_bearer_is_counted(self):
-        # The authenticator raises on its own, before any gate that counts, so a
-        # rejected bearer would otherwise leave no sample at all.
         before = _gateway_token_outcome("invalid_token")
 
         response = self.client.post(
@@ -964,9 +954,6 @@ class TestReserveWizardMint:
         django_cache.clear()
         req = self._request()
         with patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="k"):
-            # incr raises when the key expired between add and incr. The branch has
-            # to persist the charge, or it hands back a counter whose decr would
-            # debit whatever a concurrent request charged next.
             with patch("posthog.rate_limit.cache.incr", side_effect=ValueError("no key")):
                 counter = reserve_wizard_mint(req, None)
 
@@ -976,8 +963,6 @@ class TestReserveWizardMint:
         assert django_cache.get(counter) == 0
 
     def test_a_refund_without_a_counter_is_a_no_op(self):
-        # reserve returns None when it charged nothing, and the caller refunds
-        # unconditionally on an unambiguous failure.
         refund_wizard_mint(None)
 
     def test_a_cache_failure_fails_open(self):
