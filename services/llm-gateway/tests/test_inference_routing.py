@@ -225,14 +225,23 @@ async def test_deepseek_does_not_apply_glm_anthropic_normalization() -> None:
     assert handle.call_args.kwargs["request_data"] == request
 
 
-@pytest.mark.parametrize("model", [GLM53_MODEL, GLM53_FLASH_MODEL])
-async def test_baseten_exclusive_glm_still_applies_anthropic_normalization(model: str) -> None:
+@pytest.mark.parametrize(
+    ("model", "effort"),
+    [
+        (GLM53_MODEL, "low"),
+        (GLM53_MODEL, "high"),
+        (GLM53_MODEL, "max"),
+        (GLM53_FLASH_MODEL, "high"),
+        (GLM53_FLASH_MODEL, "max"),
+    ],
+)
+async def test_baseten_exclusive_glm_still_applies_anthropic_normalization(model: str, effort: str) -> None:
     # A Baseten-exclusive GLM is still a GLM: the Claude-runtime reasoning rewrite must apply.
     handle = AsyncMock(return_value={"ok": True})
     request = {
         "model": model,
         "messages": [{"role": "user", "content": "hi"}],
-        "output_config": {"effort": "high"},
+        "output_config": {"effort": effort},
     }
 
     await _send(_settings(baseten_api_key="baseten-key"), handle, request_data=request)

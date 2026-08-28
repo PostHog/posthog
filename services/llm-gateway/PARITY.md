@@ -49,8 +49,8 @@ Existing Django callers should use `build_openai_client`, `build_async_openai_cl
 For PostHog Desktop, the Python gateway maps Django credential rejections to generic access denials. Transport, server, and malformed-response failures remain retryable service errors.
 
 Flag-gated open-weight models added to the Python gateway under the freeze stay there for the same reason.
-`zai-org/glm-5.3-flash` is Baseten-exclusive, gated by the `posthog-code-glm-53-flash-model` flag, and reachable only by the `posthog_code` and `review_hog` products.
-Its callers are PostHog Desktop and PostHog Code, so the model depends on the OAuth application allowlists, the request-selected project validated against OAuth scope and live organization membership, the billing policy, and the per-model access flags named in the first row above.
+`zai-org/glm-5.3` and `zai-org/glm-5.3-flash` are Baseten-exclusive, gated independently, and reachable only by the `posthog_code` and `review_hog` products.
+Their callers are PostHog Desktop and PostHog Code, so the models depend on the OAuth application allowlists, the request-selected project validated against OAuth scope and live organization membership, the billing policy, and the per-model access flags named in the first row above.
 The Go catalog serves GLM 5.2 only, and Baseten on Go still depends on the provider deployment check below.
 
 ### 🔎 Verify before switching
@@ -97,10 +97,10 @@ Run `/migrating-llm-gateway-callers` to inventory and convert a caller.
 
 Run `/auditing-llm-gateway-parity` after either gateway changes auth, attribution, billing, endpoints, providers, models, routing, or event metadata. The skill audits implementation sources in both repositories and updates this file without migrating callers.
 
-Last verified on 2026-08-27 against:
+Last verified on 2026-08-28 against:
 
-- `PostHog/posthog` working tree compared with master at `88997b515b337b2482814df60c132f60d5de5be4`
-- `PostHog/ai-gateway` main at `37ee8bca725a13bca71e40b36f916765f625f939`
+- `PostHog/posthog` working tree compared with master at `098981e3715839d18ca101da92da57aaf66a495b`
+- `PostHog/ai-gateway` main at `c529392ff89ea6c5767362ac35dd3ee601f16e20`
 
 ## References
 

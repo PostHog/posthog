@@ -196,7 +196,7 @@ describe("getEffortOptions", () => {
     ["claude-sonnet-4-6", ["low", "medium", "high"]],
     ["claude-opus-4-7", ["low", "medium", "high", "xhigh", "max", "ultracode"]],
     ["@cf/zai-org/glm-5.2", ["high", "max"]],
-    ["zai-org/glm-5.3", ["high", "max"]],
+    ["zai-org/glm-5.3", ["low", "high", "max"]],
     ["zai-org/glm-5.3-flash", ["high", "max"]],
   ])("returns the exact effort levels for %s", (modelId, expected) => {
     expect(getEffortOptions(modelId)?.map((o) => o.value)).toEqual(expected);

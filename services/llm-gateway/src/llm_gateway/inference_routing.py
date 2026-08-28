@@ -61,13 +61,15 @@ from llm_gateway.modal_routing import send_modal_request
 
 LlmCall = Callable[..., Awaitable[Any]]
 
-GLM_REASONING_EFFORTS: frozenset[str] = frozenset({"high", "max"})
+GLM_REASONING_EFFORTS: dict[str, frozenset[str]] = {
+    BASETEN_PUBLIC_MODEL: frozenset({"high", "max"}),
+    BASETEN_GLM53_PUBLIC_MODEL: frozenset({"low", "high", "max"}),
+    BASETEN_GLM53_FLASH_PUBLIC_MODEL: frozenset({"high", "max"}),
+}
 
 # GLM models across all backends: these need the Claude-runtime reasoning rewrite on the
 # Anthropic surface regardless of which provider serves them.
-GLM_MODELS: frozenset[str] = frozenset(
-    {BASETEN_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL, BASETEN_GLM53_FLASH_PUBLIC_MODEL}
-)
+GLM_MODELS: frozenset[str] = frozenset(GLM_REASONING_EFFORTS)
 
 
 def is_inference_routed_model(model: str) -> bool:
@@ -88,8 +90,10 @@ def normalize_glm_anthropic_request(request_data: dict[str, Any], *, product: st
     normalized = dict(request_data)
     output_config = normalized.get("output_config")
     effort = output_config.get("effort") if isinstance(output_config, dict) else None
+    model = str(normalized.get("model", "")).strip().lower()
+    supported_efforts = GLM_REASONING_EFFORTS.get(model)
 
-    if effort in GLM_REASONING_EFFORTS:
+    if supported_efforts is not None and effort in supported_efforts:
         normalized["thinking"] = {"type": "adaptive"}
 
     return drop_orphaned_clear_thinking(normalized, product=product)

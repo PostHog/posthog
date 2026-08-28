@@ -13,6 +13,7 @@ describe("isSupportedReasoningEffort", () => {
     ["claude", "@cf/zai-org/glm-5.2", "medium", false],
     ["claude", "zai-org/glm-5.3", "high", true],
     ["claude", "zai-org/glm-5.3", "max", true],
+    ["claude", "zai-org/glm-5.3", "low", true],
     ["claude", "zai-org/glm-5.3", "medium", false],
     ["claude", "zai-org/glm-5.3-flash", "high", true],
     ["claude", "zai-org/glm-5.3-flash", "medium", false],
