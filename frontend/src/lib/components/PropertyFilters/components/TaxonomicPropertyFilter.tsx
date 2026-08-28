@@ -87,6 +87,7 @@ export function TaxonomicPropertyFilter({
     hogQLGlobals,
     triggerVariant = 'button',
     staticValueOptions,
+    renderOperatorValueSelect,
     propertyDefinitionsOverride,
     propertyKeyEditable = true,
     singleLine,
@@ -196,7 +197,7 @@ export function TaxonomicPropertyFilter({
         />
     )
 
-    const operatorValueSelect = (
+    const defaultOperatorValueSelect = (
         <OperatorValueSelect
             propertyDefinitions={propertyDefinitions}
             size={size}
@@ -250,12 +251,24 @@ export function TaxonomicPropertyFilter({
         />
     )
 
+    const operatorValueSelect =
+        filter && renderOperatorValueSelect
+            ? renderOperatorValueSelect(filter, (operator, value) => {
+                  setFilter(index, {
+                      ...filter,
+                      operator,
+                      value,
+                  } as AnyPropertyFilter)
+              })
+            : null
+
     const filterContent =
         filter?.type === 'cohort'
             ? cohortName || `Cohort #${filter?.value}`
             : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
               ? filter.label || `Group ${filter?.value}`
               : (filter?.type === PropertyFilterType.Flag ||
+                      filter?.type === PropertyFilterType.AccountRelationship ||
                       filter?.type === PropertyFilterType.AccountCustomProperty) &&
                   filter?.label
                 ? filter.label
@@ -382,9 +395,13 @@ export function TaxonomicPropertyFilter({
                             framedRows && filter?.key && FILTER_ROW_FRAME_CLASSES
                         )}
                     >
-                        {showOperatorValueSelect && placeOperatorValueSelectOnLeft && operatorValueSelect}
+                        {showOperatorValueSelect &&
+                            placeOperatorValueSelectOnLeft &&
+                            (operatorValueSelect ?? defaultOperatorValueSelect)}
                         {editable && propertyKeyEditable ? editablePicker : filterContent}
-                        {showOperatorValueSelect && !placeOperatorValueSelectOnLeft && operatorValueSelect}
+                        {showOperatorValueSelect &&
+                            !placeOperatorValueSelectOnLeft &&
+                            (operatorValueSelect ?? defaultOperatorValueSelect)}
                     </div>
                 </div>
             )}
