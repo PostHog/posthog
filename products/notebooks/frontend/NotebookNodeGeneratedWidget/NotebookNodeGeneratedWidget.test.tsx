@@ -1,6 +1,6 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { BindLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
@@ -75,6 +75,7 @@ describe('NotebookNodeGeneratedWidget', () => {
                 created_at: '2026-08-27T12:00:00Z',
                 started_at: '2026-08-27T12:00:00Z',
             },
+            build_hash: null,
         })
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({ results: [], count: 0, next_offset: null })
 
@@ -86,6 +87,7 @@ describe('NotebookNodeGeneratedWidget', () => {
     })
 
     afterEach(() => {
+        cleanup()
         logic?.unmount()
         jest.restoreAllMocks()
     })
@@ -115,6 +117,7 @@ describe('NotebookNodeGeneratedWidget', () => {
             instance_id: '00000000-0000-0000-0000-000000000004',
             has_versions: true,
             active_job: null,
+            build_hash: 'a'.repeat(64),
         })
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({
             results: [
@@ -131,6 +134,7 @@ describe('NotebookNodeGeneratedWidget', () => {
                     artifact_url: 'https://example.com/widget.html',
                     frame_names: [],
                     is_current: true,
+                    build_hash: 'a'.repeat(64),
                 },
             ],
             count: 1,
@@ -147,8 +151,14 @@ describe('NotebookNodeGeneratedWidget', () => {
             </BindLogic>
         )
 
-        const actionLabels = ['Improve…', 'Regenerate…', 'View source', 'Reload preview']
-        const actionButtons = await Promise.all(actionLabels.map((label) => screen.findByText(label)))
+        const improveButton = await screen.findByText('Improve…')
+        const actionContainer = improveButton.closest('button')!.parentElement!
+        const actionButtons = [
+            improveButton,
+            within(actionContainer).getByText('Regenerate…'),
+            within(actionContainer).getByText('View source'),
+            within(actionContainer).getByText('Reload preview'),
+        ]
         actionButtons.slice(0, -1).forEach((button, index) => {
             expect(
                 button.compareDocumentPosition(actionButtons[index + 1]) & Node.DOCUMENT_POSITION_FOLLOWING
@@ -158,11 +168,72 @@ describe('NotebookNodeGeneratedWidget', () => {
         fireEvent.click(actionButtons[3])
         await waitFor(() => expect(notebooksWidgetStatus).toHaveBeenCalledWith(String(MOCK_TEAM_ID), SHORT_ID, 'globe'))
 
-        fireEvent.click(await screen.findByText('View source'))
+        fireEvent.click(actionButtons[2])
 
-        await waitFor(() => expect(notebooksWidgetSource).toHaveBeenCalledWith(String(MOCK_TEAM_ID), SHORT_ID, 'globe'))
+        await waitFor(() =>
+            expect(notebooksWidgetSource).toHaveBeenCalledWith(String(MOCK_TEAM_ID), SHORT_ID, 'globe', {
+                version_id: versionId,
+            })
+        )
         expect(screen.getByText('Widget source')).toBeTruthy()
         expect(screen.getByText('What would you like to change?')).toBeTruthy()
         expect(screen.getByText('Build changes')).toBeTruthy()
+    })
+
+    it('does not mount generated JavaScript until the exact build is run', async () => {
+        const versionId = '00000000-0000-0000-0000-000000000005'
+        const buildHash = 'b'.repeat(64)
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue({
+            lifecycle_status: 'ready',
+            error_detail: null,
+            artifact_url: 'https://example.com/untrusted-widget.html',
+            frame_names: [],
+            current_version_id: versionId,
+            widget_id: '00000000-0000-0000-0000-000000000006',
+            instance_id: '00000000-0000-0000-0000-000000000007',
+            has_versions: true,
+            active_job: null,
+            build_hash: buildHash,
+        })
+        jest.mocked(notebooksWidgetVersions).mockResolvedValue({
+            results: [
+                {
+                    id: versionId,
+                    parent_version_id: null,
+                    version: 1,
+                    version_operation: 'initial',
+                    prompt_delta: 'Render a globe',
+                    effective_prompt: 'Render a globe',
+                    model: 'claude-sonnet-4-6',
+                    created_at: '2026-08-27T12:00:00Z',
+                    build_status: 'ready',
+                    artifact_url: 'https://example.com/untrusted-widget.html',
+                    frame_names: [],
+                    is_current: true,
+                    build_hash: buildHash,
+                },
+            ],
+            count: 1,
+            next_offset: null,
+        })
+        const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook', cachedNotebook }
+
+        const { container } = render(
+            <BindLogic logic={notebookLogic} props={logicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        await waitFor(() => expect(container.querySelector('[data-attr="notebook-widget-run"]')).not.toBeNull())
+        const runButton = container.querySelector('[data-attr="notebook-widget-run"]')!
+        expect(container.querySelector('iframe')).toBeNull()
+
+        fireEvent.click(runButton)
+
+        await waitFor(() => expect(container.querySelector('[data-attr="notebook-widget-run"]')).toBeNull())
+        await waitFor(() => expect(container.querySelector('iframe')).not.toBeNull())
+        expect(container.querySelector('iframe')?.getAttribute('src')).toBe(
+            'https://example.com/untrusted-widget.html#theme=light'
+        )
     })
 })

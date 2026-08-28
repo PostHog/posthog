@@ -10,6 +10,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { NotebookNodeAttributes, NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     formatWidgetElapsed,
@@ -17,6 +18,9 @@ import {
     notebookNodeGeneratedWidgetLogic,
 } from './notebookNodeGeneratedWidgetLogic'
 import { NotebookNodeGeneratedWidgetSettings } from './NotebookNodeGeneratedWidgetSettings'
+import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
+import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
+import { getNotebookWidgetTrust, notebookWidgetTrustLogic } from './notebookWidgetTrustLogic'
 import { WidgetArtifactFrame } from './WidgetArtifactFrame'
 import { DEFAULT_WIDGET_MODEL, type WidgetModel } from './widgetModels'
 import { getWidgetName } from './widgetName'
@@ -50,8 +54,9 @@ function ExpandedWidget({
     const componentPanelState = useComponentPanelState()
     const { isEditable, notebookLogic } = useValues(nodeLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
     const notebookShortId = notebookLogic.props.shortId
-    const logic = notebookNodeGeneratedWidgetLogic({
+    const logicProps = {
         projectId: currentTeamId,
         notebookShortId,
         nodeId: attributes.nodeId,
@@ -65,7 +70,10 @@ function ExpandedWidget({
             })
         },
         getContent: () => notebookLogic.values.content ?? null,
-    })
+    }
+    const logic = notebookNodeGeneratedWidgetLogic(logicProps)
+    const trustLogic = useMountedLogic(notebookWidgetTrustLogic)
+    const { sessionBuildHashes, trustByUser } = useValues(trustLogic)
     const {
         artifactUnavailable,
         activeFrameNames,
@@ -95,10 +103,12 @@ function ExpandedWidget({
         loadStatus,
         loadVersions,
         openGenerationModal,
+        openSourceModal,
         refreshData,
         runDataDependencies,
         setRuntimeError,
     } = useActions(logic)
+    const { setNotebookTrusted, setProjectTrusted, trustBuild } = useActions(trustLogic)
 
     if (statusLoading && !status) {
         return (
@@ -123,8 +133,44 @@ function ExpandedWidget({
 
     const initialPrompt = (attributes.prompt ?? '').trim()
     const selectedArtifactUrl =
-        selectedVersion?.artifact_url ??
-        (selectedVersionId === status?.current_version_id ? status?.artifact_url : null)
+        selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
+    const selectedBuildHash =
+        selectedVersionId === status?.current_version_id
+            ? (status?.build_hash ?? null)
+            : (selectedVersion?.build_hash ?? null)
+    const widgetTrust = getNotebookWidgetTrust({
+        trustByUser,
+        sessionBuildHashes,
+        userId: user?.id ?? null,
+        projectId: currentTeamId,
+        notebookShortId,
+        buildHash: selectedBuildHash,
+    })
+    const trustControls = (variant: 'gate' | 'toolbar'): JSX.Element => (
+        <NotebookWidgetTrustControls
+            buildHash={selectedBuildHash}
+            canTrustScopes={Boolean(user && currentTeamId)}
+            notebookTrusted={widgetTrust.notebookTrusted}
+            projectTrusted={widgetTrust.projectTrusted}
+            variant={variant}
+            onRun={() => {
+                if (selectedBuildHash) {
+                    trustBuild(user?.id ?? null, selectedBuildHash)
+                }
+            }}
+            onViewSource={openSourceModal}
+            onNotebookTrustedChange={(trusted) => {
+                if (user && currentTeamId) {
+                    setNotebookTrusted(user.id, currentTeamId, notebookShortId, trusted)
+                }
+            }}
+            onProjectTrustedChange={(trusted) => {
+                if (user && currentTeamId) {
+                    setProjectTrusted(user.id, currentTeamId, trusted)
+                }
+            }}
+        />
+    )
     if (artifactUnavailable && selectedArtifactUrl) {
         return (
             <EmptyState>
@@ -139,89 +185,101 @@ function ExpandedWidget({
     }
 
     if (selectedArtifactUrl && selectedVersionId && currentTeamId) {
+        if (!widgetTrust.buildTrusted) {
+            return (
+                <>
+                    {trustControls('gate')}
+                    {!componentPanelState?.showEditPanel ? <NotebookWidgetSourceModal {...logicProps} /> : null}
+                </>
+            )
+        }
         return (
-            <div className="flex h-full min-h-0 w-full flex-col">
-                {isWorking && workingStatus && !componentPanelState?.showEditPanel ? (
-                    <div className="flex flex-wrap items-center gap-2 border-b p-2 text-sm">
-                        <span className="flex items-center gap-2" role="status" aria-live="polite">
-                            <Spinner />
-                            <span>{workingStatus.label}</span>
-                        </span>
-                        <span className="font-mono tabular-nums" aria-hidden="true">
-                            {formatWidgetElapsed(elapsedSeconds)}
-                        </span>
-                        <span className="text-muted">{workingStatus.detail}</span>
-                        {isEditable ? (
-                            <LemonButton size="xsmall" onClick={cancelGeneration} loading={cancellationInFlight}>
-                                Cancel
-                            </LemonButton>
-                        ) : null}
+            <>
+                <div className="flex h-full min-h-0 w-full flex-col">
+                    {trustControls('toolbar')}
+                    {isWorking && workingStatus && !componentPanelState?.showEditPanel ? (
+                        <div className="flex flex-wrap items-center gap-2 border-b p-2 text-sm">
+                            <span className="flex items-center gap-2" role="status" aria-live="polite">
+                                <Spinner />
+                                <span>{workingStatus.label}</span>
+                            </span>
+                            <span className="font-mono tabular-nums" aria-hidden="true">
+                                {formatWidgetElapsed(elapsedSeconds)}
+                            </span>
+                            <span className="text-muted">{workingStatus.detail}</span>
+                            {isEditable ? (
+                                <LemonButton size="xsmall" onClick={cancelGeneration} loading={cancellationInFlight}>
+                                    Cancel
+                                </LemonButton>
+                            ) : null}
+                        </div>
+                    ) : null}
+                    {generationError ||
+                    (!generationRequestLoading && status?.lifecycle_status === 'failed' && status.error_detail) ? (
+                        <LemonBanner type="error" className="m-2">
+                            {generationError || status?.error_detail}
+                        </LemonBanner>
+                    ) : null}
+                    {statusLoadError ? (
+                        <LemonBanner type="warning" className="m-2" action={{ children: 'Retry', onClick: loadStatus }}>
+                            The widget status couldn't be refreshed. The preview below is the last confirmed version.
+                        </LemonBanner>
+                    ) : null}
+                    {runtimeError ? (
+                        <LemonBanner
+                            type="warning"
+                            className="m-2"
+                            onClose={() => setRuntimeError(null)}
+                            action={
+                                isEditable
+                                    ? {
+                                          children: 'Run data cells',
+                                          onClick: runDataDependencies,
+                                          loading: dataRefreshInFlight,
+                                          disabledReason: runDataDependenciesDisabledReason ?? undefined,
+                                          'data-attr': 'notebook-widget-runtime-run-data',
+                                      }
+                                    : undefined
+                            }
+                        >
+                            {runtimeError}
+                        </LemonBanner>
+                    ) : null}
+                    <div className="min-h-0 flex-1">
+                        <WidgetArtifactFrame
+                            key={`${selectedBuildHash}-${frameRevision}`}
+                            artifactUrl={selectedArtifactUrl}
+                            title={getWidgetName(attributes.prompt ?? '')}
+                            allowedFrames={activeFrameNames}
+                            onReadFrame={(name, offset, limit, runId, signal) =>
+                                loadWidgetFrame(
+                                    String(currentTeamId),
+                                    notebookShortId,
+                                    attributes.nodeId,
+                                    selectedVersionId,
+                                    name,
+                                    offset,
+                                    limit,
+                                    runId,
+                                    signal
+                                )
+                            }
+                            onArtifactUnavailable={markArtifactUnavailable}
+                            onError={(message) =>
+                                setRuntimeError(
+                                    message ||
+                                        'The widget could not load its notebook data. Run its data cells and try again.'
+                                )
+                            }
+                            onRendered={() => {
+                                artifactAvailable()
+                                setRuntimeError(null)
+                            }}
+                        />
                     </div>
-                ) : null}
-                {generationError ||
-                (!generationRequestLoading && status?.lifecycle_status === 'failed' && status.error_detail) ? (
-                    <LemonBanner type="error" className="m-2">
-                        {generationError || status?.error_detail}
-                    </LemonBanner>
-                ) : null}
-                {statusLoadError ? (
-                    <LemonBanner type="warning" className="m-2" action={{ children: 'Retry', onClick: loadStatus }}>
-                        The widget status couldn't be refreshed. The preview below is the last confirmed version.
-                    </LemonBanner>
-                ) : null}
-                {runtimeError ? (
-                    <LemonBanner
-                        type="warning"
-                        className="m-2"
-                        onClose={() => setRuntimeError(null)}
-                        action={
-                            isEditable
-                                ? {
-                                      children: 'Run data cells',
-                                      onClick: runDataDependencies,
-                                      loading: dataRefreshInFlight,
-                                      disabledReason: runDataDependenciesDisabledReason ?? undefined,
-                                      'data-attr': 'notebook-widget-runtime-run-data',
-                                  }
-                                : undefined
-                        }
-                    >
-                        {runtimeError}
-                    </LemonBanner>
-                ) : null}
-                <div className="min-h-0 flex-1">
-                    <WidgetArtifactFrame
-                        key={`${selectedArtifactUrl}-${frameRevision}`}
-                        artifactUrl={selectedArtifactUrl}
-                        title={getWidgetName(attributes.prompt ?? '')}
-                        allowedFrames={activeFrameNames}
-                        onReadFrame={(name, offset, limit, runId, signal) =>
-                            loadWidgetFrame(
-                                String(currentTeamId),
-                                notebookShortId,
-                                attributes.nodeId,
-                                selectedVersionId,
-                                name,
-                                offset,
-                                limit,
-                                runId,
-                                signal
-                            )
-                        }
-                        onArtifactUnavailable={markArtifactUnavailable}
-                        onError={(message) =>
-                            setRuntimeError(
-                                message ||
-                                    'The widget could not load its notebook data. Run its data cells and try again.'
-                            )
-                        }
-                        onRendered={() => {
-                            artifactAvailable()
-                            setRuntimeError(null)
-                        }}
-                    />
                 </div>
-            </div>
+                {!componentPanelState?.showEditPanel ? <NotebookWidgetSourceModal {...logicProps} /> : null}
+            </>
         )
     }
 

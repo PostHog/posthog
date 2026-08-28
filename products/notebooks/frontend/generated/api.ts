@@ -23,6 +23,7 @@ import type {
     NotebookSQLV2StateResponseApi,
     NotebooksListParams,
     NotebooksWidgetFrameParams,
+    NotebooksWidgetSourceParams,
     NotebooksWidgetVersionsParams,
     PaginatedNotebookMinimalListApi,
     PatchedNotebookApi,
@@ -643,8 +644,25 @@ export const notebooksWidgetRevert = async (
     })
 }
 
-export const getNotebooksWidgetSourceUrl = (projectId: string, shortId: string, nodeId: string) => {
-    return `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/source/`
+export const getNotebooksWidgetSourceUrl = (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    params?: NotebooksWidgetSourceParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/source/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/source/`
 }
 
 /**
@@ -654,9 +672,10 @@ export const notebooksWidgetSource = async (
     projectId: string,
     shortId: string,
     nodeId: string,
+    params?: NotebooksWidgetSourceParams,
     options?: RequestInit
 ): Promise<WidgetSourceApi> => {
-    return apiMutator<WidgetSourceApi>(getNotebooksWidgetSourceUrl(projectId, shortId, nodeId), {
+    return apiMutator<WidgetSourceApi>(getNotebooksWidgetSourceUrl(projectId, shortId, nodeId, params), {
         ...options,
         method: 'GET',
     })

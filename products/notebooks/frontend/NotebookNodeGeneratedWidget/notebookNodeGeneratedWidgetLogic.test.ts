@@ -49,6 +49,7 @@ function status(overrides: Partial<WidgetStatusApi> = {}): WidgetStatusApi {
         instance_id: null,
         has_versions: false,
         active_job: null,
+        build_hash: null,
         ...overrides,
     }
 }
@@ -108,6 +109,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             artifact_url: 'https://example.com/widget.html',
             frame_names: [],
             is_current: true,
+            build_hash: 'a'.repeat(64),
         }
         jest.mocked(notebooksWidgetStatus).mockResolvedValue(
             status({
@@ -149,6 +151,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             artifact_url: 'https://example.com/widget-v1.html',
             frame_names: [],
             is_current: true,
+            build_hash: 'b'.repeat(64),
         }
         const currentVersion: WidgetVersionApi = {
             ...initialVersion,
@@ -240,6 +243,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             artifact_url: 'https://example.com/widget-old.html',
             frame_names: [],
             is_current: false,
+            build_hash: 'c'.repeat(64),
         }
         const readyStatus = status({
             lifecycle_status: 'ready',
@@ -285,6 +289,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             artifact_url: 'https://example.com/widget-v1.html',
             frame_names: [],
             is_current: true,
+            build_hash: 'd'.repeat(64),
         }
         const nextVersionId = '00000000-0000-0000-0000-000000000003'
         jest.mocked(notebooksWidgetStatus).mockResolvedValue(
@@ -334,6 +339,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             artifact_url: 'https://example.com/widget-v1.html',
             frame_names: [],
             is_current: true,
+            build_hash: 'e'.repeat(64),
         }
         const failedVersion: WidgetVersionApi = {
             ...previousVersion,
@@ -458,8 +464,11 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(getWidgetDataDependencyNodeIds(content, ['locations_df'])).toEqual(['source', 'transform'])
     })
 
-    it('loads the current source and queues an improvement from it', async () => {
-        jest.mocked(notebooksWidgetStatus).mockResolvedValue(status({ lifecycle_status: 'ready' }))
+    it('loads the selected version source and queues an improvement from it', async () => {
+        const versionId = '00000000-0000-0000-0000-000000000009'
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({ lifecycle_status: 'ready', current_version_id: versionId, has_versions: true })
+        )
         jest.mocked(notebooksWidgetSource).mockResolvedValue({ source: 'export default function Widget() {}' })
         jest.mocked(notebooksWidgetGenerate).mockResolvedValue(status({ lifecycle_status: 'generating' }))
         logic = notebookNodeGeneratedWidgetLogic(props)
@@ -469,7 +478,9 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         logic.actions.openSourceModal()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(notebooksWidgetSource).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe')
+        expect(notebooksWidgetSource).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe', {
+            version_id: versionId,
+        })
         expect(logic.values.source).toBe('export default function Widget() {}')
         expect(logic.values.sourceModalOpen).toBe(true)
 

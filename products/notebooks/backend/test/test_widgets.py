@@ -714,12 +714,14 @@ class TestWidgetData(APIBaseTest):
             artifact_url="https://example.com/newer-widget.html",
             build_status="ready",
             build_error=None,
+            build_hash="a" * 64,
         )
         history = [
             NotebookCanvasVersion(
                 id=source_version_id,
                 build_status="ready",
                 artifact_url="https://example.com/globe.html",
+                build_hash="b" * 64,
             )
         ]
         url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/status/"
@@ -739,6 +741,7 @@ class TestWidgetData(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["lifecycle_status"] == "ready"
         assert response.json()["current_version_id"] == str(version.id)
+        assert response.json()["build_hash"] == "b" * 64
         assert "versions" not in response.json()
 
         history_url = (
@@ -752,6 +755,7 @@ class TestWidgetData(APIBaseTest):
         assert history_response.status_code == 200
         assert history_response.json()["count"] == 2
         assert len(history_response.json()["results"]) == 1
+        assert history_response.json()["results"][0]["build_hash"] == "b" * 64
 
     def test_active_generation_hides_a_transient_preview_error(self) -> None:
         instance = self._mapping()
@@ -783,7 +787,7 @@ class TestWidgetData(APIBaseTest):
         assert result.lifecycle_status == "generating"
         assert result.error_detail is None
 
-    def test_source_endpoint_reads_the_current_widget_version(self) -> None:
+    def test_source_endpoint_reads_the_selected_widget_version(self) -> None:
         instance = self._mapping()
         version = self._pinned_version(instance)
         url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/source/"
@@ -792,7 +796,7 @@ class TestWidgetData(APIBaseTest):
             "products.canvas.backend.notebook_integration.get_notebook_canvas_source",
             return_value="export default function Widget() { return <div /> }",
         ) as read_source:
-            response = self.client.get(url)
+            response = self.client.get(url, {"version_id": str(version.id)})
 
         assert response.status_code == 200
         assert response.json() == {"source": "export default function Widget() { return <div /> }"}

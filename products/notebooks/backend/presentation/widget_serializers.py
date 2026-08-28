@@ -58,6 +58,10 @@ class WidgetStatusSerializer(serializers.Serializer):
     instance_id = serializers.UUIDField(allow_null=True, help_text="Placement in this notebook.")
     has_versions = serializers.BooleanField(help_text="Whether the widget has generated history.")
     active_job = WidgetJobSerializer(allow_null=True, help_text="Active generation job, if any.")
+    build_hash = serializers.CharField(
+        allow_null=True,
+        help_text="Hex SHA-256 over the exact immutable artifact manifest selected for display.",
+    )
 
 
 class WidgetVersionSerializer(serializers.Serializer):
@@ -83,6 +87,10 @@ class WidgetVersionSerializer(serializers.Serializer):
         child=serializers.CharField(), help_text="Logical dataframe slots available to this version."
     )
     is_current = serializers.BooleanField(help_text="Whether this notebook instance currently displays this version.")
+    build_hash = serializers.CharField(
+        allow_null=True,
+        help_text="Hex SHA-256 over this version's exact immutable artifact manifest.",
+    )
 
 
 class WidgetVersionPageSerializer(serializers.Serializer):
@@ -99,6 +107,13 @@ class WidgetVersionQuerySerializer(serializers.Serializer):
 class WidgetSourceSerializer(serializers.Serializer):
     source = serializers.CharField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         help_text="Read-only source code for the current widget version."
+    )
+
+
+class WidgetSourceQuerySerializer(serializers.Serializer):
+    version_id = serializers.UUIDField(
+        required=False,
+        help_text="Immutable widget version whose source should be returned. Defaults to the displayed version.",
     )
 
 

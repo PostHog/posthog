@@ -23,6 +23,7 @@ class CanvasGenerationState:
     artifact_url: str | None
     build_status: str | None
     build_error: str | None
+    build_hash: str | None = None
 
 
 @frozen
@@ -30,6 +31,7 @@ class NotebookCanvasVersion:
     id: UUID
     build_status: str | None
     artifact_url: str | None
+    build_hash: str | None = None
 
 
 @frozen
@@ -252,6 +254,7 @@ def list_notebook_canvas_versions(
                 id=version.id,
                 build_status=current_build.status if current_build is not None else None,
                 artifact_url=artifact_url,
+                build_hash=ready_build.integrity if ready_build is not None else None,
             )
         )
     return result
@@ -327,4 +330,5 @@ def get_canvas_generation_state(*, team_id: int, canvas_id: UUID) -> CanvasGener
         artifact_url=artifact_url,
         build_status=current_build.status if current_build else None,
         build_error=build_error,
+        build_hash=published_build.integrity if published_build is not None else None,
     )

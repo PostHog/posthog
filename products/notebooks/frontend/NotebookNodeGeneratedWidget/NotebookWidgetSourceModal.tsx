@@ -33,28 +33,32 @@ export function NotebookWidgetSourceModal(props: NotebookNodeGeneratedWidgetLogi
             title="Widget source"
             width="70vw"
             footer={
-                <>
-                    <LemonButton onClick={closeSourceModal}>Cancel</LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={improveSource}
-                        disabledReason={
-                            !sourceChangePrompt.trim()
-                                ? 'Describe the changes you want.'
-                                : sourceLoading
-                                  ? 'Loading the widget source.'
-                                  : sourceError
-                                    ? 'Reload the widget source first.'
-                                    : isWorking
-                                      ? 'Wait for widget generation to finish.'
-                                      : undefined
-                        }
-                        loading={generationRequestLoading}
-                        data-attr="notebook-widget-build-source-changes"
-                    >
-                        Build changes
-                    </LemonButton>
-                </>
+                props.isEditable ? (
+                    <>
+                        <LemonButton onClick={closeSourceModal}>Cancel</LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={improveSource}
+                            disabledReason={
+                                !sourceChangePrompt.trim()
+                                    ? 'Describe the changes you want.'
+                                    : sourceLoading
+                                      ? 'Loading the widget source.'
+                                      : sourceError
+                                        ? 'Reload the widget source first.'
+                                        : isWorking
+                                          ? 'Wait for widget generation to finish.'
+                                          : undefined
+                            }
+                            loading={generationRequestLoading}
+                            data-attr="notebook-widget-build-source-changes"
+                        >
+                            Build changes
+                        </LemonButton>
+                    </>
+                ) : (
+                    <LemonButton onClick={closeSourceModal}>Close</LemonButton>
+                )
             }
         >
             <div className="flex flex-col gap-4">
@@ -82,20 +86,22 @@ export function NotebookWidgetSourceModal(props: NotebookNodeGeneratedWidgetLogi
                         />
                     ) : null}
                 </div>
-                <div>
-                    <LemonLabel htmlFor={promptId}>What would you like to change?</LemonLabel>
-                    <LemonTextArea
-                        id={promptId}
-                        value={sourceChangePrompt}
-                        onChange={setSourceChangePrompt}
-                        onPressCmdEnter={improveSource}
-                        placeholder="Describe the changes you want."
-                        minRows={4}
-                        autoFocus
-                        className="mt-1 ph-no-capture"
-                    />
-                </div>
-                {generationError ? <LemonBanner type="error">{generationError}</LemonBanner> : null}
+                {props.isEditable ? (
+                    <div>
+                        <LemonLabel htmlFor={promptId}>What would you like to change?</LemonLabel>
+                        <LemonTextArea
+                            id={promptId}
+                            value={sourceChangePrompt}
+                            onChange={setSourceChangePrompt}
+                            onPressCmdEnter={improveSource}
+                            placeholder="Describe the changes you want."
+                            minRows={4}
+                            autoFocus
+                            className="mt-1 ph-no-capture"
+                        />
+                    </div>
+                ) : null}
+                {props.isEditable && generationError ? <LemonBanner type="error">{generationError}</LemonBanner> : null}
             </div>
         </LemonModal>
     )

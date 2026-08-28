@@ -733,7 +733,8 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         const result = await notebooksWidgetSource(
                             String(props.projectId),
                             props.notebookShortId,
-                            props.nodeId
+                            props.nodeId,
+                            { version_id: values.selectedVersionId ?? undefined }
                         )
                         actions.sourceReceived(result.source)
                     } catch (error) {

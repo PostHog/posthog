@@ -117,6 +117,7 @@ class WidgetStatus:
     instance_id: UUID | None
     has_versions: bool
     active_job: WidgetJobState | None
+    build_hash: str | None = None
 
 
 @frozen
@@ -133,6 +134,7 @@ class WidgetVersionSummary:
     artifact_url: str | None
     frame_names: list[str]
     is_current: bool
+    build_hash: str | None = None
 
 
 @frozen
@@ -1002,6 +1004,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
             instance_id=None,
             has_versions=False,
             active_job=None,
+            build_hash=None,
         )
     _fail_stale_generation_jobs(notebook.team_id, instance.id)
     job = _latest_job(instance)
@@ -1036,6 +1039,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
             instance_id=instance.id,
             has_versions=False,
             active_job=active_job,
+            build_hash=None,
         )
     state = canvas_facade.get_canvas_generation_state(team_id=notebook.team_id, canvas_id=instance.widget.canvas_id)
     selected_canvas_version = None
@@ -1050,6 +1054,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
         str(item.get("slot")) for item in current_version.input_contract if isinstance(item, dict) and item.get("slot")
     ]
     artifact_url: str | None = None
+    build_hash: str | None = None
     lifecycle = "building"
     error_detail = job.error_detail if job and job.status == GeneratedWidgetGenerationJob.Status.FAILED else None
     if state is None:
@@ -1059,6 +1064,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
         if state.build_status == "ready" and state.artifact_url:
             lifecycle = "generating" if active_job is not None else "ready"
             artifact_url = state.artifact_url
+            build_hash = state.build_hash
         elif state.build_status == "ready":
             lifecycle = "failed"
             error_detail = "The widget preview is unavailable. Reload it, or generate a new version."
@@ -1071,6 +1077,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
     elif selected_canvas_version.build_status == "ready" and selected_canvas_version.artifact_url:
         lifecycle = "generating" if active_job is not None else "ready"
         artifact_url = selected_canvas_version.artifact_url
+        build_hash = selected_canvas_version.build_hash
     elif selected_canvas_version.build_status == "ready":
         lifecycle = "failed"
         error_detail = "The widget preview is unavailable. Reload it, or generate a new version."
@@ -1090,6 +1097,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
         instance_id=instance.id,
         has_versions=True,
         active_job=active_job,
+        build_hash=build_hash,
     )
 
 
@@ -1138,6 +1146,7 @@ def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, l
                     if isinstance(item, dict) and item.get("slot")
                 ],
                 is_current=version.id == current_id,
+                build_hash=canvas_version.build_hash if canvas_version is not None else None,
             )
         )
     next_offset = offset + limit if offset + limit < count else None
@@ -1169,12 +1178,12 @@ def _get_instance_and_version(
     return instance, version
 
 
-def read_widget_source(*, notebook: Notebook, node_id: str) -> str:
+def read_widget_source(*, notebook: Notebook, node_id: str, version_id: UUID | None = None) -> str:
     from products.canvas.backend import (  # noqa: PLC0415 - keeps Canvas storage imports off notebook startup
         notebook_integration as canvas_facade,
     )
 
-    instance, version = _get_instance_and_version(notebook, node_id, None)
+    instance, version = _get_instance_and_version(notebook, node_id, version_id)
     try:
         return canvas_facade.get_notebook_canvas_source(
             team_id=notebook.team_id,

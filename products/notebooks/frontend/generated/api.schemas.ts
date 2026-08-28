@@ -819,6 +819,11 @@ export interface WidgetStatusApi {
     has_versions: boolean
     /** Active generation job, if any. */
     active_job: WidgetJobApi | null
+    /**
+     * Hex SHA-256 over the exact immutable artifact manifest selected for display.
+     * @nullable
+     */
+    build_hash: string | null
 }
 
 export interface WidgetRevertRequestApi {
@@ -910,6 +915,11 @@ export interface WidgetVersionApi {
     frame_names: string[]
     /** Whether this notebook instance currently displays this version. */
     is_current: boolean
+    /**
+     * Hex SHA-256 over this version's exact immutable artifact manifest.
+     * @nullable
+     */
+    build_hash: string | null
 }
 
 export interface WidgetVersionPageApi {
@@ -964,6 +974,13 @@ export type NotebooksWidgetFrameParams = {
     limit?: number
     offset?: number
     run_id?: string
+    version_id?: string
+}
+
+export type NotebooksWidgetSourceParams = {
+    /**
+     * Immutable widget version whose source should be returned.
+     */
     version_id?: string
 }
 

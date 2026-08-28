@@ -87,6 +87,7 @@ from products.notebooks.backend.presentation.widget_serializers import (
     WidgetFrameSerializer,
     WidgetGenerateRequestSerializer,
     WidgetRevertRequestSerializer,
+    WidgetSourceQuerySerializer,
     WidgetSourceSerializer,
     WidgetStatusSerializer,
     WidgetVersionPageSerializer,
@@ -943,7 +944,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.PATH,
                 description="Stable identifier of the generated widget node.",
-            )
+            ),
+            OpenApiParameter(
+                "version_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Immutable widget version whose source should be returned.",
+            ),
         ],
     )
     @action(
@@ -955,8 +963,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def widget_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
+        query = WidgetSourceQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
         try:
-            source = read_widget_source(notebook=self.get_object(), node_id=node_id)
+            source = read_widget_source(
+                notebook=self.get_object(),
+                node_id=node_id,
+                version_id=query.validated_data.get("version_id"),
+            )
         except WidgetError as error:
             return self._widget_error_response(error)
         return Response(WidgetSourceSerializer({"source": source}).data)
