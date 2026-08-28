@@ -139,7 +139,7 @@ async fn run_server(
     // Cluster-scoped loops: fixed for the life of the process.
     let mut fixed: Vec<JoinHandle<()>> = Vec::new();
     for collector in registry.iter() {
-        let eff = cfg.effective(&server, collector.name());
+        let eff = cfg.effective(&server, collector.name(), collector.default_enabled());
         if !eff.enabled
             || collector.min_pg_version() > version
             || collector.scope() != Scope::Cluster
@@ -222,7 +222,7 @@ async fn run_server(
             );
             let mut hs = Vec::new();
             for collector in registry.iter() {
-                let eff = cfg.effective(&server, collector.name());
+                let eff = cfg.effective(&server, collector.name(), collector.default_enabled());
                 if !eff.enabled
                     || collector.min_pg_version() > version
                     || collector.scope() != Scope::Database

@@ -7,6 +7,10 @@ description: >
 interval: 60s
 scope: cluster
 kind: gauge
+# Off by default: aurora_stat_memctx_usage() returns every context of every
+# process (tens of rows per backend) and is scanned twice here. Enable when
+# investigating memory growth (overrides.aurora_memctx.enabled = true).
+enabled: false
 requires: { aurora: true }
 query: |
   WITH per_pid AS (

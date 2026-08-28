@@ -158,9 +158,9 @@ impl Config {
             .unwrap_or_else(|| self.defaults.databases.clone())
     }
 
-    pub fn effective(&self, s: &ServerConfig, collector: &str) -> Effective {
+    pub fn effective(&self, s: &ServerConfig, collector: &str, default_enabled: bool) -> Effective {
         let mut e = Effective {
-            enabled: true,
+            enabled: default_enabled,
             interval: None,
         };
         for o in [

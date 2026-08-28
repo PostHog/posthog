@@ -169,6 +169,11 @@ pub trait Collector: Send + Sync {
     fn description(&self) -> &str {
         ""
     }
+    /// Collectors that cost more than a catalog read on large clusters ship
+    /// disabled and are switched on per server via `overrides.<name>.enabled`.
+    fn default_enabled(&self) -> bool {
+        true
+    }
     fn interval(&self) -> Duration;
     fn scope(&self) -> Scope;
     fn kind(&self) -> Kind;

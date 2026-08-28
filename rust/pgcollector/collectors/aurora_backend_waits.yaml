@@ -7,6 +7,10 @@ description: >
 interval: 10s
 scope: cluster
 kind: gauge
+# Off by default: one aurora_stat_backend_waits() call per non-idle backend
+# every 10s. Enable per server once the active-backend count is known to be
+# small (overrides.aurora_backend_waits.enabled = true).
+enabled: false
 requires: { aurora: true }
 query: |
   SELECT pid, backend_start, datname, usename, application_name, state,

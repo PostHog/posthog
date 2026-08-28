@@ -27,6 +27,10 @@ pub struct Spec {
     /// Server-side prerequisites (`aurora: true`, `extension: pg_proctab`).
     #[serde(default)]
     pub requires: Requirements,
+    /// Ship disabled (opt in via overrides). For collectors whose cost scales
+    /// with backends/relations rather than being a single catalog read.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     /// For `cumulative`: numeric columns that are gauges and must not be diffed.
     #[serde(default)]
     pub passthrough: Vec<String>,
@@ -37,6 +41,9 @@ pub struct Spec {
     pub variants: Vec<Variant>,
     #[serde(default)]
     pub description: String,
+}
+fn default_true() -> bool {
+    true
 }
 fn default_min_version() -> u32 {
     120000
@@ -122,6 +129,9 @@ impl Collector for SqlCollector {
     }
     fn requires(&self) -> Requirements {
         self.spec.requires.clone()
+    }
+    fn default_enabled(&self) -> bool {
+        self.spec.enabled
     }
 
     async fn collect(

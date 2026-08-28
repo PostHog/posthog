@@ -1,6 +1,9 @@
 name: sizes
-description: Table/index/TOAST sizes. Heavy on wide schemas; prefers the reader.
-interval: 10m
+description: >
+  Table/index/TOAST sizes. Four size functions per relation (each stats the
+  relation's files), so hourly and on the reader; pganalyze samples this
+  hourly too.
+interval: 1h
 scope: database
 kind: gauge
 prefers_reader: true

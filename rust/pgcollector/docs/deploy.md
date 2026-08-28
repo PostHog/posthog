@@ -76,6 +76,25 @@ fingerprint; the log sampling, lock-wait and CloudWatch-export settings the
 logs collector relies on are already set fleet-wide. Clusters that don't
 preload `auto_explain` simply produce no `ts_log_plans`.
 
+### Load profile on the monitored cluster
+
+Every session runs with `statement_timeout = 5s` and `lock_timeout = 1s`, so a
+misbehaving collector is cut off, not merely slow. Per tick:
+
+| collector | interval | cost | notes |
+|---|---|---|---|
+| `activity_samples`, `activity_sessions` | 10s | one `pg_stat_activity` scan each | `pg_blocking_pids()` only for lock waiters |
+| `lock_waits` | 10s | `pg_stat_activity` scan; `pg_blocking_pids()` per lock waiter only | empty unless something is blocked |
+| `query_stats` | 60s | `pg_stat_statements(false)` (no text); text for ≤500 new ids per tick | same shape as pganalyze |
+| `database_stats`, `bgwriter`, `wal`, `replication*`, `vacuum_progress`, `aurora_system_waits`, `aurora_db_latency`, `aurora_replica_status` | 60s | shared-memory counter reads | negligible |
+| `aurora_plans` | 5m | `aurora_stat_plans(false)`; plan text for new plan ids | ≤ `pg_stat_statements.max` rows |
+| `table_stats`, `index_stats`, `vacuum_needed` | 10m | one catalog/stats scan per database | linear in relations; on the writer |
+| `sizes` | 1h | four size functions per relation | reader endpoint when configured |
+| `schema_*`, `settings`, `extensions` | 1h | catalog reads | reader for schema |
+| `system_*`, `backend_cpu` | 60s | `/proc` reads via `pg_proctab` | only if the extension exists |
+| `aurora_backend_waits`, `aurora_memctx` | — | **off by default** | per-backend function calls; enable per server via `overrides.<name>.enabled = true` |
+| `logs` | 30s | no database load | CloudWatch Logs API; bounded per tick |
+
 ### Discovering every database on a cluster
 
 `databases = ["*"]` lists `pg_database` and connects to each one with the same

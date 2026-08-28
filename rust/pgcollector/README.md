@@ -72,3 +72,10 @@ deploy/, docs/deploy.md   golden-chart values + Terraform user tier
 collectors/*.yaml         Tier A collectors
 migrations/*.sql          hand-written sink tables
 ```
+
+## Provenance
+
+Every query in `collectors/` and `src/collectors/` was written for this project
+against the PostgreSQL and Aurora documentation. Nothing is copied from
+pgwatch, postgres_exporter, pganalyze-collector or any other project; the
+research notes in `docs/telemetry-sources.md` cite their docs only.

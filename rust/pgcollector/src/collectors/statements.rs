@@ -10,7 +10,10 @@ use std::collections::BTreeSet;
 
 pub const MAX_TEXT_BYTES: usize = 10 * 1024;
 const MAX_KNOWN: usize = 50_000;
-const TEXT_BATCH: usize = 2000;
+/// Query texts fetched per tick. `pg_stat_statements(true)` materialises every
+/// entry's text server-side, so keep the per-tick call count low and spread the
+/// initial backfill over a few ticks.
+const TEXT_BATCH: usize = 500;
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct Extra {

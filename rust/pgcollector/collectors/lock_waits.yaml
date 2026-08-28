@@ -19,8 +19,9 @@ query: |
          b.wait_event_type AS blocker_wait_event_type,
          extract(epoch FROM now() - b.xact_start)::float8 AS blocker_xact_age_s,
          left(b.query, 2000) AS blocker_query
-  FROM pg_stat_activity w
+  -- pre-filter first so pg_blocking_pids() (which takes lock-manager locks)
+  -- runs only for backends actually waiting on a lock, never once per backend
+  FROM (SELECT * FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid()) w
   JOIN LATERAL unnest(pg_blocking_pids(w.pid)) AS bp(pid) ON true
   JOIN pg_stat_activity b ON b.pid = bp.pid
   LEFT JOIN pg_locks l ON l.pid = w.pid AND NOT l.granted
-  WHERE w.wait_event_type = 'Lock'

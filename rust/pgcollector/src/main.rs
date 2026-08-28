@@ -69,8 +69,13 @@ async fn main() -> Result<()> {
                 (false, Some(e)) => format!("ext:{e}"),
                 _ => String::new(),
             };
+            let off = if c.default_enabled() {
+                ""
+            } else {
+                "[off by default] "
+            };
             println!(
-                "{:<24} {:<9} {:>6}s  pg>={}  per_instance={:<5} {req:<28} {}",
+                "{:<24} {:<9} {:>6}s  pg>={}  per_instance={:<5} {req:<28} {off}{}",
                 c.name(),
                 format!("{:?}", c.scope()),
                 c.interval().as_secs(),
