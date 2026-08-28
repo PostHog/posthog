@@ -1,4 +1,5 @@
 import re
+import time
 from html.parser import HTMLParser
 from typing import TypedDict
 from urllib.parse import urljoin, urlparse, urlunparse
@@ -12,6 +13,7 @@ from posthog.egress.public_web import PublicWebFetchError, public_web_get
 _MAX_DISCOVERY_BYTES = 512 * 1024
 _MAX_REDIRECTS = 2
 _MAX_SITEMAP_CANDIDATES = 5
+_MAX_DISCOVERY_SECONDS = 20.0
 _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 
 
@@ -79,14 +81,22 @@ def _origin_key(url: str) -> tuple[str, str, int | None]:
     return scheme, hostname, effective_port
 
 
-def _fetch_text(url: str, *, origin: str, endpoint: str) -> str:
+def has_same_public_origin(first_url: str, second_url: str) -> bool:
+    return _origin_key(first_url) == _origin_key(second_url)
+
+
+def _fetch_text(url: str, *, origin: str, endpoint: str, deadline: float) -> str:
     current_url = url
     for _ in range(_MAX_REDIRECTS + 1):
+        remaining_seconds = deadline - time.monotonic()
+        if remaining_seconds <= 0:
+            raise PublicWebFetchError("Site discovery took too long.")
         response = public_web_get(
             current_url,
             source="content_autopilot",
             endpoint=endpoint,
             max_bytes=_MAX_DISCOVERY_BYTES,
+            max_duration_seconds=remaining_seconds,
         )
         if response["status_code"] in _REDIRECT_STATUSES:
             location = response["headers"].get("Location") or response["headers"].get("location")
@@ -108,9 +118,12 @@ def _sitemaps_from_robots(robots_text: str, *, origin: str) -> list[str]:
     for line in robots_text.splitlines():
         key, separator, value = line.partition(":")
         if separator and key.strip().lower() == "sitemap":
-            candidate = urljoin(f"{origin}/", value.strip())
-            if _origin_key(candidate) == _origin_key(origin):
-                sitemaps.append(candidate)
+            try:
+                candidate = urljoin(f"{origin}/", value.strip())
+                if _origin_key(candidate) == _origin_key(origin):
+                    sitemaps.append(candidate)
+            except (ValueError, PublicWebFetchError):
+                continue
     return sitemaps
 
 
@@ -132,22 +145,27 @@ def _site_name(title: str, hostname: str) -> str:
 
 def discover_site(raw_url: str) -> SiteDiscoveryResult:
     origin = normalize_site_origin(raw_url)
+    deadline = time.monotonic() + _MAX_DISCOVERY_SECONDS
     hostname = urlparse(origin).hostname or origin
     candidates: list[str] = []
     title = ""
 
     try:
-        robots_text = _fetch_text(f"{origin}/robots.txt", origin=origin, endpoint="robots")
+        robots_text = _fetch_text(f"{origin}/robots.txt", origin=origin, endpoint="robots", deadline=deadline)
         candidates.extend(_sitemaps_from_robots(robots_text, origin=origin))
     except PublicWebFetchError:
         pass
 
     try:
-        homepage_text = _fetch_text(f"{origin}/", origin=origin, endpoint="homepage")
+        homepage_text = _fetch_text(f"{origin}/", origin=origin, endpoint="homepage", deadline=deadline)
         parser = _HomepageParser()
         parser.feed(homepage_text)
         title = parser.title
-        candidates.extend(urljoin(f"{origin}/", href) for href in parser.sitemap_hrefs)
+        for href in parser.sitemap_hrefs:
+            try:
+                candidates.append(urljoin(f"{origin}/", href))
+            except ValueError:
+                continue
     except PublicWebFetchError:
         pass
 
@@ -158,14 +176,22 @@ def discover_site(raw_url: str) -> SiteDiscoveryResult:
             f"{origin}/sitemap-index.xml",
         ]
     )
-    unique_candidates = list(
-        dict.fromkeys(candidate for candidate in candidates if _origin_key(candidate) == _origin_key(origin))
-    )[:_MAX_SITEMAP_CANDIDATES]
+    unique_candidates: list[str] = []
+    for candidate in candidates:
+        try:
+            if _origin_key(candidate) == _origin_key(origin) and candidate not in unique_candidates:
+                unique_candidates.append(candidate)
+        except (ValueError, PublicWebFetchError):
+            continue
+        if len(unique_candidates) == _MAX_SITEMAP_CANDIDATES:
+            break
 
     detected_sitemaps: list[str] = []
     for candidate in unique_candidates:
+        if time.monotonic() >= deadline:
+            break
         try:
-            if _is_sitemap(_fetch_text(candidate, origin=origin, endpoint="sitemap")):
+            if _is_sitemap(_fetch_text(candidate, origin=origin, endpoint="sitemap", deadline=deadline)):
                 detected_sitemaps.append(candidate)
         except PublicWebFetchError:
             continue

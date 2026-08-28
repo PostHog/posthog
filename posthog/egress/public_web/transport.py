@@ -1,3 +1,4 @@
+import time
 from typing import TypedDict
 from urllib.parse import urlparse
 
@@ -57,6 +58,7 @@ def public_web_get(
     endpoint: str,
     max_bytes: int,
     timeout: tuple[float, float] = (3.0, 5.0),
+    max_duration_seconds: float = 10.0,
 ) -> PublicWebResponse:
     try:
         parsed = urlparse(url)
@@ -68,9 +70,20 @@ def public_web_get(
         raise PublicWebFetchError("The site URL is invalid.")
     if max_bytes < 1:
         raise PublicWebFetchError("The response size limit must be positive.")
+    if max_duration_seconds <= 0:
+        raise PublicWebFetchError("The public-web request deadline has expired.")
+
+    deadline = time.monotonic() + max_duration_seconds
+
+    def remaining_seconds() -> float:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise PublicWebFetchError("The public-web request deadline has expired.")
+        return remaining
 
     try:
         with pinned_session(url) as session:
+            request_budget = remaining_seconds()
             response = _public_web_client.request(
                 "GET",
                 url,
@@ -78,12 +91,13 @@ def public_web_get(
                 scope=hostname,
                 priority=Priority.NORMAL,
                 endpoint=endpoint,
-                timeout=timeout,
+                timeout=(min(timeout[0], request_budget), min(timeout[1], request_budget)),
                 session=session,
                 allow_redirects=False,
                 stream=True,
             )
             try:
+                remaining_seconds()
                 declared_size = response.headers.get("Content-Length")
                 if declared_size and declared_size.isdigit() and int(declared_size) > max_bytes:
                     raise PublicWebFetchError("The site response is too large to inspect.")
@@ -91,6 +105,7 @@ def public_web_get(
                 chunks: list[bytes] = []
                 size = 0
                 for chunk in response.iter_content(chunk_size=64 * 1024):
+                    remaining_seconds()
                     if not chunk:
                         continue
                     size += len(chunk)

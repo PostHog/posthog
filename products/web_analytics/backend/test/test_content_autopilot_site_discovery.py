@@ -128,3 +128,38 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
 
         sitemap_calls = [call.args[0] for call in public_web_get.call_args_list if call.kwargs["endpoint"] == "sitemap"]
         self.assertEqual(sitemap_calls, [f"https://example.com/sitemap-{index}.xml" for index in range(5)])
+
+    @patch("products.web_analytics.backend.content_autopilot.site_discovery.public_web_get")
+    def test_skips_a_malformed_sitemap_candidate(self, public_web_get: MagicMock) -> None:
+        def response_for(url: str, **kwargs: object) -> dict[str, object]:
+            if url.endswith("/robots.txt"):
+                return _response(
+                    url,
+                    body=b"Sitemap: https://example.com:invalid/broken.xml\nSitemap: /sitemap.xml",
+                )
+            if url.endswith("/sitemap.xml"):
+                return _response(url, body=b"<urlset />")
+            return _response(url, status=404)
+
+        public_web_get.side_effect = response_for
+
+        result = discover_site("https://example.com")
+
+        self.assertEqual(result["source_urls"], ["https://example.com/sitemap.xml"])
+        self.assertTrue(result["sitemap_detected"])
+
+    @patch("products.web_analytics.backend.content_autopilot.site_discovery.public_web_get")
+    def test_skips_a_malformed_homepage_sitemap_candidate(self, public_web_get: MagicMock) -> None:
+        def response_for(url: str, **kwargs: object) -> dict[str, object]:
+            if url == "https://example.com/":
+                return _response(url, body=b'<link rel="sitemap" href="https://example.com:invalid/broken.xml">')
+            if url.endswith("/sitemap.xml"):
+                return _response(url, body=b"<urlset />")
+            return _response(url, status=404)
+
+        public_web_get.side_effect = response_for
+
+        result = discover_site("https://example.com")
+
+        self.assertEqual(result["source_urls"], ["https://example.com/sitemap.xml"])
+        self.assertTrue(result["sitemap_detected"])

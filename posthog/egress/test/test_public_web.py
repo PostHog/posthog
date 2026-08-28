@@ -69,6 +69,29 @@ class TestPublicWebTransport(SimpleTestCase):
             "PostHog-PublicWeb/1.0 (+https://posthog.com)",
         )
 
+    def test_absolute_deadline_bounds_the_request_and_stream(self) -> None:
+        response = _streaming_response(chunks=[b"ok"])
+        session = MagicMock(spec=requests.Session)
+        session.request.return_value = response
+
+        with (
+            patch("posthog.egress.public_web.transport.pinned_session", return_value=nullcontext(session)),
+            patch("posthog.egress.public_web.transport.consume_public_web_sync", return_value=True),
+            patch("posthog.egress.public_web.transport.record_public_web_response"),
+            patch("posthog.egress.public_web.transport.time.monotonic", side_effect=[100.0, 101.0, 106.0]),
+            self.assertRaises(PublicWebFetchError),
+        ):
+            public_web_get(
+                "https://example.com",
+                source="test",
+                endpoint="homepage",
+                max_bytes=32,
+                max_duration_seconds=5.0,
+            )
+
+        self.assertEqual(session.request.call_args.kwargs["timeout"], (3.0, 4.0))
+        response.close.assert_called_once()
+
     @parameterized.expand(
         [
             ("ssrf", SSRFBlockedError("blocked")),
