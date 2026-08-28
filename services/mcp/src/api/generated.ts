@@ -43789,6 +43789,8 @@ export namespace Schemas {
       email?: string | null;
       /** When the recording ends in ISO format. */
       end_time: string;
+      /** Number of captured rrweb events in the recording. Only present once metadata is loaded. */
+      event_count?: number | null;
       /** When the recording expires, in ISO format. */
       expiry_time?: string | null;
       /** External references to third party issues. */
@@ -43818,6 +43820,8 @@ export namespace Schemas {
       start_time: string;
       start_url?: string | null;
       summary?: string | null;
+      /** Total stored size of the recording's snapshot data in bytes. Only present once metadata is loaded. */
+      total_size?: number | null;
       /** Whether this recording has been viewed by you already. */
       viewed: boolean;
       /** user ids of other users who have viewed this recording */
