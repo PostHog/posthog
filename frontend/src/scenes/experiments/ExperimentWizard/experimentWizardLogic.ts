@@ -1,8 +1,14 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { defaultEvaluationContextsLogic } from 'scenes/feature-flags/defaultEvaluationContextsLogic'
+import type { DefaultEvaluationContext } from 'scenes/feature-flags/defaultEvaluationContextsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
-import type { Experiment, FeatureFlagType } from '~/types'
+import type { Experiment, FeatureFlagType, TeamPublicType, TeamType } from '~/types'
 
 import type {
     ExperimentExposureCriteria,
@@ -60,11 +66,20 @@ export interface experimentWizardLogicValues {
         primary: ExperimentMetric[]
         secondary: ExperimentMetric[]
     } // createExperimentLogic
+    availableContexts: string[] // defaultEvaluationContextsLogic
+    teamDefaultEvaluationContexts: DefaultEvaluationContext[] // defaultEvaluationContextsLogic
+    teamDefaultsEnabled: boolean // defaultEvaluationContextsLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
+    appliedDefaultEvaluationContexts: string[]
     currentStep: ExperimentWizardStep
     currentStepHasErrors: boolean
     departedSteps: Record<string, boolean>
+    evaluationContextsEnabled: boolean
+    evaluationContextsRequired: boolean
     hasFormErrors: boolean
     initialFlagCheckDone: boolean
+    teamDefaultContextsSettled: boolean
     isFirstStep: boolean
     isLastStep: boolean
     linkedFeatureFlag: FeatureFlagType | null
@@ -96,12 +111,14 @@ export interface experimentWizardLogicActions {
     } // createExperimentLogic
     setFeatureFlagConfig: (config: {
         ensure_experience_continuity?: boolean
+        evaluation_contexts?: string[]
         feature_flag_key?: string
         rollout_percentage?: number
         variants?: MultivariateFlagVariant[]
     }) => {
         config: {
             ensure_experience_continuity?: boolean | undefined
+            evaluation_contexts?: string[] | undefined
             feature_flag_key?: string | undefined
             rollout_percentage?: number | undefined
             variants?: MultivariateFlagVariant[] | undefined
@@ -123,6 +140,20 @@ export interface experimentWizardLogicActions {
     reportExperimentWizardStarted: (guideVisible: boolean) => {
         guideVisible: boolean
     } // eventUsageLogic
+    loadDefaultEvaluationContextsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // defaultEvaluationContextsLogic
+    loadDefaultEvaluationContextsSuccess: (
+        defaultEvaluationContextsResponse: any,
+        payload?: any
+    ) => {
+        defaultEvaluationContextsResponse: any
+        payload?: any
+    } // defaultEvaluationContextsLogic
     loadFeatureFlagsForAutocomplete: () => {
         value: true
     } // selectExistingFeatureFlagModalLogic
@@ -178,13 +209,28 @@ export interface experimentWizardLogicMeta {
         stepNumber: (currentStep: ExperimentWizardStep) => number
         isLastStep: (currentStep: ExperimentWizardStep) => boolean
         isFirstStep: (currentStep: ExperimentWizardStep) => boolean
+        evaluationContextsEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        appliedDefaultEvaluationContexts: (
+            featureFlags: FeatureFlagsSet,
+            teamDefaultsEnabled: boolean,
+            teamDefaultEvaluationContexts: DefaultEvaluationContext[]
+        ) => string[]
+        evaluationContextsRequired: (
+            evaluationContextsEnabled: boolean,
+            currentTeam: TeamPublicType | TeamType | null,
+            linkedFeatureFlag: FeatureFlagType | null,
+            appliedDefaultEvaluationContexts: string[],
+            teamDefaultContextsSettled: boolean,
+            initialFlagCheckDone: boolean
+        ) => boolean
         stepValidationErrors: (
             experiment: Experiment & {
                 feature_flag_filters?: FeatureFlagFilters
             },
             featureFlagKeyValidation: FeatureFlagKeyValidation | null,
             linkedFeatureFlag: FeatureFlagType | null,
-            departedSteps: Record<string, boolean>
+            departedSteps: Record<string, boolean>,
+            evaluationContextsRequired: boolean
         ) => Record<ExperimentWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<ExperimentWizardStep, string[]>,
@@ -218,6 +264,12 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 'featureFlagKeyValidation',
                 'featureFlagKeyValidationLoading',
             ],
+            teamLogic,
+            ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
+            defaultEvaluationContextsLogic,
+            ['contexts as teamDefaultEvaluationContexts', 'availableContexts', 'isEnabled as teamDefaultsEnabled'],
         ],
         actions: [
             createExperimentLogic(),
@@ -234,6 +286,8 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             ['validateFeatureFlagKey', 'clearFeatureFlagKeyValidation'],
             selectExistingFeatureFlagModalLogic,
             ['loadFeatureFlagsForAutocomplete', 'loadFeatureFlagsSuccess'],
+            defaultEvaluationContextsLogic,
+            ['loadDefaultEvaluationContextsSuccess', 'loadDefaultEvaluationContextsFailure'],
             eventUsageLogic,
             ['reportExperimentWizardStarted', 'reportExperimentWizardGuideToggled'],
         ],
@@ -261,6 +315,18 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             false,
             {
                 loadFeatureFlagsSuccess: () => true,
+                resetWizard: () => false,
+                saveExperimentSuccess: () => false,
+            },
+        ],
+        // Tracks whether the team's default contexts have come back, either way. Paired with
+        // initialFlagCheckDone it says the two inputs that can lift the contexts requirement have
+        // landed, so a restored session doesn't flash the about step red while they're in flight.
+        teamDefaultContextsSettled: [
+            false,
+            {
+                loadDefaultEvaluationContextsSuccess: () => true,
+                loadDefaultEvaluationContextsFailure: () => true,
                 resetWizard: () => false,
                 saveExperimentSuccess: () => false,
             },
@@ -314,13 +380,65 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             (s) => [s.currentStep],
             (currentStep: ExperimentWizardStep): boolean => currentStep === WIZARD_STEPS[0],
         ],
+        evaluationContextsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS],
+        ],
+        // The flag the experiment creates carries the team's default contexts when the form omits
+        // the field, so defaults on their own satisfy a team that requires contexts. Both gates are
+        // checked because the backend applies defaults only when both pass (get_default_evaluation_contexts).
+        appliedDefaultEvaluationContexts: [
+            (s) => [s.featureFlags, s.teamDefaultsEnabled, s.teamDefaultEvaluationContexts],
+            (
+                featureFlags: FeatureFlagsSet,
+                teamDefaultsEnabled: boolean,
+                teamDefaults: DefaultEvaluationContext[]
+            ): string[] =>
+                featureFlags[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS] && teamDefaultsEnabled
+                    ? teamDefaults.map(({ name }) => name)
+                    : [],
+        ],
+        // Only a new flag needs contexts picked here: a linked flag keeps the contexts it already has.
+        evaluationContextsRequired: [
+            (s) => [
+                s.evaluationContextsEnabled,
+                s.currentTeam,
+                s.linkedFeatureFlag,
+                s.appliedDefaultEvaluationContexts,
+                s.teamDefaultContextsSettled,
+                s.initialFlagCheckDone,
+            ],
+            (
+                evaluationContextsEnabled: boolean,
+                currentTeam: TeamPublicType | TeamType | null,
+                linkedFeatureFlag: FeatureFlagType | null,
+                appliedDefaults: string[],
+                teamDefaultContextsSettled: boolean,
+                initialFlagCheckDone: boolean
+            ): boolean =>
+                evaluationContextsEnabled &&
+                !!currentTeam?.require_evaluation_contexts &&
+                !linkedFeatureFlag &&
+                appliedDefaults.length === 0 &&
+                // Both are empty until their requests land, so requiring contexts before then would
+                // go red on a restored session for the length of the round trip.
+                teamDefaultContextsSettled &&
+                initialFlagCheckDone,
+        ],
         stepValidationErrors: [
-            (s) => [s.experiment, s.featureFlagKeyValidation, s.linkedFeatureFlag, s.departedSteps],
+            (s) => [
+                s.experiment,
+                s.featureFlagKeyValidation,
+                s.linkedFeatureFlag,
+                s.departedSteps,
+                s.evaluationContextsRequired,
+            ],
             (
                 experiment: Experiment,
                 featureFlagKeyValidation: FeatureFlagKeyValidation | null,
                 linkedFeatureFlag: FeatureFlagType | null,
-                departedSteps: Record<string, boolean>
+                departedSteps: Record<string, boolean>,
+                evaluationContextsRequired: boolean
             ): Record<ExperimentWizardStep, string[]> => {
                 const errors: Record<ExperimentWizardStep, string[]> = {
                     about: [],
@@ -336,6 +454,9 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                     }
                     if (!experiment.feature_flag_key?.trim()) {
                         errors.about.push('Feature flag key is required')
+                    }
+                    if (evaluationContextsRequired && !experiment.feature_flag_config?.evaluation_contexts?.length) {
+                        errors.about.push('At least one evaluation context is required')
                     }
                 }
 
@@ -472,6 +593,12 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         afterMount: () => {
             actions.reportExperimentWizardStarted(values.showGuide)
             actions.loadFeatureFlagsForAutocomplete()
+            // A restored session opens on the step it was left on, so every step before it was
+            // already visited. Without this their required-field errors stay suppressed and Save
+            // posts a request the backend rejects.
+            for (const step of WIZARD_STEPS.slice(0, WIZARD_STEPS.indexOf(values.currentStep))) {
+                actions.markStepDeparted(step)
+            }
             // Re-validate the feature flag key if one is already set.
             // variantsPanelLogic unmounts when leaving the form, so validation
             // state is lost and needs to be re-checked on remount.

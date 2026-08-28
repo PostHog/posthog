@@ -814,6 +814,8 @@ class EnterpriseExperimentsViewSet(
                     "groups": [{"properties": [], "rollout_percentage": 100}],
                     "payloads": feature_flag_payloads,
                 },
+                # None reads as "not supplied" downstream, so the team's defaults still apply.
+                "evaluation_contexts": data.get("evaluation_contexts"),
             },
             metrics=metrics,
             serializer_context=self.get_serializer_context(),

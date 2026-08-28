@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
@@ -7,7 +7,11 @@ import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { defaultEvaluationContextsLogic } from 'scenes/feature-flags/defaultEvaluationContextsLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -289,6 +293,107 @@ describe('experimentWizardLogic', () => {
         })
     })
 
+    describe('evaluation contexts field', () => {
+        let logic: ReturnType<typeof experimentWizardLogic.build>
+        let createLogic: ReturnType<typeof createExperimentLogic.build>
+
+        const CONTEXTS_LABEL = 'Evaluation contexts'
+
+        beforeEach(async () => {
+            localStorage.clear()
+            sessionStorage.clear()
+            useMocks(apiMocks)
+            initKeaTests()
+
+            featureFlagsLogic.mount()
+            experimentsLogic.mount()
+
+            createLogic = createExperimentLogic()
+            createLogic.mount()
+
+            logic = experimentWizardLogic()
+            logic.mount()
+
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_EVALUATION_TAGS]: true })
+            // Wait out the fetch mounting started, so its response can't overwrite the injected list.
+            await expectLogic(defaultEvaluationContextsLogic).toDispatchActions([
+                'loadDefaultEvaluationContextsSuccess',
+            ])
+            defaultEvaluationContextsLogic.actions.loadDefaultEvaluationContextsSuccess({
+                default_evaluation_contexts: [],
+                available_contexts: ['main-app', 'marketing-site'],
+                hidden_contexts: [],
+                enabled: true,
+            })
+        })
+
+        afterEach(() => {
+            cleanup()
+            logic?.unmount()
+            createLogic?.unmount()
+            experimentsLogic.unmount()
+            featureFlagsLogic.unmount()
+        })
+
+        it('shows the field for a new flag and hides it for a linked one', async () => {
+            const { rerender } = render(
+                <BindLogic logic={experimentWizardLogic} props={{}}>
+                    <AboutStep />
+                </BindLogic>
+            )
+
+            expect(screen.getByText(CONTEXTS_LABEL)).toBeInTheDocument()
+
+            // A linked flag keeps its own contexts, edited from the flag page.
+            logic.actions.setLinkedFeatureFlag(mockEligibleFlags[0] as FeatureFlagType)
+            rerender(
+                <BindLogic logic={experimentWizardLogic} props={{}}>
+                    <AboutStep />
+                </BindLogic>
+            )
+
+            await waitFor(() => {
+                expect(screen.queryByText(CONTEXTS_LABEL)).not.toBeInTheDocument()
+            })
+
+            // The other half of the gate: without FLAG_EVALUATION_TAGS the field stays hidden even
+            // once the linked flag is cleared.
+            logic.actions.setLinkedFeatureFlag(null)
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            rerender(
+                <BindLogic logic={experimentWizardLogic} props={{}}>
+                    <AboutStep />
+                </BindLogic>
+            )
+
+            await waitFor(() => {
+                expect(screen.queryByText(CONTEXTS_LABEL)).not.toBeInTheDocument()
+            })
+        })
+
+        it('picking a context lands in the flag config', async () => {
+            const { container } = render(
+                <BindLogic logic={experimentWizardLogic} props={{}}>
+                    <AboutStep />
+                </BindLogic>
+            )
+
+            const input = container.querySelector<HTMLInputElement>(
+                'input[data-attr="experiment-wizard-evaluation-contexts"]'
+            )!
+            await userEvent.click(input)
+
+            const option = await screen.findByText('marketing-site')
+            await userEvent.click(option.closest('button')!)
+
+            await expectLogic(createLogic).toMatchValues({
+                experiment: partial({
+                    feature_flag_config: partial({ evaluation_contexts: ['marketing-site'] }),
+                }),
+            })
+        })
+    })
+
     describe('step navigation', () => {
         let logic: ReturnType<typeof experimentWizardLogic.build>
         let createLogic: ReturnType<typeof createExperimentLogic.build>
@@ -498,6 +603,28 @@ describe('experimentWizardLogic', () => {
             })
         })
 
+        it('a session restored to a later step reveals the earlier steps errors', async () => {
+            logic.actions.setStep('variants')
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic()
+            createLogic.mount()
+            logic = experimentWizardLogic()
+            logic.mount()
+
+            // The about step was left behind before the reload, so Save must not stay enabled on a
+            // payload the backend rejects.
+            await expectLogic(logic).toMatchValues({
+                currentStep: 'variants',
+                stepValidationErrors: partial({
+                    about: expect.arrayContaining(['Name is required']),
+                }),
+            })
+        })
+
         it('reveals required-field errors on about step after departure', async () => {
             // Before departure: no errors even though name/key are empty
             expect(logic.values.stepValidationErrors.about).toEqual([])
@@ -508,6 +635,96 @@ describe('experimentWizardLogic', () => {
             await expectLogic(logic).toMatchValues({
                 stepValidationErrors: partial({
                     about: ['Name is required', 'Feature flag key is required'],
+                }),
+            })
+        })
+
+        it('requires an evaluation context when the team requires one and has no defaults', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_EVALUATION_TAGS]: true })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                require_evaluation_contexts: true,
+            })
+            // The requirement waits out both requests that could lift it, and the order they land
+            // in isn't fixed, so wait on the flags they set rather than on the actions.
+            await waitFor(() => {
+                expect(logic.values.teamDefaultContextsSettled).toBe(true)
+                expect(logic.values.initialFlagCheckDone).toBe(true)
+            })
+
+            logic.actions.markStepDeparted('about')
+
+            await expectLogic(logic).toMatchValues({
+                evaluationContextsRequired: true,
+                stepValidationErrors: partial({
+                    about: expect.arrayContaining(['At least one evaluation context is required']),
+                }),
+            })
+
+            createLogic.actions.setFeatureFlagConfig({ evaluation_contexts: ['main-app'] })
+
+            await expectLogic(logic).toMatchValues({
+                stepValidationErrors: partial({
+                    about: expect.not.arrayContaining(['At least one evaluation context is required']),
+                }),
+            })
+        })
+
+        it('holds off on the contexts error until the requests that could lift it land', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_EVALUATION_TAGS]: true })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                require_evaluation_contexts: true,
+            })
+
+            // A restored session departs the earlier steps at mount, so this is the state a returning
+            // user sees while the defaults and flags requests are still in flight.
+            logic.actions.markStepDeparted('about')
+
+            expect(logic.values.evaluationContextsRequired).toBe(false)
+            expect(logic.values.stepValidationErrors.about).not.toContain('At least one evaluation context is required')
+        })
+
+        it('team default contexts satisfy the requirement, since the backend applies them', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.FLAG_EVALUATION_TAGS]: true,
+                [FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]: true,
+            })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                require_evaluation_contexts: true,
+                default_evaluation_contexts_enabled: true,
+            })
+            // Wait for the fetch that mounting started, so its response can't land after this and
+            // overwrite the injected defaults.
+            await expectLogic(defaultEvaluationContextsLogic).toDispatchActions([
+                'loadDefaultEvaluationContextsSuccess',
+            ])
+            defaultEvaluationContextsLogic.actions.loadDefaultEvaluationContextsSuccess({
+                default_evaluation_contexts: [{ id: 1, name: 'production' }],
+                available_contexts: ['production'],
+                hidden_contexts: [],
+                enabled: true,
+            })
+
+            logic.actions.markStepDeparted('about')
+
+            await expectLogic(logic).toMatchValues({
+                appliedDefaultEvaluationContexts: ['production'],
+                evaluationContextsRequired: false,
+                stepValidationErrors: partial({
+                    about: expect.not.arrayContaining(['At least one evaluation context is required']),
+                }),
+            })
+        })
+
+        it('clearing every context drops evaluation_contexts so project defaults still apply', async () => {
+            createLogic.actions.setFeatureFlagConfig({ evaluation_contexts: ['main-app'] })
+            createLogic.actions.setFeatureFlagConfig({ evaluation_contexts: [] })
+
+            await expectLogic(createLogic).toMatchValues({
+                experiment: partial({
+                    feature_flag_config: expect.not.objectContaining({ evaluation_contexts: expect.anything() }),
                 }),
             })
         })

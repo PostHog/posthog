@@ -21,7 +21,10 @@ import {
 } from '~/queries/schema/schema-general'
 import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/types'
 
-import type { ExperimentFeatureFlagFiltersApi } from 'products/experiments/frontend/generated/api.schemas'
+import type {
+    ExperimentFeatureFlagFiltersApi,
+    ExperimentFeatureFlagInputApi,
+} from 'products/experiments/frontend/generated/api.schemas'
 
 import type { ProductIntentProperties } from '../../../lib/utils/product-intents'
 import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
@@ -168,12 +171,14 @@ export interface createExperimentLogicActions {
     }
     setFeatureFlagConfig: (config: {
         ensure_experience_continuity?: boolean
+        evaluation_contexts?: string[]
         feature_flag_key?: string
         rollout_percentage?: number
         variants?: MultivariateFlagVariant[]
     }) => {
         config: {
             ensure_experience_continuity?: boolean | undefined
+            evaluation_contexts?: string[] | undefined
             feature_flag_key?: string | undefined
             rollout_percentage?: number | undefined
             variants?: MultivariateFlagVariant[] | undefined
@@ -256,6 +261,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             variants?: MultivariateFlagVariant[]
             rollout_percentage?: number
             ensure_experience_continuity?: boolean
+            evaluation_contexts?: string[]
         }) => ({ config }),
         saveExperiment: true,
         saveExperimentStarted: true,
@@ -290,18 +296,29 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     if (config.rollout_percentage !== undefined) {
                         filters.groups = [{ properties: [], rollout_percentage: config.rollout_percentage }]
                     }
+                    const nextConfig: ExperimentFeatureFlagInputApi = {
+                        ...currentConfig,
+                        filters,
+                        ...(config.ensure_experience_continuity !== undefined && {
+                            ensure_experience_continuity: config.ensure_experience_continuity,
+                        }),
+                    }
+                    if (config.evaluation_contexts !== undefined) {
+                        // A cleared selection means "unset", matching the field's help text: the backend
+                        // applies the team's defaults only when the key is absent, and reads an explicit
+                        // [] as "no contexts", which also fails a team that requires them.
+                        if (config.evaluation_contexts.length > 0) {
+                            nextConfig.evaluation_contexts = config.evaluation_contexts
+                        } else {
+                            delete nextConfig.evaluation_contexts
+                        }
+                    }
                     return {
                         ...state,
                         ...(config.feature_flag_key !== undefined && {
                             feature_flag_key: config.feature_flag_key,
                         }),
-                        feature_flag_config: {
-                            ...currentConfig,
-                            filters,
-                            ...(config.ensure_experience_continuity !== undefined && {
-                                ensure_experience_continuity: config.ensure_experience_continuity,
-                            }),
-                        },
+                        feature_flag_config: nextConfig,
                     }
                 },
                 updateFeatureFlagKey: (state, { key }) => ({ ...state, feature_flag_key: key }),

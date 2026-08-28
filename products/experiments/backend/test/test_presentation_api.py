@@ -39,7 +39,11 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
-from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.evaluation_context import (
+    EvaluationContext,
+    FeatureFlagEvaluationContext,
+    TeamDefaultEvaluationContext,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 
 from ee.api.test.base import APILicensedTest
@@ -2656,6 +2660,41 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         flag.refresh_from_db()
         self.assertEqual(flag.filters["payloads"], {"test": '"v2"'})
         self.assertEqual([v["key"] for v in flag.variants], ["control", "test"])
+
+        # Contexts only apply to a flag the experiment creates, so the update path rejects them
+        # rather than returning 200 having changed nothing.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"feature_flag": {"filters": {"payloads": {"test": '"v2"'}}, "evaluation_contexts": ["marketing-site"]}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("evaluation_contexts only applies", str(response.json()))
+
+    def test_create_experiment_with_only_evaluation_contexts_in_flag_object(self):
+        # `evaluation_contexts` alone carries write intent: the gate that decides whether the
+        # feature_flag object is a config write must not drop the body before validation.
+        self.team.default_evaluation_contexts_enabled = True
+        self.team.save()
+        default_context = EvaluationContext.objects.create(name="production", team=self.team)
+        TeamDefaultEvaluationContext.objects.create(team=self.team, evaluation_context=default_context)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/",
+                {
+                    "name": "Contexts only",
+                    "feature_flag_key": "contexts-only",
+                    "feature_flag": {"evaluation_contexts": ["marketing-site"]},
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        flag = FeatureFlag.objects.get(key="contexts-only", team_id=self.team.id)
+        # The requested context, not the team default that applies when the key is absent.
+        self.assertEqual(
+            set(flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)),
+            {"marketing-site"},
+        )
 
     def test_duplicate_experiment_carries_flag_payloads_and_continuity(self):
         create = self.client.post(

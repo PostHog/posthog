@@ -197,18 +197,75 @@ class TestExperimentService(APIBaseTest):
         )
         assert context_names == {"production"}
 
-    def test_create_experiment_without_default_evaluation_contexts_when_required(self):
-        """Creating an experiment has no field to pick evaluation contexts, so a team requiring them
-        with no defaults configured must not be blocked from creating the flag."""
+    def test_create_experiment_applies_requested_evaluation_contexts(self):
+        self.team.require_evaluation_contexts = True
+        self.team.default_evaluation_contexts_enabled = True
+        self.team.save()
+        ctx = EvaluationContext.objects.create(name="production", team=self.team)
+        TeamDefaultEvaluationContext.objects.create(team=self.team, evaluation_context=ctx)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            experiment = self._service().create_experiment(
+                name="Requested Contexts Experiment",
+                feature_flag_key="requested-contexts-flag",
+                feature_flag_config={"evaluation_contexts": ["marketing-site"]},
+            )
+
+        context_names = set(
+            experiment.feature_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
+        )
+        assert context_names == {"marketing-site"}
+
+    def test_create_experiment_in_child_environment_applies_root_team_defaults(self):
+        # Defaults are stored against the project root team, so reading them off the environment
+        # finds none and produces the untagged flag (or 400) the creation form promised contexts for.
+        self.team.default_evaluation_contexts_enabled = True
+        self.team.save()
+        ctx = EvaluationContext.objects.create(name="production", team=self.team)
+        TeamDefaultEvaluationContext.objects.create(team=self.team, evaluation_context=ctx)
+        child = Team.objects.create(
+            organization=self.organization,
+            name="child env",
+            parent_team=self.team,
+            require_evaluation_contexts=True,
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            experiment = ExperimentService(team=child, user=self.user).create_experiment(
+                name="Child Env Experiment",
+                feature_flag_key="child-env-flag",
+            )
+
+        context_names = set(
+            experiment.feature_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
+        )
+        assert context_names == {"production"}
+
+    def test_create_experiment_with_empty_evaluation_contexts_suppresses_defaults(self):
+        self.team.default_evaluation_contexts_enabled = True
+        self.team.save()
+        ctx = EvaluationContext.objects.create(name="production", team=self.team)
+        TeamDefaultEvaluationContext.objects.create(team=self.team, evaluation_context=ctx)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            experiment = self._service().create_experiment(
+                name="Empty Contexts Experiment",
+                feature_flag_key="empty-contexts-flag",
+                feature_flag_config={"evaluation_contexts": []},
+            )
+
+        assert experiment.feature_flag.flag_evaluation_contexts.count() == 0
+
+    def test_create_experiment_without_evaluation_contexts_when_required(self):
         self.team.require_evaluation_contexts = True
         self.team.save()
 
-        experiment = self._service().create_experiment(
-            name="No Defaults Experiment",
-            feature_flag_key="no-defaults-flag",
-        )
-
-        assert experiment.feature_flag.flag_evaluation_contexts.count() == 0
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            with self.assertRaises(ValidationError):
+                self._service().create_experiment(
+                    name="No Contexts Experiment",
+                    feature_flag_key="no-contexts-flag",
+                )
 
     def test_create_launched_experiment_activates_flag(self):
         from django.utils import timezone
@@ -2488,6 +2545,63 @@ class TestExperimentService(APIBaseTest):
         assert len(clone_groups) == 1
         assert clone_groups[0]["rollout_percentage"] == 20
         assert clone_groups[0]["properties"] == []
+
+    @parameterized.expand(
+        [
+            ("source_with_contexts", ["marketing-site"], False, False, {"marketing-site"}),
+            # A context-less source must stay context-less, not pick up the target team's defaults.
+            ("source_without_contexts", [], False, False, set()),
+            # ...unless the target requires contexts, where the explicit [] fails flag validation and
+            # neither duplicate nor copy accepts contexts to supply instead. Every experiment flag
+            # created while experiments were exempt has none, so the fallback keeps them clonable.
+            ("source_without_contexts_target_requires", [], True, False, {"production"}),
+            # Same fallback across projects, where only the target requires contexts — reading the
+            # requirement off the source team instead would send an explicit [] the target rejects.
+            ("cross_project_source_without_contexts_target_requires", [], True, True, {"production"}),
+        ]
+    )
+    def test_duplicate_experiment_inherits_evaluation_contexts(
+        self, name, source_contexts, target_requires_contexts, cross_project, expected_contexts
+    ):
+        self.team.default_evaluation_contexts_enabled = True
+        self.team.save()
+        default_ctx = EvaluationContext.objects.create(name="production", team=self.team)
+        TeamDefaultEvaluationContext.objects.create(team=self.team, evaluation_context=default_ctx)
+
+        target_team = self.team
+        if cross_project:
+            target_team = Team.objects.create(organization=self.organization, name="Target project")
+            target_team.default_evaluation_contexts_enabled = True
+            target_team.save()
+            target_ctx = EvaluationContext.objects.create(name="production", team=target_team)
+            TeamDefaultEvaluationContext.objects.create(team=target_team, evaluation_context=target_ctx)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            service = self._service()
+            source = service.create_experiment(
+                name=f"Contexts Source {name}",
+                feature_flag_key=f"dup-contexts-source-{name}",
+                feature_flag_config={"evaluation_contexts": source_contexts},
+            )
+
+            # Set after the source exists: the requirement would reject creating it context-less.
+            if target_requires_contexts:
+                target_team.require_evaluation_contexts = True
+                target_team.save()
+
+            if cross_project:
+                dup = service.copy_experiment_to_project(
+                    source, target_team, feature_flag_key=f"dup-contexts-target-{name}"
+                )
+            else:
+                dup = service.duplicate_experiment(source, feature_flag_key=f"dup-contexts-target-{name}")
+
+        assert dup.feature_flag.id != source.feature_flag.id
+        assert dup.feature_flag.team_id == target_team.id
+        context_names = set(
+            dup.feature_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
+        )
+        assert context_names == expected_contexts
 
     # ------------------------------------------------------------------
     # Launch experiment

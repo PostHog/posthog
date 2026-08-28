@@ -1,6 +1,8 @@
 import json
 from typing import Any
 
+from unittest.mock import patch
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -142,6 +144,16 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         experiment = Experiment.objects.get(pk=response.json()["id"])
         self.assertEqual(experiment.name, "My custom name")
         self.assertEqual(experiment.feature_flag.key, "my-custom-key")
+
+    def test_uses_provided_evaluation_contexts(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self._post(evaluation_contexts=["marketing-site"])
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        experiment = Experiment.objects.get(pk=response.json()["id"])
+        self.assertEqual(
+            set(experiment.feature_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)),
+            {"marketing-site"},
+        )
 
     def test_400_when_feature_flag_key_already_exists(self) -> None:
         # Pre-create a flag with the key the caller will try to claim. Reusing it would skip

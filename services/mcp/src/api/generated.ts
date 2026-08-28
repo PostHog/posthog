@@ -16079,6 +16079,8 @@ export namespace Schemas {
       feature_flag_key?: string;
       /** Optional experiment description. */
       description?: string;
+      /** Evaluation contexts to apply to the created feature flag. When omitted, the team's default evaluation contexts are applied. Required when the project requires evaluation contexts and has no defaults configured. */
+      evaluation_contexts?: string[];
     }
 
     export interface CreateGroup {
@@ -27196,6 +27198,8 @@ export namespace Schemas {
          * @nullable
          */
       ensure_experience_continuity?: boolean | null;
+      /** Evaluation contexts to apply to a newly created flag, controlling where it evaluates at runtime. When omitted, the team's default evaluation contexts are applied; an explicit empty list applies none. Only accepted when the experiment creates its flag: sending it on update is rejected, since an existing linked flag keeps its own contexts. Edit the feature flag directly to change them. */
+      evaluation_contexts?: string[];
     }
 
     /**

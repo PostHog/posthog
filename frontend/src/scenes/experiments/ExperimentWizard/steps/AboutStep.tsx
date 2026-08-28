@@ -4,6 +4,7 @@ import { useDebouncedCallback } from 'use-debounce'
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { slugifyFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
@@ -17,8 +18,17 @@ import { getFlagVariants } from '../../utils'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
 export function AboutStep(): JSX.Element {
-    const { experiment, linkedFeatureFlag, featureFlagKeyValidation, featureFlagKeyValidationLoading, departedSteps } =
-        useValues(experimentWizardLogic)
+    const {
+        experiment,
+        linkedFeatureFlag,
+        featureFlagKeyValidation,
+        featureFlagKeyValidationLoading,
+        departedSteps,
+        evaluationContextsEnabled,
+        evaluationContextsRequired,
+        appliedDefaultEvaluationContexts,
+        availableContexts,
+    } = useValues(experimentWizardLogic)
     const {
         setExperimentValue,
         setFeatureFlagConfig,
@@ -40,6 +50,13 @@ export function AboutStep(): JSX.Element {
 
     const isDeparted = !!departedSteps.about
     const nameError = isDeparted && !experiment.name?.trim() ? 'Name is required' : undefined
+
+    const evaluationContexts = experiment.feature_flag_config?.evaluation_contexts ?? []
+    const showEvaluationContexts = evaluationContextsEnabled && !linkedFeatureFlag
+    const evaluationContextsError =
+        isDeparted && evaluationContextsRequired && evaluationContexts.length === 0
+            ? 'At least one evaluation context is required'
+            : undefined
 
     const existingFlag = featureFlagKeyValidation?.existingFlag
     const featureFlagKeyError =
@@ -150,6 +167,31 @@ export function AboutStep(): JSX.Element {
                         suffix={featureFlagKeyValidationLoading ? <Spinner className="text-xl" /> : undefined}
                         data-attr="experiment-wizard-flag-key"
                         fullWidth
+                    />
+                </LemonField.Pure>
+            )}
+
+            {showEvaluationContexts && (
+                <LemonField.Pure
+                    label="Evaluation contexts"
+                    info="Only evaluate this flag when the SDK declares a matching context, like main-app or marketing-site."
+                    error={evaluationContextsError}
+                    help={
+                        appliedDefaultEvaluationContexts.length > 0
+                            ? `Leave empty to use your project defaults: ${appliedDefaultEvaluationContexts.join(', ')}`
+                            : undefined
+                    }
+                >
+                    <LemonInputSelect
+                        mode="multiple"
+                        allowCustomValues
+                        value={evaluationContexts}
+                        options={[...new Set([...availableContexts, ...evaluationContexts])]
+                            .sort()
+                            .map((context) => ({ key: context, label: context }))}
+                        onChange={(contexts) => setFeatureFlagConfig({ evaluation_contexts: contexts })}
+                        data-attr="experiment-wizard-evaluation-contexts"
+                        placeholder='Add contexts like "main-app", "marketing-site"'
                     />
                 </LemonField.Pure>
             )}

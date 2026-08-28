@@ -398,13 +398,20 @@ FEATURE_FLAG_CREATION_CONTEXT_CHOICES = (
     "product_tours",
 )
 
-# Creation contexts whose forms have no field to pick evaluation contexts, so a team
-# requiring them (with no default contexts configured) could never auto-create these
-# flags otherwise. Default contexts are still applied when configured (see
-# apply_default_evaluation_contexts) - this exemption only covers the no-defaults gap.
+# Creation contexts exempted from the requirement because their forms have no field to pick
+# evaluation contexts, so a team requiring them (with no default contexts configured) could
+# never auto-create these flags otherwise. Default contexts are still applied when configured
+# (see apply_default_evaluation_contexts) - this exemption only covers the no-defaults gap.
+#
+# The list is narrower than that rule: other creation contexts also create flags from forms with
+# no context field and are not exempt. The toolbar's web experiments are the lasting case, and
+# that path doesn't apply the team's defaults either, so those teams get a 400 there whatever
+# they have configured. Giving those forms a context selector is the fix, not widening this list.
+#
+# Experiments are deliberately not exempt: their creation form has a context selector, so the
+# requirement is satisfiable there.
 EVALUATION_CONTEXT_EXEMPT_CREATION_CONTEXTS = (
     "surveys",
-    "experiments",
     "early_access_features",
 )
 
@@ -1069,8 +1076,8 @@ class FeatureFlagSerializer(
         if not request:
             return attrs
 
-        # Auto-created flags (surveys, experiments, early access features) are exempt from
-        # evaluation tag requirements - their creation forms have no field to supply contexts.
+        # Auto-created flags (surveys, early access features) are exempt from evaluation tag
+        # requirements - their creation forms have no field to supply contexts.
         creation_context = self.initial_data.get("creation_context") if hasattr(self, "initial_data") else None
         if creation_context in EVALUATION_CONTEXT_EXEMPT_CREATION_CONTEXTS:
             return attrs

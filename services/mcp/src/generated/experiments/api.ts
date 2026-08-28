@@ -954,6 +954,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     .boolean()
                     .nullish()
                     .describe('Whether the flag persists variant assignment across authentication steps.'),
+                evaluation_contexts: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe(
+                        "Evaluation contexts to apply to a newly created flag, controlling where it evaluates at runtime. When omitted, the team's default evaluation contexts are applied; an explicit empty list applies none. Only accepted when the experiment creates its flag: sending it on update is rejected, since an existing linked flag keeps its own contexts. Edit the feature flag directly to change them."
+                    ),
             })
             .describe(
                 "Flag config for experiment create\/update, sent through the linked feature flag's own shape.\n\nValidated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime\n(``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag\nobject). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never\nreach this validation."
@@ -4570,6 +4576,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .nullish()
                     .describe('Whether the flag persists variant assignment across authentication steps.'),
+                evaluation_contexts: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe(
+                        "Evaluation contexts to apply to a newly created flag, controlling where it evaluates at runtime. When omitted, the team's default evaluation contexts are applied; an explicit empty list applies none. Only accepted when the experiment creates its flag: sending it on update is rejected, since an existing linked flag keeps its own contexts. Edit the feature flag directly to change them."
+                    ),
             })
             .describe(
                 "Flag config for experiment create\/update, sent through the linked feature flag's own shape.\n\nValidated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime\n(``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag\nobject). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never\nreach this validation."

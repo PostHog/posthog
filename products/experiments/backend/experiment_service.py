@@ -1217,7 +1217,8 @@ class ExperimentService:
 
         ``feature_flag_config`` is the flag's own write shape
         (``{filters: {multivariate, groups, aggregation_group_type_index, payloads},
-        ensure_experience_continuity}``); a new flag is built from it plus defaults.
+        ensure_experience_continuity, evaluation_contexts}``); a new flag is built from it plus
+        defaults.
         """
         existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team.id).first()
 
@@ -1267,7 +1268,15 @@ class ExperimentService:
             feature_flag_data["ensure_experience_continuity"] = self.team.flags_persistence_default or False
         if create_in_folder is not None:
             feature_flag_data["_create_in_folder"] = create_in_folder
-        apply_default_evaluation_contexts(feature_flag_data, self.team, self.user)
+        # Contexts chosen in the creation form win; the team's defaults only fill in for callers that
+        # supply none (API clients, and clients predating the form field).
+        if config.get("evaluation_contexts") is not None:
+            feature_flag_data["evaluation_contexts"] = config["evaluation_contexts"]
+        else:
+            # Defaults are stored against the project root team (the team and project routers that
+            # read and write them resolve it the same way), so a child environment would otherwise
+            # find none and create an untagged flag the creation form promised contexts for.
+            apply_default_evaluation_contexts(feature_flag_data, self.team.parent_team or self.team, self.user)
 
         feature_flag = create_flag(
             feature_flag_data,
@@ -3333,11 +3342,34 @@ class ExperimentService:
         source_groups = source_experiment.feature_flag.get_filters().get("groups")
         if source_groups and source_groups[0].get("rollout_percentage") is not None:
             clone_filters["groups"] = [{"properties": [], "rollout_percentage": source_groups[0]["rollout_percentage"]}]
-        feature_flag_config = {
+        # Inherit the source flag's evaluation contexts, so a clone evaluates where the original did
+        # instead of falling back to the target team's defaults. On a cross-project copy the names
+        # are get-or-created in the target, so copying an experiment can introduce a context the
+        # target project had never defined — deliberate, since the clone evaluating somewhere the
+        # original didn't is the worse surprise.
+        source_flag = source_experiment.feature_flag
+        if "flag_evaluation_contexts" in getattr(source_flag, "_prefetched_objects_cache", {}):
+            source_evaluation_contexts = [
+                ec.evaluation_context.name for ec in source_flag.flag_evaluation_contexts.all()
+            ]
+        else:
+            source_evaluation_contexts = list(
+                source_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
+            )
+        # Explicit, including []: a context-less source must not pick up the target's defaults.
+        # The exception is a target that requires contexts, where an explicit [] makes the clone
+        # unsatisfiable — nothing in the duplicate or copy input accepts contexts, so the whole
+        # back catalogue of flags created while experiments were exempt would be un-clonable.
+        # There, None falls back to the create path's defaults.
+        clone_evaluation_contexts = (
+            source_evaluation_contexts if source_evaluation_contexts or not target.require_evaluation_contexts else None
+        )
+        feature_flag_config: dict[str, Any] = {
             "filters": clone_filters,
             # bool() so a NULL continuity clones as off — the create path treats None as "unset" and
             # would substitute the target team's flags_persistence_default, changing SDK behavior.
             "ensure_experience_continuity": bool(source_experiment.feature_flag.ensure_experience_continuity),
+            "evaluation_contexts": clone_evaluation_contexts,
         }
 
         self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)

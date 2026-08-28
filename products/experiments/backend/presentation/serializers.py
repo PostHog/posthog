@@ -567,6 +567,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         )
         config_serializer.is_valid(raise_exception=True)
         config = dict(config_serializer.validated_data)
+        if self.instance is not None and "evaluation_contexts" in config:
+            # The update path only forwards filters and ensure_experience_continuity, so accepting
+            # this key would return 200 while changing nothing.
+            raise serializers.ValidationError(
+                {
+                    "feature_flag": "evaluation_contexts only applies when the experiment creates its "
+                    "flag. Edit the feature flag directly to change its evaluation contexts."
+                }
+            )
         self._assert_flag_variants_valid(config)
         data["feature_flag"] = config
         return data
@@ -594,11 +603,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     def _is_feature_flag_config_input(feature_flag_input: Any) -> TypeGuard[dict]:
         """Whether the request carries a genuine ``feature_flag`` config object (write intent), as
         opposed to nothing, a read-only echo of the linked flag (non-null ``id``), or a bare stub
-        with no config keys."""
+        with no config keys.
+
+        The config keys are derived from ``ExperimentFeatureFlagInputSerializer`` (the same idiom
+        ``_StrictFieldsMixin`` uses for its unknown-key check) so a field added there can't be
+        dropped here before validation."""
         return (
             isinstance(feature_flag_input, dict)
             and feature_flag_input.get("id") is None
-            and any(key in feature_flag_input for key in ("filters", "ensure_experience_continuity"))
+            and any(key in feature_flag_input for key in ExperimentFeatureFlagInputSerializer().fields)
         )
 
     def _deprecated_parameters_as_feature_flag_config(self) -> dict | None:
@@ -911,6 +924,17 @@ class ExperimentFeatureFlagInputSerializer(_StrictFieldsMixin, serializers.Seria
         allow_null=True,
         help_text="Whether the flag persists variant assignment across authentication steps.",
     )
+    evaluation_contexts = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Evaluation contexts to apply to a newly created flag, controlling where it evaluates at "
+            "runtime. When omitted, the team's default evaluation contexts are applied; an explicit "
+            "empty list applies none. Only accepted when the experiment creates its flag: sending it "
+            "on update is rejected, since an existing linked flag keeps its own contexts. Edit the "
+            "feature flag directly to change them."
+        ),
+    )
 
 
 # Advertises the writable feature_flag input in the OpenAPI request schema. PostHog's drf-spectacular
@@ -1122,6 +1146,15 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="Optional experiment description.",
+    )
+    evaluation_contexts = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Evaluation contexts to apply to the created feature flag. When omitted, the team's "
+            "default evaluation contexts are applied. Required when the project requires evaluation "
+            "contexts and has no defaults configured."
+        ),
     )
 
     def validate_versions(self, value: list[int]) -> list[int]:

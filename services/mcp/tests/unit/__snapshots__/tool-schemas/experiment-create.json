@@ -2180,6 +2180,13 @@
                     ],
                     "description": "Whether the flag persists variant assignment across authentication steps."
                 },
+                "evaluation_contexts": {
+                    "description": "Evaluation contexts to apply to a newly created flag, controlling where it evaluates at runtime. When omitted, the team's default evaluation contexts are applied; an explicit empty list applies none. Only accepted when the experiment creates its flag: sending it on update is rejected, since an existing linked flag keeps its own contexts. Edit the feature flag directly to change them.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "filters": {
                     "description": "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state.",
                     "properties": {
