@@ -1,7 +1,4 @@
 {% extends "email/base.html" %}
-{% load posthog_assets %}
-{% load posthog_filters %}
-
 {% block preheader %}Your materialized view failed to sync{% endblock %}
 {% block heading %}Materialized view '{{ saved_query_name }}' sync failed{% endblock %}
 {% block section %}

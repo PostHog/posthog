@@ -1,6 +1,7 @@
 # Number formatting filters for the email templates under posthog/templates/email.
-# Every one of those templates loads this library, even when it extends email/base.html,
-# because Django resolves {% load %} per file rather than through template inheritance.
+# Registered as a template builtin in posthog/settings/web.py, so templates use these
+# filters without a {% load %}. Django resolves {% load %} per file, so without the builtin
+# every template would have to repeat it, including those that extend email/base.html.
 
 from typing import Optional, Union
 

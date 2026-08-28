@@ -247,7 +247,11 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "loginas.context_processors.impersonated_session_status",
                 "posthog.helpers.impersonation.impersonation_context",
-            ]
+            ],
+            "builtins": [
+                "posthog.templatetags.posthog_assets",
+                "posthog.templatetags.posthog_filters",
+            ],
         },
     }
 ]
