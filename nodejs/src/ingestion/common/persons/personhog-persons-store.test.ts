@@ -437,7 +437,7 @@ describe('PersonhogPersonsStore', () => {
                 targetDistinctId: 'd1',
                 sources: [{ distinctId: 'anon-1', eventUuid: 'uuid-1' }],
                 eventOps: ops({}),
-                opId: 'op-1',
+                eventUuid: 'op-1',
                 allowIdentifiedSources: false,
                 mergeMode: { type: 'SYNC', batchSize: undefined },
                 createdAtMs: 0,

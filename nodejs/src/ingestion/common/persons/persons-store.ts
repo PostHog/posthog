@@ -77,8 +77,12 @@ export interface MergePersonsRequest {
     triggerSourceDistinctId?: string
     /** The merge event's property ops; each backend applies them to the survivor its own way. */
     eventOps: EventOps
-    /** Retry key: a repeated call with the same op id must not merge twice. */
-    opId: string
+    /**
+     * The merge-triggering event's uuid, the idempotency root: backends
+     * derive their durable op ids from it, so a repeated delivery of the
+     * same event must present the same value and cannot merge twice.
+     */
+    eventUuid: string
     /** $merge_dangerously legally merges already-identified sources; $identify does not. */
     allowIdentifiedSources: boolean
     /**
