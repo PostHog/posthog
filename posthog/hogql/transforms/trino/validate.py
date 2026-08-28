@@ -109,9 +109,14 @@ class TrinoReadyValidator(TraversingVisitor):
             self._fail("TRINO_INTERPOLATE_UNSUPPORTED", "INTERPOLATE", node)
         if node.limit_percent:
             self._fail("TRINO_LIMIT_PERCENT_UNSUPPORTED", "LIMIT PERCENT", node)
-        if node.limit_with_ties:
-            self._fail("TRINO_WITH_TIES_NOT_LOWERED", "WITH TIES", node)
+        if node.limit_with_ties and (node.limit is None or not node.order_by):
+            self._fail("TRINO_WITH_TIES_ORDER_REQUIRED", "WITH TIES without ORDER BY and LIMIT", node)
         super().visit_select_query(node)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        if node.limit_with_ties:
+            self._fail("TRINO_SET_WITH_TIES_UNSUPPORTED", "WITH TIES on a set query", node)
+        super().visit_select_set_query(node)
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
         join_type = node.join_type or ""

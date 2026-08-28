@@ -14,9 +14,74 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_FUNCTION_RENAMES_LOWER,
     TRINO_PASSTHROUGH_FUNCTIONS,
 )
+from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.visitor import clone_expr
 
+_TRINO_SIMPLE_TYPES = {
+    "bigint": "BIGINT",
+    "bool": "BOOLEAN",
+    "boolean": "BOOLEAN",
+    "date": "DATE",
+    "datetime": "TIMESTAMP",
+    "double": "DOUBLE",
+    "double precision": "DOUBLE",
+    "float": "DOUBLE",
+    "float32": "REAL",
+    "float64": "DOUBLE",
+    "int": "BIGINT",
+    "int8": "TINYINT",
+    "int16": "SMALLINT",
+    "int32": "INTEGER",
+    "int64": "BIGINT",
+    "integer": "INTEGER",
+    "json": "JSON",
+    "real": "REAL",
+    "smallint": "SMALLINT",
+    "string": "VARCHAR",
+    "text": "VARCHAR",
+    "timestamp": "TIMESTAMP",
+    "timestamp with local time zone": "TIMESTAMP WITH TIME ZONE",
+    "timestamp with time zone": "TIMESTAMP WITH TIME ZONE",
+    "timestamptz": "TIMESTAMP WITH TIME ZONE",
+    "tinyint": "TINYINT",
+    "uint8": "SMALLINT",
+    "uint16": "INTEGER",
+    "uint32": "BIGINT",
+    "uint64": "DECIMAL(20, 0)",
+    "uuid": "UUID",
+    "varbinary": "VARBINARY",
+    "varchar": "VARCHAR",
+}
+_TRINO_PARAMETERIZED_TYPE_RE = re.compile(
+    r"^(decimal|numeric|varchar|char|fixedstring|datetime64|timestamp)\s*\((\d+(?:\s*,\s*\d+)?)\)$",
+    re.IGNORECASE,
+)
+_TRINO_JOIN_TYPES = frozenset(
+    {
+        "JOIN",
+        "INNER JOIN",
+        "LEFT JOIN",
+        "LEFT OUTER JOIN",
+        "RIGHT JOIN",
+        "RIGHT OUTER JOIN",
+        "FULL JOIN",
+        "FULL OUTER JOIN",
+        "CROSS JOIN",
+    }
+)
+_TRINO_SET_OPERATORS = frozenset(
+    {
+        "UNION DISTINCT",
+        "UNION ALL",
+        "INTERSECT DISTINCT",
+        "INTERSECT ALL",
+        "INTERSECT",
+        "EXCEPT DISTINCT",
+        "EXCEPT ALL",
+        "EXCEPT",
+    }
+)
 _TRINO_WINDOW_FUNCTIONS = frozenset(
     {
         "avg",
@@ -57,6 +122,73 @@ class TrinoPrinter(PostgresPrinter):
 
     def _get_connection_supported_functions(self) -> set[str]:
         return set()
+
+    def _render_group_by_all_clause(self) -> str:
+        return "GROUP BY AUTO"
+
+    def _assert_set_operator_supported(self, set_operator: str) -> None:
+        if set_operator not in _TRINO_SET_OPERATORS:
+            self._unsupported(
+                "TRINO_SET_OPERATOR_UNSUPPORTED",
+                f"Set operator '{set_operator}' is not supported in Trino mode.",
+            )
+
+    @staticmethod
+    def _validate_row_count(value: ast.Expr, clause: str) -> int:
+        if (
+            not isinstance(value, ast.Constant)
+            or isinstance(value.value, bool)
+            or not isinstance(value.value, int)
+            or value.value < 0
+        ):
+            raise TrinoLoweringError(
+                "TRINO_ROW_COUNT_NON_LITERAL",
+                clause,
+                value,
+                detail=f"{clause} must be a non-negative integer literal in Trino mode.",
+            )
+        return value.value
+
+    def _append_select_limit_and_offset(
+        self, clauses: list[str | None], node: ast.SelectQuery, limit: ast.Expr | None
+    ) -> None:
+        if node.offset is not None:
+            clauses.append(f"OFFSET {self._validate_row_count(node.offset, 'OFFSET')} ROWS")
+        if limit is None:
+            return
+        count = self._validate_row_count(limit, "LIMIT")
+        if node.limit_percent:
+            self._unsupported("TRINO_LIMIT_PERCENT_UNSUPPORTED", "LIMIT PERCENT is not supported in Trino mode.")
+        if node.limit_with_ties:
+            if not node.order_by:
+                self._unsupported(
+                    "TRINO_WITH_TIES_ORDER_REQUIRED",
+                    "LIMIT WITH TIES requires ORDER BY in Trino mode.",
+                    node,
+                )
+            clauses.append(f"FETCH FIRST {count} ROWS WITH TIES")
+        else:
+            clauses.append(f"LIMIT {count}")
+
+    def _append_set_limit_and_offset(self, sql: str, node: ast.SelectSetQuery) -> str:
+        suffixes: list[str] = []
+        if node.offset is not None:
+            suffixes.append(f"OFFSET {self._validate_row_count(node.offset, 'OFFSET')} ROWS")
+        if node.limit is not None:
+            count = self._validate_row_count(node.limit, "LIMIT")
+            if node.limit_percent:
+                self._unsupported("TRINO_LIMIT_PERCENT_UNSUPPORTED", "LIMIT PERCENT is not supported in Trino mode.")
+            if node.limit_with_ties:
+                self._unsupported(
+                    "TRINO_SET_WITH_TIES_UNSUPPORTED",
+                    "WITH TIES is not supported on Trino set queries.",
+                    node,
+                )
+            suffixes.append(f"LIMIT {count}")
+        if not suffixes:
+            return sql
+        separator = f"\n{self.indent(1)}" if self.pretty else " "
+        return sql.rstrip() + separator + separator.join(suffixes)
 
     def _unsupported(self, feature_code: str, detail: str, node: ast.Expr | None = None) -> NoReturn:
         construct = node.name if isinstance(node, ast.Call) else node.__class__.__name__ if node else detail
@@ -194,6 +326,33 @@ class TrinoPrinter(PostgresPrinter):
         if name == "json_value":
             return self._visit_json_value(node)
         return super().visit_call(node)
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
+        if node.join_type is not None and node.join_type not in _TRINO_JOIN_TYPES:
+            self._unsupported(
+                "TRINO_JOIN_TYPE_UNSUPPORTED",
+                f"Join type '{node.join_type}' is not supported in Trino mode.",
+                node,
+            )
+        if node.constraint is not None and node.join_type in {None, "CROSS JOIN"}:
+            self._unsupported(
+                "TRINO_JOIN_CONSTRAINT_UNSUPPORTED",
+                f"{node.join_type or 'FROM'} does not accept a join constraint in Trino mode.",
+                node,
+            )
+        return super().visit_join_expr(node)
+
+    def visit_named_argument(self, node: ast.NamedArgument) -> NoReturn:
+        self._unsupported(
+            "TRINO_NAMED_ARGUMENT_UNSUPPORTED",
+            "Named arguments are not supported in Trino mode.",
+            node,
+        )
+
+    def visit_order_expr(self, node: ast.OrderExpr) -> str:
+        if node.with_fill is not None:
+            self._unsupported("TRINO_WITH_FILL_UNSUPPORTED", "WITH FILL is not supported in Trino mode.", node)
+        return super().visit_order_expr(node)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> str:
         left_type = self._resolve_type(node.left)
@@ -708,30 +867,39 @@ class TrinoPrinter(PostgresPrinter):
         return f"TRY_CAST({self.visit(node.expr)} AS {self._trino_type(node.type_name)})"
 
     def _trino_type(self, type_name: str) -> str:
-        aliases = {
-            "bool": "BOOLEAN",
-            "boolean": "BOOLEAN",
-            "date": "DATE",
-            "datetime": "TIMESTAMP",
-            "float": "DOUBLE",
-            "float32": "REAL",
-            "float64": "DOUBLE",
-            "int": "BIGINT",
-            "int8": "TINYINT",
-            "int16": "SMALLINT",
-            "int32": "INTEGER",
-            "int64": "BIGINT",
-            "string": "VARCHAR",
-            "text": "VARCHAR",
-            "uint8": "SMALLINT",
-            "uint16": "INTEGER",
-            "uint32": "BIGINT",
-            "uuid": "UUID",
-        }
-        target = aliases.get(type_name.lower())
-        if target is None:
-            self._unsupported("TRINO_CAST_TYPE_UNSUPPORTED", f"Type '{type_name}' is not supported in Trino mode.")
-        return target
+        normalized = " ".join(type_name.strip().lower().split())
+        target = _TRINO_SIMPLE_TYPES.get(normalized)
+        if target is not None:
+            return target
+        if normalized.startswith("array(") and normalized.endswith(")"):
+            return f"ARRAY({self._trino_type(normalized[6:-1])})"
+        if normalized.startswith("nullable(") and normalized.endswith(")"):
+            return self._trino_type(normalized[9:-1])
+        match = _TRINO_PARAMETERIZED_TYPE_RE.fullmatch(normalized)
+        if match is not None:
+            base, parameters = match.groups()
+            values = [int(parameter.strip()) for parameter in parameters.split(",")]
+            normalized_base = base.lower()
+            if normalized_base in {"decimal", "numeric"}:
+                precision = values[0]
+                scale = values[1] if len(values) == 2 else 0
+                if len(values) > 2 or not 1 <= precision <= 38 or not 0 <= scale <= precision:
+                    self._unsupported(
+                        "TRINO_CAST_TYPE_UNSUPPORTED", f"Type '{type_name}' is not supported in Trino mode."
+                    )
+                rendered_parameters = str(precision) if len(values) == 1 else f"{precision},{scale}"
+                return f"DECIMAL({rendered_parameters})"
+            if normalized_base in {"datetime64", "timestamp"}:
+                if len(values) != 1 or not 0 <= values[0] <= 12:
+                    self._unsupported(
+                        "TRINO_CAST_TYPE_UNSUPPORTED", f"Type '{type_name}' is not supported in Trino mode."
+                    )
+                return f"TIMESTAMP({values[0]})"
+            if len(values) != 1 or values[0] < 1:
+                self._unsupported("TRINO_CAST_TYPE_UNSUPPORTED", f"Type '{type_name}' is not supported in Trino mode.")
+            rendered_base = "CHAR" if normalized_base == "fixedstring" else normalized_base.upper()
+            return f"{rendered_base}({values[0]})"
+        self._unsupported("TRINO_CAST_TYPE_UNSUPPORTED", f"Type '{type_name}' is not supported in Trino mode.")
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field, unsafe_args):
         if not unsafe_args:

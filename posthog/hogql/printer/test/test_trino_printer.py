@@ -16,6 +16,7 @@ def _context_with_trino_table() -> HogQLContext:
     database.tables.add_child(
         TableNode(
             name="users",
+            case_insensitive=True,
             table=DirectTrinoTable(
                 name="users",
                 fields={
@@ -427,3 +428,100 @@ def test_lowers_window_count_distinct_without_unsupported_distinct_window_aggreg
     assert "cardinality(array_distinct(filter(array_agg(" in sql
     assert 'OVER (PARTITION BY "users"."created_at")' in sql
     assert "count(DISTINCT" not in sql
+
+
+def test_resolves_direct_trino_identifiers_case_insensitively() -> None:
+    sql, _ = prepare_and_print_ast(parse_select("SELECT USER_ID FROM USERS"), _context_with_trino_table(), "trino")
+
+    assert 'SELECT "USERS"."user_id" FROM "ducklake"."analytics"."users" AS "USERS"' in sql
+
+
+@pytest.mark.parametrize(
+    ("type_name", "expected"),
+    [
+        ("Array(String)", "ARRAY(VARCHAR)"),
+        ("Nullable(Array(UInt64))", "ARRAY(DECIMAL(20, 0))"),
+        ("Decimal(18, 2)", "DECIMAL(18,2)"),
+        ("DateTime64(6)", "TIMESTAMP(6)"),
+        ("FixedString(8)", "CHAR(8)"),
+        ("timestamp with time zone", "TIMESTAMP WITH TIME ZONE"),
+    ],
+)
+def test_renders_allowlisted_trino_cast_types(type_name: str, expected: str) -> None:
+    query = parse_select("SELECT user_id FROM users")
+    assert isinstance(query, ast.SelectQuery)
+    query.select[0] = ast.TypeCast(expr=query.select[0], type_name=type_name)
+
+    sql, _ = prepare_and_print_ast(query, _context_with_trino_table(), "trino")
+
+    assert f" AS {expected})" in sql
+
+
+@pytest.mark.parametrize(
+    "type_name",
+    [
+        "varchar); DROP TABLE users; --",
+        "decimal(39,0)",
+        "decimal(2,3)",
+        "timestamp(13)",
+        "char(1,2)",
+    ],
+)
+def test_rejects_invalid_trino_cast_types(type_name: str) -> None:
+    query = parse_select("SELECT user_id FROM users")
+    assert isinstance(query, ast.SelectQuery)
+    query.select[0] = ast.TypeCast(expr=query.select[0], type_name=type_name)
+
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(query, _context_with_trino_table(), "trino")
+
+    assert error.value.feature_code == "TRINO_CAST_TYPE_UNSUPPORTED"
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_suffix"),
+    [
+        ("SELECT user_id FROM users LIMIT 10 OFFSET 4", "OFFSET 4 ROWS LIMIT 10"),
+        (
+            "SELECT user_id FROM users ORDER BY user_id LIMIT 10 WITH TIES",
+            "FETCH FIRST 10 ROWS WITH TIES",
+        ),
+    ],
+)
+def test_prints_trino_limit_syntax(query: str, expected_suffix: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+
+    assert sql.endswith(expected_suffix)
+
+
+def test_prints_trino_limit_syntax_after_set_operation() -> None:
+    query = parse_select("SELECT user_id FROM users UNION ALL SELECT user_id FROM users")
+    assert isinstance(query, ast.SelectSetQuery)
+    query.limit = ast.Constant(value=10)
+    query.offset = ast.Constant(value=4)
+
+    sql, _ = prepare_and_print_ast(query, _context_with_trino_table(), "trino")
+
+    assert sql.endswith("OFFSET 4 ROWS LIMIT 10")
+
+
+def test_rejects_non_literal_trino_limit() -> None:
+    query = parse_select("SELECT user_id FROM users")
+    assert isinstance(query, ast.SelectQuery)
+    query.limit = ast.Call(name="least", args=[ast.Constant(value=10), ast.Constant(value=20)])
+
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(query, _context_with_trino_table(), "trino")
+
+    assert error.value.feature_code == "TRINO_ROW_COUNT_NON_LITERAL"
+
+
+def test_rejects_with_fill_before_printing_invalid_trino_sql() -> None:
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(
+            parse_select("SELECT user_id FROM users ORDER BY user_id WITH FILL"),
+            _context_with_trino_table(),
+            "trino",
+        )
+
+    assert error.value.feature_code == "TRINO_WITH_FILL_UNSUPPORTED"
