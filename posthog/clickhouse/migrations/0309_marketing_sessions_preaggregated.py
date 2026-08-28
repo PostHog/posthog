@@ -9,7 +9,6 @@ operations = [
     run_sql_with_exceptions(
         SHARDED_MARKETING_SESSIONS_TABLE_SQL(),
         node_roles=[NodeRole.AUX],
-        sharded=True,
     ),
     run_sql_with_exceptions(
         DISTRIBUTED_MARKETING_SESSIONS_TABLE_SQL(),
