@@ -31,6 +31,7 @@ _SPECIAL_CALLS = frozenset(
         "arraysum",
         "empty",
         "extract",
+        "extractall",
         "grouparrayif",
         "groupuniqarrayif",
         "groupuniqarray",

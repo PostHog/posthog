@@ -188,7 +188,7 @@ def _to_monday(args: list[str]) -> str:
 
 def _to_interval_month(args: list[str]) -> str:
     _require_args("toIntervalMonth", args, 1)
-    return f"CAST(CAST({args[0]} AS VARCHAR) || ' MONTH' AS INTERVAL YEAR TO MONTH)"
+    return f"(CAST({args[0]} AS BIGINT) * INTERVAL '1' MONTH)"
 
 
 def _current_timestamp(args: list[str]) -> str:

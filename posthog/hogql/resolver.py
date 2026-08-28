@@ -2154,7 +2154,7 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_positional_ref(self, node: ast.PositionalRef):
-        if self.dialect not in _POSTGRES_FAMILY:
+        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "trino":
             raise QueryError(f"Positional references are not allowed in {self.dialect} dialect")
         node = cast(ast.PositionalRef, clone_expr(node))
         node.type = ast.UnknownType()

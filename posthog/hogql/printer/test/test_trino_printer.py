@@ -122,12 +122,15 @@ def test_distinct_limit_by_returns_stable_lowering_error() -> None:
         ),
         ("tuple(1, 2).1", "(ROW(1, 2))[1]"),
         ("extract(user_id, 'id-(.*)')", 'regexp_extract("users"."user_id", %(hogql_val_0)s, 1)'),
-        ("JSON_VALUE(user_id, '$.key')", 'json_value("users"."user_id", \'$.key\')'),
+        ("JSON_VALUE(user_id, '$.key')", 'json_value("users"."user_id", \'lax $.key\')'),
         (
             "quantileIf(0.9)(length(user_id), user_id != '')",
             'approx_percentile(length("users"."user_id"), 0.9) FILTER',
         ),
         ("argMax(user_id, created_at)", 'max_by("users"."user_id", "users"."created_at")'),
+        ("toIntervalMonth(3)", "(CAST(3 AS BIGINT) * INTERVAL '1' MONTH)"),
+        ("toInt(toDate('2022-01-01'))", "date_diff('day', DATE '1970-01-01', CAST("),
+        ("toInt(created_at)", 'CAST(to_unixtime("users"."created_at") AS BIGINT)'),
     ],
 )
 def test_prints_core_trino_expression_mappings(expression: str, expected: str) -> None:
@@ -136,6 +139,54 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
     sql, _ = prepare_and_print_ast(parse_select(f"SELECT {expression} FROM users"), context, "trino")
 
     assert expected in sql
+
+
+def test_coerces_strict_trino_types_after_property_lowering() -> None:
+    context = _context_with_trino_table()
+
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            "SELECT properties.duration / 1000, sum(properties.amount), properties.failed = true, "
+            "created_at >= '2026-04-01' FROM users"
+        ),
+        context,
+        "trino",
+    )
+
+    assert 'CAST(json_extract_scalar("users"."properties", %(hogql_val_0)s) AS DOUBLE) / 1000' in sql
+    assert 'sum(CAST(json_extract_scalar("users"."properties", %(hogql_val_1)s) AS DOUBLE))' in sql
+    assert 'CAST(json_extract_scalar("users"."properties", %(hogql_val_2)s) AS BOOLEAN) = true' in sql
+    assert '"users"."created_at" >= CAST(%(hogql_val_3)s AS TIMESTAMP)' in sql
+
+
+def test_prints_iso_datetime_and_heterogeneous_concat_for_trino() -> None:
+    context = _context_with_trino_table()
+
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT toDateTime('2025-06-03T12:00:34.000Z'), concat('ticket-', length(user_id)) FROM users"),
+        context,
+        "trino",
+    )
+
+    assert "CAST(from_iso8601_timestamp(%(hogql_val_0)s) AS TIMESTAMP)" in sql
+    assert 'concat(CAST(%(hogql_val_1)s AS VARCHAR), CAST(length("users"."user_id") AS VARCHAR))' in sql
+
+
+def test_uses_trino_array_cardinality_and_lax_json_paths() -> None:
+    context = _context_with_trino_table()
+
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            "SELECT length(arrayDistinct([1, 1])), JSON_VALUE(properties, '$.items'), "
+            "JSON_VALUE(properties, 'strict $.items') FROM users"
+        ),
+        context,
+        "trino",
+    )
+
+    assert "cardinality(array_distinct(ARRAY[1, 1]))" in sql
+    assert 'json_value("users"."properties", \'lax $.items\')' in sql
+    assert 'json_value("users"."properties", \'strict $.items\')' in sql
 
 
 def test_prints_json_paths_as_bound_values() -> None:
@@ -149,6 +200,63 @@ def test_prints_json_paths_as_bound_values() -> None:
 
     assert 'json_extract_scalar("users"."user_id", %(hogql_val_0)s)' in sql
     assert context.values == {"hogql_val_0": '$."key.with.dot"[2]'}
+
+
+def test_lowers_event_property_backed_fields_to_the_physical_json_column() -> None:
+    context = HogQLContext(
+        database=Database(include_posthog_tables=True),
+        enable_select_queries=True,
+        trino_table_locators={"events": ("tenant", "posthog", "events")},
+    )
+
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT events.`$session_id`, events.`$window_id`, events.`$group_0` FROM events"),
+        context,
+        "trino",
+    )
+
+    assert 'json_extract_scalar("tenant"."posthog"."events"."properties", %(hogql_val_0)s)' in sql
+    assert 'json_extract_scalar("tenant"."posthog"."events"."properties", %(hogql_val_1)s)' in sql
+    assert 'json_extract_scalar("tenant"."posthog"."events"."properties", %(hogql_val_2)s)' in sql
+    assert context.values == {
+        "hogql_val_0": '$."$session_id"',
+        "hogql_val_1": '$."$window_id"',
+        "hogql_val_2": '$."$group_0"',
+    }
+
+
+def test_lowers_event_element_materializations_to_the_physical_chain() -> None:
+    context = HogQLContext(
+        database=Database(include_posthog_tables=True),
+        enable_select_queries=True,
+        trino_table_locators={"events": ("tenant", "posthog", "events")},
+    )
+
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT elements_chain_href, elements_chain_ids FROM events"),
+        context,
+        "trino",
+    )
+
+    assert 'regexp_extract("tenant"."posthog"."events"."elements_chain", %(hogql_val_0)s, 1)' in sql
+    assert 'array_distinct(regexp_extract_all("tenant"."posthog"."events"."elements_chain"' in sql
+
+
+def test_lowers_clickhouse_select_alias_references_to_expressions() -> None:
+    context = _context_with_trino_table()
+
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            "SELECT user_id AS account_id, count() AS total FROM users "
+            "GROUP BY account_id HAVING total > 0 ORDER BY total"
+        ),
+        context,
+        "trino",
+    )
+
+    assert "GROUP BY 1" in sql
+    assert "HAVING (count(*) > 0)" in sql
+    assert "ORDER BY count(*) ASC" in sql
 
 
 def test_prints_empty_according_to_resolved_argument_type() -> None:
@@ -239,7 +347,9 @@ def test_lowers_single_array_join_to_cross_join_unnest() -> None:
     )
 
     assert (
-        'CROSS JOIN UNNEST(ARRAY[1, 2]) AS "__trino_unnest_0" ("item")' in sql
+        'CROSS JOIN UNNEST(transform(ARRAY[1, 2], "__trino_unnest_0_value" -> ROW("__trino_unnest_0_value"))) '
+        'AS "__trino_unnest_0" ("item")'
+        in sql
         and 'SELECT "__trino_unnest_0"."item"' in sql
     )
 
@@ -267,7 +377,10 @@ def test_lowers_array_join_function_to_cross_join_unnest() -> None:
     )
 
     assert 'SELECT "__trino_array_function_0"."value_0" AS "item"' in sql
-    assert 'CROSS JOIN UNNEST(ARRAY[1, 2]) AS "__trino_array_function_0" ("value_0")' in sql
+    assert (
+        'CROSS JOIN UNNEST(transform(ARRAY[1, 2], "__trino_array_function_0_value" -> '
+        'ROW("__trino_array_function_0_value"))) AS "__trino_array_function_0" ("value_0")' in sql
+    )
 
 
 def test_lowers_limit_by_to_row_number_wrapper() -> None:

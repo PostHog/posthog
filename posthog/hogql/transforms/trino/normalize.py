@@ -8,6 +8,119 @@ from posthog.hogql.transforms.trino.query_wrappers import lower_trino_query_wrap
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 _MAX_NUMBERS_ROWS = 10_000_000
+_EVENT_PROPERTY_BACKED_FIELDS = frozenset(
+    {"$session_id", "$window_id", "$group_0", "$group_1", "$group_2", "$group_3", "$group_4"}
+)
+_EVENT_ELEMENTS_CHAIN_PATTERNS = {
+    "elements_chain_texts": r'(?::|")text="(.*?)"',
+    "elements_chain_ids": r'(?::|")attr_id="(.*?)"',
+    "elements_chain_elements": r"(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)",
+}
+
+
+def _wrap_unnest_elements(array_expr: ast.Expr, lambda_name: str) -> ast.Call:
+    return ast.Call(
+        name="arrayMap",
+        args=[
+            ast.Lambda(
+                args=[lambda_name],
+                expr=ast.Tuple(exprs=[ast.Field(chain=[lambda_name])]),
+            ),
+            array_expr,
+        ],
+    )
+
+
+class TrinoPhysicalFieldLowerer(CloningVisitor):
+    def __init__(self) -> None:
+        super().__init__(clear_types=False)
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        field_type = node.type
+        while isinstance(field_type, ast.FieldAliasType):
+            field_type = field_type.type
+        table_type = field_type.table_type if isinstance(field_type, ast.FieldType) else None
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+            table_type = table_type.table_type
+        is_events_field = (
+            isinstance(table_type, ast.TableType)
+            and (table_type.table.name or table_type.table.to_printed_hogql()) == "events"
+        )
+        if (
+            isinstance(field_type, ast.FieldType)
+            and field_type.name in _EVENT_PROPERTY_BACKED_FIELDS
+            and is_events_field
+        ):
+            return ast.PropertyAccess(
+                start=node.start,
+                end=node.end,
+                expr=ast.Field(chain=[*node.chain[:-1], "properties"]),
+                keys=[field_type.name],
+                type=ast.StringType(nullable=True),
+            )
+        if isinstance(field_type, ast.FieldType) and is_events_field:
+            source = ast.Field(chain=[*node.chain[:-1], "elements_chain"])
+            if field_type.name == "elements_chain_href":
+                return ast.Call(
+                    name="ifNull",
+                    args=[
+                        ast.Call(name="extract", args=[source, ast.Constant(value=r'(?::|")href="(.*?)"')]),
+                        ast.Constant(value=""),
+                    ],
+                )
+            pattern = _EVENT_ELEMENTS_CHAIN_PATTERNS.get(field_type.name)
+            if pattern is not None:
+                return ast.Call(
+                    name="arrayDistinct",
+                    args=[ast.Call(name="extractAll", args=[source, ast.Constant(value=pattern)])],
+                )
+        return super().visit_field(node)
+
+
+class TrinoSelectAliasLowerer(CloningVisitor):
+    def __init__(self) -> None:
+        super().__init__(clear_types=False)
+        self.aliases: dict[str, ast.Expr] = {}
+        self.alias_positions: dict[str, int] = {}
+        self.expanding: set[str] = set()
+        self.in_group_by = False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        outer_aliases = self.aliases
+        outer_alias_positions = self.alias_positions
+        self.aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
+        self.alias_positions = {
+            expr.alias: index for index, expr in enumerate(node.select, start=1) if isinstance(expr, ast.Alias)
+        }
+        lowered = super().visit_select_query(node)
+        if node.group_by is not None:
+            outer_in_group_by = self.in_group_by
+            self.in_group_by = True
+            try:
+                lowered.group_by = [self.visit(expr) for expr in node.group_by]
+            finally:
+                self.in_group_by = outer_in_group_by
+        self.aliases = outer_aliases
+        self.alias_positions = outer_alias_positions
+        return lowered
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        if (
+            len(node.chain) == 1
+            and isinstance(node.type, ast.FieldAliasType)
+            and isinstance(node.chain[0], str)
+            and node.chain[0] in self.aliases
+            and node.chain[0] not in self.expanding
+        ):
+            alias = node.chain[0]
+            if self.in_group_by:
+                return ast.PositionalRef(index=self.alias_positions[alias])
+            self.expanding.add(alias)
+            try:
+                return self.visit(self.aliases[alias])
+            finally:
+                self.expanding.remove(alias)
+        return super().visit_field(node)
 
 
 class TrinoArrayJoinFunctionLowerer(CloningVisitor):
@@ -27,7 +140,7 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
             join = ast.JoinExpr(
                 join_type="CROSS JOIN" if lowered.select_from is not None else None,
                 table=ast.Field(chain=[table_name]),
-                table_args=[array_expr],
+                table_args=[_wrap_unnest_elements(array_expr, f"{table_name}_value")],
                 alias=table_name,
                 column_aliases=[output_name],
             )
@@ -103,7 +216,7 @@ class TrinoNormalizer(TraversingVisitor):
         final_join.next_join = ast.JoinExpr(
             join_type="CROSS JOIN",
             table=ast.Field(chain=[table_name]),
-            table_args=[array_expr.expr],
+            table_args=[_wrap_unnest_elements(array_expr.expr, f"{table_name}_value")],
             alias=table_name,
             column_aliases=[array_expr.alias],
         )
@@ -142,6 +255,8 @@ class TrinoNormalizer(TraversingVisitor):
 
 def normalize_trino_ast(node: ast.AST, context: HogQLContext) -> ast.AST:
     lowered = TrinoArrayJoinFunctionLowerer(context).visit(node)
+    lowered = TrinoPhysicalFieldLowerer().visit(lowered)
     lowered = lower_trino_query_wrappers(lowered)
+    lowered = TrinoSelectAliasLowerer().visit(lowered)
     TrinoNormalizer(context).visit(lowered)
     return lowered

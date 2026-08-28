@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable
 from typing import ClassVar, NoReturn, cast
 
@@ -68,6 +69,26 @@ class TrinoPrinter(PostgresPrinter):
         name = node.name.lower()
         if name in {"empty", "notempty"}:
             return self._visit_empty(node, negated=name == "notempty")
+        if name == "length" and node.args and isinstance(self._resolve_type(node.args[0]), ast.ArrayType):
+            return self._visit_unary_function(node, "cardinality")
+        if name in {"toint", "tointorzero", "tointordefault"} and node.args:
+            arg = node.args[0]
+            arg_type = arg.type.resolve_constant_type(self.context) if arg.type is not None else None
+            rendered = self.visit(arg)
+            if isinstance(arg_type, ast.DateType):
+                return f"date_diff('day', DATE '1970-01-01', {rendered})"
+            if isinstance(arg_type, ast.DateTimeType):
+                return f"CAST(to_unixtime({rendered}) AS BIGINT)"
+            if isinstance(arg_type, ast.BooleanType):
+                return f"CASE WHEN {rendered} THEN 1 ELSE 0 END"
+        if name == "todatetime" and node.args:
+            value = node.args[0]
+            if (
+                isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+                and re.search(r"T.*(?:Z|[+-]\d\d:\d\d)$", value.value)
+            ):
+                return f"CAST(from_iso8601_timestamp({self.visit(value)}) AS TIMESTAMP)"
         if name == "concat":
             if node.distinct or node.order_by:
                 self._unsupported(
@@ -75,12 +96,12 @@ class TrinoPrinter(PostgresPrinter):
                     "concat does not support DISTINCT or ORDER BY in Trino mode.",
                     node,
                 )
-            args = [self.visit(arg) for arg in node.args]
-            rendered = [
-                f"CAST({value} AS VARCHAR)" if isinstance(arg, ast.Constant) and isinstance(arg.value, str) else value
-                for arg, value in zip(node.args, args, strict=True)
-            ]
+            rendered = [f"CAST({self.visit(arg)} AS VARCHAR)" for arg in node.args]
             return f"concat({', '.join(rendered)})"
+        if name == "sum" and len(node.args) == 1 and self._is_dynamic_property(node.args[0]):
+            lowered = clone_expr(node)
+            lowered.args = [ast.Call(name="toFloat", args=[lowered.args[0]])]
+            return super().visit_call(lowered)
         if name in {
             "jsonextract",
             "jsonextractstring",
@@ -104,6 +125,10 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_binary_function(node, "element_at")
         if name == "arraydistinct":
             return self._visit_unary_function(node, "array_distinct")
+        if name == "extractall":
+            if len(node.args) != 2:
+                self._invalid_function_arguments(node, "extractAll expects exactly 2 arguments in Trino mode.")
+            return f"regexp_extract_all({self.visit(node.args[0])}, {self.visit(node.args[1])}, 1)"
         if name == "arraysort":
             return self._visit_unary_function(node, "array_sort")
         if name == "arrayflatten":
@@ -169,6 +194,68 @@ class TrinoPrinter(PostgresPrinter):
         if name == "json_value":
             return self._visit_json_value(node)
         return super().visit_call(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> str:
+        left_type = self._resolve_type(node.left)
+        right_type = self._resolve_type(node.right)
+        left_cast: str | None = None
+        right_cast: str | None = None
+
+        if isinstance(left_type, ast.DateTimeType) and isinstance(right_type, ast.StringType):
+            right_cast = "TIMESTAMP"
+        elif isinstance(right_type, ast.DateTimeType) and isinstance(left_type, ast.StringType):
+            left_cast = "TIMESTAMP"
+        elif isinstance(left_type, ast.DateType) and isinstance(right_type, ast.StringType):
+            right_cast = "DATE"
+        elif isinstance(right_type, ast.DateType) and isinstance(left_type, ast.StringType):
+            left_cast = "DATE"
+        elif self._is_dynamic_property(node.left) and isinstance(right_type, ast.BooleanType):
+            left_cast = "BOOLEAN"
+        elif self._is_dynamic_property(node.right) and isinstance(left_type, ast.BooleanType):
+            right_cast = "BOOLEAN"
+        else:
+            return super().visit_compare_operation(node)
+
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+        if left_cast is not None:
+            left = f"CAST({left} AS {left_cast})"
+        if right_cast is not None:
+            right = f"CAST({right} AS {right_cast})"
+        return self._get_compare_op(node.op, left, right)
+
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> str:
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+        lowered = False
+        if self._is_dynamic_property(node.left) and self._is_numeric(node.right):
+            left = f"CAST({left} AS DOUBLE)"
+            lowered = True
+        if self._is_dynamic_property(node.right) and self._is_numeric(node.left):
+            right = f"CAST({right} AS DOUBLE)"
+            lowered = True
+        operators = {
+            ast.ArithmeticOperationOp.Add: "+",
+            ast.ArithmeticOperationOp.Sub: "-",
+            ast.ArithmeticOperationOp.Mult: "*",
+            ast.ArithmeticOperationOp.Div: "/",
+            ast.ArithmeticOperationOp.Mod: "%",
+        }
+        operator = operators.get(node.op)
+        if operator is not None and lowered:
+            return f"({left} {operator} {right})"
+        return super().visit_arithmetic_operation(node)
+
+    def _resolve_type(self, node: ast.Expr) -> ast.ConstantType | None:
+        return node.type.resolve_constant_type(self.context) if node.type is not None else None
+
+    def _is_dynamic_property(self, node: ast.Expr) -> bool:
+        while isinstance(node, ast.Alias):
+            node = node.expr
+        return isinstance(node, ast.PropertyAccess)
+
+    def _is_numeric(self, node: ast.Expr) -> bool:
+        return isinstance(self._resolve_type(node), (ast.IntegerType, ast.FloatType, ast.DecimalType))
 
     def _visit_json_extract(self, node: ast.Call) -> str:
         name = node.name.lower()
@@ -488,7 +575,8 @@ class TrinoPrinter(PostgresPrinter):
                 "JSON_VALUE path contains an invalid NUL character.",
                 node,
             )
-        path_literal = "'" + path.value.replace("'", "''") + "'"
+        path_value = path.value if path.value.lstrip().startswith(("lax ", "strict ")) else f"lax {path.value}"
+        path_literal = "'" + path_value.replace("'", "''") + "'"
         return f"json_value({self.visit(node.args[0])}, {path_literal})"
 
     def _print_table_sql(self, table) -> str:
