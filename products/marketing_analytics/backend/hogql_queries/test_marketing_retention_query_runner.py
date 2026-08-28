@@ -394,7 +394,7 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(row.cohortSize, 1)
         self.assertEqual([cell.count for cell in row.values], [1, 1, 0, 0])
 
-    def _configure_goal(self, goal_id="goal-1", event="purchase", name="Purchases"):
+    def _configure_goal(self, goal_id: str = "goal-1", event: str = "purchase", name: str = "Purchases") -> None:
         config = self.team.marketing_analytics_config
         config.conversion_goals = [
             ConversionGoalFilter1(
