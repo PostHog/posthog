@@ -5,9 +5,17 @@ import { captureInboxReportsImpressed, captureInboxViewed } from '../inboxAnalyt
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
-import { INBOX_LEGACY_TAB_SECTION, InboxFlatListTabKey, InboxReportSectionKey, SignalReport } from '../types'
+import {
+    INBOX_LEGACY_TAB_SECTION,
+    INBOX_SCOPE_ENTIRE_PROJECT,
+    INBOX_SCOPE_FOR_YOU,
+    InboxFlatListTabKey,
+    InboxReportSectionKey,
+    SignalReport,
+} from '../types'
 import { DismissalReasonValue } from '../utils/dismissalReasons'
 import { CardSkeleton } from './cards/CardSkeleton'
+import { InboxNoMatchesEmptyState } from './emptyState/InboxNoMatchesEmptyState'
 import { InboxBulkSelectionBar } from './shell/InboxBulkSelectionBar'
 import { InboxSearchFilterBar } from './shell/InboxSearchFilterBar'
 
@@ -54,7 +62,9 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     const { reports, count, totalCount, hasMore, reportsResponseLoading, isLoaded, loadedQueryKey, loadedContext } =
         useValues(reportListLogic)
     const { ensureLoaded, loadMore, archiveReport, restoreReport, refresh } = useActions(reportListLogic)
-    const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
+    const { hasActiveFilters, hasUserChosenScope, sourceProductFilter, scoutFilter, priorityFilter, scope } =
+        useValues(inboxFiltersLogic)
+    const { clearFilters, setScope } = useActions(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
     // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
@@ -89,6 +99,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                 reportsTabCount,
                 hasActiveFilters,
                 sourceProductFilter,
+                scoutFilter,
                 priorityFilter,
                 scope,
             })
@@ -104,6 +115,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         tabKey,
         hasActiveFilters,
         sourceProductFilter,
+        scoutFilter,
         priorityFilter,
         scope,
     ])
@@ -187,6 +199,13 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
 
     // Skeleton while a tab we know is non-empty loads its first page.
     const showSkeleton = !isLoaded && (reportsResponseLoading || (count ?? 0) > 0)
+    // The tab's own empty copy claims the project has nothing of this kind, so it only holds over
+    // the whole project with no filter on. A narrowed view that matches nothing gets the
+    // filter-aware state instead, which names the narrowing and offers the way out of it. A scope
+    // the user never picked does not count as narrowing: the inbox lands people on For you and
+    // moves them to Entire project itself once it knows nothing is assigned, and the first-run copy
+    // has to survive that window.
+    const unfilteredView = !hasActiveFilters && (scope === INBOX_SCOPE_ENTIRE_PROJECT || !hasUserChosenScope)
 
     return (
         <div className="@container mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
@@ -196,7 +215,15 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
             {showSkeleton ? (
                 <CardSkeleton count={Math.min(count ?? 4, 6)} variant="cards" dashed={tabKey !== 'pulls'} />
             ) : reports.length === 0 ? (
-                'content' in emptyState ? (
+                !unfilteredView ? (
+                    <InboxNoMatchesEmptyState
+                        narrowedBy={
+                            hasActiveFilters ? 'filters' : scope === INBOX_SCOPE_FOR_YOU ? 'for-you' : 'teammate'
+                        }
+                        onClearFilters={clearFilters}
+                        onShowEntireProject={() => setScope(INBOX_SCOPE_ENTIRE_PROJECT)}
+                    />
+                ) : 'content' in emptyState ? (
                     emptyState.content
                 ) : (
                     <div className="mx-auto max-w-md flex flex-col items-center text-center py-12 gap-2">

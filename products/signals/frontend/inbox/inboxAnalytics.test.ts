@@ -54,6 +54,7 @@ describe('inboxAnalytics', () => {
             reportsTabCount: 212,
             hasActiveFilters: false,
             sourceProductFilter: [],
+            scoutFilter: [],
             priorityFilter: [],
             scope: 'for-you',
         })
@@ -69,6 +70,7 @@ describe('inboxAnalytics', () => {
             reportsTabCount: 212,
             hasActiveFilters: false,
             sourceProductFilter: [],
+            scoutFilter: [],
             priorityFilter: [],
             scope: 'for-you',
         })
@@ -92,7 +94,8 @@ describe('inboxAnalytics', () => {
             pullsTabCount: 1,
             reportsTabCount: 3,
             hasActiveFilters: true,
-            sourceProductFilter: ['error_tracking'],
+            sourceProductFilter: ['signals_scout'],
+            scoutFilter: ['signals-scout-error-tracking'],
             priorityFilter: ['P0'],
             scope: 'entire-project',
         })
@@ -102,7 +105,10 @@ describe('inboxAnalytics', () => {
             total_count: 3,
             is_empty: false,
             has_active_filters: true,
-            source_product_filter: ['error_tracking'],
+            source_product_filter: ['signals_scout'],
+            // Without this the event stream can't tell a scout-filtered empty list from an
+            // unfiltered one, which is how scout-filter emptiness went unmeasured.
+            scout_filter: ['signals-scout-error-tracking'],
             priority_p0_count: 1,
             priority_p1_count: 1,
             priority_unknown_count: 1,

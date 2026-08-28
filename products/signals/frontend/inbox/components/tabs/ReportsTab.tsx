@@ -118,7 +118,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
  * sees every section at once, so it carries the whole list rather than one view's slice.
  */
 function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListState>): void {
-    const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
+    const { hasActiveFilters, sourceProductFilter, scoutFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
     // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
@@ -153,10 +153,11 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
             reportsTabCount: sections['needs-decision'].count,
             hasActiveFilters,
             sourceProductFilter,
+            scoutFilter,
             priorityFilter,
             scope,
         })
-    }, [listVisible, settled, sections, hasActiveFilters, sourceProductFilter, priorityFilter, scope])
+    }, [listVisible, settled, sections, hasActiveFilters, sourceProductFilter, scoutFilter, priorityFilter, scope])
 }
 
 /** Nothing has reached the inbox yet — the whole list is empty, not just one section. */

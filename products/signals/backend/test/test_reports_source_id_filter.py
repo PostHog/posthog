@@ -1,3 +1,5 @@
+import uuid
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -5,9 +7,11 @@ from parameterized import parameterized
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.signal_queries import fetch_live_report_ids_for_source_ids
+from products.signals.backend.views import _REPORT_ID_FILTER_CAP
 
 VIEWS_FETCH = "products.signals.backend.views.fetch_live_report_ids_for_source_ids"
 VIEWS_FETCH_BY_PRODUCT = "products.signals.backend.views.fetch_report_ids_for_source_products"
+VIEWS_FETCH_BY_SCOUT = "products.signals.backend.views.fetch_report_ids_for_scout_names"
 TICKET_ID = "019f9373-1e60-0000-3928-d8b21e6e8cb0"
 
 
@@ -81,3 +85,23 @@ class TestReportsSourceIdFilter(APIBaseTest):
 
         assert response.status_code == 200
         fetch.assert_not_called()
+
+
+class TestReportsScoutFilterCap(APIBaseTest):
+    def test_a_matching_report_survives_a_match_set_larger_than_the_cap(self) -> None:
+        # The scout lookup orders its matches by recency across every status, so capping that order
+        # before Postgres applies the status filter picks survivors on a dimension the request did
+        # not ask about. Terminal reports accumulate forever and are the freshest, so they filled
+        # the cap and a live report went missing from its own scout's filter.
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="filed by the scout"
+        )
+        fresher_but_terminal = [str(uuid.uuid4()) for _ in range(_REPORT_ID_FILTER_CAP + 1)]
+
+        with patch(VIEWS_FETCH_BY_SCOUT, return_value=[*fresher_but_terminal, str(report.id)]):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/signals/reports/?scout=signals-scout-error-tracking&status=ready"
+            )
+
+        assert response.status_code == 200
+        assert [r["id"] for r in response.json()["results"]] == [str(report.id)]

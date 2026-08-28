@@ -286,11 +286,13 @@ class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
         )
         self._emit_version(document_id="d3", report_id="rPipeline", source_product="errors", inserted_at=self.base)
 
-        assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-error-tracking"]) == {"rErrors"}
-        assert fetch_report_ids_for_scout_names(
-            self.team, ["signals-scout-error-tracking", "signals-scout-session-replay"]
+        assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-error-tracking"]) == ["rErrors"]
+        assert set(
+            fetch_report_ids_for_scout_names(
+                self.team, ["signals-scout-error-tracking", "signals-scout-session-replay"]
+            )
         ) == {"rErrors", "rReplay"}
-        assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-unknown"]) == set()
+        assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-unknown"]) == []
 
     def test_prefix_matches_the_scout_family_and_nothing_else(self) -> None:
         # Guards the family-prefix filter: a scout added under the prefix must appear without a
@@ -318,11 +320,11 @@ class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
         )
         self._emit_version(document_id="d4", report_id="rPipeline", source_product="errors", inserted_at=self.base)
 
-        assert fetch_report_ids_for_scout_prefix(self.team, "signals-scout-customer-analytics") == {
+        assert set(fetch_report_ids_for_scout_prefix(self.team, "signals-scout-customer-analytics")) == {
             "rHealth",
             "rMix",
         }
-        assert fetch_report_ids_for_scout_prefix(self.team, "signals-scout-unknown") == set()
+        assert fetch_report_ids_for_scout_prefix(self.team, "signals-scout-unknown") == []
 
     def test_deleted_in_latest_version_drops_out(self) -> None:
         self._emit_version(
@@ -341,7 +343,7 @@ class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
             skill_name="signals-scout-apm",
         )
 
-        assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-apm"]) == set()
+        assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-apm"]) == []
 
 
 class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):

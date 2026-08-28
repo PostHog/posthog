@@ -179,6 +179,11 @@ tracer = trace.get_tracer(__name__)
 REVIEWER_PAGINATION_THRESHOLD = 1200
 PR_GITHUB_CACHE_SECONDS = 15
 
+# How many report ids the ClickHouse-resolved inbox filters (source/scout) put in a Django
+# `id__in` lookup. Bounds the generated SQL; `_narrow_to_matching_report_ids` decides which ids
+# survive when a match set is bigger than this.
+_REPORT_ID_FILTER_CAP = 300
+
 
 class EmitSignalSerializer(serializers.Serializer):
     source_product = serializers.CharField(max_length=100)
@@ -799,10 +804,6 @@ class SignalReportViewSet(
         qs = self._exclude_deleted_signal_reports(qs)
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
-        qs = self._apply_signal_report_source_product_filter(qs)
-        qs = self._apply_signal_report_source_id_filter(qs)
-        qs = self._apply_signal_report_scout_filter(qs)
-        qs = self._apply_signal_report_scout_prefix_filter(qs)
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_channel_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
@@ -812,6 +813,13 @@ class SignalReportViewSet(
         qs = self._annotate_signal_report_status_rank(qs)
         qs = self._annotate_signal_report_priority(qs)
         qs = self._apply_signal_report_priority_filter(qs)
+        # The ClickHouse-resolved id filters run last, so the id set they hand to Postgres is
+        # truncated against the reports this request could actually return (see
+        # `_narrow_to_matching_report_ids`).
+        qs = self._apply_signal_report_source_product_filter(qs)
+        qs = self._apply_signal_report_source_id_filter(qs)
+        qs = self._apply_signal_report_scout_filter(qs)
+        qs = self._apply_signal_report_scout_prefix_filter(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         qs = self._annotate_is_suggested_reviewer(qs)
         # Batched billable-moment lookup for the serializer's refund_ineligibility_reason field.
@@ -937,6 +945,26 @@ class SignalReportViewSet(
             return queryset
         return queryset.filter(Q(title__icontains=search) | Q(summary__icontains=search))
 
+    def _narrow_to_matching_report_ids(self, queryset, matching_ids: list[str]):
+        """Narrow the queryset to a ClickHouse-resolved report-id set, capped for the SQL `IN` list.
+
+        `matching_ids` arrives most-recently-active first. Truncating that order directly would
+        pick which matches survive by recency across the whole project, before Postgres applies
+        the filters that define the view the user is looking at (status, implementation PR,
+        actionability, priority, reviewer scope). Terminal reports accumulate forever and are the
+        most recently active, so they crowd the live sections out of the cap, and a report whose
+        card names a scout becomes invisible to that scout's own filter.
+
+        So intersect first and cap after: read the ids this request could return and keep the
+        freshest matches among those. The intersection only runs when the match set is larger
+        than the cap, which is the only case where truncation can drop anything.
+        """
+        if len(matching_ids) <= _REPORT_ID_FILTER_CAP:
+            return queryset.filter(id__in=matching_ids)
+        candidate_ids = {str(report_id) for report_id in queryset.order_by().values_list("id", flat=True)}
+        narrowed = [report_id for report_id in matching_ids if report_id in candidate_ids][:_REPORT_ID_FILTER_CAP]
+        return queryset.filter(id__in=narrowed)
+
     def _apply_signal_report_source_product_filter(self, queryset):
         source_product_filter = self.request.query_params.get("source_product")
         if not source_product_filter:
@@ -951,7 +979,7 @@ class SignalReportViewSet(
             return queryset
 
         report_ids_with_source = fetch_report_ids_for_source_products(self.team, source_products)
-        return queryset.filter(id__in=report_ids_with_source)
+        return self._narrow_to_matching_report_ids(queryset, report_ids_with_source)
 
     def _apply_signal_report_source_id_filter(self, queryset):
         """Reports a specific source record contributed to, e.g. one support ticket's reports.
@@ -994,7 +1022,7 @@ class SignalReportViewSet(
             return queryset
 
         report_ids_with_scout = fetch_report_ids_for_scout_names(self.team, scout_names)
-        return queryset.filter(id__in=report_ids_with_scout)
+        return self._narrow_to_matching_report_ids(queryset, report_ids_with_scout)
 
     def _apply_signal_report_scout_prefix_filter(self, queryset):
         scout_prefix = (self.request.query_params.get("scout_prefix") or "").strip()
@@ -1002,7 +1030,7 @@ class SignalReportViewSet(
             return queryset
 
         report_ids_with_prefix = fetch_report_ids_for_scout_prefix(self.team, scout_prefix)
-        return queryset.filter(id__in=report_ids_with_prefix)
+        return self._narrow_to_matching_report_ids(queryset, report_ids_with_prefix)
 
     def _latest_suggested_reviewers_qs(self):
         """`suggested_reviewers` rows that are the *current* (latest) version for the correlated
