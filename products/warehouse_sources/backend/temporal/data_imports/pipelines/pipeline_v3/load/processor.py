@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
     SCD2_VALID_FROM_COLUMN,
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
@@ -34,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     enrich_toast_omitted_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
+    SCD2_APPEND_MODE,
     batch_max_seq,
     has_engine_seq,
     is_cdc_write_resolution_enabled,
@@ -125,6 +127,23 @@ def _read_existing_rows_by_first_pk(
         key = existing.column(first_pk).cast(pa.string())
         wanted = pa.array(first_components, pa.string())
         return existing.filter(pc.is_in(key, value_set=wanted))
+
+
+def _count_existing_rows_at_seq(existing_delta_table: deltalake.DeltaTable | None, watermark: int) -> int:
+    """How many rows the table already holds at this position — the append lane's replay prefix.
+
+    A table without the seq column has never taken a buffered write (the legacy lane strips the
+    column), so nothing in it can be a replay.
+    """
+    if existing_delta_table is None:
+        return 0
+    schema_names = {f.name for f in existing_delta_table.schema().fields}
+    if CDC_SEQ_COLUMN not in schema_names:
+        return 0
+    existing = existing_delta_table.to_pyarrow_table(
+        columns=[CDC_SEQ_COLUMN], filters=[(CDC_SEQ_COLUMN, "=", watermark)]
+    )
+    return existing.num_rows
 
 
 def _enrich_cdc_rows(
@@ -241,6 +260,7 @@ def _resolve_cdc_positions(
     primary_keys: list[str],
     cdc_write_mode: str | None,
     team_id: str,
+    existing_delta_table: deltalake.DeltaTable | None = None,
 ) -> tuple[pa.Table, int | None]:
     """Drop rows this lane's table has already applied.
 
@@ -252,13 +272,24 @@ def _resolve_cdc_positions(
 
     watermark = read_load_position(sync_type_config, resource_name)
 
+    existing_at_watermark = 0
+    if cdc_write_mode == SCD2_APPEND_MODE and watermark is not None:
+        seq_column = pa_table.column(CDC_SEQ_COLUMN)
+        if pc.any(pc.equal(seq_column, pa.scalar(watermark, seq_column.type))).as_py():
+            existing_at_watermark = _count_existing_rows_at_seq(existing_delta_table, watermark)
+
     pa_table, stats = resolve_batch(
         pa_table,
         primary_keys,
         watermark=watermark,
         cdc_write_mode=cdc_write_mode,
+        existing_at_watermark=existing_at_watermark,
     )
-    for reason, dropped in (("superseded", stats.superseded), ("duplicate_key", stats.duplicate_key)):
+    for reason, dropped in (
+        ("superseded", stats.superseded),
+        ("duplicate_key", stats.duplicate_key),
+        ("replayed", stats.replayed),
+    ):
         if dropped:
             CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=team_id, reason=reason).inc(dropped)
 
@@ -894,6 +925,7 @@ def _process_message_reported(
                 primary_keys=primary_keys or [],
                 cdc_write_mode=cdc_write_mode,
                 team_id=team_id_str,
+                existing_delta_table=existing_delta_table,
             )
 
         if existing_delta_table is not None:

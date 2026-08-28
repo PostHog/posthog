@@ -38,6 +38,7 @@ SCD2_APPEND_MODE = "scd2_append"
 class ResolutionStats:
     superseded: int
     duplicate_key: int
+    replayed: int
 
 
 @frozen
@@ -128,6 +129,35 @@ def dedupe_keep_highest_seq(table: pa.Table, primary_keys: list[str]) -> tuple[p
     return table.take(pa.array(keep, type=pa.int64())), table.num_rows - len(keep)
 
 
+def drop_replayed_watermark_rows(
+    table: pa.Table, *, watermark: int | None, existing_at_watermark: int
+) -> tuple[pa.Table, int]:
+    """Skip the prefix of watermark rows the target table already holds — the append lane's
+    replay guard.
+
+    `drop_superseded_rows` keeps rows AT the watermark so a transaction split across buffer
+    files is never truncated, and an upsert makes re-applying them a no-op. An append lane has
+    no upsert: re-applying writes duplicate history rows, and the trailing buffer file is
+    re-read on every sync until its deletion proof matures.
+
+    Rows at the watermark all belong to one transaction (the position is the commit's end LSN),
+    and every run reads them in one canonical order — files sort by position and index, row
+    order within a file is fixed, and batches commit in index order under the run-scoped
+    head-of-line gate. So the target table always holds a prefix of what this run read, and its
+    row count at the watermark says exactly how many rows to skip.
+    """
+    if watermark is None or existing_at_watermark <= 0 or not has_engine_seq(table) or table.num_rows == 0:
+        return table, 0
+
+    seqs = table.column(CDC_SEQ_COLUMN).to_pylist()
+    at_watermark = [i for i, s in enumerate(seqs) if s == watermark]
+    replayed = set(at_watermark[:existing_at_watermark])
+    if not replayed:
+        return table, 0
+    keep = [i for i in range(table.num_rows) if i not in replayed]
+    return table.take(pa.array(keep, type=pa.int64())), len(replayed)
+
+
 def read_load_position(sync_type_config: dict | None, resource_name: str) -> int | None:
     positions = (sync_type_config or {}).get(LOAD_POSITION_CONFIG_KEY) or {}
     value = positions.get(resource_name)
@@ -159,15 +189,21 @@ def resolve_batch(
     *,
     watermark: int | None,
     cdc_write_mode: str | None,
+    existing_at_watermark: int = 0,
 ) -> tuple[pa.Table, ResolutionStats]:
     """Resolve one lane's batch. Only the consolidated lane dedupes — see SCD2_APPEND_MODE."""
     table, superseded = drop_superseded_rows(table, watermark)
 
     duplicates = 0
+    replayed = 0
     if cdc_write_mode != SCD2_APPEND_MODE:
         table, duplicates = dedupe_keep_highest_seq(table, primary_keys)
+    else:
+        table, replayed = drop_replayed_watermark_rows(
+            table, watermark=watermark, existing_at_watermark=existing_at_watermark
+        )
 
-    return table, ResolutionStats(superseded=superseded, duplicate_key=duplicates)
+    return table, ResolutionStats(superseded=superseded, duplicate_key=duplicates, replayed=replayed)
 
 
 def verify_delete_enrichment(

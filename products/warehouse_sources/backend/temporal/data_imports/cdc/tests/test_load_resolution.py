@@ -196,6 +196,59 @@ class TestResolveBatch:
         assert stats.superseded == 1
         assert result.column("name").to_pylist() == ["v2"]
 
+    def test_history_lane_skips_the_watermark_prefix_the_table_already_holds(self):
+        # The trailing file is re-read until its deletion proof matures; position alone cannot
+        # drop its rows because a transaction shares one position. The table's own count can.
+        table = _batch([1, 2, 3], ["d1", "d2", "new"], ["D", "D", "I"], seqs=[20, 20, 30])
+        result, stats = resolve_batch(
+            table, ["id"], watermark=20, cdc_write_mode=SCD2_APPEND_MODE, existing_at_watermark=2
+        )
+
+        assert stats.replayed == 2
+        assert result.column("name").to_pylist() == ["new"]
+
+    def test_history_lane_appends_the_unread_tail_of_a_split_transaction(self):
+        # The table holds a prefix of the transaction (one file consumed, its sibling raced the
+        # listing); the tail must still land, in order.
+        table = _batch([1, 2, 3], ["u1", "u2", "u3"], ["U", "U", "U"], seqs=[20, 20, 20])
+        result, stats = resolve_batch(
+            table, ["id"], watermark=20, cdc_write_mode=SCD2_APPEND_MODE, existing_at_watermark=1
+        )
+
+        assert stats.replayed == 1
+        assert result.column("name").to_pylist() == ["u2", "u3"]
+
+    def test_history_lane_keeps_a_fresh_watermark_group_whole(self):
+        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[20, 20])
+        result, stats = resolve_batch(
+            table, ["id"], watermark=20, cdc_write_mode=SCD2_APPEND_MODE, existing_at_watermark=0
+        )
+
+        assert stats.replayed == 0
+        assert result.column("name").to_pylist() == ["a", "b"]
+
+    def test_the_replay_guard_never_touches_rows_past_the_watermark(self):
+        # An over-count (more table rows at the position than this batch carries) must exhaust
+        # against watermark rows only — later transactions are new ground.
+        table = _batch([1, 2], ["old", "new"], ["U", "I"], seqs=[20, 30])
+        result, stats = resolve_batch(
+            table, ["id"], watermark=20, cdc_write_mode=SCD2_APPEND_MODE, existing_at_watermark=5
+        )
+
+        assert stats.replayed == 1
+        assert result.column("name").to_pylist() == ["new"]
+
+    def test_the_replay_guard_is_append_lane_only(self):
+        # The merge lane upserts, so re-applying is already a no-op — prefix-skipping there
+        # would race the dedupe and drop legitimate rows.
+        table = _batch([1, 2], ["a", "b"], ["U", "I"], seqs=[20, 30])
+        result, stats = resolve_batch(
+            table, ["id"], watermark=20, cdc_write_mode="incremental_merge", existing_at_watermark=5
+        )
+
+        assert stats.replayed == 0
+        assert result.column("name").to_pylist() == ["a", "b"]
+
     def test_source_owned_seq_column_disables_resolution_entirely(self):
         table = _batch([1, 1], ["old", "new"], ["I", "U"], seqs=[99, 1], engine_seq=False)
         result, stats = resolve_batch(table, ["id"], watermark=50, cdc_write_mode="incremental_merge")

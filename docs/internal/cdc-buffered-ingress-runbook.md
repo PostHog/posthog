@@ -23,6 +23,11 @@ Schemas still snapshotting stay on legacy extraction until their first sync comp
 with a mix runs hybrid — some schemas buffered, the rest unchanged — and keeps its backpressure
 guard for the legacy ones.
 
+The trailing buffer file is re-read on every sync until its deletion proof matures. The merge lane
+absorbs that as a no-op upsert; the append (`_cdc`) lane skips the replayed prefix by counting the
+rows its own table already holds at the watermark position — visible as
+`warehouse_load_cdc_seq_guard_rows_dropped_total{reason="replayed"}`.
+
 Nothing is re-snapshotted. The slot, the Delta tables, and `initial_sync_complete` are all
 preserved, so there is no WAL gap and no re-sync.
 
