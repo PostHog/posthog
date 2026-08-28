@@ -42,8 +42,9 @@ TEAM_RUN_CONCURRENCY = 10
 # a second cell into the same kernel. Staleness is caught by asking the run rows instead (see
 # `acquire_run_slots`), so this only has to outlast any real run.
 _NOTEBOOK_SLOT_TTL_SECONDS = 2 * 60 * 60
-# The per-team slot can expire early without harm: it only widens a coarse ceiling by one, and
-# there is no cheap index to check a whole team's in-flight runs against.
+# The per-team slot is shorter because there is no cheap index to check a whole team's
+# in-flight runs against, so it cannot fall back on the row check the notebook slot uses. It
+# does not expire under a working run: `renew_run_slots` pushes it out on every sign of life.
 _TEAM_SLOT_TTL_SECONDS = 25 * 60
 
 # How long a slot is trusted purely because it is recent. The run row is written after the
@@ -215,6 +216,29 @@ def _clear(limiter: RateLimit, key: str) -> None:
     """
     with suppress(Exception):
         limiter.redis_client.delete(key)
+
+
+def renew_run_slots(team_id: int, notebook_short_id: str, run_id: str) -> None:
+    """Push both slots' expiry out while the run is demonstrably still working.
+
+    A slot has to outlast the run holding it, and no fixed TTL does: a python cell materializes
+    one input per referenced upstream node, in sequence, each with its own 11 minute deadline.
+    Left to expire, the ceiling stops being a concurrency limit and becomes a rate — a caller
+    can start a fresh batch every TTL while the previous ones still run, and keep an unbounded
+    number in flight. The gap between two signs of life is one materialization, which is well
+    inside either TTL, so renewing on each one is enough.
+
+    `xx=True` so this only ever moves a member that is already there. A late fetch for a run
+    whose slot was released must not put it back and hold capacity until the TTL.
+    """
+    _renew(_get_notebook_limiter(), _notebook_key(team_id, notebook_short_id), run_id)
+    _renew(_get_team_limiter(), _team_key(team_id), run_id)
+
+
+def _renew(limiter: RateLimit, key: str, run_id: str) -> None:
+    # Best effort, like releasing: a missed renewal costs the run its slot, not its result.
+    with suppress(Exception):
+        limiter.redis_client.zadd(key, {run_id: time.time() + limiter.ttl}, xx=True)
 
 
 def release_run_slots(team_id: int, notebook_short_id: str, run_id: str) -> None:

@@ -76,7 +76,7 @@ from products.notebooks.backend.sql_v2_direct import (
     notebook_direct_query_id,
     sync_direct_run,
 )
-from products.notebooks.backend.sql_v2_runs import finish_node_run
+from products.notebooks.backend.sql_v2_runs import finish_node_run, touch_run_progress
 from products.notebooks.backend.temporal.sql_v2 import (
     SQLV2RunInput,
     dispatch_sql_v2_run_activity,
@@ -520,6 +520,38 @@ class TestSQLV2Run(APIBaseTest):
 
         second = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
         self.assertEqual(second.status_code, 409, second.content)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_working_run_keeps_its_slot_from_expiring(self, _mock_enabled, _mock_enqueue, _mock_start):
+        # No fixed TTL outlasts a working run: a python cell materializes one input per upstream
+        # node, in sequence, each with its own deadline. If the slot lapses underneath it, the
+        # team ceiling stops being "ten at once" and becomes "ten every TTL", which a caller can
+        # ride to hold an unbounded number. Every data-plane fetch has to push the expiry out.
+        first = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
+        self.assertEqual(first.status_code, 200)
+        run_id = first.json()["run_id"]
+        team_key = sql_v2_concurrency._team_key(self.team.id)
+        client = redis.get_client()
+        # Wind the slot to the edge of expiry, as a long-running cell would.
+        client.zadd(team_key, {run_id: time.time() + 5})
+
+        touch_run_progress(self.team.id, self.notebook.short_id, run_id)
+
+        renewed = dict(client.zrange(team_key, 0, -1, withscores=True))[run_id.encode()]
+        self.assertGreater(renewed, time.time() + sql_v2_concurrency._TEAM_SLOT_TTL_SECONDS - 60)
+
+    def test_progress_never_resurrects_a_released_slot(self) -> None:
+        # A fetch can land after the run finished and its slot was handed back. Re-adding the
+        # member there would hold team capacity until the TTL for a run that is already over.
+        team_key = sql_v2_concurrency._team_key(self.team.id)
+        client = redis.get_client()
+        client.delete(team_key)
+
+        touch_run_progress(self.team.id, self.notebook.short_id, "a-run-that-holds-nothing")
+
+        self.assertEqual(client.zrange(team_key, 0, -1), [])
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
