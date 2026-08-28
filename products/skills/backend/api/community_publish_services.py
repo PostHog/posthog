@@ -192,9 +192,10 @@ def render_skill_md(
         raise CommunitySkillPublishValidationError("Skill name must be one line, with no line breaks.")
     if not description.strip():
         raise CommunitySkillPublishValidationError("Skill description is required to publish.")
-    # LLMSkill.description holds 4096, and the Agent Skills spec stops at 1024. A longer one
-    # publishes, syncs and installs, and then validate_for_export refuses the installed skill, so the
-    # publisher hands someone a skill they can never export.
+    # The LLMSkill.description column holds 4096, and the Agent Skills spec stops at 1024. New writes
+    # cap at 1024, but a legacy row can still exceed it. A longer one publishes, syncs and installs,
+    # and then validate_for_export refuses the installed skill, so the publisher hands someone a skill
+    # they can never export.
     if len(description.strip()) > SPEC_DESCRIPTION_MAX_LENGTH:
         raise CommunitySkillPublishValidationError(
             f"Skill description must be {SPEC_DESCRIPTION_MAX_LENGTH} characters or fewer to publish."

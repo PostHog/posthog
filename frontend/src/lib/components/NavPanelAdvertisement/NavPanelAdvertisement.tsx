@@ -7,15 +7,11 @@ import { userLogic } from 'scenes/userLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { CampaignPayload, isCampaignPayload } from './navPanelAdShared'
-import { navPanelAdvertisementRecommendedLogic } from './navPanelAdvertisementRecommendedLogic'
 import { NavPanelCampaignAd } from './NavPanelCampaignAd'
 import { NavPanelProductPushAd } from './NavPanelProductPushAd'
 import { navPanelProductPushLogic } from './navPanelProductPushLogic'
-import { NavPanelRecommendationAd } from './NavPanelRecommendationAd'
 
 export function NavPanelAdvertisement(): JSX.Element | null {
-    const logic = navPanelAdvertisementRecommendedLogic()
-    const { oldestRecommendedProduct } = useValues(logic)
     const { activeCampaign } = useValues(navPanelProductPushLogic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
@@ -38,9 +34,5 @@ export function NavPanelAdvertisement(): JSX.Element | null {
         return <NavPanelProductPushAd campaign={activeCampaign} />
     }
 
-    if (!oldestRecommendedProduct) {
-        return null
-    }
-
-    return <NavPanelRecommendationAd recommendedProduct={oldestRecommendedProduct} />
+    return null
 }

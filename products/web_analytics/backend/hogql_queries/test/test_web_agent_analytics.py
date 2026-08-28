@@ -167,6 +167,32 @@ class TestWebAgentAnalyticsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(rows[0]["variants"], 2)
         self.assertEqual(rows[1]["intent_key"], "example.com/Docs/SDK")
 
+    def test_exact_grouping_keeps_each_requested_url_separate(self) -> None:
+        _create_person(team_id=self.team.pk, distinct_ids=["assistant"], properties={})
+        self._create_http_event("assistant", "/docs/sdk-2.4.1.md", 404)
+        self._create_http_event("assistant", "/docs/sdk-3.0.0.html", 404)
+        flush_persons_and_events()
+
+        rows = self._rows(self._run(WebAgentAnalyticsQueryType.ISSUES, content_grouping=WebAgentContentGrouping.EXACT))
+
+        self.assertEqual(
+            {row["intent_path"] for row in rows},
+            {"/docs/sdk-2.4.1.md", "/docs/sdk-3.0.0.html"},
+        )
+
+    def test_malformed_paths_are_counted_as_malformed_and_not_as_content_gaps(self) -> None:
+        _create_person(team_id=self.team.pk, distinct_ids=["assistant"], properties={})
+        self._create_http_event("assistant", "/docs/null", 404)
+        self._create_http_event("assistant", "/docs/undefined", 404)
+        self._create_http_event("assistant", "/docs/sdk-2.4.1.md", 404)
+        flush_persons_and_events()
+
+        issue_paths = {row["intent_path"] for row in self._rows(self._run(WebAgentAnalyticsQueryType.ISSUES))}
+        overview = self._first_row(self._run(WebAgentAnalyticsQueryType.OVERVIEW))
+
+        self.assertEqual(issue_paths, {"/docs/sdk"})
+        self.assertEqual(overview["malformed"], 2)
+
     def test_issue_variants_return_only_exact_paths_for_the_selected_intent(self) -> None:
         _create_person(team_id=self.team.pk, distinct_ids=["assistant"], properties={})
         self._create_http_event("assistant", "/docs/sdk-2.4.1.md", 404)

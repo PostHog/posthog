@@ -88,9 +88,22 @@ export const finishTool = defineLocalTool({
   description: FINISH_TOOL_DESCRIPTION,
   schema: finishSchema,
   alwaysLoad: true,
+  // Workflow-origin runs are excluded unless run state carries the end-run
+  // key: they reply into the Slack thread that triggered them, and that relay
+  // only fires after the turn ends. `finish` marks the run terminal mid-turn,
+  // which makes the backend drop the relay (relay_task_run_message skips
+  // terminal runs), so the reply is lost every time. Without the key those
+  // runs end via their inactivity timeout instead. The backend writes the key
+  // for every workflow run with no Slack thread binding, so only thread-bound
+  // runs pay the timeout. An unknown origin also hides the tool: the origin
+  // fetch fails soft, and exposing `finish` on a blip would silently eat a
+  // workflow run's reply, while hiding it only costs a bounded idle window.
   isEnabled: (ctx, meta) =>
     meta?.environment === "cloud" &&
     meta?.background === true &&
+    ((meta?.taskOriginProduct !== undefined &&
+      meta?.taskOriginProduct !== "workflow") ||
+      meta?.endRunWhenDone === true) &&
     resolveRequestFinish(ctx) !== undefined,
   handler: async (ctx, args): Promise<LocalToolResult> => {
     const requestFinish = resolveRequestFinish(ctx);
