@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -510,6 +511,73 @@ describe('customPropertyDefinitionsLogic', () => {
             key_column: 'org_id',
             is_enabled: true,
         })
+    })
+
+    it('binds a person source to a view that is re-materializing, letting the backend decide', async () => {
+        // Editing a view's SQL clears its materialized flag while it re-materializes. The binding must
+        // still resolve so the save reaches the backend, rather than throwing in the browser and
+        // leaving the definition without a source.
+        let sourceBody: Record<string, any> | null = null
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [SAVED_QUERIES_URL]: { count: 1, results: [buildView({ is_materialized: false })] },
+            },
+            post: {
+                ...defaultMocks().post,
+                [SOURCES_URL]: async ({ request }) => {
+                    sourceBody = (await request.json()) as Record<string, any>
+                    return buildSource()
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions(['loadSavedQueriesSuccess'])
+        logic.actions.setCustomPropertyFormValues({
+            name: 'Plan tier',
+            targetType: 'person',
+            warehouseSource: 'view:view-1',
+            keyColumn: 'org_id',
+            columnMappings: [{ column: 'mrr', property: 'mrr', description: '' }],
+            isEnabled: true,
+        })
+        expect(logic.values.profileSourceBinding).toEqual({ field: 'saved_query', id: 'view-1' })
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'submitCustomPropertyFormSuccess',
+        ])
+        expect(sourceBody).toMatchObject({ saved_query: 'view-1' })
+    })
+
+    it('surfaces the backend reason when the source step fails after the definition is saved', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error')
+        useMocks({
+            ...defaultMocks(),
+            post: {
+                ...defaultMocks().post,
+                [SOURCES_URL]: () => [400, { detail: 'Materialized view not found for this team.' }],
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions(['loadSavedQueriesSuccess'])
+        logic.actions.setCustomPropertyFormValues({
+            name: 'Plan tier',
+            targetType: 'person',
+            warehouseSource: 'view:view-1',
+            keyColumn: 'org_id',
+            columnMappings: [{ column: 'mrr', property: 'mrr', description: '' }],
+            isEnabled: true,
+        })
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'submitCustomPropertyFormFailure',
+            'loadDefinitions',
+        ])
+        // The modal stays open for a retry, and the toast names the backend's specific cause instead
+        // of a generic message.
+        expect(logic.values.modalVisible).toBe(true)
+        expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('Materialized view not found for this team.'))
     })
 
     it('offers synced tables and materialized views in one picker', async () => {

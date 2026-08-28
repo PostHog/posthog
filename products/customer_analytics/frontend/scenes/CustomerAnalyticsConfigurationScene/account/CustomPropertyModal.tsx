@@ -224,9 +224,11 @@ function PersonSourceEditor(): JSX.Element {
     const selectedGroupTypeLabel =
         groupTypeOptions.find((option) => option.value === customPropertyForm.groupTypeIndex)?.label ?? null
 
-    // Only block on missing sources while creating a property — an existing source still needs its key
-    // column and enabled switch editable even if what it reads was later deleted or filtered out.
-    if (noSources && !hasExistingSource) {
+    // Only block on missing sources while creating a brand-new property. An existing source still
+    // needs its key column and enabled switch editable, and a definition that saved without a source
+    // (a failed first attempt) needs the picker back so it can be pointed at a warehouse object once
+    // one is available, rather than dead-ending on this banner.
+    if (noSources && !hasExistingSource && !editingDefinition) {
         return (
             <LemonBanner type="info">
                 No data warehouse tables or materialized views found. Connect and sync a source, or materialize a view,
