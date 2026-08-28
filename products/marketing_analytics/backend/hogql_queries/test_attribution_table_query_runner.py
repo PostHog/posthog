@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
@@ -19,6 +20,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
+from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import PropertyDefinition
@@ -904,3 +906,31 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         )
         with self.assertRaises(ValueError):
             MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).to_query()
+
+    def _printed_sql(self, breakdown: MarketingAnalyticsAttributionBreakdown) -> str:
+        query = MarketingAnalyticsAttributionQuery(
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            breakdownBy=breakdown,
+            conversionGoalId=GOAL_ID,
+            properties=[],
+        )
+        runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
+        context = runner._shared_hogql_context
+        # execute_hogql_query flips this on the context it is handed; do the same to print the real query.
+        context.enable_select_queries = True
+        printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+        return pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk)
+
+    # One breakdown per SQL shape. Campaign reads a stored property, and the five breakdowns not listed
+    # here produce the same query with a different column. Source adds the alias normalization, and
+    # channel runs the classifier over raw_sessions.
+    @parameterized.expand(
+        [
+            ("campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN),
+            ("source", MarketingAnalyticsAttributionBreakdown.SOURCE),
+            ("channel", MarketingAnalyticsAttributionBreakdown.CHANNEL),
+        ]
+    )
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_attribution_table_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
+        assert self._printed_sql(breakdown) == self.snapshot
