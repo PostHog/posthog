@@ -69,17 +69,23 @@ class _S3VirtualHost:
 
 
 @dataclass(frozen=True, kw_only=True)
+class _ObjectLocation:
+    bucket: str
+    key: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class DuckDBAzureSource:
     uri: str
     scope: str
     account_name: str
 
 
-def _split_bucket_and_key(path: str) -> tuple[str, str] | None:
+def _split_bucket_and_key(path: str) -> _ObjectLocation | None:
     bucket, separator, key = path.lstrip("/").partition("/")
     if not bucket or not separator or not key:
         return None
-    return bucket, key
+    return _ObjectLocation(bucket=bucket, key=key)
 
 
 def _scope_for_s3_uri(uri: str) -> str:
@@ -126,8 +132,7 @@ def parse_duckdb_azure_source(url: str) -> DuckDBAzureSource | None:
     location = _split_bucket_and_key(parsed.path)
     if location is None:
         return None
-    container, key = location
-    uri = f"az://{hostname}/{container}/{key}"
+    uri = f"az://{hostname}/{location.bucket}/{location.key}"
     return DuckDBAzureSource(
         uri=uri,
         scope=_scope_for_azure_uri(uri),
@@ -247,7 +252,8 @@ def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
         location = _split_bucket_and_key(parsed.path)
         if location is None:
             return None
-        bucket, key = location
+        bucket = location.bucket
+        key = location.key
         url_style = "path"
         region = _region_for_s3_endpoint(hostname) if _AWS_S3_ENDPOINT_RE.fullmatch(hostname) else "us-east-1"
 
@@ -292,20 +298,19 @@ def _duckdb_csv_types(table: _DuckDBReadableTable) -> str:
 def print_duckdb_table(table: _DuckDBReadableTable, context: HogQLContext) -> str:
     if table.format not in DUCKDB_SELF_MANAGED_SUPPORTED_FORMATS:
         raise ExposedHogQLError(
-            "DuckLake can't read this self-managed table format. "
-            "Use Parquet, CSV, JSON, or Delta, or run the query without DuckLake."
+            "DuckLake can't read this self-managed table format. Save the table as Parquet, CSV, JSON, or Delta."
         )
 
     source = parse_duckdb_azure_source(table.url) or parse_duckdb_s3_source(table.url)
     if source is None:
         raise ExposedHogQLError(
-            "DuckLake can't read this self-managed table URL. "
-            "Use an S3-compatible or Azure Blob Storage URL, or run the query without DuckLake."
+            "DuckLake can't read this self-managed table URL. Point the table at an S3-compatible "
+            "or Azure Blob Storage URL."
         )
     if not table.access_key or not table.access_secret:
         raise ExposedHogQLError(
             "DuckLake can't read this self-managed table because its object storage credentials are missing. "
-            "Add an access key and secret to the table, or run the query without DuckLake."
+            "Add an access key and secret to the table."
         )
     if (
         isinstance(source, DuckDBAzureSource)
@@ -313,8 +318,7 @@ def print_duckdb_table(table: _DuckDBReadableTable, context: HogQLContext) -> st
     ):
         raise ExposedHogQLError(
             "DuckLake can't use these Azure Blob Storage credentials. "
-            "Make sure the storage account name matches the table URL and the account key is valid, "
-            "or run the query without DuckLake."
+            "Make sure the storage account name matches the table URL and the account key is valid."
         )
 
     if table.table_id is not None and table.external_data_source_id is None:
