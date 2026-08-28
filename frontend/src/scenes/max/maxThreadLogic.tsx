@@ -1958,8 +1958,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
             // Guard the length client-side so an over-limit message never makes the round trip only
-            // to come back as a generic failure. The server enforces the same cap.
-            if (typeof prompt === 'string' && prompt.length > MAX_MESSAGE_LENGTH) {
+            // to come back as a generic failure. Count the way the server's CharField does: it trims
+            // whitespace, then measures Unicode code points (Python len), not UTF-16 units. So this
+            // guard never falsely rejects a message the server would accept, like emoji, which take
+            // two UTF-16 units but one code point each.
+            if (typeof prompt === 'string' && Array.from(prompt.trim()).length > MAX_MESSAGE_LENGTH) {
                 lemonToast.error(MESSAGE_TOO_LONG)
                 return
             }

@@ -818,6 +818,27 @@ describe('maxThreadLogic', () => {
             )
         })
 
+        it.each([
+            ['emoji counted as code points, not UTF-16 units', '😀'.repeat(25000)],
+            ['surrounding whitespace trimmed before counting', ` ${'x'.repeat(40000)} `],
+        ])('does not block a message the server would accept (%s)', async (_label, prompt) => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+            mockStream()
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.askMax(prompt)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(enqueueSpy).toHaveBeenCalledWith(MOCK_CONVERSATION_ID, expect.objectContaining({ content: prompt }))
+            expect(toastSpy).not.toHaveBeenCalled()
+        })
+
         it('shows the length message and does not capture on a 400 content error while enqueueing', async () => {
             const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
             const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(jest.fn())
