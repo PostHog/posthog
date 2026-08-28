@@ -491,8 +491,12 @@ class TestExternalMcpServersPromptSection(SimpleTestCase):
         assert "`Linear`" in mounted
         assert "`Notion`" in mounted
         assert "mcp__<server>__<tool>" in mounted
+        assert "mcp__Linear__<tool>" in mounted
         # The exec rule stays: external servers are a carve-out, not a replacement.
         assert "mcp__posthog__exec" in mounted
+        # A skill body can carry the member-only `<slug>__<tool>` exec spelling, which returns
+        # nothing for the service account; the carve-out has to say that spelling is stale.
+        assert "that text is stale" in mounted
 
         for unmounted in (self._prompt(None), self._prompt([])):
             assert "mcp__<server>__<tool>" not in unmounted
