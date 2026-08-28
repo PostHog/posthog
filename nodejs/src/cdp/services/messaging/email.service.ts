@@ -601,17 +601,32 @@ export class EmailService {
         }
         const tier = Math.min(Math.max(teamTier.tier, 0), topTier)
 
-        // Hour first, on purpose. When one bucket grants and the other denies, the granted token is
-        // spent on a send that does not go out. That direction is safe (it only ever allows fewer
-        // sends), and the hour bucket refills several times faster than the day bucket, so losing
-        // an hour token costs far less than losing a day token.
         const buckets = teamEmailCapBuckets(invocation.teamId, hourlyCaps[tier], dailyCaps[tier])
+        // Clamped to the smaller capacity: a send with more copies than a whole allowance could
+        // never be granted and would reschedule forever. It charges the entire bucket instead, so
+        // it still waits for full capacity and pays everything there is.
+        const requested = Math.min(Math.max(1, recipients), buckets[0].capacity, buckets[1].capacity)
+
+        if (mode === 'enforce') {
+            // Both buckets in one atomic claim, granted whole or not at all. A denial consumes
+            // nothing, so a rescheduled multi-recipient send cannot burn the partial refill on
+            // every retry and starve the team's other emails while never sending itself.
+            const claim = await this.teamEmailRateLimiter.claimAllOrNothingPair([buckets[0], buckets[1]], requested)
+            if (claim.granted) {
+                return null
+            }
+            const denied = buckets[claim.deniedIndex ?? 1]
+            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: denied.name, mode })
+            return {
+                retryDelayMs: pickTokenBucketRetryDelayMs(denied.refillPerSecond),
+                label: denied.label,
+            }
+        }
+
+        // Shadow mode: the send goes out regardless, so drain each bucket by what the send costs
+        // and log the first cap that would have delayed it, measuring both against real traffic.
         let firstDenial: TeamEmailCapBucket | null = null
         for (const bucket of buckets) {
-            // Clamped to the bucket's capacity: a send with more copies than the whole allowance
-            // could never be granted in full and would reschedule forever. It charges the entire
-            // bucket instead, so it still waits for full capacity and pays everything there is.
-            const requested = Math.min(Math.max(1, recipients), bucket.capacity)
             const granted = await this.teamEmailRateLimiter.claimUpTo({
                 key: bucket.key,
                 requested,
@@ -622,18 +637,7 @@ export class EmailService {
             if (granted >= requested) {
                 continue
             }
-            // A partial grant is a denial: the copies of one email cannot be split across retries.
-            // The partially granted tokens are spent on a send that does not go out, which is the
-            // safe direction (it only ever allows fewer sends), same as the hour/day ordering note.
             teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: bucket.name, mode })
-            if (mode === 'enforce') {
-                return {
-                    retryDelayMs: pickTokenBucketRetryDelayMs(bucket.refillPerSecond),
-                    label: bucket.label,
-                }
-            }
-            // Shadow mode keeps claiming from the remaining buckets: the send does go out, so every
-            // bucket has to count it, and both caps get measured against real traffic.
             firstDenial = firstDenial ?? bucket
         }
 
