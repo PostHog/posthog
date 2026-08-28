@@ -84716,6 +84716,14 @@ export namespace Schemas {
       summary: unknown;
     }
 
+    export interface UnquarantineQuery {
+      /**
+         * Snapshot identifier to unquarantine
+         * @maxLength 512
+         */
+      identifier: string;
+    }
+
     export interface UpdateAppInput {
       /** New name for the app. */
       name?: string;

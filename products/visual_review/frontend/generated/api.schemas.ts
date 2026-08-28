@@ -275,6 +275,14 @@ export interface QuarantineInputApi {
     expires_at?: string | null
 }
 
+export interface UnquarantineQueryApi {
+    /**
+     * Snapshot identifier to unquarantine
+     * @maxLength 512
+     */
+    identifier: string
+}
+
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
 export const SearchMatchTypeEnumApi = {
