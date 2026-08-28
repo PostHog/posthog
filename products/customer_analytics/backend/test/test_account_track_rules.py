@@ -10,6 +10,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 from temporalio import activity
 from temporalio.client import ScheduleActionStartWorkflow, ScheduleOverlapPolicy, ScheduleState
@@ -447,7 +448,10 @@ class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
         churned.refresh_from_db()
         assert churned.ignored_at == datetime(2025, 1, 4, tzinfo=UTC)
 
-    def test_preview_evaluates_relative_date_conditions(self) -> None:
+    @parameterized.expand([("past", "-30d", {"Recent"}), ("future", "14d", set())])
+    def test_preview_evaluates_relative_date_conditions(
+        self, _name: str, relative_value: str, expected_names: set[str]
+    ) -> None:
         recent = create_account(team_id=self.team.id, name="Recent")
         older = create_account(team_id=self.team.id, name="Older")
         Account.objects.for_team(self.team.id).filter(id=recent.id).update(created_at=datetime(2026, 8, 1, tzinfo=UTC))
@@ -463,7 +467,7 @@ class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
                             {
                                 "field": {"kind": "account_field", "field": "created_at"},
                                 "operator": "is_date_after",
-                                "values": ["-30d"],
+                                "values": [relative_value],
                             }
                         ]
                     }
@@ -473,10 +477,9 @@ class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
 
         preview = preview_account_track_rules(self.team.id)
 
-        assert preview.tracked == 1
-        assert preview.ignored == 1
-        assert [sample.id for sample in preview.tracked_samples] == [recent.id]
-        assert [sample.id for sample in preview.ignored_samples] == [older.id]
+        assert preview.tracked == len(expected_names)
+        assert preview.ignored == 2 - len(expected_names)
+        assert {sample.name for sample in preview.tracked_samples} == expected_names
 
     def test_apply_batches_preserve_ignored_timestamps_and_restore_matches(self) -> None:
         definition, paying, vip, unmatched, ignored, churned = self.create_rule_fixtures()

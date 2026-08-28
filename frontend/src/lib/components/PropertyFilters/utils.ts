@@ -1,9 +1,11 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { formatRelativeDateValue } from 'lib/utils/dateFilters'
 import { isKeyOf } from 'lib/utils/guards'
 import {
     allOperatorsMapping,
     cohortOperatorMap,
     isOperatorCohort,
+    isOperatorDate,
     isOperatorFlag,
     isOperatorMulti,
 } from 'lib/utils/operators'
@@ -172,11 +174,17 @@ export function formatPropertyLabel(
     const label = 'label' in item ? item.label : undefined
     const operator = 'operator' in item ? item.operator : undefined
     const cohortName = 'cohort_name' in item ? item.cohort_name : undefined
-    const resolvedType = type ?? PropertyFilterType.Event
+    const resolvedType = (type ?? PropertyFilterType.Event) as PropertyFilterType
     const resolvedOperator = operator ?? PropertyOperator.Exact
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[resolvedType]
 
     const isSingleEmptyString = Array.isArray(value) && value.length === 1 && value[0] === ''
+    const formattedValue =
+        (resolvedType === PropertyFilterType.Account || resolvedType === PropertyFilterType.AccountCustomProperty) &&
+        isOperatorDate(resolvedOperator) &&
+        typeof value === 'string'
+            ? formatRelativeDateValue(value)
+            : undefined
 
     if (resolvedType === PropertyFilterType.Cohort) {
         return (
@@ -194,7 +202,7 @@ export function formatPropertyLabel(
         (isOperatorFlag(resolvedOperator)
             ? ` ${allOperatorsMapping[resolvedOperator]}`
             : ` ${(allOperatorsMapping[resolvedOperator] || '?').split(' ')[0]} ${
-                  isSingleEmptyString ? '(empty string)' : valueFormatter(value) || ''
+                  formattedValue ?? (isSingleEmptyString ? '(empty string)' : valueFormatter(value) || '')
               } `)
     )
 }
