@@ -121,7 +121,6 @@ export interface AgentSession {
   cloudErrorMessage?: string | null;
   initialPrompt?: ContentBlock[];
   cloudBranch?: string | null;
-  handoffInProgress?: boolean;
   stopRequested?: boolean;
   optimisticItems: OptimisticItem[];
   contextUsed?: number;

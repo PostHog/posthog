@@ -20,13 +20,13 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils/strings'
-import { isLaunched } from 'scenes/experiments/experimentStatus'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
 import { Experiment } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanners/types'
 

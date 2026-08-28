@@ -40,6 +40,8 @@ from posthog.utils import absolute_uri
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.access import DesktopAccessResolutionError
+from products.tasks.backend.constants import DEV_STACK_PREVIEW_PORT
+from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
@@ -5442,6 +5444,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "analysis_target_repository": "attacker/attacker",
                     "analysis_target_custom_image_id": "img-attacker",
                     "analysis_target_custom_image_name": "attacker-image",
+                    "dev_stack_preview": {"port": 8080, "sandbox_id": "sb-real"},
                     "scratch": "ok",
                 }
             },
@@ -5451,6 +5454,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         assert run.state["github_credential_source"] == "caller_token"
         assert run.state["pr_authorship_mode"] == "user"
+        assert "dev_stack_preview" not in run.state
         assert run.state["sandbox_id"] == "sb-real"
         assert run.state["sandbox_cpu_cores"] == 2
         assert run.state["sandbox_memory_gb"] == 8
@@ -14234,3 +14238,191 @@ class TestTaskAnalysisInsightReporting(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.analysis_run.refresh_from_db()
         self.assertEqual(len(self.analysis_run.state["task_analysis_insights"]), 1)
+
+
+class TestTaskRunPreviewAPI(BaseTaskAPITest):
+    SANDBOX_CLASS_TARGET = "products.tasks.backend.logic.services.sandbox.get_sandbox_class"
+
+    def _preview_url(self, task: Task, run: TaskRun) -> str:
+        return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/preview/"
+
+    def _create_run(self, task: Task, state: dict, team: Team | None = None) -> TaskRun:
+        return TaskRun.objects.create(
+            task=task,
+            team=team or self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state=state,
+        )
+
+    def _ready_state(self) -> dict:
+        return {
+            "sandbox_id": "sandbox-1",
+            "dev_stack_preview": {
+                "port": DEV_STACK_PREVIEW_PORT,
+                "sandbox_id": "sandbox-1",
+                "ready_at": "2026-01-01T00:00:00+00:00",
+            },
+        }
+
+    def _patch_sandbox_class(self, sandbox: MagicMock) -> Any:
+        sandbox_class = MagicMock()
+        sandbox_class.get_by_id.return_value = sandbox
+        return patch(self.SANDBOX_CLASS_TARGET, return_value=sandbox_class)
+
+    def test_preview_redirects_with_a_freshly_minted_token(self):
+        task = self.create_task()
+        run = self._create_run(task, self._ready_state())
+        sandbox = MagicMock()
+        sandbox.is_running.return_value = True
+        sandbox.execute.return_value = MagicMock(exit_code=0)
+        sandbox.create_preview_connect_credentials.return_value = MagicMock(
+            url="https://preview-abc.modal.host", token="connect-token-xyz"
+        )
+
+        with self._patch_sandbox_class(sandbox):
+            response = self.client.get(self._preview_url(task, run))
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("/_health", sandbox.execute.call_args.args[0])
+        self.assertIn("/@vite/client", sandbox.execute.call_args.args[0])
+        self.assertEqual(response["Location"], "https://preview-abc.modal.host/?_modal_connect_token=connect-token-xyz")
+        self.assertEqual(response.content, b"")
+        sandbox.create_preview_connect_credentials.assert_called_once_with(
+            port=DEV_STACK_PREVIEW_PORT, user_metadata={"user_id": self.user.id, "team_id": self.team.id}
+        )
+
+    def test_preview_without_a_recorded_preview_never_reaches_the_sandbox(self):
+        task = self.create_task()
+        run = self._create_run(task, {"sandbox_id": "sandbox-1"})
+
+        with patch(self.SANDBOX_CLASS_TARGET) as mock_get_sandbox_class:
+            response = self.client.get(self._preview_url(task, run))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("text/html", response["Content-Type"])
+        self.assertIn("ready yet", response.content.decode())
+        self.assertIn(f"/project/{self.team.id}/tasks/{task.id}", response.content.decode())
+        mock_get_sandbox_class.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "sandbox_not_found",
+                SandboxNotFoundError("sandbox gone", {}, cause=RuntimeError("gone"), capture=False),
+                None,
+                0,
+                "This preview has ended",
+            ),
+            ("not_running", None, False, 0, "This preview has ended"),
+            ("lookup_raises", RuntimeError("modal is down"), None, 0, "isn&#x27;t reachable right now"),
+            ("stack_dead_in_a_live_sandbox", None, True, 22, "isn&#x27;t reachable right now"),
+        ]
+    )
+    def test_preview_separates_an_ended_sandbox_from_a_bad_moment(
+        self, _name, lookup_error, is_running, probe_exit_code, expected
+    ):
+        task = self.create_task()
+        run = self._create_run(task, self._ready_state())
+        sandbox_class = MagicMock()
+        if lookup_error is not None:
+            sandbox_class.get_by_id.side_effect = lookup_error
+        else:
+            sandbox = MagicMock()
+            sandbox.is_running.return_value = is_running
+            sandbox.execute.return_value = MagicMock(exit_code=probe_exit_code)
+            sandbox_class.get_by_id.return_value = sandbox
+
+        with patch(self.SANDBOX_CLASS_TARGET, return_value=sandbox_class):
+            response = self.client.get(self._preview_url(task, run))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("text/html", response["Content-Type"])
+        self.assertIn(expected, response.content.decode())
+
+    def test_preview_on_another_teams_run_is_not_found(self):
+        other_org = Organization.objects.create(name="Other Preview Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Preview Team")
+        other_task = Task.objects.create(
+            team=other_team,
+            title="Other Team Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        other_run = self._create_run(other_task, self._ready_state(), team=other_team)
+
+        with patch(self.SANDBOX_CLASS_TARGET) as mock_get_sandbox_class:
+            response = self.client.get(self._preview_url(other_task, other_run))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        mock_get_sandbox_class.assert_not_called()
+
+    def test_preview_is_refused_during_read_only_impersonation(self):
+        task = self.create_task()
+        run = self._create_run(task, self._ready_state())
+
+        with (
+            patch("products.tasks.backend.presentation.views.api.is_read_only_impersonation", return_value=True),
+            patch(self.SANDBOX_CLASS_TARGET) as mock_get_sandbox_class,
+        ):
+            response = self.client.get(self._preview_url(task, run))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "impersonation_read_only")
+        mock_get_sandbox_class.assert_not_called()
+
+    def test_preview_on_a_public_channel_task_needs_task_control(self):
+        owner = self.create_organization_user("preview-owner")
+        channel = Channel.objects.unscoped().create(team=self.team, name="preview-shared", created_by=owner)
+        task = self.create_task(created_by=owner)
+        task.channel = channel
+        task.save(update_fields=["channel"])
+        run = self._create_run(task, self._ready_state())
+
+        with patch(self.SANDBOX_CLASS_TARGET) as mock_get_sandbox_class:
+            response = self.client.get(self._preview_url(task, run))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        mock_get_sandbox_class.assert_not_called()
+        self.assertEqual(
+            self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/").status_code, status.HTTP_200_OK
+        )
+
+    def test_preview_requires_authentication(self):
+        task = self.create_task()
+        run = self._create_run(task, self._ready_state())
+        self.client.force_authenticate(None)
+
+        response = self.client.get(self._preview_url(task, run))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_run_detail_reports_whether_a_preview_is_available(self):
+        task = self.create_task()
+        without_preview = self._create_run(task, {"sandbox_id": "sandbox-1"})
+        with_preview = self._create_run(task, self._ready_state())
+
+        base_url = f"/api/projects/@current/tasks/{task.id}/runs"
+        self.assertFalse(self.client.get(f"{base_url}/{without_preview.id}/").json()["preview_available"])
+        self.assertTrue(self.client.get(f"{base_url}/{with_preview.id}/").json()["preview_available"])
+
+    @parameterized.expand(
+        [
+            ("other_port", {"port": 8080}),
+            ("rotated_sandbox", {"sandbox_id": "sandbox-2"}),
+        ]
+    )
+    def test_preview_state_that_does_not_match_the_run_is_not_ready(self, _name, override):
+        task = self.create_task()
+        state = self._ready_state()
+        state["dev_stack_preview"].update(override)
+        run = self._create_run(task, state)
+
+        with patch(self.SANDBOX_CLASS_TARGET) as mock_get_sandbox_class:
+            response = self.client.get(self._preview_url(task, run))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("ready yet", response.content.decode())
+        mock_get_sandbox_class.assert_not_called()
+        self.assertFalse(
+            self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/").json()["preview_available"]
+        )
