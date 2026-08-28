@@ -246,7 +246,7 @@ impl MergeEntrance {
                 op_id: op_id.to_string(),
                 survivor: Some(pushed.unwrap_or_else(|| target_person.into())),
                 results,
-                survivor_was_born: target_was_born,
+                survivor_created: target_was_born,
             });
         }
 
@@ -699,6 +699,6 @@ fn merge_response(
         // which, so a resume answers the safe way and the caller runs its
         // follow-up update. Costs that newborn its $creator_event_uuid,
         // which only the inline path stamps.
-        survivor_was_born: false,
+        survivor_created: false,
     })
 }
