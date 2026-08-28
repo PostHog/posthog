@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconCode2, IconCopy, IconEndpoints, IconGraph, IconPencil, IconPeople } from '@posthog/icons'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneCopyImageButton } from 'lib/components/Scenes/InsightOrDashboard/SceneCopyImageButton'
@@ -18,12 +19,12 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
 
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
-import { INSIGHT_GRAPH_SELECTOR } from '~/queries/nodes/InsightViz/InsightVizDisplay'
 import {
     isDataTableNode,
     isDataVisualizationNode,
@@ -62,6 +63,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
     const { openAddToDashboardModal, openTerraformModal } = useActions(insightModalsLogic(insightLogicProps))
 
     const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { editImage } = useActions(captureImageLogic)
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
 
@@ -75,8 +77,10 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
         AccessControlLevel.Viewer
     )
     const canExport = exportContext != null && insight.short_id != null
-    // Only an InsightViz renders the results card that the copy-image action captures.
-    const canCopyImage = isInsightVizNode(query)
+    // Only an InsightViz renders the results card the browser-side capture targets. Anything else
+    // still goes through the server-side PNG render.
+    const canCaptureImage = isInsightVizNode(query)
+    const captureTarget = { selector: INSIGHT_GRAPH_SELECTOR, screenshotKey: INSIGHT_SCREENSHOT_KEY }
     const showCohort =
         hogQL != null &&
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
@@ -98,7 +102,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                     Copy to another project
                 </ButtonPrimitive>
             )}
-            {canCopyImage && <SceneCopyImageButton selector={INSIGHT_GRAPH_SELECTOR} dataAttrKey={RESOURCE_TYPE} />}
+            {canCaptureImage && <SceneCopyImageButton target={captureTarget} dataAttrKey={RESOURCE_TYPE} />}
             <SceneFavorite
                 dataAttrKey={RESOURCE_TYPE}
                 onClick={() => setInsightMetadata({ favorited: !insight.favorited })}
@@ -167,6 +171,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                             insight: insight.id,
                             context: exportContext,
                             dataAttr: `${RESOURCE_TYPE}-export-png`,
+                            onClick: canCaptureImage ? () => editImage(captureTarget) : undefined,
                         },
                         {
                             format: ExporterFormat.CSV,

@@ -35,6 +35,8 @@ interface SceneExportDropdownMenuProps extends SubscriptionBaseProps {
         insight?: number
         dashboard?: number
         context?: ExportContext
+        /** Produce the file in the browser instead of asking the server to render an export. */
+        onClick?: () => void
     }[]
 }
 
@@ -93,7 +95,11 @@ export function SceneExportDropdownMenu({
                         return (
                             <DropdownMenuItem
                                 key={index}
-                                onClick={() =>
+                                onClick={() => {
+                                    if (item.onClick) {
+                                        item.onClick()
+                                        return
+                                    }
                                     void onExportClick({
                                         export_format: item.format,
                                         ...(item.insight && { insight: item.insight }),
@@ -101,7 +107,7 @@ export function SceneExportDropdownMenu({
                                         ...(item.dashboard && { dashboard: item.dashboard }),
                                         ...(item.context && { export_context: item.context }),
                                     })
-                                }
+                                }}
                                 data-attr={`export-button-${exportFormatExtension}`}
                                 data-ph-capture-attribute-export-target={target}
                                 data-ph-capture-attribute-export-body={

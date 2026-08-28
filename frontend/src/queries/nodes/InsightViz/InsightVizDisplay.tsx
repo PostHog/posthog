@@ -27,6 +27,7 @@ import {
 } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils'
 import { InsightAIAnalysis } from 'scenes/insights/InsightAIAnalysis'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { INSIGHT_GRAPH_DATA_ATTR } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -63,13 +64,6 @@ import { Journeys } from 'products/product_analytics/frontend/insights/journeys/
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
-
-/**
- * Marks the card holding the chart and its legend. Playwright and the copy-image action both find the
- * results this way, so treat the value as a wire string and do not rename it.
- */
-export const INSIGHT_GRAPH_DATA_ATTR = 'insights-graph'
-export const INSIGHT_GRAPH_SELECTOR = `[data-attr="${INSIGHT_GRAPH_DATA_ATTR}"]`
 
 /** When the dashboard is still streaming/refreshing tiles, prefer loading UX over "Chart data didn't load". */
 function DashboardInsightRefreshHintOrLoading({

@@ -22,7 +22,7 @@ import { Button } from '@posthog/quill'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
-import { copyImageLogic } from 'lib/components/Scenes/InsightOrDashboard/copyImageLogic'
+import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
@@ -31,6 +31,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -50,7 +51,6 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { tagsModel } from '~/models/tagsModel'
-import { INSIGHT_GRAPH_SELECTOR } from '~/queries/nodes/InsightViz/InsightVizDisplay'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
     isDataTableNode,
@@ -112,8 +112,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const { openTerraformModal, openAddToDashboardModal } = useActions(insightModalsLogic(insightLogicProps))
 
     const { canCopyToProject } = useValues(interProjectCopyLogic)
-    const { copyImage } = useActions(copyImageLogic)
-    const { isCopying: isCopyingImage } = useValues(copyImageLogic)
+    const { copyImage, editImage } = useActions(captureImageLogic)
+    const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
 
     const { user, hasAvailableFeature } = useValues(userLogic)
@@ -133,8 +133,10 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
     const canExport = exportContext != null && insight.short_id != null
-    // Only an InsightViz renders the results card that the copy-image action captures.
-    const canCopyImage = isInsightVizNode(query)
+    // Only an InsightViz renders the results card the browser-side capture targets. Anything else
+    // still goes through the server-side PNG render.
+    const canCaptureImage = isInsightVizNode(query)
+    const captureTarget = { selector: INSIGHT_GRAPH_SELECTOR, screenshotKey: INSIGHT_SCREENSHOT_KEY }
     const showCohort =
         hogQL != null &&
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
@@ -271,10 +273,10 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                             Copy to another project
                         </SceneMenuBarItem>
                     )}
-                    {canCopyImage && (
+                    {canCaptureImage && (
                         <SceneMenuBarItem
-                            onClick={() => copyImage(INSIGHT_GRAPH_SELECTOR)}
-                            disabled={isCopyingImage}
+                            onClick={() => copyImage(captureTarget)}
+                            disabled={isCapturingImage}
                             data-attr={`${RESOURCE_TYPE}-menubar-copy-image`}
                         >
                             <IconImage />
@@ -295,12 +297,14 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                 disabled={!!exportAccessControlDisabledReason}
                                 tooltip={exportAccessControlDisabledReason ?? undefined}
                                 onClick={() =>
-                                    startExport({
-                                        export_format: ExporterFormat.PNG,
-                                        insight: insight.id,
-                                        insightShortId: insight.short_id,
-                                        export_context: exportContext,
-                                    })
+                                    canCaptureImage
+                                        ? editImage(captureTarget)
+                                        : startExport({
+                                              export_format: ExporterFormat.PNG,
+                                              insight: insight.id,
+                                              insightShortId: insight.short_id,
+                                              export_context: exportContext,
+                                          })
                                 }
                                 data-attr={`${RESOURCE_TYPE}-menubar-export-png`}
                             >

@@ -7,6 +7,9 @@ import { captureElementImage } from 'lib/utils/captureElementImage'
  */
 export type CopyImageOutcome = 'copied' | 'unsupported' | 'failed'
 
+/** The blob comes back so the caller can reuse the capture instead of rendering the element twice. */
+export type CopyImageResult = { outcome: 'copied'; blob: Blob } | { outcome: 'unsupported' | 'failed'; blob: null }
+
 const CLIPBOARD_IMAGE_TYPE = 'image/png'
 
 export function canCopyImageToClipboard(): boolean {
@@ -24,9 +27,9 @@ export async function captureElementAsPng(element: HTMLElement): Promise<Blob> {
     })
 }
 
-export async function copyElementImageToClipboard(element: HTMLElement): Promise<CopyImageOutcome> {
+export async function copyElementImageToClipboard(element: HTMLElement): Promise<CopyImageResult> {
     if (!canCopyImageToClipboard()) {
-        return 'unsupported'
+        return { outcome: 'unsupported', blob: null }
     }
 
     // Safari only accepts a clipboard write that starts in the same task as the click, so the pending
@@ -37,8 +40,8 @@ export async function copyElementImageToClipboard(element: HTMLElement): Promise
 
     try {
         await navigator.clipboard.write([new ClipboardItem({ [CLIPBOARD_IMAGE_TYPE]: capture })])
-        return 'copied'
+        return { outcome: 'copied', blob: await capture }
     } catch {
-        return 'failed'
+        return { outcome: 'failed', blob: null }
     }
 }
