@@ -225,7 +225,7 @@ message MergePersonsResponse {
   // A newborn carries the event's properties but is identified only when
   // some source settled attached or same-person, so a caller deciding to
   // skip its follow-up update weighs both.
-  bool survivor_was_born = 4;
+  bool survivor_created = 4;
 }
 
 // PersonHogIdentity owns the identity graph: distinct id resolution,
