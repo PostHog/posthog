@@ -239,5 +239,27 @@ describe('traceloop middleware', () => {
 
             expect(event.properties!['$ai_stop_reason']).toBeUndefined()
         })
+
+        it('maps gen_ai.response.finish_reasons when the llm.* names are absent', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'gen_ai.response.finish_reasons': ['length'],
+            })
+            traceloop.process(event, () => mapOtelAttributes(event))
+
+            expect(event.properties!['gen_ai.response.finish_reasons']).toBeUndefined()
+            expect(event.properties!['$ai_stop_reason']).toBe('length')
+        })
+
+        it('prefers the llm.* reason over gen_ai.response.finish_reasons', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'llm.response.stop_reason': 'end_turn',
+                'gen_ai.response.finish_reasons': ['length'],
+            })
+            traceloop.process(event, () => mapOtelAttributes(event))
+
+            expect(event.properties!['$ai_stop_reason']).toBe('end_turn')
+        })
     })
 })

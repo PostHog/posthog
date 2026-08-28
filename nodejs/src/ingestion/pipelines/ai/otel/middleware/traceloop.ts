@@ -156,15 +156,21 @@ function process(event: PluginEvent, next: () => void): void {
         }
     }
 
-    // Map stop/finish reason to $ai_stop_reason before stripping
+    // Map stop/finish reason to $ai_stop_reason before stripping. OpenLLMetry emits a mix of the
+    // `llm.*` and `gen_ai.*` families, which this file already relies on elsewhere, and newer
+    // versions carry the finish reason under the GenAI semconv name as an array.
     if (props['$ai_stop_reason'] === undefined) {
         const stopReason = props['llm.response.stop_reason'] ?? props['llm.response.finish_reason']
+        const genAiReasons = props['gen_ai.response.finish_reasons']
         if (stopReason !== undefined) {
             props['$ai_stop_reason'] = stopReason
+        } else if (Array.isArray(genAiReasons) && genAiReasons.length > 0) {
+            props['$ai_stop_reason'] = genAiReasons[0]
         }
     }
     delete props['llm.response.stop_reason']
     delete props['llm.response.finish_reason']
+    delete props['gen_ai.response.finish_reasons']
 
     props['$ai_lib'] = 'opentelemetry/traceloop'
 
