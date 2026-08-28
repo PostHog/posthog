@@ -125,6 +125,7 @@ import {
     NotebookVariable,
     getNotebookVariableConflictNames,
     getNotebookVariableErrors,
+    droppedSavedNotebookVariables,
     getRunnableNotebookVariables,
     getSavableNotebookVariables,
     isNotebookVariableDraft,
@@ -1609,27 +1610,45 @@ export const notebookLogic = kea<notebookLogicType>([
             // Send only what the API accepts. One unnamed row would fail the whole PATCH and take
             // the valid declarations with it.
             const savable = getSavableNotebookVariables(values.variables)
+            const saved = parseNotebookVariables(values.notebook?.variables)
             const heldBack = savable.length !== values.variables.length
 
+            // A row that is still on screen but too invalid to send is withheld from the payload,
+            // and a PATCH replaces the whole list. Sending it would delete the saved variable
+            // behind that row, so a typo in a name would drop the value it holds. Hold the whole
+            // save instead: the bar keeps the edit and goes on reporting unsaved work. A row the
+            // person actually removed leaves nothing behind, so a real deletion still saves.
+            if (heldBack && droppedSavedNotebookVariables(savable, saved).length > 0) {
+                return
+            }
+
+            let response: NotebookType
             try {
-                const response = await api.notebooks.update(props.shortId, { variables: savable })
-                actions.receiveNotebookUpdate(response)
-                // notebooksModel only holds list rows, so the notebook this logic renders from
-                // needs the saved list too. Without it the bar drops back to the copy the page
-                // loaded with and the row the person just named disappears. An absent field falls
-                // back to what we sent, which the server accepted, rather than to "no variables".
-                actions.notebookVariablesSaved(response.variables ?? savable)
-                // Only drop the local copy when it still matches what we just saved — a keystroke
-                // that landed during the request is newer and must survive to its own save. A
-                // draft that was held back lives only in the local copy, so that copy has to stay.
-                if (values.localVariables === variables && !heldBack) {
-                    actions.clearLocalVariables()
-                }
+                response = await api.notebooks.update(props.shortId, { variables: savable })
             } catch (error) {
                 // The bar keeps the edit, so the next change retries it. Losing a value silently
                 // would be worse than an error the user can act on.
                 lemonToast.error('Could not save notebook variables')
                 posthog.captureException(error)
+                return
+            }
+
+            // The debounce holds the next request but does not cancel one already in flight, so
+            // two saves can overlap. Applying this older response would revert the bar to the list
+            // the newer save replaced. Outside the catch above: this throws to abort, not to fail.
+            breakpoint()
+
+            actions.receiveNotebookUpdate(response)
+            // notebooksModel only holds list rows, so the notebook this logic renders from needs
+            // the saved list too. Without it the bar drops back to the copy the page loaded with
+            // and the row the person just named disappears. An absent field falls back to what we
+            // sent, which the server accepted, rather than to "no variables".
+            actions.notebookVariablesSaved(response.variables ?? savable)
+            // Only drop the local copy when it still matches what we just saved — a keystroke that
+            // landed during the request is newer and must survive to its own save. A draft that
+            // was held back lives only in the local copy, so that copy has to stay.
+            if (values.localVariables === variables && !heldBack) {
+                actions.clearLocalVariables()
             }
         },
         connectMarkdownUpdateStream: () => {

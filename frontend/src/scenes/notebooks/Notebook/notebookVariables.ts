@@ -193,6 +193,18 @@ export function getSavableNotebookVariables(variables: NotebookVariable[]): Note
     return variables.filter((_, index) => errors[index] === null)
 }
 
+/**
+ * The saved declarations that `savable` would remove. A PATCH replaces the whole list, so this is
+ * what the server would lose by sending it.
+ */
+export function droppedSavedNotebookVariables(
+    savable: NotebookVariable[],
+    saved: NotebookVariable[]
+): NotebookVariable[] {
+    const savableNames = new Set(savable.map((variable) => variable.name))
+    return saved.filter((variable) => !savableNames.has(variable.name))
+}
+
 /** Whether two declaration lists hold the same variables in the same order. */
 export function sameNotebookVariables(a: NotebookVariable[], b: NotebookVariable[]): boolean {
     return (
