@@ -161,6 +161,24 @@ def test_prints_empty_according_to_resolved_argument_type() -> None:
     )
 
 
+def test_rejects_empty_for_unsupported_types_with_stable_error() -> None:
+    context = _context_with_trino_table()
+
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(parse_select("SELECT notEmpty(1)"), context, "trino")
+
+    assert error.value.feature_code == "TRINO_EMPTY_ARGUMENT_TYPE_UNSUPPORTED"
+
+
+def test_rejects_function_argument_shapes_with_stable_error() -> None:
+    context = _context_with_trino_table()
+
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(parse_select("SELECT JSONExtractKeysAndValuesRaw('{}', 'extra')"), context, "trino")
+
+    assert error.value.feature_code == "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     [

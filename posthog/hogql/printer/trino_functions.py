@@ -1,6 +1,6 @@
 from collections.abc import Callable
 
-from posthog.hogql.errors import QueryError
+from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
 TRINO_FUNCTION_RENAMES: dict[str, str] = {
     "any": "arbitrary",
@@ -27,7 +27,11 @@ TRINO_FUNCTION_RENAMES: dict[str, str] = {
 
 def _require_args(name: str, args: list[str], count: int) -> None:
     if len(args) != count:
-        raise QueryError(f"{name} expects exactly {count} arguments in Trino mode.")
+        raise _invalid_arguments(name, f"{name} expects exactly {count} arguments in Trino mode.")
+
+
+def _invalid_arguments(name: str, detail: str) -> TrinoLoweringError:
+    return TrinoLoweringError("TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED", name, detail=detail)
 
 
 def _cast(name: str, trino_type: str) -> Callable[[list[str]], str]:
@@ -41,7 +45,7 @@ def _cast(name: str, trino_type: str) -> Callable[[list[str]], str]:
 def _cast_or_default(name: str, trino_type: str, default: str) -> Callable[[list[str]], str]:
     def handler(args: list[str]) -> str:
         if len(args) not in {1, 2}:
-            raise QueryError(f"{name} expects one or two arguments in Trino mode.")
+            raise _invalid_arguments(name, f"{name} expects one or two arguments in Trino mode.")
         fallback = args[1] if len(args) == 2 else default
         return f"COALESCE(TRY_CAST({args[0]} AS {trino_type}), {fallback})"
 
@@ -63,7 +67,7 @@ def _if(args: list[str]) -> str:
 
 def _multi_if(args: list[str]) -> str:
     if len(args) < 3 or len(args) % 2 == 0:
-        raise QueryError("multiIf expects condition/value pairs and a default in Trino mode.")
+        raise _invalid_arguments("multiIf", "multiIf expects condition/value pairs and a default in Trino mode.")
     parts = ["CASE"]
     for index in range(0, len(args) - 1, 2):
         parts.append(f"WHEN {args[index]} THEN {args[index + 1]}")
@@ -79,7 +83,7 @@ def _count_if(args: list[str]) -> str:
 def _aggregate_if(function: str) -> Callable[[list[str]], str]:
     def handler(args: list[str]) -> str:
         if len(args) < 2:
-            raise QueryError(f"{function}If expects a value and condition in Trino mode.")
+            raise _invalid_arguments(f"{function}If", f"{function}If expects a value and condition in Trino mode.")
         return f"{function}({', '.join(args[:-1])}) FILTER (WHERE {args[-1]})"
 
     return handler
@@ -87,13 +91,13 @@ def _aggregate_if(function: str) -> Callable[[list[str]], str]:
 
 def _uniq(args: list[str]) -> str:
     if not args:
-        raise QueryError("uniq expects at least one argument in Trino mode.")
+        raise _invalid_arguments("uniq", "uniq expects at least one argument in Trino mode.")
     return f"count(DISTINCT {', '.join(args)})"
 
 
 def _uniq_if(args: list[str]) -> str:
     if len(args) < 2:
-        raise QueryError("uniqIf expects a value and condition in Trino mode.")
+        raise _invalid_arguments("uniqIf", "uniqIf expects a value and condition in Trino mode.")
     return f"count(DISTINCT {', '.join(args[:-1])}) FILTER (WHERE {args[-1]})"
 
 
@@ -145,7 +149,7 @@ def _binary(name: str, operator: str) -> Callable[[list[str]], str]:
 def _logical(name: str, operator: str) -> Callable[[list[str]], str]:
     def handler(args: list[str]) -> str:
         if len(args) < 2:
-            raise QueryError(f"{name} expects at least two arguments in Trino mode.")
+            raise _invalid_arguments(name, f"{name} expects at least two arguments in Trino mode.")
         return f"({f' {operator} '.join(args)})"
 
     return handler

@@ -1,11 +1,10 @@
 from collections.abc import Callable
-from typing import ClassVar, cast
+from typing import ClassVar, NoReturn, cast
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
-from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.trino_functions import (
@@ -13,6 +12,7 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_FUNCTION_RENAMES_LOWER,
     TRINO_PASSTHROUGH_FUNCTIONS,
 )
+from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.visitor import clone_expr
 
 _TRINO_WINDOW_FUNCTIONS = frozenset(
@@ -56,13 +56,24 @@ class TrinoPrinter(PostgresPrinter):
     def _get_connection_supported_functions(self) -> set[str]:
         return set()
 
+    def _unsupported(self, feature_code: str, detail: str, node: ast.Expr | None = None) -> NoReturn:
+        construct = node.name if isinstance(node, ast.Call) else node.__class__.__name__ if node else detail
+        raise TrinoLoweringError(feature_code, construct, node, detail=detail)
+
+    def _invalid_function_arguments(self, node: ast.Call, detail: str) -> NoReturn:
+        self._unsupported("TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED", detail, node)
+
     def visit_call(self, node: ast.Call) -> str:
         name = node.name.lower()
         if name in {"empty", "notempty"}:
             return self._visit_empty(node, negated=name == "notempty")
         if name == "concat":
             if node.distinct or node.order_by:
-                raise QueryError("concat does not support DISTINCT or ORDER BY in Trino mode.")
+                self._unsupported(
+                    "TRINO_CONCAT_MODIFIER_UNSUPPORTED",
+                    "concat does not support DISTINCT or ORDER BY in Trino mode.",
+                    node,
+                )
             args = [self.visit(arg) for arg in node.args]
             rendered = [
                 f"CAST({value} AS VARCHAR)" if isinstance(arg, ast.Constant) and isinstance(arg.value, str) else value
@@ -118,21 +129,21 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_binary_function(node, "max_by" if name == "argmax" else "min_by")
         if name in {"argmaxif", "argminif"}:
             if len(node.args) != 3:
-                raise QueryError(f"{node.name} expects exactly 3 arguments in Trino mode.")
+                self._invalid_function_arguments(node, f"{node.name} expects exactly 3 arguments in Trino mode.")
             values = [self.visit(arg) for arg in node.args]
             target = "max_by" if name == "argmaxif" else "min_by"
             return f"{target}({values[0]}, {values[1]}) FILTER (WHERE {values[2]})"
         if name == "groupuniqarray":
             if len(node.args) != 1:
-                raise QueryError("groupUniqArray expects exactly 1 argument in Trino mode.")
+                self._invalid_function_arguments(node, "groupUniqArray expects exactly 1 argument in Trino mode.")
             return f"array_agg(DISTINCT {self.visit(node.args[0])})"
         if name == "grouparrayif":
             if len(node.args) != 2:
-                raise QueryError("groupArrayIf expects exactly 2 arguments in Trino mode.")
+                self._invalid_function_arguments(node, "groupArrayIf expects exactly 2 arguments in Trino mode.")
             return f"array_agg({self.visit(node.args[0])}) FILTER (WHERE {self.visit(node.args[1])})"
         if name == "groupuniqarrayif":
             if len(node.args) != 2:
-                raise QueryError("groupUniqArrayIf expects exactly 2 arguments in Trino mode.")
+                self._invalid_function_arguments(node, "groupUniqArrayIf expects exactly 2 arguments in Trino mode.")
             return f"array_agg(DISTINCT {self.visit(node.args[0])}) FILTER (WHERE {self.visit(node.args[1])})"
         if name == "countdistinct":
             return self._visit_count_distinct(node)
@@ -168,13 +179,17 @@ class TrinoPrinter(PostgresPrinter):
                 f"{value} -> json_format({value}))"
             )
         if len(node.args) < 2:
-            raise QueryError(f"{node.name} expects a JSON expression and key path in Trino mode.")
+            self._invalid_function_arguments(node, f"{node.name} expects a JSON expression and key path in Trino mode.")
         if name == "jsonextract":
             return self._visit_typed_json_extract(node)
         path_members: list[str | int] = []
         for key in node.args[1:]:
             if not isinstance(key, ast.Constant) or not isinstance(key.value, (str, int)):
-                raise QueryError(f"{node.name} requires a constant key path in Trino mode.")
+                self._unsupported(
+                    "TRINO_JSON_DYNAMIC_PATH_UNSUPPORTED",
+                    f"{node.name} requires a constant key path in Trino mode.",
+                    node,
+                )
             path_members.append(key.value)
         path = self._json_path(path_members)
         source = self.visit(node.args[0])
@@ -194,7 +209,11 @@ class TrinoPrinter(PostgresPrinter):
     def _visit_typed_json_extract(self, node: ast.Call) -> str:
         type_arg = node.args[-1]
         if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
-            raise QueryError("JSONExtract requires a constant target type in Trino mode.")
+            self._unsupported(
+                "TRINO_JSON_DYNAMIC_TARGET_TYPE_UNSUPPORTED",
+                "JSONExtract requires a constant target type in Trino mode.",
+                node,
+            )
         target_types = {
             "String": "VARCHAR",
             "Int64": "BIGINT",
@@ -205,11 +224,19 @@ class TrinoPrinter(PostgresPrinter):
         }
         target = target_types.get(type_arg.value)
         if target is None:
-            raise QueryError(f"JSONExtract target type '{type_arg.value}' is not supported in Trino mode.")
+            self._unsupported(
+                "TRINO_JSON_TARGET_TYPE_UNSUPPORTED",
+                f"JSONExtract target type '{type_arg.value}' is not supported in Trino mode.",
+                node,
+            )
         path_members: list[str | int] = []
         for key in node.args[1:-1]:
             if not isinstance(key, ast.Constant) or not isinstance(key.value, (str, int)):
-                raise QueryError("JSONExtract requires a constant key path in Trino mode.")
+                self._unsupported(
+                    "TRINO_JSON_DYNAMIC_PATH_UNSUPPORTED",
+                    "JSONExtract requires a constant key path in Trino mode.",
+                    node,
+                )
             path_members.append(key.value)
         source = self.visit(node.args[0])
         path = self._json_path(path_members)
@@ -220,7 +247,9 @@ class TrinoPrinter(PostgresPrinter):
         name = node.name.lower()
         if name == "jsonextractkeysandvaluesraw":
             if len(node.args) != 1:
-                raise QueryError("JSONExtractKeysAndValuesRaw expects exactly 1 argument in Trino mode.")
+                self._invalid_function_arguments(
+                    node, "JSONExtractKeysAndValuesRaw expects exactly 1 argument in Trino mode."
+                )
             source = self.visit(node.args[0])
             entry = self._print_identifier("__hogql_json_entry")
             return (
@@ -228,12 +257,16 @@ class TrinoPrinter(PostgresPrinter):
                 f"{entry} -> ROW({entry}[1], json_format({entry}[2])))"
             )
         if not node.args:
-            raise QueryError(f"{node.name} expects a JSON expression in Trino mode.")
+            self._invalid_function_arguments(node, f"{node.name} expects a JSON expression in Trino mode.")
         source = self.visit(node.args[0])
         path_members: list[str | int] = []
         for key in node.args[1:]:
             if not isinstance(key, ast.Constant) or not isinstance(key.value, (str, int)):
-                raise QueryError(f"{node.name} requires a constant key path in Trino mode.")
+                self._unsupported(
+                    "TRINO_JSON_DYNAMIC_PATH_UNSUPPORTED",
+                    f"{node.name} requires a constant key path in Trino mode.",
+                    node,
+                )
             path_members.append(key.value)
         path = self._json_path(path_members)
         if name == "jsonhas":
@@ -248,7 +281,7 @@ class TrinoPrinter(PostgresPrinter):
 
     def _visit_empty(self, node: ast.Call, *, negated: bool) -> str:
         if len(node.args) != 1:
-            raise QueryError(f"{node.name} expects exactly 1 argument in Trino mode.")
+            self._invalid_function_arguments(node, f"{node.name} expects exactly 1 argument in Trino mode.")
         arg = node.args[0]
         rendered = self.visit(arg)
         if isinstance(arg.type, (ast.ArrayType, ast.MapType)):
@@ -257,7 +290,11 @@ class TrinoPrinter(PostgresPrinter):
         if isinstance(arg.type, ast.StringType):
             comparison = "<> ''" if negated else "= ''"
             return f"({rendered} IS {'NOT ' if negated else ''}NULL AND {rendered} {comparison})"
-        raise QueryError(f"{node.name} requires a string, array, or map argument in Trino mode.")
+        self._unsupported(
+            "TRINO_EMPTY_ARGUMENT_TYPE_UNSUPPORTED",
+            f"{node.name} requires a string, array, or map argument in Trino mode.",
+            node,
+        )
 
     def _json_path(self, members: list[str | int]) -> str:
         path = "$"
@@ -271,7 +308,7 @@ class TrinoPrinter(PostgresPrinter):
 
     def _visit_lambda_array_call(self, node: ast.Call, target: str) -> str:
         if len(node.args) != 2 or not isinstance(node.args[0], ast.Lambda):
-            raise QueryError(f"{node.name} expects a lambda and array in Trino mode.")
+            self._invalid_function_arguments(node, f"{node.name} expects a lambda and array in Trino mode.")
         return f"{target}({self.visit(node.args[1])}, {self.visit(node.args[0])})"
 
     def _visit_unary_function(self, node: ast.Call, target: str) -> str:
@@ -279,12 +316,12 @@ class TrinoPrinter(PostgresPrinter):
 
     def _visit_unary_arg(self, node: ast.Call) -> str:
         if len(node.args) != 1:
-            raise QueryError(f"{node.name} expects exactly 1 argument in Trino mode.")
+            self._invalid_function_arguments(node, f"{node.name} expects exactly 1 argument in Trino mode.")
         return self.visit(node.args[0])
 
     def _visit_binary_args(self, node: ast.Call) -> tuple[str, str]:
         if len(node.args) != 2:
-            raise QueryError(f"{node.name} expects exactly 2 arguments in Trino mode.")
+            self._invalid_function_arguments(node, f"{node.name} expects exactly 2 arguments in Trino mode.")
         return self.visit(node.args[0]), self.visit(node.args[1])
 
     def _visit_binary_function(self, node: ast.Call, target: str) -> str:
@@ -293,7 +330,7 @@ class TrinoPrinter(PostgresPrinter):
 
     def _visit_variadic_function(self, node: ast.Call, target: str, minimum: int) -> str:
         if len(node.args) < minimum:
-            raise QueryError(f"{node.name} expects at least {minimum} arguments in Trino mode.")
+            self._invalid_function_arguments(node, f"{node.name} expects at least {minimum} arguments in Trino mode.")
         return f"{target}({', '.join(self.visit(arg) for arg in node.args)})"
 
     def _visit_range(self, node: ast.Call) -> str:
@@ -304,17 +341,21 @@ class TrinoPrinter(PostgresPrinter):
             start = self.visit(node.args[0])
             end = self.visit(node.args[1])
         else:
-            raise QueryError("range expects one or two arguments in Trino mode.")
+            self._invalid_function_arguments(node, "range expects one or two arguments in Trino mode.")
         value = self._print_identifier("__hogql_range_value")
         return f"filter(sequence({start}, greatest(({end}) - 1, {start})), {value} -> ({value} < {end}))"
 
     def _visit_array_first(self, node: ast.Call) -> str:
         if len(node.args) != 2 or not isinstance(node.args[0], ast.Lambda):
-            raise QueryError("arrayFirst expects a lambda and array in Trino mode.")
+            self._invalid_function_arguments(node, "arrayFirst expects a lambda and array in Trino mode.")
         filtered = f"element_at(filter({self.visit(node.args[1])}, {self.visit(node.args[0])}), 1)"
         array_type = node.args[1].type.resolve_constant_type(self.context) if node.args[1].type is not None else None
         if not isinstance(array_type, ast.ArrayType):
-            raise QueryError("arrayFirst requires a resolved array type in Trino mode.")
+            self._unsupported(
+                "TRINO_ARRAY_FIRST_TYPE_UNRESOLVED",
+                "arrayFirst requires a resolved array type in Trino mode.",
+                node,
+            )
         defaults: list[tuple[type[ast.ConstantType], object]] = [
             (ast.IntegerType, 0),
             (ast.FloatType, 0.0),
@@ -324,45 +365,73 @@ class TrinoPrinter(PostgresPrinter):
         ]
         default = next((value for type_class, value in defaults if isinstance(array_type.item_type, type_class)), None)
         if default is None:
-            raise QueryError("arrayFirst does not support this array item type in Trino mode.")
+            self._unsupported(
+                "TRINO_ARRAY_FIRST_ITEM_TYPE_UNSUPPORTED",
+                "arrayFirst does not support this array item type in Trino mode.",
+                node,
+            )
         return f"coalesce({filtered}, {self.visit(ast.Constant(value=default))})"
 
     def _visit_count_distinct(self, node: ast.Call) -> str:
         if not node.args:
-            raise QueryError("countDistinct expects at least one argument in Trino mode.")
+            self._invalid_function_arguments(node, "countDistinct expects at least one argument in Trino mode.")
         return f"count(DISTINCT {', '.join(self.visit(arg) for arg in node.args)})"
 
     def _visit_to_decimal(self, node: ast.Call) -> str:
         if len(node.args) != 2:
-            raise QueryError("toDecimal expects a value and scale in Trino mode.")
+            self._invalid_function_arguments(node, "toDecimal expects a value and scale in Trino mode.")
         scale = node.args[1]
         if not isinstance(scale, ast.Constant) or isinstance(scale.value, bool) or not isinstance(scale.value, int):
-            raise QueryError("toDecimal requires a constant integer scale in Trino mode.")
+            self._unsupported(
+                "TRINO_DECIMAL_NON_CONSTANT_SCALE",
+                "toDecimal requires a constant integer scale in Trino mode.",
+                node,
+            )
         if scale.value < 0 or scale.value > 38:
-            raise QueryError("toDecimal scale must be between 0 and 38 in Trino mode.")
+            self._unsupported(
+                "TRINO_DECIMAL_SCALE_OUT_OF_RANGE",
+                "toDecimal scale must be between 0 and 38 in Trino mode.",
+                node,
+            )
         return f"CAST({self.visit(node.args[0])} AS DECIMAL(38, {scale.value}))"
 
     def _visit_tuple_element(self, node: ast.Call) -> str:
         if len(node.args) != 2:
-            raise QueryError("tupleElement expects a tuple and index in Trino mode.")
+            self._invalid_function_arguments(node, "tupleElement expects a tuple and index in Trino mode.")
         index = node.args[1]
         if not isinstance(index, ast.Constant) or isinstance(index.value, bool) or not isinstance(index.value, int):
-            raise QueryError("tupleElement requires a constant integer index in Trino mode.")
+            self._unsupported(
+                "TRINO_TUPLE_ELEMENT_NON_CONSTANT_INDEX",
+                "tupleElement requires a constant integer index in Trino mode.",
+                node,
+            )
         if index.value < 1:
-            raise QueryError("tupleElement index must be positive in Trino mode.")
+            self._unsupported(
+                "TRINO_TUPLE_ELEMENT_INDEX_OUT_OF_RANGE",
+                "tupleElement index must be positive in Trino mode.",
+                node,
+            )
         source = node.args[0]
         if isinstance(source, ast.Call) and source.name.lower() == "tuple":
             if index.value > len(source.args):
-                raise QueryError("tupleElement index is out of range in Trino mode.")
+                self._unsupported(
+                    "TRINO_TUPLE_ELEMENT_INDEX_OUT_OF_RANGE",
+                    "tupleElement index is out of range in Trino mode.",
+                    node,
+                )
             return self.visit(source.args[index.value - 1])
         return f"({self.visit(source)})[{index.value}]"
 
     def _visit_extract(self, node: ast.Call) -> str:
         if len(node.args) != 2:
-            raise QueryError("extract expects exactly 2 arguments in Trino mode.")
+            self._invalid_function_arguments(node, "extract expects exactly 2 arguments in Trino mode.")
         pattern = node.args[1]
         if not isinstance(pattern, ast.Constant) or not isinstance(pattern.value, str):
-            raise QueryError("extract requires a constant regular expression in Trino mode.")
+            self._unsupported(
+                "TRINO_EXTRACT_DYNAMIC_PATTERN_UNSUPPORTED",
+                "extract requires a constant regular expression in Trino mode.",
+                node,
+            )
         group = self._first_regex_capture_group(pattern.value)
         extracted = f"regexp_extract({self.visit(node.args[0])}, {self.visit(pattern)}, {group})"
         return f"coalesce({extracted}, {self.visit(ast.Constant(value=''))})"
@@ -390,7 +459,7 @@ class TrinoPrinter(PostgresPrinter):
     def _visit_quantile(self, node: ast.Call, *, filtered: bool) -> str:
         expected_arguments = 2 if filtered else 1
         if len(node.args) != expected_arguments or node.params is None or len(node.params) != 1:
-            raise QueryError(f"{node.name} expects one percentile parameter in Trino mode.")
+            self._invalid_function_arguments(node, f"{node.name} expects one percentile parameter in Trino mode.")
         aggregate = f"approx_percentile({self.visit(node.args[0])}, {self.visit(node.params[0])})"
         if filtered:
             aggregate += f" FILTER (WHERE {self.visit(node.args[1])})"
@@ -398,12 +467,20 @@ class TrinoPrinter(PostgresPrinter):
 
     def _visit_json_value(self, node: ast.Call) -> str:
         if len(node.args) != 2:
-            raise QueryError("JSON_VALUE expects a JSON expression and path in Trino mode.")
+            self._invalid_function_arguments(node, "JSON_VALUE expects a JSON expression and path in Trino mode.")
         path = node.args[1]
         if not isinstance(path, ast.Constant) or not isinstance(path.value, str):
-            raise QueryError("JSON_VALUE requires a constant path in Trino mode.")
+            self._unsupported(
+                "TRINO_JSON_DYNAMIC_PATH_UNSUPPORTED",
+                "JSON_VALUE requires a constant path in Trino mode.",
+                node,
+            )
         if "\0" in path.value:
-            raise QueryError("JSON_VALUE path contains an invalid NUL character.")
+            self._unsupported(
+                "TRINO_JSON_PATH_INVALID",
+                "JSON_VALUE path contains an invalid NUL character.",
+                node,
+            )
         path_literal = "'" + path.value.replace("'", "''") + "'"
         return f"json_value({self.visit(node.args[0])}, {path_literal})"
 
@@ -418,12 +495,17 @@ class TrinoPrinter(PostgresPrinter):
         locator = resolve_trino_table_locator(table, self.context)
         if locator is not None:
             return ".".join(escape_trino_identifier(part) for part in locator)
-        raise QueryError(f"Table '{table.name or table.__class__.__name__}' has no Trino physical locator.")
+        self._unsupported(
+            "TRINO_TABLE_LOCATOR_MISSING",
+            f"Table '{table.name or table.__class__.__name__}' has no Trino physical locator.",
+        )
 
     def visit_lambda(self, node: ast.Lambda) -> str:
         identifiers = [self._print_identifier(arg) for arg in node.args]
         if not identifiers:
-            raise QueryError("Lambdas require at least one argument in Trino mode.")
+            self._unsupported(
+                "TRINO_LAMBDA_ARGUMENT_REQUIRED", "Lambdas require at least one argument in Trino mode.", node
+            )
         arguments = identifiers[0] if len(identifiers) == 1 else f"({', '.join(identifiers)})"
         return f"{arguments} -> {self.visit(node.expr)}"
 
@@ -436,7 +518,11 @@ class TrinoPrinter(PostgresPrinter):
 
     def visit_positional_ref(self, node: ast.PositionalRef) -> str:
         if not isinstance(node.index, int) or node.index < 1:
-            raise QueryError(f"Positional reference must be a positive integer, got {node.index}")
+            self._unsupported(
+                "TRINO_POSITIONAL_REFERENCE_INVALID",
+                f"Positional reference must be a positive integer, got {node.index}.",
+                node,
+            )
         return str(node.index)
 
     def visit_window_function(self, node: ast.WindowFunction) -> str:
@@ -444,7 +530,11 @@ class TrinoPrinter(PostgresPrinter):
         if name == "countdistinct":
             return self._visit_window_count_distinct(node)
         if name not in _TRINO_WINDOW_FUNCTIONS:
-            raise QueryError(f"Window function '{node.name}' is not supported in Trino mode.")
+            self._unsupported(
+                "TRINO_WINDOW_FUNCTION_UNSUPPORTED",
+                f"Window function '{node.name}' is not supported in Trino mode.",
+                node,
+            )
         exprs = [self.visit(expr) for expr in node.exprs or []]
         cloned_node = cast(ast.WindowFunction, clone_expr(node))
         identifier = self._apply_window_function_rewrites(name, exprs, cloned_node)
@@ -461,7 +551,11 @@ class TrinoPrinter(PostgresPrinter):
 
     def _visit_window_count_distinct(self, node: ast.WindowFunction) -> str:
         if node.exprs is None or len(node.exprs) != 1 or node.args:
-            raise QueryError("countDistinct window function expects exactly one argument in Trino mode.")
+            self._unsupported(
+                "TRINO_WINDOW_FUNCTION_ARGUMENTS_UNSUPPORTED",
+                "countDistinct window function expects exactly one argument in Trino mode.",
+                node,
+            )
         if node.over_expr:
             over = f"({self.visit(node.over_expr)})"
         elif node.over_identifier:
@@ -487,9 +581,12 @@ class TrinoPrinter(PostgresPrinter):
         if unit == "week" and week_mode == 0:
             return f"date_add('day', -1, date_trunc('week', date_add('day', 1, {arg})))"
         if unit == "week" and week_mode not in {1, 3}:
-            raise QueryError(f"Unsupported toStartOfWeek mode `{week_mode}` in Trino mode.")
+            self._unsupported(
+                "TRINO_START_OF_WEEK_MODE_UNSUPPORTED",
+                f"Unsupported toStartOfWeek mode `{week_mode}` in Trino mode.",
+            )
         if unit == "isoyear":
-            raise QueryError("toStartOfISOYear is not supported in Trino mode.")
+            self._unsupported("TRINO_START_OF_ISO_YEAR_UNSUPPORTED", "toStartOfISOYear is not supported in Trino mode.")
         return f"date_trunc('{unit}', {arg})"
 
     def _render_minute_bucket(self, arg: str, bucket_size: int) -> str:
@@ -500,7 +597,11 @@ class TrinoPrinter(PostgresPrinter):
 
     def visit_array_slice(self, node: ast.ArraySlice) -> str:
         if node.start_expr is None or node.end_expr is None:
-            raise QueryError("Open-ended array slices are not supported in Trino mode.")
+            self._unsupported(
+                "TRINO_OPEN_ARRAY_SLICE_UNSUPPORTED",
+                "Open-ended array slices are not supported in Trino mode.",
+                node,
+            )
         start = self.visit(node.start_expr)
         end = self.visit(node.end_expr)
         return f"slice({self.visit(node.array)}, {start}, ({end}) - ({start}) + 1)"
@@ -534,26 +635,33 @@ class TrinoPrinter(PostgresPrinter):
         }
         target = aliases.get(type_name.lower())
         if target is None:
-            raise QueryError(f"Type '{type_name}' is not supported in Trino mode.")
+            self._unsupported("TRINO_CAST_TYPE_UNSUPPORTED", f"Type '{type_name}' is not supported in Trino mode.")
         return target
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field, unsafe_args):
         if not unsafe_args:
             return unsafe_field
         if len(unsafe_args) != 1:
-            raise QueryError("Nested JSON property access must be lowered before Trino printing.")
+            self._unsupported(
+                "TRINO_JSON_PROPERTY_NOT_LOWERED",
+                "Nested JSON property access must be lowered before Trino printing.",
+            )
         return f"json_extract_scalar({unsafe_field}, {unsafe_args[0]})"
 
     def _json_property_args(self, chain) -> list[str]:
         return [self._json_path(chain)]
 
     def _assert_qualify_supported(self) -> None:
-        raise QueryError("QUALIFY must be lowered before Trino printing.")
+        self._unsupported("TRINO_QUALIFY_NOT_LOWERED", "QUALIFY must be lowered before Trino printing.")
 
     def _assert_with_ties_supported(self) -> None:
-        raise QueryError("WITH TIES must be lowered before Trino printing.")
+        self._unsupported("TRINO_WITH_TIES_NOT_LOWERED", "WITH TIES must be lowered before Trino printing.")
 
     def visit_cte(self, node: ast.CTE) -> str:
         if node.materialized is not None or node.using_key is not None:
-            raise QueryError("CTE materialization hints and USING KEY are not supported in Trino mode.")
+            self._unsupported(
+                "TRINO_CTE_MODIFIER_UNSUPPORTED",
+                "CTE materialization hints and USING KEY are not supported in Trino mode.",
+                node,
+            )
         return super().visit_cte(node)
