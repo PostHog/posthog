@@ -218,7 +218,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             query_type="HogQLQuery",
             query=query,
             filters=self.query.filters,
-            modifiers=self.query.modifiers or self.modifiers,
+            # Print with the same modifiers the shared database was built from (self.modifiers).
+            # The shared database uses self.modifiers, so passing self.query.modifiers here would let
+            # a caller that sets both build the schema from one modifier set and print SQL for another.
+            modifiers=self.modifiers,
             team=self.team,
             user=self.user,
             user_access_control=self.user_access_control,

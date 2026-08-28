@@ -80,6 +80,26 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         baseline = execute_hogql_query(query=query, team=self.team, modifiers=modifiers)
         assert threaded.clickhouse == baseline.clickhouse
 
+    def test_calculate_reports_modifiers_matching_its_shared_database(self):
+        # The shared database is built from the runner's resolved modifiers, which prefer the
+        # constructor modifiers over the query's own. The executor must run and report those same
+        # modifiers, or a caller that sets both gets SQL built for one schema and a response that
+        # describes another. sessionTableVersion picks which table backs `sessions`.
+        query = "select count() from sessions limit 1"
+        runner = HogQLQueryRunner(
+            team=self.team,
+            query=HogQLQuery(query=query, modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)),
+            modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1),
+        )
+        response = runner.calculate()
+        baseline = execute_hogql_query(
+            query=query, team=self.team, modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1)
+        )
+        # SQL is built from the shared database's modifiers (V1), and the reported modifiers agree.
+        assert response.clickhouse == baseline.clickhouse
+        assert response.modifiers is not None
+        assert response.modifiers.sessionTableVersion == SessionTableVersion.V1
+
     def test_default_hogql_query(self):
         runner = self._create_runner(HogQLQuery(query="select count(event) from events"))
         query = runner.to_query()
