@@ -137,6 +137,11 @@ pub struct MergeOutcome {
 pub struct MergeSourceRecord {
     pub distinct_id: String,
     pub outcome: String,
+    /// The person this verdict speaks about, when one was resolved.
+    /// Defaulted so op rows written before this field existed still
+    /// deserialize during a mixed-fleet roll; those replay as `None`.
+    #[serde(default)]
+    pub person_id: Option<i64>,
 }
 
 pub const OUTCOME_MERGED: &str = "merged";
@@ -1751,6 +1756,7 @@ fn outcome_from_dispositions(
             MergeSourceRecord {
                 distinct_id: d.distinct_id.clone(),
                 outcome: outcome.to_string(),
+                person_id: d.person_id,
             }
         })
         .collect();
