@@ -24,13 +24,14 @@ same contents into a hogland snapshot, it does not change the container image.
    `needs.validate_ref.outputs.ref`, never the raw input, and every privileged
    job additionally gates on `github.ref == 'refs/heads/master'`. This closes the
    `ref` RCE in the workflow YAML (see "Known open security issues").
-1. `render_skills` job — renders the agent skills the golden ships, the same way
-   the sandbox-base image build does (`cd-sandbox-base-image.yml`'s `build_skills`
-   job): stands up a DB, `uv sync`s, migrates, runs `hogli build:skills` to expand
-   the skill `.md.j2` templates, then merges in the context-mill skills. Uploads
+1. `render_skills` job — renders the agent skills the golden ships. It `uv
+   sync`s, then runs `hogli build:skills` to expand the skill `.md.j2` templates
+   and merges in the context-mill skills. `build:skills` calls `django.setup()`
+   for model metadata but never connects to a database, so this job needs no
+   Docker, no Postgres, and no migrations — it finishes in a few minutes. Uploads
    the merged set as the `tasks-golden-skills` artifact. Rendered once, reused by
-   every cluster. It shares the master arm gate, so an unarmed nightly does not
-   pay for a full DB render.
+   every cluster. It shares the master arm gate, so an unarmed nightly renders
+   nothing.
 2. Joins the hogland tailnet as `tag:hogland-ci` (the tag whose ACL reaches the
    `tag:hogplane` device serving the API).
 3. Authenticates to hogplane as a per-cluster `svc-ci-*` service-account
