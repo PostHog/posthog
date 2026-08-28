@@ -4,6 +4,7 @@ import { logger } from '~/common/utils/logger'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
 import { BaseChunkPipeline } from './base-chunk-pipeline'
+import { BatchBudget } from './batch-budget'
 import {
     aggregateKafkaDebugContexts,
     createBatch,
@@ -12,7 +13,7 @@ import {
     createNewChunkPipeline,
     createOkContext,
 } from './helpers'
-import { dlq, drop, ok } from './results'
+import { dlq, drop, isTimeoutResult, ok } from './results'
 
 jest.mock('~/common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -34,6 +35,29 @@ function createTestMessage(overrides: Partial<Message> = {}): Message {
 
 describe('BaseChunkPipeline', () => {
     describe('basic functionality', () => {
+        it('times out the exhausted elements of a mixed-budget chunk and runs the step on the rest', async () => {
+            const exhausted = BatchBudget.softDeadline(Date.now() - 1)
+            const healthy = BatchBudget.softDeadline(Date.now() + 5000)
+            let seen: { id: number }[] = []
+
+            const rootPipeline = createNewChunkPipeline<{ id: number }, { budget: BatchBudget }>().build()
+            const pipeline = new BaseChunkPipeline(function enrichChunk(items: { id: number }[]) {
+                seen = items
+                return Promise.resolve(items.map((item) => ok({ id: item.id * 10 })))
+            }, rootPipeline)
+
+            pipeline.feed([
+                createOkContext({ id: 1 }, { budget: exhausted }),
+                createOkContext({ id: 2 }, { budget: healthy }),
+            ])
+            const results = await pipeline.next()
+
+            expect(seen).toEqual([{ id: 2 }])
+            expect(isTimeoutResult(results![0].result)).toBe(true)
+            expect((results![0].result as { reason: string }).reason).toBe('budget exceeded before enrichChunk')
+            expect(results![1].result).toEqual(ok({ id: 20 }))
+        })
+
         it('should process batch through pipeline', async () => {
             const messages: Message[] = [
                 createTestMessage({ value: Buffer.from('test1'), offset: 1 }),
