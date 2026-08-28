@@ -259,7 +259,10 @@ function applyQueryStepCustomNames(
             return step
         }
 
-        const customName = resolveSeriesCustomName(node, describesStep(node, step) ? step.name : null)
+        // An all-events step serializes with a null name; the UI renders it as "All events", so that
+        // is the raw label a rename is compared against, matching trends and the backend serializer.
+        const rawLabel = node.kind === NodeKind.EventsNode && node.event == null ? 'All events' : step.name
+        const customName = resolveSeriesCustomName(node, describesStep(node, step) ? rawLabel : null)
         // Nested rows are breakdown or compare variants of the same step, so they take the parent's
         // name. Their own `order` can hold a breakdown rank, which is not a series index.
         const nested = step.nested_breakdown?.map((row) =>
@@ -914,7 +917,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         node.kind === NodeKind.ActionsNode
                             ? `Action ${node.id}`
                             : node.kind === NodeKind.EventsNode
-                              ? (node.event ?? null)
+                              ? (node.event ?? 'All events')
                               : null
                     // Same override rule the loaded steps use, so the label does not change on load.
                     const customName = resolveSeriesCustomName(node, rawLabel)

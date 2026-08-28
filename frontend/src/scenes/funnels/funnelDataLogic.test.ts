@@ -600,6 +600,46 @@ describe('funnelDataLogic', () => {
                 })
             })
 
+            it('applies a rename to an all-events step before and after results arrive', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        // An all-events step carries no event key, so a `name` set here is a rename
+                        // made outside the modal, the same as for a named event.
+                        { kind: NodeKind.EventsNode, event: null, name: 'Signed-up funnel start' },
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                    ],
+                }
+                // The backend serializes an all-events step with a null name and action_id.
+                const result = [...(funnelResult.result as FunnelStep[])]
+                result[0] = { ...result[0], action_id: null as unknown as string, name: null as unknown as string }
+                const insight: Partial<InsightModel> = {
+                    filters: { insight: InsightType.FUNNELS },
+                    result,
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                }).toMatchValues({
+                    stepNames: [
+                        expect.objectContaining({
+                            custom_name: 'Signed-up funnel start',
+                            name: 'Signed-up funnel start',
+                        }),
+                        expect.objectContaining({ custom_name: null, name: '$pageview' }),
+                    ],
+                })
+
+                await expectLogic(logic, () => {
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    steps: [
+                        expect.objectContaining({ custom_name: 'Signed-up funnel start' }),
+                        expect.objectContaining({ custom_name: null }),
+                    ],
+                })
+            })
+
             it('with breakdown', async () => {
                 const insight: Partial<InsightModel> = {
                     filters: {
