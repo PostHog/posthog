@@ -106,10 +106,12 @@ function describeEmptyOutput(
     const namedCause = describeStopReason(stopReason)
     const textOutput = tokenCountOf(textOutputTokens)
 
-    // `$ai_text_output_tokens` at zero is the provider's own statement that nothing textual was
-    // generated. Without it, matching counts read as a provider that counts reasoning inside the
-    // output and spent all of it there. A reasoning count above a nonzero output count proves the
-    // opposite: the provider counts them separately, so the output tokens are missing content.
+    // Providers disagree on where reasoning tokens are counted. OpenAI-style providers count them
+    // inside the output total, so reasoning can never exceed output there, and matching counts mean
+    // the whole output was reasoning. Gemini-style providers count them separately, so a reasoning
+    // count above a nonzero output count can only come from that style, which means the output
+    // tokens are real content that went missing. `$ai_text_output_tokens` is the provider's own
+    // split and needs no inference: zero means nothing textual was generated, under either style.
     const providerSaysNoText = textOutput === 0 && output !== null
     const reasoningMatchesOutput = textOutput === null && output !== null && reasoning !== null && reasoning === output
 
