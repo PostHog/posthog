@@ -1,11 +1,19 @@
+import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { ActionStepForm } from '~/toolbar/types'
+
 import {
     asNonEmptyString,
     containsUnstableGeneratedId,
     elementToQuery,
+    getElementForStep,
     joinWithUiHost,
     safeFetch,
     unescapeCssSelector,
 } from './utils'
+
+jest.mock('~/toolbar/toolbarPosthogJS', () => ({
+    captureToolbarException: jest.fn(),
+}))
 
 describe('utils', () => {
     describe('asNonEmptyString', () => {
@@ -160,6 +168,29 @@ describe('utils', () => {
             const element = document.querySelector('[data-id="sidebar-viewport"]') as HTMLElement
             const selector = elementToQuery(element, [])
             expect(selector).toContain('[data-id="sidebar-viewport"]')
+        })
+    })
+
+    describe('getElementForStep', () => {
+        afterEach(() => {
+            jest.mocked(captureToolbarException).mockClear()
+        })
+
+        it('returns null and does not report an invalid selector fragment', () => {
+            // A person still typing a selector produces invalid CSS like `a[`, which is expected
+            // input, not a fault to report to error tracking.
+            const step = { selector: 'a[', selector_selected: true } as ActionStepForm
+
+            expect(getElementForStep(step)).toBeNull()
+            expect(captureToolbarException).not.toHaveBeenCalled()
+        })
+
+        it('returns the single matching element for a valid selector', () => {
+            document.body.innerHTML = '<button data-attr="save">save</button>'
+            const step = { selector: '[data-attr="save"]', selector_selected: true } as ActionStepForm
+
+            expect(getElementForStep(step)).toBe(document.querySelector('[data-attr="save"]'))
+            expect(captureToolbarException).not.toHaveBeenCalled()
         })
     })
 
