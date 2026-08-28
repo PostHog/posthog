@@ -1,4 +1,5 @@
 import logging
+from functools import partial
 from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
@@ -1317,19 +1318,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         was never flipped — or a lane the buffer doesn't serve — behaves exactly as before.
         """
         from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import build_scd2_table
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
-            CONSOLIDATED_WRITE_MODE,
+            COMPANION_WRITE_MODE,
             CDCSourceManager,
-            consolidated_resource_name,
+            consumes_buffer,
             has_pending_legacy_backlog,
-            is_buffered_consolidated,
+            select_lane,
+            served_lanes,
         )
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
             PostgresCDCConfig,
         )
 
         ingest_mode = PostgresCDCConfig.from_source(schema.source).ingest_mode
-        if not is_buffered_consolidated(schema, ingest_mode=ingest_mode):
+        if not consumes_buffer(schema, ingest_mode=ingest_mode):
             return None
 
         # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
@@ -1354,7 +1357,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
             )
 
-        resource_name = consolidated_resource_name(schema)
+        resource_name, cdc_write_mode = select_lane(schema)
+        primary_keys = schema.primary_key_columns
 
         if has_pending_legacy_backlog(schema):
             # Legacy deliveries carry no position column, so merging buffered rows before they land
@@ -1364,16 +1368,26 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return SourceResponse(
                 name=resource_name,
                 items=lambda: iter(()),
-                primary_keys=schema.primary_key_columns,
-                cdc_write_mode=CONSOLIDATED_WRITE_MODE,
+                primary_keys=primary_keys,
+                cdc_write_mode=cdc_write_mode,
             )
 
-        manager = CDCSourceManager(inputs, inputs.logger)
+        # The `_cdc` companion stores history rather than current state, so its rows carry the SCD2
+        # validity window the legacy extraction path stamps on them. Everything else about the lane
+        # is the loader's business: it appends instead of merging, and resolves replays by position
+        # without collapsing a key's history to one row.
+        table_transformer = (
+            partial(build_scd2_table, pk_columns=primary_keys or []) if cdc_write_mode == COMPANION_WRITE_MODE else None
+        )
+
+        manager = CDCSourceManager(
+            inputs, inputs.logger, lane_resource_names=[name for name, _ in served_lanes(schema)]
+        )
         return SourceResponse(
             name=resource_name,
-            items=lambda: manager.get_items(resource_name),
-            primary_keys=schema.primary_key_columns,
-            cdc_write_mode=CONSOLIDATED_WRITE_MODE,
+            items=lambda: manager.get_items(resource_name, table_transformer=table_transformer),
+            primary_keys=primary_keys,
+            cdc_write_mode=cdc_write_mode,
         )
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:

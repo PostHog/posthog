@@ -13,10 +13,15 @@ other source.
 The point is that a stalled load can no longer hold the customer's WAL. It spends our S3 retention
 instead.
 
-**Only consolidated schemas move.** `cdc_only` and `both` schemas produce two tables per run, which
-one pipeline run cannot express, so they stay on legacy extraction. A source with a mix runs
-hybrid — some schemas buffered, the rest unchanged — and keeps its backpressure guard for the
-legacy ones.
+**Every streaming table mode moves.** `consolidated` and `cdc_only` each feed one table, so a run
+serves it. `both` feeds two, and a pipeline run writes one table — its batches share a run id, a
+batch-index sequence, an S3 staging folder, and a final batch that completes the job. So a `both`
+schema alternates: each table is served every other run, which halves its freshness and leaves
+neither table behind. Buffer files are deleted only once every lane has passed them.
+
+Schemas still snapshotting stay on legacy extraction until their first sync completes. A source
+with a mix runs hybrid — some schemas buffered, the rest unchanged — and keeps its backpressure
+guard for the legacy ones.
 
 Nothing is re-snapshotted. The slot, the Delta tables, and `initial_sync_complete` are all
 preserved, so there is no WAL gap and no re-sync.
@@ -167,6 +172,7 @@ One bounded exception: the trailing file of a burst is re-read for a tick or two
 run proves it consumed and it is deleted — rows at the recorded position re-apply as no-op upserts
 in that window, never perpetually.
 
-Note for later: `both`-mode schemas create two `ExternalDataJob` rows per run, each carrying
-`rows_synced`, so those customers are double-billed today. Buffered ingress halves it. That lands
-with the companion lane, not this flip.
+`both`-mode schemas count each change event twice, once per table it feeds. That is unchanged by
+the flip: legacy writes both tables every tick from two `ExternalDataJob` rows, and buffered writes
+one table per tick from one job, so each table still receives — and counts — every event. Whether
+feeding a second table should bill twice is a pricing question, open either way.

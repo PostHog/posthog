@@ -72,13 +72,28 @@ class TestBufferedDispatch:
         "overrides,ingest_mode",
         [
             ({}, "legacy"),
-            ({"cdc_table_mode": "cdc_only"}, "buffered"),
+            ({"cdc_table_mode": "something_new"}, "buffered"),
             ({"initial_sync_complete": False}, "buffered"),
         ],
     )
     def test_a_schema_the_buffer_does_not_serve_stays_with_the_extraction_workflow(self, overrides, ingest_mode):
         with pytest.raises(CDCHandledExternally):
             _dispatch(_schema(ingest_mode, **overrides), _inputs())
+
+    def test_a_cdc_only_schema_is_consumed_into_its_companion_table(self):
+        response = _dispatch(_schema(cdc_table_mode="cdc_only"), _inputs())
+
+        assert response.name == "users_cdc"
+        assert response.cdc_write_mode == "scd2_append"
+
+    def test_both_alternates_so_each_table_is_served_by_a_run_of_its_own(self):
+        # A pipeline run writes one table, so serving both at once is not expressible. Each run
+        # takes the lane the last one did not.
+        schema = _schema(cdc_table_mode="both")
+        assert _dispatch(schema, _inputs()).name == "users"
+
+        schema.sync_type_config = {"cdc_buffer_listing": {"users": {"listed_at": "2026-08-28T12:00:00+00:00"}}}
+        assert _dispatch(schema, _inputs()).name == "users_cdc"
 
     def test_a_v2_run_reaching_the_buffered_lane_fails_loudly(self):
         # The forcing keeps this unreachable; if a race or deploy skew gets past it, the run must

@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     read_load_position,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
-    consolidated_resource_name,
+    served_lanes,
     serves_buffered_lane,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -141,7 +141,7 @@ class Command(BaseCommand):
             for s in eligible
             if s.table is not None
             and CDC_SEQ_COLUMN in (s.table.columns or {})
-            and read_load_position(s.sync_type_config, consolidated_resource_name(s)) is None
+            and not any(read_load_position(s.sync_type_config, name) is not None for name, _ in served_lanes(s))
         ]
         if conflicted:
             raise CommandError(
@@ -294,7 +294,7 @@ class Command(BaseCommand):
             time.sleep(DRAIN_POLL_SECONDS)
 
     def _wait_for_buffer_drain(self, team_id: int, schemas: list[ExternalDataSchema], timeout: int) -> None:
-        """Block until every remaining buffer file sits strictly below the schema's load position.
+        """Block until every remaining buffer file sits strictly below every lane's load position.
 
         A file AT the position is not proof of consumption: one Postgres transaction shares a commit
         position across every event, so a transaction split across files leaves an unread tail whose
@@ -311,7 +311,12 @@ class Command(BaseCommand):
             behind: list[str] = []
             for schema in schemas:
                 schema.refresh_from_db(fields=["sync_type_config"])
-                floor = read_load_position(schema.sync_type_config, consolidated_resource_name(schema)) or 0
+                # The slowest lane decides: a file the companion has not taken is not drained,
+                # however far ahead the consolidated lane is.
+                floor = min(
+                    (read_load_position(schema.sync_type_config, name) or 0 for name, _ in served_lanes(schema)),
+                    default=0,
+                )
                 prefix = strip_s3_protocol(get_buffer_prefix(team_id, str(schema.id)))
                 try:
                     keys = s3.ls(prefix, detail=False, refresh=True)

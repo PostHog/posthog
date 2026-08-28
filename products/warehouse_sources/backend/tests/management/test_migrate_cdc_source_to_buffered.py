@@ -173,10 +173,10 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         # wedge every rollback of a hybrid source with capture left paused.
         source = self._source(ingest_mode="buffered")
         self._schema(source, "users")
-        companion = self._schema(source, "events", table_mode="cdc_only")
+        snapshotting = self._schema(source, "events", cdc_mode="snapshot")
         shadow = f"bucket/cdc_producer/x/{build_buffer_file_name(100, 200, 0)}"
 
-        with _mocked_side_effects(buffer_keys_by_schema={str(companion.id): [shadow]}):
+        with _mocked_side_effects(buffer_keys_by_schema={str(snapshotting.id): [shadow]}):
             self._run(source, rollback=True, drain_timeout=0)
 
         source.refresh_from_db()
@@ -224,31 +224,31 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         source.refresh_from_db()
         assert source.job_inputs["cdc_ingest_mode"] == "buffered"
 
-    def test_a_hybrid_source_flips_only_its_consolidated_schemas(self):
+    def test_every_streaming_table_mode_flips_together(self):
         source = self._source()
         consolidated = self._schema(source, "users")
         companion = self._schema(source, "events", table_mode="cdc_only")
+        both = self._schema(source, "orders", table_mode="both")
+
+        with _mocked_side_effects() as mocks:
+            self._run(source)
+
+        purged = [call.args[1] for call in mocks["purge"].call_args_list]
+        assert sorted(purged) == sorted([str(consolidated.id), str(companion.id), str(both.id)])
+        assert mocks["unpause_schema"].call_count == 3
+
+    def test_a_hybrid_source_leaves_its_ineligible_schemas_on_legacy(self):
+        source = self._source()
+        eligible = self._schema(source, "users")
+        self._schema(source, "events", cdc_mode="snapshot")
 
         with _mocked_side_effects() as mocks:
             output = self._run(source)
 
         assert "staying on legacy" in output
-        assert "events [cdc_only]" in output
         purged = [call.args[1] for call in mocks["purge"].call_args_list]
-        assert purged == [str(consolidated.id)]
-        mocks["unpause_schema"].assert_called_once_with(str(consolidated.id))
-        assert str(companion.id) not in str(mocks["unpause_schema"].call_args_list)
-
-    def test_a_source_with_no_eligible_schema_is_refused(self):
-        source = self._source()
-        self._schema(source, "events", table_mode="both")
-
-        with _mocked_side_effects():
-            with pytest.raises(CommandError, match="No schema on this source serves the buffered lane"):
-                self._run(source)
-
-        source.refresh_from_db()
-        assert "cdc_ingest_mode" not in source.job_inputs
+        assert purged == [str(eligible.id)]
+        mocks["unpause_schema"].assert_called_once_with(str(eligible.id))
 
     def test_a_still_snapshotting_schema_is_not_eligible(self):
         source = self._source()
@@ -257,6 +257,10 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         with _mocked_side_effects():
             with pytest.raises(CommandError, match="No schema on this source serves the buffered lane"):
                 self._run(source)
+
+        # Refusing must leave the source wholly on legacy, not half-flipped.
+        source.refresh_from_db()
+        assert "cdc_ingest_mode" not in source.job_inputs
 
     def test_dry_run_changes_nothing_and_reports_the_cadence(self):
         source = self._source()

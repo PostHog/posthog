@@ -12,9 +12,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     CDCSourceManager,
+    companion_resource_name,
+    consumes_buffer,
     has_pending_legacy_backlog,
-    is_buffered_consolidated,
     scheduled_sync_consumes_buffer,
+    select_lane,
+    served_lanes,
     serves_buffered_lane,
 )
 
@@ -91,7 +94,7 @@ def _patched(s3: _FakeS3, load_position: int | None, proof_time: dt.datetime | N
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.aget_s3_client"
         ) as mock_client,
-        patch.object(CDCSourceManager, "_read_consume_state", AsyncMock(return_value=(load_position, None))),
+        patch.object(CDCSourceManager, "_read_consume_state", AsyncMock(return_value=(load_position, {}))),
         patch.object(CDCSourceManager, "_completed_listing_time", AsyncMock(return_value=proof_time)),
         patch.object(CDCSourceManager, "_stamp_listing", AsyncMock()) as mock_stamp,
         patch(
@@ -130,6 +133,8 @@ def _schema(**overrides) -> MagicMock:
     schema.initial_sync_complete = overrides.get("initial_sync_complete", True)
     schema.sync_type_config = overrides.get("sync_type_config", {})
     schema.source.job_inputs = overrides.get("job_inputs", {})
+    schema.name = overrides.get("name", "users")
+    schema.resolved_s3_folder_name = overrides.get("resolved_s3_folder_name", "users")
     return schema
 
 
@@ -269,42 +274,170 @@ class TestCDCSourceManager:
         assert [t.num_rows for t in tables] == [800, 400]
 
 
+class TestServedLanes:
+    @parameterized.expand(
+        [
+            ("consolidated", "consolidated", [("users", "incremental_merge")]),
+            ("cdc_only", "cdc_only", [("users_cdc", "scd2_append")]),
+            ("both", "both", [("users", "incremental_merge"), ("users_cdc", "scd2_append")]),
+        ]
+    )
+    def test_a_table_mode_names_the_tables_its_changes_feed(self, _name, table_mode, expected):
+        assert served_lanes(_schema(cdc_table_mode=table_mode)) == expected
+
+    def test_an_unrecognized_table_mode_feeds_nothing(self):
+        # Fail closed: a mode this module cannot write must not reach the buffer at all.
+        assert served_lanes(_schema(cdc_table_mode="something_new")) == []
+
+    def test_the_companion_is_named_off_the_schema_not_the_folder(self):
+        # The consolidated lane follows the snapshot's resolved folder, which diverges from `name`
+        # for a row renamed bare to qualified. Following it here would append history into a table
+        # no query reads — the companion is keyed on `name`, like its snapshot seed.
+        schema = _schema(name="public.users", resolved_s3_folder_name="users")
+        assert companion_resource_name(schema) == "public.users_cdc"
+
+
+class TestLaneSelection:
+    @parameterized.expand([("consolidated", "consolidated"), ("cdc_only", "cdc_only")])
+    def test_a_single_lane_schema_always_serves_that_lane(self, _name, table_mode):
+        schema = _schema(cdc_table_mode=table_mode)
+        assert select_lane(schema) == served_lanes(schema)[0]
+
+    def test_both_starts_on_the_consolidated_lane(self):
+        assert select_lane(_schema(cdc_table_mode="both"))[0] == "users"
+
+    @parameterized.expand(
+        [
+            ("consolidated_ran_last", "users", "users_cdc"),
+            ("companion_ran_last", "users_cdc", "users"),
+        ]
+    )
+    def test_both_serves_the_lane_that_did_not_run_last(self, _name, last_served, expected):
+        # One pipeline run writes one table, so the lanes take turns rather than racing.
+        schema = _schema(
+            cdc_table_mode="both",
+            sync_type_config={"cdc_buffer_listing": {last_served: {"listed_at": _NOW.isoformat(), "job_id": "j"}}},
+        )
+        assert select_lane(schema)[0] == expected
+
+    def test_the_newest_stamp_decides_when_both_lanes_have_run(self):
+        schema = _schema(
+            cdc_table_mode="both",
+            sync_type_config={
+                "cdc_buffer_listing": {
+                    "users": {"listed_at": (_NOW - dt.timedelta(minutes=5)).isoformat(), "job_id": "j1"},
+                    "users_cdc": {"listed_at": _NOW.isoformat(), "job_id": "j2"},
+                }
+            },
+        )
+        assert select_lane(schema)[0] == "users"
+
+
 class TestBufferedGating:
     @parameterized.expand(
         [
             ("not_cdc", {"is_cdc": False}),
             ("still_snapshotting", {"cdc_mode": "snapshot"}),
-            ("companion_lane", {"cdc_table_mode": "cdc_only"}),
-            ("both_lanes", {"cdc_table_mode": "both"}),
+            ("unrecognized_table_mode", {"cdc_table_mode": "something_new"}),
             ("no_table_yet", {"initial_sync_complete": False}),
         ]
     )
     def test_ineligible_schemas_stay_on_the_legacy_path(self, _name, overrides):
         assert serves_buffered_lane(_schema(**overrides)) is False
 
-    def test_a_consolidated_streaming_schema_serves_the_buffered_lane(self):
-        assert serves_buffered_lane(_schema()) is True
+    @parameterized.expand([("consolidated",), ("cdc_only",), ("both",)])
+    def test_every_streaming_table_mode_serves_the_buffered_lane(self, table_mode):
+        assert serves_buffered_lane(_schema(cdc_table_mode=table_mode)) is True
 
     @parameterized.expand([("legacy",), ("",), ("nonsense",)])
     def test_a_source_that_was_not_flipped_stays_on_the_legacy_path(self, ingest_mode):
-        assert is_buffered_consolidated(_schema(), ingest_mode=ingest_mode) is False
+        assert consumes_buffer(_schema(), ingest_mode=ingest_mode) is False
 
-    def test_a_flipped_consolidated_schema_consumes_the_buffer(self):
-        assert is_buffered_consolidated(_schema(), ingest_mode="buffered") is True
+    @parameterized.expand([("consolidated",), ("cdc_only",), ("both",)])
+    def test_a_flipped_schema_consumes_the_buffer(self, table_mode):
+        assert consumes_buffer(_schema(cdc_table_mode=table_mode), ingest_mode="buffered") is True
 
-    def test_a_flipped_schema_forces_the_buffered_consumer_on_its_scheduled_sync(self):
-        assert scheduled_sync_consumes_buffer(_schema(job_inputs={"cdc_ingest_mode": "buffered"})) is True
+    @parameterized.expand([("consolidated",), ("cdc_only",), ("both",)])
+    def test_a_flipped_schema_forces_the_buffered_consumer_on_its_scheduled_sync(self, table_mode):
+        schema = _schema(job_inputs={"cdc_ingest_mode": "buffered"}, cdc_table_mode=table_mode)
+        assert scheduled_sync_consumes_buffer(schema) is True
 
     @parameterized.expand(
         [
             ("source_never_flipped", {}),
             ("no_job_inputs", {"job_inputs": None}),
-            ("companion_lane", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_table_mode": "cdc_only"}),
+            (
+                "unrecognized_table_mode",
+                {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_table_mode": "something_new"},
+            ),
             ("still_snapshotting", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_mode": "snapshot"}),
         ]
     )
     def test_the_scheduled_sync_is_not_forced_off_the_flag_for(self, _name, overrides):
         assert scheduled_sync_consumes_buffer(_schema(**overrides)) is False
+
+
+@pytest.mark.asyncio
+class TestMultiLaneDeletionFloor:
+    """A file is deletable only once EVERY lane has committed past it.
+
+    A `both` schema serves its two tables on alternating runs, so the consolidated lane routinely
+    runs ahead. Deleting on its position alone would drop files the companion never appended.
+    """
+
+    async def _floor(self, positions: dict[str, int | None], lanes: list[str]) -> int | None:
+        manager = CDCSourceManager(inputs=MagicMock(team_id=_TEAM_ID, schema_id=_SCHEMA_ID), logger=AsyncMock())
+        manager._lane_resource_names = lanes
+        config = {"cdc_load_position": {name: pos for name, pos in positions.items() if pos is not None}}
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.database_sync_to_async_pool",
+            lambda fn: AsyncMock(return_value=config),
+        ):
+            floor, _ = await manager._read_consume_state("users")
+        return floor
+
+    async def test_the_slowest_lane_sets_the_floor(self):
+        floor = await self._floor({"users": 900, "users_cdc": 200}, ["users", "users_cdc"])
+        assert floor == 200
+
+    async def test_a_lane_that_has_committed_nothing_holds_every_deletion(self):
+        # No position is not position zero: the lane has proven nothing, so nothing may be deleted.
+        floor = await self._floor({"users": 900}, ["users", "users_cdc"])
+        assert floor is None
+
+    async def test_a_single_lane_schema_uses_its_own_position(self):
+        floor = await self._floor({"users": 900}, ["users"])
+        assert floor == 900
+
+
+@pytest.mark.asyncio
+class TestLaneTableTransformer:
+    async def test_the_transformer_sees_one_batch_not_one_file(self):
+        # The companion lane derives SCD2's `valid_to` from the next event for the same key, so a
+        # per-file transform would close a row the following file reopens.
+        s3 = _FakeS3(
+            {
+                _key(100, 199): _parquet_bytes(_table([1], [100])),
+                _key(200, 299): _parquet_bytes(_table([1], [200])),
+            }
+        )
+        seen: list[int] = []
+
+        def _record(table: pa.Table) -> pa.Table:
+            seen.append(table.num_rows)
+            return table.append_column("lane", pa.array(["companion"] * table.num_rows))
+
+        tables = await _collect(s3, table_transformer=_record)
+
+        assert seen == [2]
+        assert tables[0].column("lane").to_pylist() == ["companion", "companion"]
+
+    async def test_a_lane_without_a_transformer_yields_the_rows_as_buffered(self):
+        s3 = _FakeS3({_key(100, 199): _parquet_bytes(_table([1], [100]))})
+
+        tables = await _collect(s3)
+
+        assert tables[0].column_names == ["id", CDC_SEQ_COLUMN]
 
 
 class TestPendingLegacyBacklog:
