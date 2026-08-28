@@ -47,8 +47,8 @@ from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, Projec
 
 from products.customer_analytics.backend.facade import api as facade
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CSP_FLAG
-from products.customer_analytics.backend.metrics import ACCOUNT_ACTION_AUTH_COUNTER
 from products.customer_analytics.backend.presentation.views.account_actions import (
+    ACCOUNT_ACTION_AUTH_COUNTER,
     ExternalAccountCreateSerializer,
     ExternalAccountCustomPropertiesSerializer,
     handle_account_create,

@@ -21,8 +21,8 @@ from posthog.jwt import PosthogJwtAudience
 from posthog.models import Team
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
-from products.customer_analytics.backend.metrics import ACCOUNT_ACTION_AUTH_COUNTER
 from products.customer_analytics.backend.presentation.views.account_actions import (
+    ACCOUNT_ACTION_AUTH_COUNTER,
     handle_account_create,
     handle_account_get,
     handle_account_set_properties,
