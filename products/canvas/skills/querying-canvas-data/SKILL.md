@@ -12,10 +12,10 @@ description: >
 # Querying canvas data
 
 The global `ph` object (injected by the host — never imported, never initialized) is the only way
-a canvas talks to PostHog. Credentials stay in the host; `fetch()`, posthog-js, and hand-rolled
-clients cannot reach PostHog from the sandbox. External requests and resources require a non-PostHog
-origin declared in `capabilities.network.origins`, and work only in the published canvas — the
-edit-mode preview blocks all direct network access. This includes external stylesheets; remote
+a canvas talks to PostHog. Do not use `fetch()`, posthog-js, or a hand-rolled client for PostHog
+data; credentials stay in the host. This is not a general `fetch()` ban: external public APIs and
+resources work from built canvases when their exact non-PostHog HTTPS origins are declared in
+`capabilities.network.origins`. The edit-mode preview blocks direct network access, and remote
 scripts remain blocked.
 
 ## Data hierarchy — back every metric with a saved insight
