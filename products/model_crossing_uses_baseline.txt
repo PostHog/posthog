@@ -2,17 +2,22 @@
 # One line per (product.Class, consumer module, kind, count); see products/architecture.md
 # § Wiring couplings for which shapes are allowed.
 #
-# Two channels land here. Name-level uses of a watched-models crossing class, in any kind the
-# doctrine does not call instance-free. And the kind `get_model`: an `apps.get_model` reference
+# Three channels land here. Name-level uses of a watched-models crossing class, in any kind the
+# doctrine does not call instance-free. The kind `get_model`: an `apps.get_model` reference
 # from outside the owning product, which covers every product model, not only the allowance ones.
-# Test modules and migrations are out of scope on both channels: a migration reaches a model
-# through the historical registry, which is the only way a migration can.
+# Test modules and migrations are out of scope on both: a migration reaches a model through the
+# historical registry, which is the only way a migration can.
+# And the kind `drives(<Kind or Name>)`, read from tests only: a test outside the product that
+# executes a query runner in the product's wiring location backend/hogql_queries/, by the query
+# kind it builds and runs, or by the name it imports from there. While a line stands for a
+# location, `hogli product:lint` keeps that location in the contract-check inputs.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 # A new line needs a doctrine amendment, not a baseline edit.
 #
 # Regenerate: bin/hogli product:crossings --all --write-baseline
 canvas.Canvas products.tasks.backend.logic.services.loop_runs get_model 1
+customer_analytics:backend/hogql_queries/ posthog.api.test.test_sharing drives(AccountsQuery) 1
 data_modeling.DataWarehouseSavedQuery products.customer_analytics.backend.facade.api get_model 5
 error_tracking.ErrorTrackingIssue products.demo.backend.logic.products.hedgebox.matrix get_model 1
 error_tracking.ErrorTrackingIssue products.posthog_ai.evals.error_tracking.seeders get_model 1
@@ -23,6 +28,16 @@ error_tracking.ErrorTrackingIssueFingerprintV2 posthog.models.team.util get_mode
 error_tracking.ErrorTrackingIssueFingerprintV2 products.demo.backend.logic.products.hedgebox.matrix get_model 1
 error_tracking.ErrorTrackingIssueFingerprintV2 products.posthog_ai.evals.error_tracking.seeders get_model 1
 error_tracking.ErrorTrackingStackFrame products.demo.backend.logic.products.hedgebox.matrix get_model 1
+error_tracking:backend/hogql_queries/ products.posthog_ai.eval_harness.test.test_eval_seeders drives(ErrorTrackingQueryRunner) 1
+error_tracking:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight_query drives(ErrorTrackingQuery) 1
+experiments:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(ExperimentTrendsQuery) 2
+experiments:backend/hogql_queries/ posthog.session_recordings.queries.test.listing_recordings.test_session_recordings_list_by_experiment_exposure drives(ExposureQueryBuilder) 1
+experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(ExperimentQueryRunner) 2
+experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(ExperimentQueryRunnerBaseTest) 1
+experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(compute_metric_fingerprint) 2
+experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(get_experiment_stats_method) 2
+experiments:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(ExperimentTrendsQuery) 3
+metrics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_alerts drives(MetricsQuery) 1
 product_analytics.Insight ee.api.subscription instance-many(filter) 2
 product_analytics.Insight ee.api.subscription instance-many(manager) 2
 product_analytics.Insight ee.hogai.artifacts.handlers.visualization instance-many(filter) 1
@@ -93,8 +108,6 @@ product_analytics.Insight products.reminders.backend.constants in-collection 1
 product_analytics.Insight products.slack_app.backend.slack_link_unfurl instance-single 1
 product_analytics.Insight products.surveys.backend.api.survey instance-single 1
 surveys.Survey products.early_access_features.backend.management.commands.migrate_enrollments_to_waitlist_surveys get_model 1
-tasks.CodeInvite products.posthog_ai.eval_harness.harness.demo_data get_model 1
-tasks.CodeInviteRedemption products.posthog_ai.eval_harness.harness.demo_data get_model 1
 tasks.TaskRun products.review_hog.backend.receivers get_model 1
 warehouse_sources.DataWarehouseCredential posthog.hogql.database.database instance-many(filter) 1
 warehouse_sources.DataWarehouseCredential products.data_warehouse.backend.presentation.views.table drf-model-serializer 1
@@ -148,7 +161,6 @@ warehouse_sources.DataWarehouseTable products.marketing_analytics.backend.manage
 warehouse_sources.DataWarehouseTable products.posthog_ai.evals.data_warehouse.seeder construct 1
 warehouse_sources.DataWarehouseTable products.posthog_ai.evals.data_warehouse.seeder write(bulk_create) 1
 warehouse_sources.DataWarehouseTable products.posthog_ai.evals.data_warehouse.seeder write(create) 1
-warehouse_sources.ExternalDataJob posthog.hogql.database.database prefetch 1
 warehouse_sources.ExternalDataJob posthog.tasks.usage_report instance-many(annotate) 4
 warehouse_sources.ExternalDataJob products.data_warehouse.backend.logic.data_load.source_templates instance-single 2
 warehouse_sources.ExternalDataJob products.data_warehouse.backend.logic.external_data_source.jobs lock 1
@@ -233,3 +245,58 @@ warehouse_sources.WarehouseColumnAnnotation products.data_warehouse.backend.pres
 warehouse_sources.WarehouseColumnAnnotation products.data_warehouse.backend.presentation.views.column_annotation instance-many(unscoped) 1
 warehouse_sources.WarehouseColumnAnnotation products.posthog_ai.evals.data_warehouse.seeder construct 2
 warehouse_sources.WarehouseColumnAnnotation products.posthog_ai.evals.data_warehouse.seeder write(bulk_create) 1
+web_analytics:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(TrendsQuery) 2
+web_analytics:backend/hogql_queries/ posthog.api.test.dashboards.test_dashboard drives(TrendsQuery) 5
+web_analytics:backend/hogql_queries/ posthog.api.test.test_alert_15_minute_interval drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ posthog.api.test.test_alert_real_time_interval drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ posthog.api.test.test_cohort drives(TrendsQuery) 6
+web_analytics:backend/hogql_queries/ posthog.api.test.test_query drives(TrendsQuery) 3
+web_analytics:backend/hogql_queries/ posthog.api.test.test_sharing drives(TrendsQuery) 6
+web_analytics:backend/hogql_queries/ posthog.api.test.test_sharing_access_token_security drives(TrendsQuery) 12
+web_analytics:backend/hogql_queries/ posthog.hogql.database.schema.test.test_persons drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ posthog.hogql.functions.test.test_traffic_type_functions drives(BOT_DEFINITIONS) 7
+web_analytics:backend/hogql_queries/ posthog.hogql.functions.test.test_traffic_type_functions drives(BOT_IP_DEFINITIONS) 4
+web_analytics:backend/hogql_queries/ posthog.hogql.functions.test.test_traffic_type_real_ua drives(BOT_DEFINITIONS) 4
+web_analytics:backend/hogql_queries/ posthog.hogql.functions.test.test_traffic_type_real_ua drives(BOT_IP_DEFINITIONS) 3
+web_analytics:backend/hogql_queries/ posthog.hogql.functions.test.test_traffic_type_real_ua drives(BOT_USER_AGENTS) 3
+web_analytics:backend/hogql_queries/ posthog.hogql.functions.test.test_traffic_type_real_ua drives(CATEGORY_TO_TRAFFIC_CATEGORY) 2
+web_analytics:backend/hogql_queries/ posthog.hogql.transforms.test.test_preaggregated_table_transformation drives(EVENT_PROPERTY_TO_FIELD) 4
+web_analytics:backend/hogql_queries/ posthog.hogql.transforms.test.test_preaggregated_table_transformation drives(SESSION_PROPERTY_TO_FIELD) 4
+web_analytics:backend/hogql_queries/ posthog.hogql_queries.insights.test.test_insight_actors_query_runner drives(TrendsQuery) 7
+web_analytics:backend/hogql_queries/ posthog.hogql_queries.insights.trends.test.test_trends_data_warehouse_query drives(TrendsQuery) 23
+web_analytics:backend/hogql_queries/ posthog.hogql_queries.insights.trends.test.test_trends_query_builder drives(TrendsQuery) 7
+web_analytics:backend/hogql_queries/ posthog.hogql_queries.insights.trends.test.test_trends_query_runner drives(TrendsQuery) 2
+web_analytics:backend/hogql_queries/ posthog.hogql_queries.test.test_query_runner drives(TrendsQuery) 4
+web_analytics:backend/hogql_queries/ posthog.models.web_preaggregated.test_web_pre_aggregated_timezones drives(FloatAwareTestCase) 1
+web_analytics:backend/hogql_queries/ posthog.models.web_preaggregated.test_web_pre_aggregated_timezones drives(WebAnalyticsPreAggregatedTestBase) 1
+web_analytics:backend/hogql_queries/ posthog.models.web_preaggregated.test_web_pre_aggregated_timezones drives(WebStatsTableQueryRunner) 2
+web_analytics:backend/hogql_queries/ posthog.models.web_preaggregated.test_web_preaggregated_sql drives(WebAnalyticsPreAggregatedTestBase) 1
+web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_alert_check_helpers drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_alert_evaluation drives(TrendsQuery) 5
+web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_alert_subscriptions drives(TrendsQuery) 3
+web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_alerts drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_absolute_alerts drives(TrendsQuery) 2
+web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_relative_alerts drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ posthog.test.activity_log_utils drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ posthog.test.base drives(stats_table) 1
+web_analytics:backend/hogql_queries/ posthog.test.base drives(web_overview) 1
+web_analytics:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(TrendsQuery) 9
+web_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 7
+web_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_dashboard_templates drives(TrendsQuery) 2
+web_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_run_insights drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ products.data_warehouse.backend.tests.api.test_data_warehouse drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpoint drives(TrendsQuery) 12
+web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpoint_ducklake_shadow drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpoint_execution drives(TrendsQuery) 32
+web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpoint_materialization drives(TrendsQuery) 9
+web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_insight_response_parity drives(TrendsQuery) 6
+web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_materialization_suggestion drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_openapi_spec drives(TrendsQuery) 4
+web_analytics:backend/hogql_queries/ products.experiments.backend.test.test_presentation_api drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ products.feature_flags.backend.api.test.test_feature_flag drives(TrendsQuery) 6
+web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight drives(TrendsQuery) 19
+web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight_metadata drives(TrendsQuery) 5
+web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight_query drives(TrendsQuery) 4
+web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_paths_v2 drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ products.signals.backend.test.test_scout_report_api drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ products.tasks.backend.tests.test_api drives(TrendsQuery) 3

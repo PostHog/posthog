@@ -7,13 +7,19 @@ import { Assignee, assigneeSelectLogic } from './assigneeSelectLogic'
 import { QuillAssigneeDropdown } from './QuillAssigneeDropdown'
 
 export const QuillAssigneeSelect = ({
+    ariaLabel = 'Assignee',
     assignee,
-    onChange,
     children,
+    clearActionLabel = 'Remove assignee',
+    currentUserActionLabel = 'Assign to me',
+    onChange,
 }: {
+    ariaLabel?: string
     assignee: ErrorTrackingIssue['assignee']
-    onChange: (assignee: ErrorTrackingIssue['assignee']) => void
     children: (assignee: Assignee, isOpen: boolean) => JSX.Element
+    clearActionLabel?: string
+    currentUserActionLabel?: string
+    onChange: (assignee: ErrorTrackingIssue['assignee']) => void
 }): JSX.Element => {
     const { ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
     const { resolveAssignee } = useValues(assigneeSelectLogic)
@@ -31,7 +37,10 @@ export const QuillAssigneeSelect = ({
 
     return (
         <QuillAssigneeDropdown
+            ariaLabel={ariaLabel}
             assignee={assignee}
+            clearActionLabel={clearActionLabel}
+            currentUserActionLabel={currentUserActionLabel}
             onChange={_onChange}
             open={showPopover}
             onOpenChange={setShowPopover}

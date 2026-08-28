@@ -33,8 +33,12 @@ from posthog.constants import AvailableFeature
 from posthog.scopes import APIScopeObject
 
 from products.customer_analytics.backend.facade.hogql import (
+    account_channel_summaries,
     account_custom_property_values,
     account_custom_property_values_history,
+    account_email_thread_links,
+    account_email_threads,
+    account_meetings,
     account_relationship_definitions,
     account_relationships,
     account_resource_notebooks,
@@ -2154,6 +2158,11 @@ support_tickets: PostgresTable = PostgresTable(
         "ticket_number": IntegerDatabaseField(
             name="ticket_number", description="Human-friendly sequential ticket number."
         ),
+        "organization_id": StringDatabaseField(
+            name="organization_id",
+            nullable=True,
+            description="Customer organization key. This matches a customer analytics account's external_id.",
+        ),
         "channel_source": StringDatabaseField(
             name="channel_source", description="Channel the ticket came in on, e.g. 'email', 'widget'."
         ),
@@ -2827,6 +2836,14 @@ class SystemTables(TableNode):
         "_account_tagged_items": TableNode(name="_account_tagged_items", table=account_tagged_items, hidden=True),
         "_account_resource_notebooks": TableNode(
             name="_account_resource_notebooks", table=account_resource_notebooks, hidden=True
+        ),
+        "_account_meetings": TableNode(name="_account_meetings", table=account_meetings, hidden=True),
+        "_account_channel_summaries": TableNode(
+            name="_account_channel_summaries", table=account_channel_summaries, hidden=True
+        ),
+        "_account_email_threads": TableNode(name="_account_email_threads", table=account_email_threads, hidden=True),
+        "_account_email_thread_links": TableNode(
+            name="_account_email_thread_links", table=account_email_thread_links, hidden=True
         ),
         "_account_custom_property_values": TableNode(
             name="_account_custom_property_values", table=account_custom_property_values, hidden=True

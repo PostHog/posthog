@@ -90,7 +90,7 @@ class TestStrictAndFixContracts:
     @patch("hogli_commands.ci_preflight._fetch_master")
     @patch("hogli_commands.ci_preflight.subprocess.run")
     @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
-    def test_nudges_name_the_command_without_running_it(
+    def test_nudge_names_the_command_without_running_it(
         self,
         mock_changed: MagicMock,
         mock_run: MagicMock,
@@ -102,12 +102,9 @@ class TestStrictAndFixContracts:
 
         assert result.exit_code == 0
         assert "uv run mypy --cache-fine-grained ." in result.output
-        assert "hogli review" in result.output
-        # Giving either check a `verify` would tax every push with a repo-wide
-        # mypy run or a paid Greptile review.
+        # Giving the check a `verify` would tax every push with a repo-wide mypy run.
         ran = [arg for call in mock_run.call_args_list for arg in call.args[0]]
         assert "mypy" not in ran
-        assert "greptile" not in ran and "review" not in ran
 
 
 class TestStalenessRisks:

@@ -24,10 +24,9 @@ The identity fields (`dashboardId | taskId | channelId + channelSection |
 appView`) survive **only as a label and icon cache**, written alongside the href.
 Never compare them to decide where a tab is.
 
-The strip is gated inside the spaces layout by `useSpacesTabs`
-(`SPACES_TABS_FLAG`). Off is the same code path with a single tab, not a second
-implementation: with one tab, the tab is the window, so per-tab history and view
-state behave the way the window-global versions did.
+The strip is always present in the app shell. `useSpacesTabs` tells shortcut and
+navigation owners when the spaces layout owns browser-tab behavior. It is not a
+rollout gate.
 
 ## Components & styling
 
@@ -112,8 +111,8 @@ differ. Desktop ships first.
 
 ### Closing
 - Closing the active tab focuses its neighbour.
-- Closing the last tab of a **secondary** window closes the window; closing the
-  last tab of the **primary** window lands on `/activity`, which opens a fresh tab.
+- Closing the last tab of a **secondary** window closes the window. Closing the
+  last tab of the **primary** window replaces it with a fresh `/activity` tab.
 
 ### Keyboard
 - **⌘1-9 switches tabs**, the browser way: 1-8 pick that position, 9 picks the
@@ -210,6 +209,7 @@ retarget its originating background tab as described below. `railHistoryStore`
 ### Cross-window & persistence
 - Tabs, order, windows, and each tab's `href` + `viewState` persist to sqlite;
   the full session (all windows + their tabs + active tab) is restored on launch.
+  Desktop and web both seed `/activity` when the primary window has no tabs.
 - `rewriteSavedLocation` (in `@posthog/shared`) runs over persisted hrefs on
   load, so a snapshot written before the routes were flattened does not restore
   tabs onto `/website/*` routes that no longer exist.

@@ -8,9 +8,9 @@ import {
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
     EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS,
 } from '~/scenes/experiments/constants'
-import { isLaunched } from '~/scenes/experiments/experimentsLogic'
 import { Experiment, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
     legacyCalculateDelta,
     legacyConversionRateForVariant,

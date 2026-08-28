@@ -201,7 +201,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 53
+        cls.base_app_num_queries = 54
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -875,6 +875,13 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 "exports/",
                 {"export_format": "video/mp4", "export_context": {"session_recording_id": "test-session"}},
             ),
+            ("logs_query", "logs/query/", {}),
+            # hyphenated action that the shorter `count` alternative must not shadow
+            ("logs_count_ranges", "logs/count-ranges/", {"query": "not-a-dict"}),
+            ("tracing_attribute_breakdown", "tracing/spans/attribute-breakdown/", {}),
+            ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
+            ("metrics_query", "metrics/query/", {}),
+            ("metrics_explain", "metrics/explain/", {}),
         ]
     )
     def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
@@ -889,6 +896,27 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         )
 
         assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
+
+    @parameterized.expand(
+        [
+            ("logs_alerts", "logs/alerts/"),
+            ("logs_views", "logs/views/"),
+            ("logs_sampling_rules", "logs/sampling_rules/"),
+        ]
+    )
+    def test_read_only_impersonation_blocks_logs_crud_siblings(self, _name, path_suffix):
+        self.login_as_other_user_read_only()
+
+        # The logs query allowlist enumerates action names precisely because the same
+        # `logs/` prefix hosts these writing viewsets.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/{path_suffix}",
+            data={},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "impersonation_read_only"
 
     def test_read_only_impersonation_blocks_query_cancellation(self):
         self.login_as_other_user_read_only()

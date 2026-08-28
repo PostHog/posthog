@@ -34,7 +34,7 @@ describe('projectTreeDataLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('shows Replay vision to anyone who pinned Session replay', () => {
+    it('shows only the products the user added, with nothing injected alongside them', () => {
         customProductsLogic.actions.loadCustomProductsSuccess([
             {
                 id: 'abc',
@@ -49,8 +49,7 @@ describe('projectTreeDataLogic', () => {
 
         const paths = logic.values.getCustomProductTreeItems('').map((item) => item.record?.path)
 
-        expect(paths).toContain('Session replay')
-        expect(paths).toContain('Replay vision')
+        expect(paths).toEqual(['Session replay'])
     })
 
     it('handles null unfiled item responses', async () => {

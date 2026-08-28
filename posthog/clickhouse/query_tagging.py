@@ -139,6 +139,9 @@ class Feature(StrEnum):
     POSTHOG_AI = "posthog_ai"
     MCP = "mcp"
     SEMANTIC_SEARCH = "semantic_search"
+    # A 30 day aggregate that runs on every AI observability dashboard mount and trace view, so its
+    # load is worth attributing separately from the tab queries it sits alongside.
+    INSTRUMENTATION_CHECKLIST = "instrumentation_checklist"
 
 
 class FallbackTags(TypedDict):
@@ -220,6 +223,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ERROR_TRACKING_SIMILAR_ISSUES_QUERY
             | NodeKind.ERROR_TRACKING_FINGERPRINT_PROJECTION_QUERY
             | NodeKind.ERROR_TRACKING_BREAKDOWNS_QUERY
+            | NodeKind.ERROR_TRACKING_RELEASES_QUERY
         ):
             return {"product": Product.ERROR_TRACKING}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
@@ -273,6 +277,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_QUERY
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
+            | NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY
             | NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
@@ -621,6 +626,10 @@ def tag_queries(**kwargs) -> None:
     """
     The purpose of tag_queries is to pass additional context for ClickHouse executed queries. The tags
     are serialized into ClickHouse' system.query_log.log_comment column.
+
+    Tags are last-write-wins, and HogQLQueryExecutor calls tag_queries(query_type=...) itself
+    immediately before execution. So a query_type set here before execute_hogql_query() never
+    reaches query_log; pass query_type= to execute_hogql_query() instead.
 
     :param kwargs: Key->value pairs of tags to be set.
     """

@@ -1080,7 +1080,7 @@ def get_teams_with_recording_count_in_period(
                 FROM session_replay_events
                 WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
                 GROUP BY session_id
-                HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
+                HAVING (ifNull(argMinMerge(snapshot_source), 'web') == 'mobile') == %(want_mobile)s
                 AND max(is_deleted) = 0
             )
             WHERE session_id NOT IN (
@@ -1100,7 +1100,9 @@ def get_teams_with_recording_count_in_period(
                 "previous_begin": previous_begin,
                 "begin": begin,
                 "end": end,
-                "snapshot_source": snapshot_source,
+                # Web is the catch-all, not an equality on 'web'. `$snapshot_source` is client-supplied
+                # and unvalidated, so the two meters have to partition every session between them.
+                "want_mobile": 1 if snapshot_source == "mobile" else 0,
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
@@ -1183,6 +1185,7 @@ def get_teams_with_zero_duration_recording_count_in_period(begin: datetime, end:
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    """Mobile recordings in the period; the client-reported SDK does not affect billing."""
     previous_begin = begin - (end - begin)
 
     with tags_context(product=Product.MOBILE_REPLAY, feature=Feature.USAGE_REPORT):
@@ -1194,8 +1197,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
                 FROM session_replay_events
                 WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
                 GROUP BY session_id
-                HAVING (ifNull(argMinMerge(snapshot_source), '') == 'mobile'
-                AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'))
+                HAVING (ifNull(argMinMerge(snapshot_source), 'web') == 'mobile') == 1
                 AND max(is_deleted) = 0
             )
             WHERE session_id NOT IN (
@@ -2335,7 +2337,7 @@ def get_teams_with_recording_bytes_in_period(
                 FROM session_replay_events
                 WHERE min_first_timestamp >= %(begin)s AND min_first_timestamp < %(end)s
                 GROUP BY session_id
-                HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
+                HAVING (ifNull(argMinMerge(snapshot_source), 'web') == 'mobile') == %(want_mobile)s
                 AND max(is_deleted) = 0
             )
             WHERE session_id NOT IN (
@@ -2355,7 +2357,9 @@ def get_teams_with_recording_bytes_in_period(
                 "previous_begin": previous_begin,
                 "begin": begin,
                 "end": end,
-                "snapshot_source": snapshot_source,
+                # Web is the catch-all, not an equality on 'web'. `$snapshot_source` is client-supplied
+                # and unvalidated, so the two meters have to partition every session between them.
+                "want_mobile": 1 if snapshot_source == "mobile" else 0,
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,

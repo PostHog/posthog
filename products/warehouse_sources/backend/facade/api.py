@@ -356,6 +356,18 @@ def resolve_object_by_name(team_id: int, name: str) -> contracts.WarehouseObject
     return contracts.WarehouseObjectRef(kind=kind, id=resolved.id)
 
 
+def queryable_table_names(team_id: int, table_ids: Collection[UUID]) -> dict[UUID, str]:
+    """The current name of each table that is still queryable. One query; anything gone is absent.
+
+    The bulk form of ``get_queryable_table`` for a caller that only needs names, so authorizing a
+    page of stored table references costs one query rather than one per reference.
+    """
+    if not table_ids:
+        return {}
+    rows = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id, id__in=list(table_ids))
+    return dict(rows.values_list("id", "name"))
+
+
 def list_tables_for_source(source_id: UUID, team_id: int) -> list[contracts.DataWarehouseTable]:
     qs = _DataWarehouseTable.objects.filter(team_id=team_id, external_data_source_id=source_id).exclude(deleted=True)
     return [_to_table(t) for t in qs]

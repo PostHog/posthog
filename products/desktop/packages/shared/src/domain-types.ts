@@ -92,6 +92,8 @@ export interface Task {
   json_schema?: Record<string, unknown> | null;
   signal_report?: string | null;
   internal?: boolean;
+  /** Key of the server-side flow that created the task, e.g. `desktop_onboarding_session:<user_id>`. */
+  origin_key?: string | null;
   runtime?: AgentRuntime;
   /** Backend channel (tasks product Channel UUID) this task is owned by. */
   channel?: string | null;
@@ -290,11 +292,33 @@ const optionalField = <T extends z.ZodType>(
   field: T,
 ): z.ZodCatch<z.ZodOptional<T>> => field.optional().catch(undefined);
 
+const pendingFollowupMessageSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  ts: z.string().optional(),
+});
+
+export type PendingFollowupMessage = z.infer<
+  typeof pendingFollowupMessageSchema
+>;
+
+export function readPendingFollowupMessages(
+  state: Record<string, unknown> | undefined,
+): PendingFollowupMessage[] {
+  const parsed = z
+    .array(pendingFollowupMessageSchema)
+    .safeParse(state?.pending_followup_messages);
+  return parsed.success ? parsed.data : [];
+}
+
 const taskRunStateFields = {
   ai_stage: optionalField(z.string()),
   auto_publish: optionalField(z.boolean()),
   initial_permission_mode: optionalField(executionModeSchema),
   initial_prompt_override: optionalField(z.string()),
+  pending_followup_messages: optionalField(
+    z.array(pendingFollowupMessageSchema),
+  ),
   pending_user_artifact_ids: optionalField(z.array(z.string())),
   pending_user_message: optionalField(z.string()),
   pending_user_message_id: optionalField(z.string()),
@@ -425,6 +449,12 @@ export interface SandboxEnvironment {
   include_default_domains: boolean;
   repositories: string[];
   has_environment_variables: boolean;
+  /**
+   * Names of the variables that are set. Values are write-only and never returned.
+   * Optional because desktop releases are not orchestrated with backend deploys, so a
+   * client can reach an API that predates this field.
+   */
+  environment_variable_keys?: string[];
   private: boolean;
   effective_domains: string[];
   custom_image_id: string | null;

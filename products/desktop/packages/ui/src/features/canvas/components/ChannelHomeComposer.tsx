@@ -390,10 +390,11 @@ export const ChannelHomeComposer = forwardRef<
       {/* The row sits in normal flow above the input, mirroring the new-task
           page's composer (the composer scrolls with the feed, so nothing may
           float over the cards below). */}
-      <div className="mb-1 flex min-w-0 items-center gap-1">
+      <div className="mb-2 flex min-w-0 items-center gap-1">
         <WorkspaceModeSelect
           value={workspaceMode}
           onChange={setWorkspaceMode}
+          adapter={runtime === "pi" ? undefined : adapter}
           overrideModes={["local", "cloud"]}
           selectedCloudEnvironmentId={selectedCloudEnvId}
           onCloudEnvironmentChange={setSelectedCloudEnvId}
