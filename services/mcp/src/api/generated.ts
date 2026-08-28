@@ -62952,6 +62952,7 @@ export namespace Schemas {
     export type PatchedLogsAlertUpdateDestinationInputs = { [key: string]: unknown };
 
     export interface PatchedLogsAlertUpdateDestination {
+      base_updated_at?: string;
       enabled?: boolean;
       /** @maxLength 400 */
       name?: string;

@@ -100,6 +100,9 @@ tools:
             Remove a notification destination from a log alert by passing the hog_function_ids returned from
             logs-alerts-destinations-create. Destinations are deleted as one atomic group — partial deletion fails the
             call.
+    logs-alerts-destinations-update:
+        operation: logs_alerts_destinations_update
+        enabled: false
     logs-alerts-destroy:
         operation: logs_alerts_destroy
         enabled: true
