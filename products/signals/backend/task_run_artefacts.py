@@ -14,8 +14,11 @@ purpose is *derived* — there is no relationship label on the task↔report ass
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from django.db import transaction
+
+from pydantic import ValidationError
 
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
@@ -24,6 +27,7 @@ from products.signals.backend.artefact_schemas import (
     TASK_RUN_TYPE_REPO_SELECTION,
     TASK_RUN_TYPE_RESEARCH,
     TASK_RUN_TYPE_SCOUT,
+    ActionabilityAssessment,
     NoteArtefact,
     TaskRunArtefact,
 )
@@ -172,6 +176,29 @@ def _live_implementation_exists(*, team_id: int, report_id: str, exclude_task_id
     return False
 
 
+def _report_already_addressed_at(*, report_id: str) -> datetime | None:
+    """When the report's latest actionability verdict says the fix is already addressed.
+
+    Returns the verdict's timestamp when the latest `actionability_judgment` sets
+    `already_addressed`, else `None` — no verdict, an unparseable one, or a still-open
+    `already_addressed: false`. Latest-wins, matching auto-start's `_latest_artefact_as`.
+    """
+    artefact = (
+        SignalReportArtefact.objects.filter(
+            report_id=report_id, type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if artefact is None:
+        return None
+    try:
+        assessment = ActionabilityAssessment.model_validate_json(artefact.content)
+    except ValidationError:
+        return None
+    return artefact.created_at if assessment.already_addressed else None
+
+
 def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str | None) -> None:
     """Cap the tasks a single report can spawn; raises `ReportTaskCapExceeded` at the limit.
 
@@ -220,10 +247,12 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     lets a second implementation be created for the report — and then running the first one again
     would put two live implementations on it, spending unbilled inference twice over.
 
-    Only another task holding the slot blocks: a task reclaiming the slot it released is the
-    ordinary "my run failed, try again" path and stays allowed. Non-implementation tasks are
-    unaffected, since the discussion cap counts tasks rather than runs and conversation inside
-    one is deliberately unlimited.
+    A re-run also loses to a fresher verdict: if the report's latest `actionability_judgment`
+    now says the fix is already addressed, re-running the old task would open a competing PR, so
+    the re-run is refused. Otherwise only another task holding the slot blocks — a task reclaiming
+    the slot it released is the ordinary "my run failed, try again" path and stays allowed.
+    Non-implementation tasks are unaffected, since the discussion cap counts tasks rather than
+    runs and conversation inside one is deliberately unlimited.
 
     Must be called inside an open transaction: it locks the report row, the same lock creation
     and auto-start take. That lock only serializes for as long as the caller's transaction stays
@@ -244,6 +273,15 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
     if report is None:
         return
+    addressed_at = _report_already_addressed_at(report_id=report_id)
+    if addressed_at is not None:
+        raise ReportTaskCapExceeded(
+            kind=TASK_RUN_TYPE_IMPLEMENTATION,
+            detail=(
+                f"This report was judged already addressed on {addressed_at.date().isoformat()}; "
+                "open the existing PR instead."
+            ),
+        )
     if _live_implementation_exists(team_id=team_id, report_id=report_id, exclude_task_id=task_id):
         raise ReportTaskCapExceeded(
             kind=TASK_RUN_TYPE_IMPLEMENTATION,

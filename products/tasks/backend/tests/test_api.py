@@ -2183,6 +2183,45 @@ class TestTaskAPI(BaseTaskAPITest):
         else:
             self.assertNotEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
+    @parameterized.expand(
+        [
+            # A fresher verdict says the fix is already in flight, so rerunning would open a
+            # competing PR — refuse even though the failed runs released the slot.
+            ("already_addressed_now", True, True),
+            # The latest verdict is still open, so the ordinary "my run failed, try again" stands.
+            ("still_open", False, False),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_rerunning_a_failed_implementation_rechecks_the_actionability_verdict(
+        self, _name, already_addressed, expect_refused, mock_workflow
+    ):
+        from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        report = SignalReport.objects.create(team=self.team)
+        # Every run failed without a PR, so the slot check alone would allow the rerun.
+        task = self._create_implementation_task_with_runs(report, [("failed", None), ("failed", None)])
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=ActionabilityAssessment(
+                explanation="Covered by an open PR.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=already_addressed,
+            ).model_dump_json(),
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        if expect_refused:
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertEqual(response.json()["code"], "signal_report_task_cap")
+            mock_workflow.assert_not_called()
+        else:
+            self.assertNotEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_rerun_refuses_when_the_slot_is_taken_after_the_preflight_check(self, mock_workflow):
         from products.signals.backend.models import SignalReport
