@@ -69,6 +69,21 @@ describe('ConversationDisplay', () => {
             },
         ],
         [
+            '$ai_generation whose $ai_output_choices is an empty container',
+            '$ai_generation',
+            {
+                $ai_input: [{ role: 'user', content: 'generation input' }],
+                $ai_output_choices: [],
+                $ai_output: [{ role: 'assistant', content: 'real output' }],
+                $ai_tools: [{ function: { name: 'search' } }],
+                $ai_trace_id: 'trace-1',
+            },
+            {
+                input: [{ role: 'user', content: 'generation input' }],
+                output: [{ role: 'assistant', content: 'real output' }],
+            },
+        ],
+        [
             '$ai_embedding',
             '$ai_embedding',
             {

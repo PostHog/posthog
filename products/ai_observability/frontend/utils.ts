@@ -107,6 +107,29 @@ function formatUsage(inputTokens: number, outputTokens?: number | null): string 
     return `${inputTokens} → ${outputTokens || 0} (∑ ${inputTokens + (outputTokens || 0)})`
 }
 
+/** Whether an AI content property holds anything to render. An empty container holds nothing. */
+export function hasAiContent(value: unknown): boolean {
+    if (value === null || value === undefined || value === '') {
+        return false
+    }
+    if (Array.isArray(value)) {
+        return value.length > 0
+    }
+    if (typeof value === 'object') {
+        return Object.keys(value).length > 0
+    }
+    return true
+}
+
+/**
+ * Picks the first output property that carries content. A generation can send an empty
+ * `$ai_output_choices` while `$ai_output` holds the response, and a nullish check keeps the empty
+ * container, so the fallback is never reached and the panel reports nothing was captured.
+ */
+export function firstAiOutputWithContent(...values: unknown[]): unknown {
+    return values.find(hasAiContent)
+}
+
 export function formatLLMUsage(
     trace_or_event_or_aggregation: LLMTrace | LLMTraceEvent | SpanAggregation
 ): string | null {

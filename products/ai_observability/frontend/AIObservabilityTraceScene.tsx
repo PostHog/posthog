@@ -111,6 +111,7 @@ import {
     CostContext,
     costContextFromProperties,
     costContextFromTrace,
+    firstAiOutputWithContent,
     formatLLMCost,
     formatLLMEventTitle,
     formatLLMLatency,
@@ -1777,10 +1778,10 @@ const EventContent = React.memo(
                                                                 traceId={trace.id}
                                                                 timestamp={event.createdAt}
                                                                 rawInput={event.properties.$ai_input}
-                                                                rawOutput={
-                                                                    event.properties.$ai_output_choices ??
+                                                                rawOutput={firstAiOutputWithContent(
+                                                                    event.properties.$ai_output_choices,
                                                                     event.properties.$ai_output
-                                                                }
+                                                                )}
                                                                 tools={event.properties.$ai_tools}
                                                                 errorData={event.properties.$ai_error}
                                                                 httpStatus={event.properties.$ai_http_status}

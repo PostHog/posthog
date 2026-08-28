@@ -72,10 +72,16 @@ function getInitialMessageShowStates(
     return { input: inputStates, output: outputStates }
 }
 
-// Token counts arrive straight off untyped event properties, so a provider that reports one
-// as a string still has to reach the empty-output notice.
+// Token counts arrive straight off untyped event properties, so a provider that reports one as a
+// string still has to reach the empty-output notice. posthog-ai below 7.3.0 sent them as
+// `{ total, noCache, cacheRead }`. Ingestion normalizes that now, but events captured before it
+// still hold the object shape.
 function billedTokenCount(value: unknown): number | null {
-    const parsed = typeof value === 'string' ? Number(value) : value
+    const unwrapped =
+        value !== null && typeof value === 'object' && !Array.isArray(value) && 'total' in value
+            ? (value as { total: unknown }).total
+            : value
+    const parsed = typeof unwrapped === 'string' ? Number(unwrapped) : unwrapped
     return typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
@@ -83,13 +89,21 @@ function billedTokenCount(value: unknown): number | null {
 // the OTel middlewares pass the value through verbatim. `max_tokens`, `MAX_TOKENS`, and `length` all
 // mean the response ran out of room, so match a normalized set rather than one literal.
 const TRUNCATED_STOP_REASONS = new Set(['max_tokens', 'max_output_tokens', 'length', 'model_length'])
-const BLOCKED_STOP_REASONS = new Set(['prohibited_content', 'content_filter', 'safety', 'recitation', 'blocklist'])
+const BLOCKED_STOP_REASONS = new Set([
+    'prohibited_content',
+    'content_filter',
+    'content_filtered',
+    'safety',
+    'recitation',
+    'blocklist',
+])
 
 function describeStopReason(value: unknown): string | null {
     if (typeof value !== 'string') {
         return null
     }
-    const normalized = value.trim().toLowerCase()
+    // The Vercel AI SDK hyphenates its values, so `content-filter` has to reach the same entry.
+    const normalized = value.trim().toLowerCase().replace(/-/g, '_')
     if (TRUNCATED_STOP_REASONS.has(normalized)) {
         return 'The response hit its token limit.'
     }
@@ -118,9 +132,12 @@ function describeEmptyOutput(outputTokens: unknown, reasoningTokens: unknown, st
         return namedCause
     }
 
+    // Reasoning only explains the gap when it accounts for the whole billed output. A small
+    // reasoning count beside a large output count leaves non-reasoning tokens unaccounted for.
+    const reasoningExplainsOutput = reasoning !== null && (output === null || reasoning >= output)
     const cause =
         namedCause ??
-        (reasoning !== null
+        (reasoningExplainsOutput
             ? 'The model may have spent its budget on reasoning.'
             : 'The response may have been cut short, or the SDK may not have captured it.')
 
@@ -350,7 +367,8 @@ export function ConversationMessagesDisplay({
     // Nothing to render means the provider either charged for work whose content never reached the
     // event, or told us why it stopped. Name that, so an empty box isn't mistaken for a provider
     // that said nothing.
-    const emptyOutputExplanation = describeEmptyOutput(outputTokens, reasoningTokens, stopReason)
+    const emptyOutputExplanation =
+        outputNormalized.length === 0 ? describeEmptyOutput(outputTokens, reasoningTokens, stopReason) : null
 
     return (
         <>

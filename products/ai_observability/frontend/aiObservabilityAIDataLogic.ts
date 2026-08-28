@@ -7,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
-import { parsePartialJSON } from './utils'
+import { hasAiContent, parsePartialJSON } from './utils'
 
 const AI_DATA_QUERY_TAGS = {
     productKey: ProductKey.AI_OBSERVABILITY,
@@ -98,11 +98,23 @@ function firstUsableValue(...values: unknown[]): unknown {
     return undefined
 }
 
+// `output_choices` can be an empty container while `output` holds the response, so an
+// is-it-set check would keep the empty one and lose the content behind it.
+function firstValueWithContent(...values: unknown[]): unknown {
+    for (const value of values) {
+        const parsed = parseHeavyValue(value)
+        if (hasAiContent(parsed)) {
+            return parsed
+        }
+    }
+    return undefined
+}
+
 function mapAIDataQueryRow(row: AIDataQueryRow): AIData {
     const [input, output, outputChoices, inputState, outputState, tools] = row
     return {
         input: firstUsableValue(input, inputState),
-        output: firstUsableValue(outputChoices, outputState, output),
+        output: firstValueWithContent(outputChoices, outputState, output),
         tools: parseHeavyValue(tools),
     }
 }
