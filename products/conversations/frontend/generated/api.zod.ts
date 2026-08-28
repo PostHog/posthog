@@ -408,6 +408,8 @@ export const conversationsTicketsComposeCreateBodyMessageMax = 5000
 
 export const conversationsTicketsComposeCreateBodyTagsItemMax = 255
 
+export const conversationsTicketsComposeCreateBodyTagsMax = 100
+
 export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object({
     recipient_email: zod.email().describe('Recipient email address.'),
     recipient_distinct_id: zod
@@ -425,9 +427,10 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
     rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
     tags: zod
         .array(zod.string().max(conversationsTicketsComposeCreateBodyTagsItemMax))
+        .max(conversationsTicketsComposeCreateBodyTagsMax)
         .optional()
         .describe(
-            'Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed).'
+            'Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.'
         ),
 })
 

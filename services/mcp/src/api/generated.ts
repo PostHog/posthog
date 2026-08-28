@@ -18524,7 +18524,8 @@ export namespace Schemas {
       /** TipTap rich content JSON for formatted messages. */
       rich_content?: unknown;
       /**
-         * Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed).
+         * Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.
+         * @maxItems 100
          * @items.maxLength 255
          */
       tags?: string[];
