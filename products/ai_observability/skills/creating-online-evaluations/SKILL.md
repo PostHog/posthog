@@ -6,8 +6,9 @@ description: >
   or whole traces going forward — "create an eval to catch X", "continuously check that responses do Y",
   "turn these failures into evals". Covers letting the explored data decide how many evals to create,
   proposing that set in plain language and asking the user which ones they want, choosing the target and
-  eval type (hog / llm_judge / sentiment), configuring a provider, model, and usable provider key for an
-  llm_judge eval, scoping which generations trigger it via conditions, creating disabled, verifying scope,
+  eval type (hog / llm_judge / sentiment), configuring a provider and model for an llm_judge eval (the
+  provider key may be null and is only needed to enable it), scoping which generations trigger it via
+  conditions, creating disabled, verifying scope,
   and enabling. Falls back to proposing a sentiment eval when no failure mode is worth catching.
   Finding and ranking the failure modes worth evaluating is its own job — use exploring-ai-failures first.
   To debug or manage evaluations that already exist, use exploring-llm-evaluations.
@@ -132,7 +133,7 @@ set into production, which is noise and (for a judge) cost the user didn't agree
 | Use…        | When the criterion is…                                                                                                                |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `hog`       | Structural / rule-based (JSON parses, length, regex, tool-call shape). Cheap, deterministic, **no provider key needed.**              |
-| `llm_judge` | Subjective / fuzzy (tone, factuality, on-topic). Costs an LLM call per run; needs a provider, model, and usable provider key.         |
+| `llm_judge` | Subjective / fuzzy (tone, factuality, on-topic). Costs an LLM call per run; needs a provider and model. A usable provider key is only needed to enable it, not to create a draft. |
 | `sentiment` | You want sentiment labels on user messages, not a pass/fail (unless very specifically asked for, usually not relevant to this skill). |
 
 Reach for `hog` first, escalate to `llm_judge` if there is no deterministic way to check for what we want to check.
@@ -210,12 +211,14 @@ when exact structure matters.
 
 ### 2.3 — Configure the LLM judge
 
-An `llm_judge` evaluation requires a valid `provider` and `model`. It also needs a usable provider key
-when it runs. `provider_key_id` controls whether the evaluation pins one specific key:
+An `llm_judge` evaluation requires only a valid `provider` and `model` to create as a draft. A usable
+provider key is needed to enable it, not to save it, so no `ok` key is a reason to keep the eval disabled,
+not a reason to stop. `provider_key_id` controls whether the evaluation pins one specific key:
 
 - Set `provider_key_id` to the UUID of an `ok`-state key for the same provider to pin it.
-- Set `provider_key_id` to `null` to use the team's active provider key. The active key must be in the
-  `ok` state and use the same provider as `model_configuration.provider`.
+- Set `provider_key_id` to `null` to use the team's active provider key. This is always a valid saved
+  value. To enable the eval, the active key must be in the `ok` state and use the same provider as
+  `model_configuration.provider`.
 
 Hog and sentiment evaluations skip this step.
 
@@ -229,10 +232,12 @@ Confirm the provider and model with `llma-evaluation-judge-models`.
 Call it with no arguments to see the whole catalog at once.
 Providers PostHog funds no models for come back empty unless you pass `key_id` for one of the team's keys; the response's `providers` list flags which ones those are.
 Prefer pinning the chosen key so a later team-wide active-key change does not change how the evaluation runs.
-Leave `provider_key_id` as `null` only after `llma-evaluation-config-get` confirms the active key is usable and its provider matches.
+Leave `provider_key_id` as `null` to run on the team's active key; before enabling, confirm with
+`llma-evaluation-config-get` that the active key is usable and its provider matches.
 
-If there is no usable key, you may still create a disabled draft for the user to review. Do not spot-run or
-enable it. Ask the user to add or validate a key in the UI before continuing.
+No usable key does not block creation. Create the disabled draft with a valid `provider` and `model` for
+the user to review. Do not spot-run or enable it, and ask the user to add or validate a key in the UI so it
+can be enabled later.
 
 ### 2.4 — Create it disabled
 
@@ -261,8 +266,9 @@ posthog:llma-evaluation-create
 ```
 
 For `llm_judge`, swap `evaluation_config` to `{ "prompt": "…" }` and add
-`"model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": "<uuid of an ok-state key from llma-provider-key-list>" }`.
-Use `null` only when the active team key is `ok` and uses the same provider. Full field reference:
+`"model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": null }`.
+Pin `provider_key_id` to the UUID of an `ok`-state key from `llma-provider-key-list` to run on one specific
+key; `null` runs on the team's active key. Either value saves a draft. Full field reference:
 [references/evaluation-payload.md](references/evaluation-payload.md).
 
 ### 2.5 — Verify the scope before enabling
@@ -354,8 +360,9 @@ creating so the user can review and toggle it in the UI.
   criterion genuinely can't be coded.
 - **Always create disabled, verify scope, then enable.** An eval firing on the wrong events is worse than
   none — noise, and (for llm_judge) cost.
-- **Configure llm_judge credentials before running.** A judge needs a valid provider and model plus a usable
-  provider key. `provider_key_id` may be `null` only when the matching active team key can be used.
+- **A judge draft needs only a provider and model.** A usable provider key is needed to enable it, not to
+  save it, so no `ok` key means keep it disabled — not stop. `provider_key_id` may be `null` to run on the
+  team's active key.
 - **`bytecode` is server-written** for hog evals — never pass it; send only `evaluation_config.source`.
 - For cluster-scoped evals, identify the cluster with `exploring-llm-clusters`, then translate its event
   filter into `conditions`.
