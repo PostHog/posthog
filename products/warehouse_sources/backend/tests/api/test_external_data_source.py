@@ -1384,13 +1384,10 @@ class TestExternalDataSource(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
 
-        mock_hog_function = MagicMock()
-        mock_hog_function.id = uuid.uuid4()
-        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
-        from products.data_warehouse.backend.logic.external_data_source.webhooks import WebhookHogFunctionCreateResult
+        from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
 
         mock_hog_fn_result = WebhookHogFunctionCreateResult(
-            hog_function=mock_hog_function,
+            hog_function_id=str(uuid.uuid4()),
             webhook_url="https://test.com/webhook",
             hog_function_created=False,
         )

@@ -330,18 +330,6 @@ depends_on = [
 ]
 layer = "modules"
 
-# Isolation debt: warehouse_sources' API tests build the webhook create result to mock
-# the facade call, and the result hands out a HogFunction model that the consumers mutate.
-# Drain by narrowing the result to a hog function id in facade/contracts.py and moving the
-# mutation behind the cdp facade, then delete this block.
-[[interfaces]]
-expose = [
-    "backend\\.logic\\.external_data_source\\.webhooks\\.WebhookHogFunctionCreateResult",
-]
-from = [
-    "products.data_warehouse",
-]
-
 [[modules]]
 path = "products.data_warehouse"
 depends_on = [
