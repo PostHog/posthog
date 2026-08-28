@@ -51,6 +51,14 @@ SERVICE_ACCOUNT_STATUS_CHOICES = [
     ("paused", "Paused"),
 ]
 
+# Built-in accounts are PostHog's fixed agents (support, scout), synced from
+# code. Custom accounts are created by the team (e.g. "SRE") and carry only the
+# connections members grant them.
+SERVICE_ACCOUNT_KIND_CHOICES = [
+    ("built_in", "Built-in"),
+    ("custom", "Custom"),
+]
+
 # Team-level policy baselines. They derive a default per-tool state for tools
 # that have no explicit policy row (see policy.member_preset_team_state).
 POLICY_PRESET_CHOICES = [
@@ -366,7 +374,9 @@ class MCPOrgRule(TeamScopedRootMixin, UUIDModel):
 
 
 class MCPServiceAccount(TeamScopedRootMixin, UUIDModel):
-    """A fixed PostHog agent identity with independent MCP access policies."""
+    """An agent identity with independent MCP access policies: one of PostHog's
+    built-in agents, or a team-created service account that automations (a
+    workflow's "Create AI task" action) run as."""
 
     team = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, related_name="mcp_service_accounts", db_constraint=False
@@ -376,6 +386,12 @@ class MCPServiceAccount(TeamScopedRootMixin, UUIDModel):
     # Stable internal identity handle shown in audit trails.
     handle = models.CharField(max_length=200)
     status = models.CharField(max_length=20, choices=SERVICE_ACCOUNT_STATUS_CHOICES, default="active")
+    # db_default keeps inserts from pods running the previous release (which
+    # don't know the column) valid during the rolling deploy; those inserts are
+    # the built-in sync's, so the default is the right value for them too.
+    kind = models.CharField(
+        max_length=20, choices=SERVICE_ACCOUNT_KIND_CHOICES, default="built_in", db_default="built_in"
+    )
     # Reserved unique identity material for the built-in catalog. Runtime
     # authentication uses short-lived signed tokens instead.
     token_hash = models.CharField(max_length=128, unique=True)
