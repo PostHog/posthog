@@ -1885,6 +1885,7 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         self.assertIsNone(self.captured["ip_address"])
 
 
+@override_settings(CLOUD_DEPLOYMENT="US")
 class TestCSPMiddleware(APIBaseTest):
     def test_non_html_response_gets_strict_csp(self):
         response = self.client.get("/api/users/@me/")
@@ -1913,6 +1914,40 @@ class TestCSPMiddleware(APIBaseTest):
         header = response["Reporting-Endpoints"]
         assert 'default="https://us.i.posthog.com/report/' in header
         assert "distinct_id" not in header
+
+
+class TestCSPReportingIsCloudOnly(APIBaseTest):
+    """The CSP report is sent by the browser, so a self-hosted install that inherited our
+    `report-uri` would ship its internal URLs and its users' IPs to a PostHog-owned endpoint
+    nobody there opted into. Reporting is Cloud-only; the policy itself still applies."""
+
+    def _assert_not_reporting(self, response):
+        assert "Reporting-Endpoints" not in response
+        policy = response.get("Content-Security-Policy-Report-Only") or response["Content-Security-Policy"]
+        assert "report-uri" not in policy
+        assert "report-to" not in policy
+        # The protection itself must survive — only the phone-home is dropped.
+        assert "default-src 'self'" in policy
+
+    @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
+    def test_self_hosted_app_page_does_not_report(self):
+        self._assert_not_reporting(self.client.get("/"))
+
+    @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
+    def test_self_hosted_admin_page_does_not_report(self):
+        self.user.is_staff = True
+        self.user.save()
+        self._assert_not_reporting(self.client.get("/admin/"))
+
+    @override_settings(CLOUD_DEPLOYMENT="US", OPT_OUT_CAPTURE=True)
+    def test_cloud_respects_opt_out_capture(self):
+        self._assert_not_reporting(self.client.get("/"))
+
+    @override_settings(CLOUD_DEPLOYMENT="US", OPT_OUT_CAPTURE=False)
+    def test_cloud_still_reports(self):
+        response = self.client.get("/")
+        assert "Reporting-Endpoints" in response
+        assert "report-uri https://us.i.posthog.com/report/" in response["Content-Security-Policy-Report-Only"]
 
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):
