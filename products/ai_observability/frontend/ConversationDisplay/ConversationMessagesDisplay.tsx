@@ -79,24 +79,50 @@ function billedTokenCount(value: unknown): number | null {
     return typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
-// Explains a generation the provider billed for but never sent content for. Providers disagree on
-// whether reasoning tokens sit inside the output count or beside it, so name each count that is
-// present rather than deriving one from the other.
-function describeBilledTokens(outputTokens: unknown, reasoningTokens: unknown): string | null {
-    const output = billedTokenCount(outputTokens)
-    const reasoning = billedTokenCount(reasoningTokens)
-    if (output === null && reasoning === null) {
+// Stop reasons that explain an empty output. Each provider spells the same outcome its own way, and
+// the OTel middlewares pass the value through verbatim. `max_tokens`, `MAX_TOKENS`, and `length` all
+// mean the response ran out of room, so match a normalized set rather than one literal.
+const TRUNCATED_STOP_REASONS = new Set(['max_tokens', 'max_output_tokens', 'length', 'model_length'])
+const BLOCKED_STOP_REASONS = new Set(['prohibited_content', 'content_filter', 'safety', 'recitation', 'blocklist'])
+
+function describeStopReason(value: unknown): string | null {
+    if (typeof value !== 'string') {
         return null
     }
+    const normalized = value.trim().toLowerCase()
+    if (TRUNCATED_STOP_REASONS.has(normalized)) {
+        return 'The response hit its token limit.'
+    }
+    if (BLOCKED_STOP_REASONS.has(normalized)) {
+        return 'The provider blocked the response.'
+    }
+    return null
+}
+
+// Explains a generation that rendered no content. `$ai_stop_reason` is the provider's own account of
+// why it stopped, so it outranks anything inferred from token counts. Providers disagree on whether
+// reasoning tokens sit inside the output count or beside it, so name each count that is present
+// rather than deriving one from the other.
+function describeEmptyOutput(outputTokens: unknown, reasoningTokens: unknown, stopReason: unknown): string | null {
+    const output = billedTokenCount(outputTokens)
+    const reasoning = billedTokenCount(reasoningTokens)
+    const namedCause = describeStopReason(stopReason)
 
     const counts = [
         output !== null ? `${humanFriendlyNumber(output)} output tokens` : null,
         reasoning !== null ? `${humanFriendlyNumber(reasoning)} reasoning tokens` : null,
     ].filter(Boolean)
+
+    // A provider can block a response before billing anything, so a known cause stands on its own.
+    if (counts.length === 0) {
+        return namedCause
+    }
+
     const cause =
-        reasoning !== null
+        namedCause ??
+        (reasoning !== null
             ? 'The model may have spent its budget on reasoning.'
-            : 'The response may have been cut short, or the SDK may not have captured it.'
+            : 'The response may have been cut short, or the SDK may not have captured it.')
 
     return `The provider reported ${counts.join(' and ')} but no content was captured. ${cause}`
 }
@@ -110,6 +136,7 @@ export function ConversationMessagesDisplay({
     raisedError,
     outputTokens,
     reasoningTokens,
+    stopReason,
     bordered = false,
     searchQuery,
     displayOption,
@@ -128,6 +155,8 @@ export function ConversationMessagesDisplay({
     outputTokens?: unknown
     /** `$ai_reasoning_tokens`. Some providers bill only these, so they alone can explain an empty output. */
     reasoningTokens?: unknown
+    /** `$ai_stop_reason`. The provider's own account of why it stopped, so it outranks any inference. */
+    stopReason?: unknown
     bordered?: boolean
     searchQuery?: string
     displayOption?: ConversationDisplayOption
@@ -318,9 +347,10 @@ export function ConversationMessagesDisplay({
 
     const showOutputSection = outputNormalized.length > 0 || !raisedError
 
-    // Billed tokens with nothing to render means the provider charged for work whose content never
-    // reached the event. Name that, so an empty box isn't mistaken for a provider that said nothing.
-    const billedTokensExplanation = describeBilledTokens(outputTokens, reasoningTokens)
+    // Nothing to render means the provider either charged for work whose content never reached the
+    // event, or told us why it stopped. Name that, so an empty box isn't mistaken for a provider
+    // that said nothing.
+    const emptyOutputExplanation = describeEmptyOutput(outputTokens, reasoningTokens, stopReason)
 
     return (
         <>
@@ -347,8 +377,10 @@ export function ConversationMessagesDisplay({
                         ) : (
                             <div className="rounded border text-default p-2 bg-[var(--bg-fill-error-tertiary)]">
                                 <div className="italic">No output</div>
-                                {billedTokensExplanation && (
-                                    <div className="mt-1 text-xs">{billedTokensExplanation}</div>
+                                {emptyOutputExplanation && (
+                                    <div className="mt-1 text-xs" data-attr="ai-empty-output-explanation">
+                                        {emptyOutputExplanation}
+                                    </div>
                                 )}
                             </div>
                         )

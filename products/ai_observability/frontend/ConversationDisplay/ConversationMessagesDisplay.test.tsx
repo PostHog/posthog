@@ -471,10 +471,11 @@ describe('ConversationMessagesDisplay', () => {
         }
     })
 
-    it.each<[string, unknown, unknown, string | null]>([
+    it.each<[string, unknown, unknown, unknown, string | null]>([
         [
             'only output tokens were billed',
             2048,
+            undefined,
             undefined,
             'The provider reported 2,048 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
         ],
@@ -482,24 +483,55 @@ describe('ConversationMessagesDisplay', () => {
             'only reasoning tokens were billed',
             undefined,
             442,
+            undefined,
             'The provider reported 442 reasoning tokens but no content was captured. The model may have spent its budget on reasoning.',
         ],
         [
             'both counts were billed',
             2048,
             442,
+            undefined,
             'The provider reported 2,048 output tokens and 442 reasoning tokens but no content was captured. The model may have spent its budget on reasoning.',
         ],
         [
             'a provider reported the count as a string',
             '512',
             undefined,
+            undefined,
             'The provider reported 512 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
         ],
-        ['the provider billed nothing', 0, 0, null],
-        ['no token counts arrived', undefined, undefined, null],
-    ])('empty output explains the gap when %s', (_label, outputTokens, reasoningTokens, expected) => {
-        render(
+        [
+            'a provider spelled the token limit in upper case',
+            2048,
+            undefined,
+            'MAX_TOKENS',
+            'The provider reported 2,048 output tokens but no content was captured. The response hit its token limit.',
+        ],
+        [
+            'the stop reason outranks the reasoning-token guess',
+            undefined,
+            442,
+            'length',
+            'The provider reported 442 reasoning tokens but no content was captured. The response hit its token limit.',
+        ],
+        [
+            'the provider blocked the response without billing anything',
+            0,
+            0,
+            'PROHIBITED_CONTENT',
+            'The provider blocked the response.',
+        ],
+        [
+            'the stop reason describes a normal ending',
+            2048,
+            undefined,
+            'end_turn',
+            'The provider reported 2,048 output tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
+        ],
+        ['the provider billed nothing', 0, 0, undefined, null],
+        ['no token counts arrived', undefined, undefined, undefined, null],
+    ])('empty output explains the gap when %s', (_label, outputTokens, reasoningTokens, stopReason, expected) => {
+        const { container } = render(
             <Provider>
                 <ConversationMessagesDisplay
                     inputNormalized={inputNormalized}
@@ -508,16 +540,17 @@ describe('ConversationMessagesDisplay', () => {
                     raisedError={false}
                     outputTokens={outputTokens}
                     reasoningTokens={reasoningTokens}
+                    stopReason={stopReason}
                 />
             </Provider>
         )
 
         expect(screen.getByText('No output')).toBeInTheDocument()
-        const explanation = screen.queryByText(/no content was captured/)
+        const explanation = container.querySelector('[data-attr="ai-empty-output-explanation"]')
         if (expected !== null) {
             expect(explanation).toHaveTextContent(expected)
         } else {
-            expect(explanation).not.toBeInTheDocument()
+            expect(explanation).toBeNull()
         }
     })
 })

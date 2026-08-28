@@ -28,6 +28,7 @@ interface EventContentConversationProps {
     raisedError?: boolean
     outputTokens?: unknown
     reasoningTokens?: unknown
+    stopReason?: unknown
     searchQuery?: string
     displayOption?: ConversationDisplayOption
     /** Original $ai_input index to auto-expand (e.g. from sentiment tab deep link) */
@@ -52,6 +53,7 @@ export function EventContentConversation({
     raisedError,
     outputTokens,
     reasoningTokens,
+    stopReason,
     searchQuery,
     displayOption,
     highlightMessageIndex,
@@ -145,6 +147,7 @@ export function EventContentConversation({
             raisedError={raisedError}
             outputTokens={outputTokens}
             reasoningTokens={reasoningTokens}
+            stopReason={stopReason}
             searchQuery={searchQuery}
             displayOption={displayOption}
             traceId={traceId}

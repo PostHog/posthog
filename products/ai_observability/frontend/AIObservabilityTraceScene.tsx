@@ -1787,6 +1787,7 @@ const EventContent = React.memo(
                                                                 raisedError={event.properties.$ai_is_error}
                                                                 outputTokens={event.properties.$ai_output_tokens}
                                                                 reasoningTokens={event.properties.$ai_reasoning_tokens}
+                                                                stopReason={event.properties.$ai_stop_reason}
                                                                 searchQuery={searchQuery}
                                                                 displayOption={displayOption}
                                                                 highlightMessageIndex={highlightMessageIndex}
