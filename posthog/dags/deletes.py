@@ -2,7 +2,7 @@ import abc
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from django.conf import settings
 from django.db.models import Q
@@ -451,13 +451,25 @@ class AdhocEventDeletesDictionary(Dictionary):
 def get_oldest_person_override_timestamp(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> datetime:
-    """Get the oldest person override timestamp from the person_distinct_id_overrides table."""
+    """The oldest override still waiting to be squashed, which bounds how recent a person deletion may be.
+
+    With none waiting, no later squash can rewrite rows onto a person this run deletes, so every
+    request is safe and the bound is now.
+
+    ``minOrNull`` rather than ``min``: over an empty table ``min`` returns the DateTime default,
+    1970-01-01, and that reads as a bound admitting no person deletion at all rather than all of
+    them. The run stays green, the requests keep their null delete_verified_at, and nothing says
+    they were skipped.
+    """
 
     query = f"""
-    SELECT min(_timestamp) FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}
+    SELECT minOrNull(_timestamp) FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}
     """
-    [[result]] = cluster.any_host_by_role(lambda client: client.execute(query), NodeRole.DATA).result()
-    return result
+    [[oldest]] = cluster.any_host_by_role(lambda client: client.execute(query), NodeRole.DATA).result()
+    if oldest is not None:
+        return oldest
+    # Naive UTC, matching what ClickHouse hands back for the non-empty case.
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 @dagster.op
