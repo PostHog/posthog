@@ -27,7 +27,7 @@ export const GATEWAY_ADD_SERVER_DEFAULTS: GatewayAddServerValues = {
   clientId: "",
   clientSecret: "",
   teamEnabled: true,
-  agentScope: "team",
+  agentScope: "personal",
 };
 
 export function canSubmitGatewayServer(

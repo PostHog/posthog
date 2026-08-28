@@ -378,7 +378,7 @@ describe('mcpGatewayLogic', () => {
         )
     })
 
-    it('adds a custom server shared with the team and with every agent by default', async () => {
+    it("adds a custom server shared with the team and with every agent for the user's own runs by default", async () => {
         const pendingInstall = deferred<Awaited<ReturnType<typeof mcpServerInstallationsInstallCustomCreate>>>()
         mockInstallCustom.mockReturnValue(pendingInstall.promise)
         logic.actions.openAddServerModal()
@@ -401,7 +401,7 @@ describe('mcpGatewayLogic', () => {
                 api_key: 'secret-key',
                 scope: 'personal',
                 team_enabled: true,
-                agent_scope: 'team',
+                agent_scope: 'personal',
             })
         )
 
