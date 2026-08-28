@@ -590,24 +590,38 @@ async function buildCanvas(project) {
             }
         }
     }
+    // A static <img src> resolves against the artifact origin, so warn when it names a path the
+    // artifact will not carry. Scan the entry HTML and every source file that can hold literal
+    // markup, because a React canvas keeps its <img> tags in TSX, not the synthetic entry shell.
+    // Treat a reference as declared only when it maps to an emitted artifact or a declared image
+    // asset: a source file in project.files is bundled, not emitted at its own path. A dynamic
+    // src={expr} cannot be matched and is left unflagged. These warnings never fail a build.
     const warnings = []
-    for (const match of (project.files[project.entryHtml] ?? '').matchAll(
-        /<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi
-    )) {
-        const reference = match[1]
-        if (/^[a-z][a-z0-9+.-]*:/i.test(reference)) {
+    const declaredArtifactPaths = new Set([...emittedPaths, ...imageAssets.map(([assetPath]) => assetPath)])
+    const scannedImageReferences = new Set()
+    for (const [filePath, content] of Object.entries(project.files)) {
+        if (typeof content !== 'string' || !/\.(html?|tsx|jsx)$/i.test(filePath)) {
             continue
         }
-        const declared = normalize(reference)
-        if (!(declared in (project.assets ?? {})) && !(declared in project.files)) {
-            warnings.push({
-                ...diagnostic(
-                    'asset_not_declared',
-                    `<img src="${reference}"> matches no declared asset, so it will render broken — add the file to project.assets`,
-                    project.entryHtml
-                ),
-                severity: 'warning',
-            })
+        for (const match of content.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) {
+            const reference = match[1]
+            if (scannedImageReferences.has(reference)) {
+                continue
+            }
+            scannedImageReferences.add(reference)
+            if (/^[a-z][a-z0-9+.-]*:/i.test(reference)) {
+                continue
+            }
+            if (!declaredArtifactPaths.has(normalize(reference))) {
+                warnings.push({
+                    ...diagnostic(
+                        'asset_not_declared',
+                        `<img src="${reference}"> matches no declared asset, so it will render broken — add the file to project.assets`,
+                        filePath
+                    ),
+                    severity: 'warning',
+                })
+            }
         }
     }
     const assetRefs = imageAssets.map(([assetPath]) => ({ path: assetPath }))

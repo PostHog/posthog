@@ -636,6 +636,34 @@ bridge.port1.close();
         warning = next(item for item in result["diagnostics"] if item["code"] == "asset_not_declared")
         self.assertEqual(warning["severity"], "warning")
 
+    def test_warns_on_img_src_in_component_source(self) -> None:
+        # A React canvas keeps its markup in TSX, not the synthetic entry shell, so the scan has
+        # to reach source files, not only entryHtml.
+        payload = synthetic_source_project(
+            'import React from "react";\nexport default function Canvas() { return <img src="./assets/missing.png" /> }'
+        )
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        warning = next(item for item in result["diagnostics"] if item["code"] == "asset_not_declared")
+        self.assertEqual(warning["severity"], "warning")
+
+    def test_warns_on_img_src_pointing_at_a_source_file(self) -> None:
+        # A source file is bundled, not emitted at its own path, so an <img> that names it 404s and
+        # must warn even though the path exists in project.files.
+        payload = self._project("")
+        payload["files"]["index.html"] = (
+            '<img src="./src/logo.svg" /><div id="root"></div><script type="module" src="/src/main.ts"></script>'
+        )
+        payload["files"]["src/logo.svg"] = '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        warning = next(item for item in result["diagnostics"] if item["code"] == "asset_not_declared")
+        self.assertEqual(warning["severity"], "warning")
+
     def test_fails_on_asset_path_colliding_with_build_output(self) -> None:
         payload = self._project("")
         payload["assets"] = {
