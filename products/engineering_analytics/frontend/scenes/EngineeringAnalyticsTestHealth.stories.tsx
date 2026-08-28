@@ -10,21 +10,7 @@ import type { GitHubSourceApi, QuarantineFileApi, TrunkQuarantineDebtApi } from 
 
 const QUARANTINE: QuarantineFileApi = {
     available: true,
-    entries: [
-        {
-            id: 'posthog/hogql/test/test_resolver.py::TestResolver::test_asterisk_expander',
-            runner: 'pytest',
-            reason: 'Nondeterministic ordering or data',
-            owner: '@PostHog/team-hogql',
-            issue: 'https://github.com/PostHog/posthog/issues/1',
-            added: '2026-06-24',
-            expires: '2026-07-08',
-            mode: 'run',
-            lifecycle: 'active',
-            days_until_expiry: 6,
-            selector_kind: 'test',
-        },
-    ],
+    entries: [],
     parse_errors: [],
     parse_warnings: [],
     repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },

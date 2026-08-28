@@ -1076,7 +1076,13 @@ class Command(BaseCommand):
                 access_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                 access_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             )
-            source = self._get_or_create_seed_source(team, prefix)
+            source = self._get_or_create_seed_source(
+                team,
+                prefix,
+                source_id=SEED_SOURCE_ID,
+                source_type=ExternalDataSourceType.GITHUB,
+                job_inputs={"repository": SEED_REPOSITORY},
+            )
             self._upsert_schema_table(
                 team, source, credential, prefix, PULL_REQUESTS_SCHEMA, PULL_REQUESTS_COLUMNS, map(_flatten_pr, prs)
             )
@@ -1096,7 +1102,13 @@ class Command(BaseCommand):
                 team, source, credential, prefix, ISSUE_EVENTS_SCHEMA, ISSUE_EVENTS_COLUMNS, issue_events
             )
             # A TrunkIo sibling source backs the Trunk quarantine debt scoreboard.
-            trunk_source = self._get_or_create_trunk_seed_source(team, prefix)
+            trunk_source = self._get_or_create_seed_source(
+                team,
+                prefix,
+                source_id=TRUNK_SEED_SOURCE_ID,
+                source_type=ExternalDataSourceType.TRUNKIO,
+                job_inputs={"org_url_slug": "posthog-inc"},
+            )
             self._upsert_schema_table(
                 team,
                 trunk_source,
@@ -1159,51 +1171,32 @@ class Command(BaseCommand):
                 shifted[field] = moved.strftime("%Y-%m-%d %H:%M:%S")
         return shifted
 
-    def _get_or_create_seed_source(self, team: Team, prefix: str) -> ExternalDataSource:
-        source = ExternalDataSource.objects.filter(
-            team=team, source_id=SEED_SOURCE_ID, source_type=ExternalDataSourceType.GITHUB
-        ).first()
+    def _get_or_create_seed_source(
+        self,
+        team: Team,
+        prefix: str,
+        *,
+        source_id: str,
+        source_type: ExternalDataSourceType,
+        job_inputs: dict[str, str],
+    ) -> ExternalDataSource:
+        source = ExternalDataSource.objects.filter(team=team, source_id=source_id, source_type=source_type).first()
         if source is None:
             return ExternalDataSource.objects.create(
                 team=team,
-                source_id=SEED_SOURCE_ID,
-                connection_id=SEED_SOURCE_ID,
+                source_id=source_id,
+                connection_id=source_id,
                 status=ExternalDataSourceStatus.COMPLETED,
-                source_type=ExternalDataSourceType.GITHUB,
+                source_type=source_type,
                 prefix=prefix,
-                job_inputs={"repository": SEED_REPOSITORY},
+                job_inputs=dict(job_inputs),
             )
         update_fields = []
         if source.prefix != prefix:
             source.prefix = prefix
             update_fields.append("prefix")
-        if (source.job_inputs or {}).get("repository") != SEED_REPOSITORY:
-            source.job_inputs = {**(source.job_inputs or {}), "repository": SEED_REPOSITORY}
-            update_fields.append("job_inputs")
-        if update_fields:
-            source.save(update_fields=[*update_fields, "updated_at"])
-        return source
-
-    def _get_or_create_trunk_seed_source(self, team: Team, prefix: str) -> ExternalDataSource:
-        source = ExternalDataSource.objects.filter(
-            team=team, source_id=TRUNK_SEED_SOURCE_ID, source_type=ExternalDataSourceType.TRUNKIO
-        ).first()
-        if source is None:
-            return ExternalDataSource.objects.create(
-                team=team,
-                source_id=TRUNK_SEED_SOURCE_ID,
-                connection_id=TRUNK_SEED_SOURCE_ID,
-                status=ExternalDataSourceStatus.COMPLETED,
-                source_type=ExternalDataSourceType.TRUNKIO,
-                prefix=prefix,
-                job_inputs={"org_url_slug": "posthog-inc"},
-            )
-        update_fields = []
-        if source.prefix != prefix:
-            source.prefix = prefix
-            update_fields.append("prefix")
-        if not (source.job_inputs or {}).get("org_url_slug"):
-            source.job_inputs = {**(source.job_inputs or {}), "org_url_slug": "posthog-inc"}
+        if any((source.job_inputs or {}).get(key) != value for key, value in job_inputs.items()):
+            source.job_inputs = {**(source.job_inputs or {}), **job_inputs}
             update_fields.append("job_inputs")
         if update_fields:
             source.save(update_fields=[*update_fields, "updated_at"])

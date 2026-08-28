@@ -13,10 +13,9 @@ import {
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { groupBy } from 'lib/utils/arrays'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
@@ -24,18 +23,11 @@ import {
     engineeringAnalyticsCiCards,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
-    engineeringAnalyticsQuarantineRequest,
     engineeringAnalyticsSources,
     engineeringAnalyticsTrunkQuarantine,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
-import type {
-    GitHubSourceApi,
-    PullRequestListItemApi,
-    PushCISampleApi,
-    QuarantineRequestApi,
-    QuarantineRequestResultApi,
-} from '../generated/api.schemas'
+import type { GitHubSourceApi, PullRequestListItemApi, PushCISampleApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
 import { scopeToValue } from '../lib/scope'
@@ -321,11 +313,6 @@ export type QuarantineMode = 'run' | 'skip'
 export type QuarantineLifecycle = 'active' | 'expiring_soon' | 'in_grace' | 'overdue'
 export type QuarantineSelectorKind = 'product' | 'directory' | 'file' | 'test'
 
-/** 'past_expiry' groups in_grace + overdue — the states the quarantine check warns or fails on. */
-export type QuarantineLifecycleFilter = 'all' | 'active' | 'expiring_soon' | 'past_expiry'
-export type QuarantineModeFilter = QuarantineMode | 'all'
-export type QuarantineCard = 'active' | 'expiring_soon' | 'past_expiry' | 'skipped'
-
 export interface QuarantineEntryRow {
     id: string
     runner: string
@@ -352,97 +339,6 @@ export interface QuarantineData {
     sourceUrl: string
     /** owner/name, or null when read from the local checkout in dev. */
     repoFullName: string | null
-}
-
-export interface QuarantineCounts {
-    active: number
-    expiringSoon: number
-    inGrace: number
-    overdue: number
-    /** in_grace + overdue — everything the quarantine check warns or fails on. */
-    pastExpiry: number
-    skipped: number
-    total: number
-}
-
-export interface QuarantineFilters {
-    search: string
-    lifecycle: QuarantineLifecycleFilter
-    mode: QuarantineModeFilter
-    owner: string | null
-}
-
-export const DEFAULT_QUARANTINE_FILTERS: QuarantineFilters = {
-    search: '',
-    lifecycle: 'all',
-    mode: 'all',
-    owner: null,
-}
-
-function matchesLifecycleFilter(row: QuarantineEntryRow, lifecycle: QuarantineLifecycleFilter): boolean {
-    if (lifecycle === 'all') {
-        return true
-    }
-    if (lifecycle === 'past_expiry') {
-        return row.lifecycle === 'in_grace' || row.lifecycle === 'overdue'
-    }
-    return row.lifecycle === lifecycle
-}
-
-export function filterQuarantineEntries(rows: QuarantineEntryRow[], filters: QuarantineFilters): QuarantineEntryRow[] {
-    const search = filters.search.trim().toLowerCase()
-    return rows.filter((row) => {
-        if (!matchesLifecycleFilter(row, filters.lifecycle)) {
-            return false
-        }
-        if (filters.mode !== 'all' && row.mode !== filters.mode) {
-            return false
-        }
-        if (filters.owner && row.owner !== filters.owner) {
-            return false
-        }
-        if (search) {
-            const haystack = `${row.id} ${row.reason} ${row.owner}`.toLowerCase()
-            if (!haystack.includes(search)) {
-                return false
-            }
-        }
-        return true
-    })
-}
-
-export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts {
-    const counts = {
-        active: 0,
-        expiringSoon: 0,
-        inGrace: 0,
-        overdue: 0,
-        skipped: 0,
-        total: rows.length,
-    }
-    for (const row of rows) {
-        if (row.lifecycle === 'active') {
-            counts.active++
-        } else if (row.lifecycle === 'expiring_soon') {
-            counts.expiringSoon++
-        } else if (row.lifecycle === 'in_grace') {
-            counts.inGrace++
-        } else {
-            counts.overdue++
-        }
-        if (row.mode === 'skip') {
-            counts.skipped++
-        }
-    }
-    // past_expiry is exactly the expired buckets — derive it so the two can't drift.
-    return { ...counts, pastExpiry: counts.inGrace + counts.overdue }
-}
-
-export type TestRunner = NonNullable<QuarantineRequestApi['runner']>
-export const TEST_RUNNERS: readonly TestRunner[] = ['pytest', 'jest', 'playwright']
-
-export function isTestRunner(runner: string): runner is TestRunner {
-    return TEST_RUNNERS.some((candidate) => candidate === runner)
 }
 
 export interface TrunkQuarantinedTestRow {
@@ -478,65 +374,6 @@ export interface TrunkQuarantineData {
     tests: TrunkQuarantinedTestRow[]
 }
 
-export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
-
-/** What the tab submits to the write endpoint; the backend opens the issue + PR. */
-export interface QuarantineSubmitInput {
-    action: QuarantineRequestAction
-    selector: string
-    runner?: TestRunner
-    reason: string
-    owner: string
-    /** Existing tracking issue, carried forward on extend/remove. */
-    issue: string
-    /** ISO 'YYYY-MM-DD', or null to let the server default to +14 days. */
-    expires: string | null
-    mode: QuarantineMode
-}
-
-/** Open-modal state for quarantine/extend; null when closed. Remove uses a confirm dialog. */
-export interface QuarantineModalState {
-    action: 'quarantine' | 'extend'
-    selector: string
-    runner: TestRunner
-    reason: string
-    owner: string
-    issue: string
-    mode: QuarantineMode
-    /** Glanceable confirm presentation for prefilled openers (queue rows); 'Edit details' switches to the form. */
-    confirm?: boolean
-}
-
-/** Suggest an owning team from a product-scoped selector; '' when the selector isn't product-scoped. */
-export function inferOwnerFromSelector(selector: string): string {
-    const trimmed = selector.trim()
-    const product = trimmed.startsWith('product:')
-        ? trimmed.slice('product:'.length)
-        : (trimmed.match(/^products\/([^/]+)\//)?.[1] ?? '').replace(/_/g, '-')
-    return product ? `@PostHog/team-${product}` : ''
-}
-
-function toRequestBody(input: QuarantineSubmitInput, repo: string | null): QuarantineRequestApi {
-    return {
-        // Wire field is 'operation' (a bare 'action' enum collides in the OpenAPI spec).
-        operation: input.action,
-        selector: input.selector,
-        ...(input.runner ? { runner: input.runner } : {}),
-        // The repo being viewed, so the PR lands there. Null in local dev.
-        repo,
-        reason: input.reason,
-        owner: input.owner,
-        issue: input.issue,
-        expires: input.expires,
-        mode: input.mode,
-    }
-}
-
-export function quarantineRequestErrorMessage(error: unknown): string {
-    const detail = error as { detail?: string; data?: { detail?: string }; message?: string }
-    return detail?.detail ?? detail?.data?.detail ?? detail?.message ?? 'Could not complete the quarantine request.'
-}
-
 /**
  * Per-loader outcome. A 400 means "no GitHub source" for every scene; any other failure stays scoped
  * to the loader that hit it, so a 500 on one endpoint doesn't error a scene that doesn't read it.
@@ -553,7 +390,6 @@ export interface engineeringAnalyticsLogicValues {
     dateFrom: string | null // engineeringAnalyticsFiltersLogic
     dateTo: string | null // engineeringAnalyticsFiltersLogic
     activeCard: CardFilter | null
-    activeQuarantineCard: QuarantineCard | null
     activeSource: GitHubSourceApi | null
     anyLoading: boolean
     author: string | null
@@ -563,7 +399,6 @@ export interface engineeringAnalyticsLogicValues {
     ciStatusFilter: CIStatusFilter
     expandedTrunkQuarantineTeams: string[]
     filteredPullRequests: PullRequestRow[]
-    filteredQuarantineEntries: QuarantineEntryRow[]
     filteredWorkflowHealth: WorkflowHealthRow[]
     filters: PullRequestFilters
     fleetSummary: FleetSummary
@@ -571,7 +406,6 @@ export interface engineeringAnalyticsLogicValues {
     githubSources: GitHubSourceApi[]
     githubSourcesLoading: boolean
     hasActiveFilters: boolean
-    hasActiveQuarantineFilters: boolean
     hasActiveWorkflowFilters: boolean
     hasMultipleSources: boolean
     notConnected: boolean
@@ -580,18 +414,8 @@ export interface engineeringAnalyticsLogicValues {
     pullRequestsLoading: boolean
     pullRequestsStatus: LoaderStatus
     quarantine: QuarantineData | null
-    quarantineCounts: QuarantineCounts
-    quarantineFilters: QuarantineFilters
-    quarantineLifecycleFilter: QuarantineLifecycleFilter
     quarantineLoadFailed: boolean
     quarantineLoading: boolean
-    quarantineModal: QuarantineModalState | null
-    quarantineModeFilter: QuarantineModeFilter
-    quarantineOwner: string | null
-    quarantineOwnerOptions: string[]
-    quarantineSearch: string
-    quarantineSubmit: QuarantineRequestResultApi | null
-    quarantineSubmitLoading: boolean
     readyCount: number
     readyOnly: boolean
     repo: string | null
@@ -626,12 +450,6 @@ export interface engineeringAnalyticsLogicValues {
 export interface engineeringAnalyticsLogicActions {
     applyCardFilter: (card: CardFilter) => {
         card: CardFilter
-    }
-    applyQuarantineCard: (card: QuarantineCard) => {
-        card: QuarantineCard
-    }
-    closeQuarantineModal: () => {
-        value: true
     }
     loadCards: () => any
     loadCardsFailure: (
@@ -723,16 +541,10 @@ export interface engineeringAnalyticsLogicActions {
         workflowHealth: WorkflowHealthRow[]
         payload?: any
     }
-    openQuarantineModal: (state: QuarantineModalState) => {
-        state: QuarantineModalState
-    }
     refresh: () => {
         value: true
     }
     resetFilters: () => {
-        value: true
-    }
-    resetQuarantineFilters: () => {
         value: true
     }
     resetWorkflowFilters: () => {
@@ -743,18 +555,6 @@ export interface engineeringAnalyticsLogicActions {
     }
     setCiStatusFilter: (ciStatus: CIStatusFilter) => {
         ciStatus: CIStatusFilter
-    }
-    setQuarantineLifecycleFilter: (lifecycle: QuarantineLifecycleFilter) => {
-        lifecycle: QuarantineLifecycleFilter
-    }
-    setQuarantineModeFilter: (mode: QuarantineModeFilter) => {
-        mode: QuarantineModeFilter
-    }
-    setQuarantineOwner: (owner: string | null) => {
-        owner: string | null
-    }
-    setQuarantineSearch: (search: string) => {
-        search: string
     }
     setReadyOnly: (ready: boolean) => {
         ready: boolean
@@ -789,27 +589,6 @@ export interface engineeringAnalyticsLogicActions {
     }
     setWorkflowStatusFilter: (status: WorkflowStatusFilter) => {
         status: WorkflowStatusFilter
-    }
-    submitQuarantine: ({ input }: { input: QuarantineSubmitInput }) => {
-        input: QuarantineSubmitInput
-    }
-    submitQuarantineFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    submitQuarantineSuccess: (
-        quarantineSubmit: QuarantineRequestResultApi,
-        payload?: {
-            input: QuarantineSubmitInput
-        }
-    ) => {
-        quarantineSubmit: QuarantineRequestResultApi
-        payload?: {
-            input: QuarantineSubmitInput
-        }
     }
     toggleTrunkQuarantineTeam: (team: string) => {
         team: string
@@ -863,26 +642,9 @@ export interface engineeringAnalyticsLogicMeta {
         pullRequestsLoadError: (cardsStatus: LoaderStatus, pullRequestsStatus: LoaderStatus) => boolean
         workflowHealthLoadError: (workflowHealthStatus: LoaderStatus) => boolean
         tableTruncated: (pullRequests: PullRequestRow[]) => boolean
-        quarantineFilters: (
-            quarantineSearch: string,
-            quarantineLifecycleFilter: QuarantineLifecycleFilter,
-            quarantineModeFilter: QuarantineModeFilter,
-            quarantineOwner: string | null
-        ) => QuarantineFilters
-        filteredQuarantineEntries: (
-            quarantine: QuarantineData | null,
-            quarantineFilters: QuarantineFilters
-        ) => QuarantineEntryRow[]
-        quarantineCounts: (quarantine: QuarantineData | null) => QuarantineCounts
-        quarantineOwnerOptions: (quarantine: QuarantineData | null) => string[]
         trunkQuarantineTestsByTeam: (
             trunkQuarantine: TrunkQuarantineData | null
         ) => Record<string, TrunkQuarantinedTestRow[]>
-        activeQuarantineCard: (
-            quarantineLifecycleFilter: QuarantineLifecycleFilter,
-            quarantineModeFilter: QuarantineModeFilter
-        ) => QuarantineCard | null
-        hasActiveQuarantineFilters: (quarantineFilters: QuarantineFilters) => boolean
         hasMultipleSources: (githubSources: GitHubSourceApi[]) => boolean
         activeSource: (
             githubSources: GitHubSourceApi[],
@@ -933,14 +695,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             // The picker selects a (source, repo) pair in one action, so both land before a single refresh.
             setScope: (sourceId: string | null, scopeRepo: string | null) => ({ sourceId, scopeRepo }),
             resetFilters: true,
-            setQuarantineSearch: (search: string) => ({ search }),
-            setQuarantineLifecycleFilter: (lifecycle: QuarantineLifecycleFilter) => ({ lifecycle }),
-            setQuarantineModeFilter: (mode: QuarantineModeFilter) => ({ mode }),
-            setQuarantineOwner: (owner: string | null) => ({ owner }),
-            applyQuarantineCard: (card: QuarantineCard) => ({ card }),
-            resetQuarantineFilters: true,
-            openQuarantineModal: (state: QuarantineModalState) => ({ state }),
-            closeQuarantineModal: true,
             toggleTrunkQuarantineTeam: (team: string) => ({ team }),
             refresh: true,
         }),
@@ -1088,21 +842,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     },
                 },
             ],
-            quarantineSubmit: [
-                null as QuarantineRequestResultApi | null,
-                {
-                    submitQuarantine: async ({
-                        input,
-                    }: {
-                        input: QuarantineSubmitInput
-                    }): Promise<QuarantineRequestResultApi> => {
-                        return await engineeringAnalyticsQuarantineRequest(
-                            projectId(),
-                            toRequestBody(input, values.quarantine?.repoFullName ?? null)
-                        )
-                    },
-                },
-            ],
             githubSources: [
                 [] as GitHubSourceApi[],
                 {
@@ -1185,34 +924,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadCardsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
-            quarantineSearch: [
-                DEFAULT_QUARANTINE_FILTERS.search,
-                {
-                    setQuarantineSearch: (_, { search }) => search,
-                    resetQuarantineFilters: () => DEFAULT_QUARANTINE_FILTERS.search,
-                },
-            ],
-            quarantineLifecycleFilter: [
-                DEFAULT_QUARANTINE_FILTERS.lifecycle,
-                {
-                    setQuarantineLifecycleFilter: (_, { lifecycle }) => lifecycle,
-                    resetQuarantineFilters: () => DEFAULT_QUARANTINE_FILTERS.lifecycle,
-                },
-            ],
-            quarantineModeFilter: [
-                DEFAULT_QUARANTINE_FILTERS.mode,
-                {
-                    setQuarantineModeFilter: (_, { mode }) => mode,
-                    resetQuarantineFilters: () => DEFAULT_QUARANTINE_FILTERS.mode,
-                },
-            ],
-            quarantineOwner: [
-                DEFAULT_QUARANTINE_FILTERS.owner,
-                {
-                    setQuarantineOwner: (_, { owner }) => owner,
-                    resetQuarantineFilters: () => DEFAULT_QUARANTINE_FILTERS.owner,
-                },
-            ],
             // The quarantine endpoint only 400s when there's no GitHub source and no local checkout.
             quarantineLoadFailed: [
                 false,
@@ -1241,14 +952,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadTrunkQuarantine: () => 'ok',
                     loadTrunkQuarantineSuccess: () => 'ok',
                     loadTrunkQuarantineFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
-                },
-            ],
-            quarantineModal: [
-                null as QuarantineModalState | null,
-                {
-                    openQuarantineModal: (_, { state }) => state,
-                    closeQuarantineModal: () => null,
-                    submitQuarantineSuccess: () => null,
                 },
             ],
             pullRequestsStatus: [
@@ -1410,58 +1113,10 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (s) => [s.pullRequests],
                 (pullRequests: PullRequestRow[]): boolean => pullRequests.length >= PR_TABLE_LIMIT,
             ],
-            quarantineFilters: [
-                (s) => [s.quarantineSearch, s.quarantineLifecycleFilter, s.quarantineModeFilter, s.quarantineOwner],
-                (
-                    search: string,
-                    lifecycle: QuarantineLifecycleFilter,
-                    mode: QuarantineModeFilter,
-                    owner: string | null
-                ): QuarantineFilters => ({ search, lifecycle, mode, owner }),
-            ],
-            filteredQuarantineEntries: [
-                (s) => [s.quarantine, s.quarantineFilters],
-                (quarantine: QuarantineData | null, filters: QuarantineFilters): QuarantineEntryRow[] =>
-                    quarantine ? filterQuarantineEntries(quarantine.entries, filters) : [],
-            ],
-            quarantineCounts: [
-                (s) => [s.quarantine],
-                (quarantine: QuarantineData | null): QuarantineCounts => quarantineCountsOf(quarantine?.entries ?? []),
-            ],
-            quarantineOwnerOptions: [
-                (s) => [s.quarantine],
-                (quarantine: QuarantineData | null): string[] =>
-                    Array.from(new Set((quarantine?.entries ?? []).map((entry) => entry.owner).filter(Boolean))).sort(),
-            ],
             trunkQuarantineTestsByTeam: [
                 (s) => [s.trunkQuarantine],
-                (trunkQuarantine: TrunkQuarantineData | null): Record<string, TrunkQuarantinedTestRow[]> => {
-                    const byTeam: Record<string, TrunkQuarantinedTestRow[]> = {}
-                    for (const test of trunkQuarantine?.tests ?? []) {
-                        ;(byTeam[test.ownerTeam] ??= []).push(test)
-                    }
-                    return byTeam
-                },
-            ],
-            activeQuarantineCard: [
-                (s) => [s.quarantineLifecycleFilter, s.quarantineModeFilter],
-                (lifecycle: QuarantineLifecycleFilter, mode: QuarantineModeFilter): QuarantineCard | null => {
-                    if (mode === 'skip' && lifecycle === 'all') {
-                        return 'skipped'
-                    }
-                    if (mode !== 'all') {
-                        return null
-                    }
-                    if (lifecycle === 'active' || lifecycle === 'expiring_soon' || lifecycle === 'past_expiry') {
-                        return lifecycle
-                    }
-                    return null
-                },
-            ],
-            hasActiveQuarantineFilters: [
-                (s) => [s.quarantineFilters],
-                (filters: QuarantineFilters): boolean =>
-                    !objectsEqual({ ...filters, search: filters.search.trim() }, DEFAULT_QUARANTINE_FILTERS),
+                (trunkQuarantine: TrunkQuarantineData | null): Record<string, TrunkQuarantinedTestRow[]> =>
+                    groupBy(trunkQuarantine?.tests ?? [], (test) => test.ownerTeam),
             ],
             hasMultipleSources: [
                 (s) => [s.githubSources],
@@ -1567,35 +1222,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.setStuckOnly(target === 'stuck')
                 actions.setReadyOnly(target === 'ready')
                 actions.setThrashOnly(target === 'thrash')
-            },
-            applyQuarantineCard: ({ card }) => {
-                // Toggling a card off clears only the lifecycle/mode lens, leaving search and owner intact.
-                const target = values.activeQuarantineCard === card ? null : card
-                if (target === 'skipped') {
-                    actions.setQuarantineLifecycleFilter('all')
-                    actions.setQuarantineModeFilter('skip')
-                } else if (target === null) {
-                    actions.setQuarantineLifecycleFilter('all')
-                    actions.setQuarantineModeFilter('all')
-                } else {
-                    actions.setQuarantineModeFilter('all')
-                    actions.setQuarantineLifecycleFilter(target)
-                }
-            },
-            submitQuarantineSuccess: ({ quarantineSubmit }) => {
-                if (!quarantineSubmit) {
-                    return
-                }
-                lemonToast.success(
-                    quarantineSubmit.issue_url
-                        ? 'Opened a quarantine PR and a tracking issue. It takes effect once the PR merges.'
-                        : 'Opened a PR. It takes effect once it merges.',
-                    { button: { label: 'View PR', action: () => window.open(quarantineSubmit.pr_url, '_blank') } }
-                )
-                actions.loadQuarantine()
-            },
-            submitQuarantineFailure: ({ error }) => {
-                lemonToast.error(quarantineRequestErrorMessage(error))
             },
         })),
 

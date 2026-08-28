@@ -1,18 +1,10 @@
 import { IconExternal } from '@posthog/icons'
 import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
 
 import { TrunkQuarantinedTestRow } from '../scenes/engineeringAnalyticsLogic'
-
-function RelativeTime({ iso }: { iso: string }): JSX.Element {
-    return (
-        <Tooltip title={dayjs(iso).format('YYYY-MM-DD HH:mm:ss')}>
-            <span className="text-xs whitespace-nowrap text-secondary">{dayjs(iso).fromNow()}</span>
-        </Tooltip>
-    )
-}
 
 /** One team's quarantined tests, rendered inside the debt table's expanded row. */
 export function TeamQuarantinedTestsTable({
@@ -69,7 +61,7 @@ export function TeamQuarantinedTestsTable({
             title: 'Quarantined',
             key: 'quarantinedAt',
             width: 130,
-            render: (_, row) => <RelativeTime iso={row.quarantinedAt} />,
+            render: (_, row) => <TZLabel time={row.quarantinedAt} />,
         },
         {
             title: 'Age',

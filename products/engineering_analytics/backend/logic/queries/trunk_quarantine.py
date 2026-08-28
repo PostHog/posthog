@@ -76,11 +76,12 @@ def query_trunk_quarantine_debt(
     """Every currently quarantined test with its owning team and age, plus the per-team rollup;
     the unavailable shape when no TrunkIo QuarantinedTests table is synced."""
     source = curated.trunk_quarantined_tests_source()
-    trunk_url = _trunk_url(curated.trunk_org_url_slug(), curated.repository)
     if source is None:
         return TrunkQuarantineDebt(
             available=False, ttl_days=ttl_days, repository=curated.repository, trunk_url=None, teams=[], tests=[]
         )
+    org_url_slug = curated.trunk_org_url_slug()
+    trunk_url = _trunk_url(org_url_slug, curated.repository)
 
     quarantined = curated.run(
         _QUARANTINED_SELECT.replace("__TRUNK_SOURCE__", source),
@@ -107,7 +108,6 @@ def query_trunk_quarantine_debt(
             for variant in _nodeid_variants(key):
                 owner_by_variant[(runner, variant)] = owner_team
 
-    org_url_slug = curated.trunk_org_url_slug()
     tests: list[TrunkQuarantinedTest] = []
     for runner, nodeid, file, status, quarantine_setting, test_case_id, quarantined_at in rows:
         owner = next(
@@ -145,7 +145,8 @@ def query_trunk_quarantine_debt(
             owner_team=owner_team,
             test_count=len(owned),
             overdue_count=sum(1 for test in owned if test.overdue),
-            oldest_age_days=max(test.age_days for test in owned),
+            # tests is sorted oldest first above, so each owner's first entry carries the max age
+            oldest_age_days=owned[0].age_days,
         )
         for owner_team, owned in rollup.items()
     ]
