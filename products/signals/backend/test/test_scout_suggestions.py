@@ -89,6 +89,7 @@ class TestValidateSuggestionItems(SimpleTestCase):
             ("cron_under_30_min_gap", _item(proposed_config={"run_cron_schedule": "*/15 * * * *"})),
             ("custom_empty_body", _custom(draft_body="   ")),
             ("custom_no_description", _custom(description="")),
+            ("custom_description_over_create_limit", _custom(description="x" * 4097)),
             ("bad_cron", _item(proposed_config={"run_cron_schedule": "every tuesday"})),
             ("interval_below_floor", _item(proposed_config={"run_interval_minutes": 5})),
             ("blank_title", _item(title="  ")),
@@ -150,6 +151,16 @@ class TestSuggestionPersistence(BaseTest):
             self.team.id, [_item(), _custom()], task_run_id=None, model=None, fleet_snapshot=[]
         )
         self.assertEqual([record["skill_name"] for record in visible_items(row)], ["signals-scout-checkout-drop"])
+
+    def test_omitted_tombstone_drops_the_draft_body_it_no_longer_needs(self):
+        row = persist_suggestion_batch(
+            self.team.id, [_custom(draft_body="b" * 5_000)], task_run_id=None, model=None, fleet_snapshot=[]
+        )
+        dismiss_suggestion(self.team.id, row.items[0]["id"], user_id=self.user.id)
+        row = persist_suggestion_batch(self.team.id, [_item()], task_run_id=None, model=None, fleet_snapshot=[])
+        tombstone = next(record for record in row.items if record["skill_name"] == "signals-scout-checkout-drop")
+        self.assertIsNotNone(tombstone["dismissed_at"])
+        self.assertNotIn("draft_body", tombstone)
 
     def test_batch_generated_against_a_moved_fleet_is_stored_stale(self):
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-general", enabled=True)
@@ -264,6 +275,29 @@ class TestPlanSuggestionRuns(BaseTest):
             self.now,
         )
         self.assertEqual([run.team_id for run in planned], [outsider.id, self.team.id, recovered.id])
+
+    def test_breaker_backs_a_failing_project_off_past_its_refresh_window(self):
+        # Both are long past the 24h cooldown and past a plain 7-day refresh, so only the
+        # doubling breaker separates them.
+        healthy = self._team("healthy")
+        self._enable_scout(healthy, engaged=True)
+        SignalScoutSuggestionSet.all_teams.create(
+            team=healthy, last_requested_at=self.now - timedelta(days=8), last_completed_at=self.now - timedelta(days=8)
+        )
+        failing = self._team("failing")
+        self._enable_scout(failing, engaged=True)
+        SignalScoutSuggestionSet.all_teams.create(
+            team=failing,
+            last_requested_at=self.now - timedelta(days=8),
+            last_completed_at=self.now - timedelta(days=8),
+            consecutive_failures=3,
+        )
+
+        settings = SuggestionSettings(enabled=True)
+        self.assertEqual([run.team_id for run in plan_suggestion_runs(settings, self.now)], [healthy.id])
+        # Once it is overdue against the doubled window it comes back, so the breaker slows the
+        # spend rather than parking the project forever.
+        self.assertIn(failing.id, [run.team_id for run in plan_suggestion_runs(settings, self.now + timedelta(days=7))])
 
     def test_root_source_config_does_not_hide_wider_tiers(self):
         SignalSourceConfig.objects.create(team=self.team, source_product="error_tracking", source_type="issue_created")
@@ -407,6 +441,15 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         self.assertEqual(
             response.json(), {"status": "empty", "generated_at": None, "model": "", "fleet_snapshot": [], "items": []}
         )
+
+    def test_list_reports_an_aged_batch_as_stale(self):
+        row = persist_suggestion_batch(self.team.id, [_item()], task_run_id=None, model="m", fleet_snapshot=[])
+        self.assertEqual(row.status, SignalScoutSuggestionSet.Status.FRESH)
+        SignalScoutSuggestionSet.all_teams.filter(pk=row.pk).update(generated_at=timezone.now() - timedelta(days=8))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/scout/suggestions/")
+        # Nothing writes STALE when a batch merely ages, so a fresh read has to derive it.
+        self.assertEqual(response.json()["status"], "stale")
 
     def test_list_and_dismiss_round_trip(self):
         row = persist_suggestion_batch(

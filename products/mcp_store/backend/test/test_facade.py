@@ -314,6 +314,21 @@ class TestGetInstallationsForSandbox(BaseTest):
         assert {result.id for result in results} == {str(shared.id), str(personal.id)}
         assert all(result.proxy_token is None for result in results)
 
+    def test_empty_allowlist_mounts_nothing_before_the_gateway_flag_rollout(self) -> None:
+        # The rollout gate sends a mapped origin down the legacy path. An autonomous run that asked
+        # for no MCP Store servers must not pick up every shared installation on the way.
+        self.enforcement_enabled_mock.return_value = False
+        self._create_installation(scope="shared", display_name="Shared")
+
+        results = get_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            task_origin="scout_suggestions",
+            allowed_gateway_server_ids=[],
+        )
+
+        assert results == []
+
     def test_built_in_agent_only_gets_its_explicitly_delegated_credential(self) -> None:
         account = self._support_agent()
         granted_server = self._create_gateway_server(

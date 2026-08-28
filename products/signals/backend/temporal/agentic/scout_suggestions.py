@@ -32,6 +32,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.scout_harness.suggestions import (
     SUGGESTIONS_ACTIVITY_SLACK_S,
     SuggestionSettings,
+    mark_generation_failed,
     parse_suggestion_settings,
     plan_suggestion_runs,
     read_suggestion_settings,
@@ -154,9 +155,21 @@ async def run_scout_suggestions_activity(input: RunScoutSuggestionsInput) -> Run
                 input.team_id, settings=settings, tier=input.tier, triggered_by=input.triggered_by
             )
     except (OperationalError, InterfaceError):
-        # Transient pooled-connection drop (pgbouncer recycle / failover / deploy); the decorator
-        # evicted the dead connection and the next tick re-plans this team.
+        # Transient pooled-connection drop (pgbouncer recycle / failover / deploy). The coordinator
+        # has already stamped `last_requested_at`, so this has to be recorded as a failure or the
+        # team is simply suppressed until its next refresh with nothing to show for the attempt.
         logger.warning("scout_suggestions activity: transient DB failure", team_id=input.team_id, exc_info=True)
+        try:
+            await database_sync_to_async(mark_generation_failed, thread_sensitive=False)(
+                input.team_id, task_run_id=None
+            )
+        except Exception:
+            # The connection may still be down, in which case the breaker misses this attempt.
+            logger.warning(
+                "scout_suggestions activity: could not record transient DB failure",
+                team_id=input.team_id,
+                exc_info=True,
+            )
         return RunScoutSuggestionsOutput(
             team_id=input.team_id, status="failed", task_run_id=None, suggestion_count=0, runtime_s=0.0
         )

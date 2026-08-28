@@ -62,6 +62,9 @@ SUGGESTIONS_ACTIVITY_SLACK_S = 60
 MAX_SUGGESTIONS_PER_BATCH = 5
 MIN_SUGGESTIONS_PER_BATCH = 3
 MAX_DRAFT_BODY_CHARS = 20_000
+# Mirrors `SignalScoutCreateSerializer.description`: a longer one stores fine but fails the
+# create it is supposed to be ready for.
+MAX_DESCRIPTION_CHARS = 4_096
 
 # Tags every $ai_generation a suggestion run makes, so its spend is splittable out of the
 # `ai_product='signals'` bucket next to `scout:<skill>` (see `runner._ai_stage`).
@@ -249,13 +252,24 @@ def _root_team_q() -> Q:
     return Q(parent_team_id__isnull=True) | Q(parent_team_id=F("id"))
 
 
-def _engagement_by_team(cutoff: datetime) -> dict[int, datetime]:
+def _engagement_by_team(cutoff: datetime, team_ids: Collection[int]) -> dict[int, datetime]:
     """Most recent inbox engagement per team inside the window: report views/ratings or a scout
-    config someone touched. Aggregated in Postgres so the transfer is one row per team."""
+    config someone touched. Aggregated in Postgres so the transfer is one row per team.
+
+    Restricted to the teams the planner is already considering, so this rides the `team_id` index.
+    `SignalReportAction.last_at` is deliberately unindexed, to keep the hot repeat-view UPDATE
+    eligible for HOT, which makes an unbounded filter on it a scan of the whole action history.
+    """
+    if not team_ids:
+        return {}
     latest: dict[int, datetime] = {}
     for queryset in (
-        SignalReportAction.all_teams.filter(last_at__gte=cutoff).values("team_id").annotate(latest=Max("last_at")),
-        SignalScoutConfig.all_teams.filter(updated_at__gte=cutoff, status_changed_by__isnull=False)
+        SignalReportAction.all_teams.filter(team_id__in=team_ids, last_at__gte=cutoff)
+        .values("team_id")
+        .annotate(latest=Max("last_at")),
+        SignalScoutConfig.all_teams.filter(
+            team_id__in=team_ids, updated_at__gte=cutoff, status_changed_by__isnull=False
+        )
         .values("team_id")
         .annotate(latest=Max("updated_at")),
     ):
@@ -271,7 +285,6 @@ def _candidate_teams_by_tier(settings: SuggestionSettings, now: datetime) -> tup
     engagement map used as the sort tie-break. The tier predicates run as subqueries so only the
     matching ids cross the wire, never the whole approved-team set."""
     cutoff = now - timedelta(days=settings.engagement_window_days)
-    engagement = _engagement_by_team(cutoff)
 
     approved_root_teams = Team.objects.filter(_root_team_q(), organization__is_ai_data_processing_approved=True)
     # Source configs are environment-scoped, so a project whose Signals setup lives in a child
@@ -284,8 +297,7 @@ def _candidate_teams_by_tier(settings: SuggestionSettings, now: datetime) -> tup
     )
 
     tiers: dict[int, int] = {}
-    for team_id in approved_root_teams.filter(set_up).values_list("id", flat=True):
-        tiers[team_id] = 1 if team_id in engagement else 2
+    set_up_team_ids = list(approved_root_teams.filter(set_up).values_list("id", flat=True))
     if settings.eligibility_tier >= 3:
         active_member_teams = (
             approved_root_teams.exclude(set_up)
@@ -298,6 +310,11 @@ def _candidate_teams_by_tier(settings: SuggestionSettings, now: datetime) -> tup
     if settings.eligibility_tier >= 4:
         for team_id in approved_root_teams.exclude(set_up).values_list("id", flat=True):
             tiers.setdefault(team_id, 4)
+    # Engagement last, over the candidates we actually have: it splits tier 1 from tier 2 and
+    # breaks ties in the sort, so it never needs a team the planner would not consider anyway.
+    engagement = _engagement_by_team(cutoff, set(set_up_team_ids) | set(tiers))
+    for team_id in set_up_team_ids:
+        tiers[team_id] = 1 if team_id in engagement else 2
     tiers = {team_id: tier for team_id, tier in tiers.items() if tier <= settings.eligibility_tier}
     return tiers, engagement
 
@@ -319,13 +336,32 @@ def suggestions_allowed_for_team(settings: SuggestionSettings, team_id: int) -> 
     return settings.enabled and team_id not in canonical_team_ids(settings.team_blocklist)
 
 
+# How far the failure backoff can double the refresh interval. At the defaults (threshold 3,
+# refresh 7 days) a project that keeps failing waits 14 days, then 28, then 56, then 112.
+MAX_BREAKER_DOUBLINGS = 4
+
+
+def _wait_s(consecutive_failures: int, settings: SuggestionSettings, *, refresh_s: float) -> float:
+    """How long a team must sit since its last request before it is due again.
+
+    A tripped breaker doubles the refresh interval per failure past the threshold. The cooldown
+    alone cannot suppress a scheduled retry, because it is shorter than the refresh window it
+    would have to outlast, so a permanently failing project used to spend a scan every refresh
+    period no matter how many times it had failed.
+    """
+    if consecutive_failures < settings.failure_breaker_threshold:
+        return refresh_s
+    doublings = min(consecutive_failures - settings.failure_breaker_threshold + 1, MAX_BREAKER_DOUBLINGS)
+    return refresh_s * (2**doublings)
+
+
 def plan_suggestion_runs(settings: SuggestionSettings, now: datetime | None = None) -> list[PlannedSuggestionRun]:
     """The teams to refresh this tick, best first, capped at `max_children_per_tick`.
 
     The queue is recomputed from DB state every tick (no stored queue), so changing eligibility is a
     payload edit, never a migration of queued work. Allowlisted teams are always candidates
-    (dogfood / support), blocklisted teams never are, and a team past the failure breaker waits out
-    its cooldown so a broken project cannot hold a slot every tick.
+    (dogfood / support), blocklisted teams never are, and a team past the failure breaker backs off
+    geometrically so a broken project cannot hold a slot every refresh period.
     """
     now = now or timezone.now()
     if not settings.enabled or settings.max_children_per_tick == 0:
@@ -354,11 +390,15 @@ def plan_suggestion_runs(settings: SuggestionSettings, now: datetime | None = No
             never_generated, overdue_s = True, float("inf")
         else:
             never_generated = False
-            overdue_s = (now - state.last_requested_at).total_seconds() - refresh_s
+            overdue_s = (now - state.last_requested_at).total_seconds() - _wait_s(
+                state.consecutive_failures, settings, refresh_s=refresh_s
+            )
             if overdue_s < 0:
                 continue
         # The cooldown runs from the last attempt, not `updated_at`: a dismissal on the prior
-        # batch touches the row too and must not push recovery out.
+        # batch touches the row too and must not push recovery out. It floors the wait; the
+        # backoff above is what actually holds a repeatedly failing project back, since the
+        # cooldown is shorter than the refresh window it would have to outlast.
         if (
             state is not None
             and state.consecutive_failures >= settings.failure_breaker_threshold
@@ -458,7 +498,7 @@ Produce {MIN_SUGGESTIONS_PER_BATCH}-{MAX_SUGGESTIONS_PER_BATCH} suggestions, bes
 - Mix "canonical" picks (cheap, high-confidence "turn this on") with at least one or two "custom" drafts tailored to what you found (a specific funnel, a custom event, an error or latency spike, a churn, activation, or revenue signal), so the set is project-specific rather than a template list.
 - Every `why_here` must cite concrete evidence you actually saw: event names, insight or dashboard names, report titles, volumes. Never suggest something the project has no data for.
 - Do not suggest a scout that is already enabled, and set `gap` only when nothing in the fleet covers the same ground.
-- A custom draft needs a `skill_name` starting with `signals-scout-`, a one-line `description`, and a complete `draft_body` following the authoring-scouts skill: what to check, thresholds, what counts as a finding, what to ignore, how to dedupe against prior runs. Keep it under {MAX_DRAFT_BODY_CHARS} characters.
+- A custom draft needs a `skill_name` starting with `signals-scout-`, a one-line `description`, and a complete `draft_body` following the authoring-scouts skill: what to check, thresholds, what counts as a finding, what to ignore, how to dedupe against prior runs. Keep the `description` under {MAX_DESCRIPTION_CHARS} characters and the body under {MAX_DRAFT_BODY_CHARS}.
 - Leave Slack delivery out of `proposed_config`; the person choosing the suggestion picks the destination.
 - If the project genuinely has too little data to suggest anything, return an empty list and say why in `notes`.
 
@@ -482,6 +522,19 @@ def _item_record(item: ScoutSuggestionItem, *, prior: dict[str, Any] | None) -> 
     record["dismissed_by_id"] = prior.get("dismissed_by_id")
     record["created_config_id"] = prior.get("created_config_id")
     return record
+
+
+def _tombstone(record: dict[str, Any]) -> dict[str, Any]:
+    """A dismissed suggestion the new batch dropped, reduced to what a later batch needs to know.
+    Carrying the whole record would keep a 20,000-character draft body in the row forever, and
+    every read, dismissal and refresh pays to load and rewrite it under the row lock."""
+    return {
+        "id": record.get("id"),
+        "skill_name": record.get("skill_name"),
+        "dismissed_at": record.get("dismissed_at"),
+        "dismissed_by_id": record.get("dismissed_by_id"),
+        "created_config_id": record.get("created_config_id"),
+    }
 
 
 def _lock_row(team_id: int, *, create: bool) -> SignalScoutSuggestionSet | None:
@@ -515,7 +568,9 @@ def persist_suggestion_batch(
         records = [_item_record(item, prior=prior_by_name.get(item.skill_name)) for item in items]
         suggested = {item.skill_name for item in items}
         records.extend(
-            record for name, record in prior_by_name.items() if record.get("dismissed_at") and name not in suggested
+            _tombstone(record)
+            for name, record in prior_by_name.items()
+            if record.get("dismissed_at") and name not in suggested
         )
         row.items = records
         row.fleet_snapshot = sorted(fleet_snapshot)
@@ -560,6 +615,17 @@ def mark_generation_failed(team_id: int, *, task_run_id: str | None) -> SignalSc
             row.task_run_id = UUID(task_run_id)
         row.save(update_fields=["status", "consecutive_failures", "last_completed_at", "task_run_id", "updated_at"])
     return row
+
+
+def effective_status(row: SignalScoutSuggestionSet, *, refresh_days: int) -> str:
+    """The row's status with expiry applied. Only the fleet-change receiver writes `STALE`, so a
+    batch that simply aged past its refresh window would otherwise keep reporting `fresh` for as
+    long as the planner does not reach it, which is forever while scheduling is off."""
+    if row.status != SignalScoutSuggestionSet.Status.FRESH or row.generated_at is None:
+        return row.status
+    if timezone.now() - row.generated_at >= timedelta(days=refresh_days):
+        return SignalScoutSuggestionSet.Status.STALE
+    return row.status
 
 
 def visible_items(row: SignalScoutSuggestionSet, *, enabled_skill_names: Collection[str] = ()) -> list[dict[str, Any]]:

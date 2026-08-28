@@ -3,7 +3,7 @@
 All queries run via `execute-sql` over the `system.tasks` and `system.task_runs` Postgres system tables.
 Conventions used throughout:
 
-- **Always exclude the scout fleet's own rows**: `t.origin_product != 'signals_scout'`.
+- **Always exclude the scout fleet's own rows**: `t.origin_product NOT IN ('signals_scout', 'scout_suggestions')` (scout runs, and the scans that pre-compute suggested scouts).
   Those are the harness's run containers, not project work — no repository, one creator, and on an active project they can outnumber every real origin combined.
   The `internal` flag does **not** exclude them.
 - **Join on `r.task_id = t.id`.**
@@ -55,7 +55,7 @@ SELECT
 FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.created_at > now() - interval 14 day
-  AND t.origin_product != 'signals_scout'
+  AND t.origin_product NOT IN ('signals_scout', 'scout_suggestions')
 GROUP BY origin
 ORDER BY runs DESC
 ```
@@ -77,7 +77,7 @@ SELECT
 FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.created_at > now() - interval 14 day
-  AND t.origin_product != 'signals_scout'
+  AND t.origin_product NOT IN ('signals_scout', 'scout_suggestions')
 GROUP BY origin
 ORDER BY runs DESC
 ```
@@ -107,7 +107,7 @@ SELECT
 FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.created_at > now() - interval 14 day
-  AND t.origin_product != 'signals_scout'
+  AND t.origin_product NOT IN ('signals_scout', 'scout_suggestions')
   -- Repo-less tasks are unrelated work that would group into one synthetic "repository";
   -- that cluster can trip the total-failure exception with no shared repo behind it.
   -- Query 3 owns cross-task failure classes that have no repository.
@@ -156,7 +156,7 @@ SELECT
 FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.created_at > now() - interval 14 day
-  AND t.origin_product != 'signals_scout'
+  AND t.origin_product NOT IN ('signals_scout', 'scout_suggestions')
   AND r.status = 'failed'
   AND isNotNull(r.error_message)
   -- Project-wide by default. When query 2 named a candidate repository, re-run this
@@ -198,7 +198,7 @@ SELECT
 FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.created_at > now() - interval 14 day
-  AND t.origin_product != 'signals_scout'
+  AND t.origin_product NOT IN ('signals_scout', 'scout_suggestions')
   AND r.status = 'failed'
   AND isNotNull(r.error_message)
   -- Substitute the integer from query 3's err_fingerprint column (digits only):
@@ -226,7 +226,7 @@ SELECT
 FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.created_at > now() - interval 14 day
-  AND t.origin_product != 'signals_scout'
+  AND t.origin_product NOT IN ('signals_scout', 'scout_suggestions')
 GROUP BY repo
 HAVING runs > 20
 -- Rate first: the guard above already handles volume, and a busy healthy repo would
@@ -254,7 +254,7 @@ FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.status IN ('not_started', 'queued', 'in_progress')
   AND r.created_at < now() - interval 1 day
-  AND t.origin_product != 'signals_scout'
+  AND t.origin_product NOT IN ('signals_scout', 'scout_suggestions')
   -- `Task.soft_delete()` does not transition its runs, so without this a deleted task's
   -- stuck run stays "backlog" forever. This scan is unbounded, so that false finding never ages out.
   AND t.deleted = 0
@@ -353,7 +353,7 @@ SELECT
     r.created_at                                                 AS run_created_at
 FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
-WHERE t.origin_product != 'signals_scout'
+WHERE t.origin_product NOT IN ('signals_scout', 'scout_suggestions')
   AND t.deleted = 0
   -- Failure clusters: keep both lines as written.
   -- Backlog clusters (query 5b): swap the status list for

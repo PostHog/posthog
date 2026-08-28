@@ -29,6 +29,7 @@ from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.scout_chat import consume_daily_attempt, refund_daily_attempt
 from products.signals.backend.scout_harness.suggestions import (
     dismiss_suggestion,
+    effective_status,
     enabled_skill_names,
     read_suggestion_settings,
     suggestions_allowed_for_team,
@@ -120,7 +121,7 @@ def _set_payload(row: SignalScoutSuggestionSet | None, *, team_id: int) -> dict[
             "items": [],
         }
     return {
-        "status": row.status,
+        "status": effective_status(row, refresh_days=read_suggestion_settings().refresh_days),
         "generated_at": row.generated_at,
         "model": row.model,
         "fleet_snapshot": list(row.fleet_snapshot or []),

@@ -29,6 +29,7 @@ from products.signals.backend.scout_harness.config_registry import (
 )
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.suggestions import (
+    MAX_DESCRIPTION_CHARS,
     MAX_DRAFT_BODY_CHARS,
     MAX_SUGGESTIONS_PER_BATCH,
     SUGGESTIONS_AI_STAGE,
@@ -95,6 +96,7 @@ def validate_suggestion_items(
                 not item.draft_body.strip()
                 or len(item.draft_body) > MAX_DRAFT_BODY_CHARS
                 or not item.description.strip()
+                or len(item.description) > MAX_DESCRIPTION_CHARS
             ):
                 continue
         config = item.proposed_config
@@ -226,9 +228,10 @@ async def arun_scout_suggestions(
             # Reads only: the scan never writes, and `read_only` still carries `llm_skill:read` for
             # the authoring-scouts skill and `signal_scout:read` for the fleet and recent runs.
             posthog_mcp_scopes="read_only",
-            # Same posture as scout runs: a GitHub integration, when the project has one, mounts as
-            # a downscoped read-only token, never the write-capable one a task normally gets.
-            github_read_access=True,
+            # No GitHub: the scan grounds itself in project data a member can write, so a
+            # repository token here would let planted text pull private source into a suggestion
+            # field the API hands back.
+            github_read_access=False,
             model=runtime.model,
             runtime_adapter=runtime.runtime_adapter,
             reasoning_effort=runtime.reasoning_effort,
