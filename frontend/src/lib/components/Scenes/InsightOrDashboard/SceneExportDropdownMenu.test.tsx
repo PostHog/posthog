@@ -7,6 +7,7 @@ import { type ReactNode } from 'react'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { downloadFile } from 'lib/utils/dom'
 
 import { initKeaTests } from '~/test/init'
@@ -17,6 +18,10 @@ import { SceneExportDropdownMenu } from './SceneExportDropdownMenu'
 
 jest.mock('html-to-image', () => ({
     toBlob: jest.fn(() => Promise.resolve(new Blob(['png'], { type: 'image/png' }))),
+}))
+jest.mock('lib/utils/accessControlUtils', () => ({
+    ...jest.requireActual('lib/utils/accessControlUtils'),
+    getAccessControlDisabledReason: jest.fn(() => null),
 }))
 jest.mock('lib/utils/dom', () => ({
     ...jest.requireActual('lib/utils/dom'),
@@ -98,5 +103,22 @@ describe('SceneExportDropdownMenu', () => {
         await waitFor(() => expect(downloadFile).toHaveBeenCalledTimes(1))
         expect(jest.mocked(downloadFile).mock.calls[0][0].name).toBe('weekly-pageviews.png')
         expect(screen.queryByText('Edit Screenshot')).not.toBeInTheDocument()
+    })
+
+    it('keeps a browser-rendered format available without export access', async () => {
+        jest.mocked(getAccessControlDisabledReason).mockReturnValue('You do not have export access')
+        const onClick = jest.fn()
+        render(
+            <SceneExportDropdownMenu
+                dropdownMenuItems={[{ format: ExporterFormat.PNG, dataAttr: 'export-png', onClick }, CSV_ITEM]}
+            />
+        )
+
+        expect(screen.getByText('.csv')).toBeDisabled()
+        expect(screen.getByText('.png')).toBeEnabled()
+
+        await userEvent.click(screen.getByText('.png'))
+
+        expect(onClick).toHaveBeenCalledTimes(1)
     })
 })

@@ -53,15 +53,14 @@ export function SceneExportDropdownMenu({
         startExport(triggerExportProps)
     }
 
-    // Creating an export requires editor access to the export resource.
+    // Creating an export requires editor access to the export resource. It is applied per format rather
+    // than to the whole menu, because a format produced in the browser creates no export asset: it
+    // rasterizes what the person is already looking at, which they can screenshot anyway.
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Export,
         AccessControlLevel.Editor
     )
-    const resolvedDisabledReasons: DisabledReasonsObject = {
-        ...disabledReasons,
-        ...(accessControlDisabledReason ? { [accessControlDisabledReason]: true } : {}),
-    }
+    const resolvedDisabledReasons: DisabledReasonsObject = { ...disabledReasons }
 
     const isDisabled = Object.values(resolvedDisabledReasons).some(Boolean)
 
@@ -77,7 +76,13 @@ export function SceneExportDropdownMenu({
             <DropdownMenuContent align="start" matchTriggerWidth>
                 <DropdownMenuGroup>
                     {dropdownMenuItems.map((item, index) => {
-                        const itemDisabledReasons = item.disabledReasons ?? {}
+                        const rendersInBrowser = !!item.onClick
+                        const itemDisabledReasons: DisabledReasonsObject = {
+                            ...item.disabledReasons,
+                            ...(!rendersInBrowser && accessControlDisabledReason
+                                ? { [accessControlDisabledReason]: true }
+                                : {}),
+                        }
                         const itemDisabled = Object.values(itemDisabledReasons).some(Boolean)
                         const exportFormatExtension = Object.keys(ExporterFormat)
                             .find((key) => ExporterFormat[key as keyof typeof ExporterFormat] === item.format)
@@ -117,9 +122,9 @@ export function SceneExportDropdownMenu({
                                     })
                                 }}
                                 data-attr={`export-button-${exportFormatExtension}`}
-                                data-ph-capture-attribute-export-target={target}
+                                data-ph-capture-attribute-export-target={rendersInBrowser ? null : target}
                                 data-ph-capture-attribute-export-body={
-                                    exportBody.length ? JSON.stringify(exportBody) : null
+                                    !rendersInBrowser && exportBody.length ? JSON.stringify(exportBody) : null
                                 }
                                 asChild
                             >
