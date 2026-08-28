@@ -52,10 +52,20 @@ export function DismissReportDialog({
   const onOpenChangeRef = useRef(onOpenChange);
   onOpenChangeRef.current = onOpenChange;
 
+  // Quill's combobox portals its popup to document.body, outside Dialog.Content, so Radix
+  // treats clicks on the popup as "outside the dialog". While the picker is open, every
+  // dismiss path below must close only the popup — otherwise selecting a repository slams
+  // the dialog shut and drops the reason and note already entered.
+  const [isRepoPickerOpen, setIsRepoPickerOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) setIsRepoPickerOpen(false);
+  }, [open]);
+
   // Radix Themes nests Content inside the overlay scroll area, so backdrop clicks
   // often land on padding/overlay nodes that never reach Content's dismiss layer.
   useEffect(() => {
-    if (!open || isSubmitting) return;
+    if (!open || isSubmitting || isRepoPickerOpen) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
@@ -75,17 +85,27 @@ export function DismissReportDialog({
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () =>
       document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [open, isSubmitting]);
+  }, [open, isSubmitting, isRepoPickerOpen]);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Content
         maxWidth="480px"
-        onPointerDownOutside={() => {
-          if (!isSubmitting) onOpenChange(false);
+        onPointerDownOutside={(event) => {
+          // preventDefault, not just skipping onOpenChange: Radix also dismisses a controlled
+          // dialog through Root's own onOpenChange unless the event is cancelled.
+          if (isSubmitting || isRepoPickerOpen) {
+            event.preventDefault();
+            return;
+          }
+          onOpenChange(false);
         }}
-        onEscapeKeyDown={() => {
-          if (!isSubmitting) onOpenChange(false);
+        onEscapeKeyDown={(event) => {
+          if (isSubmitting || isRepoPickerOpen) {
+            event.preventDefault();
+            return;
+          }
+          onOpenChange(false);
         }}
       >
         <DismissReportDialogBody
@@ -94,6 +114,8 @@ export function DismissReportDialog({
           isSubmitting={isSubmitting}
           snoozeDisabledReason={snoozeDisabledReason}
           onConfirm={onConfirm}
+          isRepoPickerOpen={isRepoPickerOpen}
+          onRepoPickerOpenChange={setIsRepoPickerOpen}
         />
       </Dialog.Content>
     </Dialog.Root>
@@ -106,15 +128,19 @@ function DismissReportDialogBody({
   isSubmitting,
   snoozeDisabledReason,
   onConfirm,
+  isRepoPickerOpen,
+  onRepoPickerOpenChange,
 }: Omit<DismissReportDialogProps, "open" | "onOpenChange"> & {
   selectedCount: number;
+  /** Owned by the dialog wrapper, which suppresses its dismiss paths while the picker is open. */
+  isRepoPickerOpen: boolean;
+  onRepoPickerOpenChange: (open: boolean) => void;
 }) {
   const [reason, setReason] = useState<DismissalReasonOptionValue | null>(null);
   const [note, setNote] = useState("");
   const [correctedRepository, setCorrectedRepository] = useState<string | null>(
     null,
   );
-  const [isRepoPickerOpen, setIsRepoPickerOpen] = useState(false);
   const [repoSearch, setRepoSearch] = useState("");
 
   const isWrongRepo = reason === "wrong_repo";
@@ -199,7 +225,7 @@ function DismissReportDialogBody({
               isLoading={repoPage.isPending}
               isLoadingMore={repoPage.isFetchingMore}
               open={isRepoPickerOpen}
-              onOpenChange={setIsRepoPickerOpen}
+              onOpenChange={onRepoPickerOpenChange}
               searchQuery={repoSearch}
               onSearchQueryChange={setRepoSearch}
               hasMore={repoPage.hasMore}
