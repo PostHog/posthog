@@ -7,12 +7,32 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
 
+/**
+ * Which card filled the ad slot, sent as `card_type` on every ad-slot event.
+ *
+ * Two cards shared the `nav panel campaign shown` event name once before, which made their
+ * impressions indistinguishable in analytics. Breaking down on this instead of on the event
+ * name keeps that ambiguity from coming back.
+ */
+// pinned: analytics property values — renaming breaks dashboards
+export const NAV_PANEL_CARD_TYPE = {
+    FLAG_CAMPAIGN: 'flag_campaign',
+    PRODUCT_PUSH: 'product_push',
+} as const
+
 export interface CampaignPayload {
     campaign: string
     text: string
     emoji: string
     emojiLabel: string
     title: string
+    /**
+     * ProductKey the campaign advertises, e.g. 'session_replay'. Optional, because the payload is
+     * hand-authored in the flag and a campaign need not be about a product at all (a legal notice,
+     * say). Set it whenever the campaign does promote one, so its impressions can be compared
+     * against the automated push for the same product.
+     */
+    productKey?: string
 }
 
 export function isCampaignPayload(value: unknown): value is CampaignPayload {
@@ -23,7 +43,8 @@ export function isCampaignPayload(value: unknown): value is CampaignPayload {
         typeof (value as CampaignPayload).text === 'string' &&
         typeof (value as CampaignPayload).emoji === 'string' &&
         typeof (value as CampaignPayload).emojiLabel === 'string' &&
-        typeof (value as CampaignPayload).title === 'string'
+        typeof (value as CampaignPayload).title === 'string' &&
+        ['undefined', 'string'].includes(typeof (value as CampaignPayload).productKey)
     )
 }
 

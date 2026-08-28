@@ -2,7 +2,7 @@ import { BindLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { CampaignPayload, AdvertisementCard } from './navPanelAdShared'
+import { CampaignPayload, AdvertisementCard, NAV_PANEL_CARD_TYPE } from './navPanelAdShared'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
 
 export function NavPanelCampaignAd({ campaign }: { campaign: CampaignPayload }): JSX.Element | null {
@@ -12,9 +12,13 @@ export function NavPanelCampaignAd({ campaign }: { campaign: CampaignPayload }):
 
     useEffect(() => {
         if (!hidden) {
-            posthog.capture('nav panel campaign shown', { campaign: campaign.campaign })
+            posthog.capture('nav panel campaign shown', {
+                campaign: campaign.campaign,
+                card_type: NAV_PANEL_CARD_TYPE.FLAG_CAMPAIGN,
+                product_key: campaign.productKey,
+            })
         }
-    }, [campaign.campaign, hidden])
+    }, [campaign.campaign, campaign.productKey, hidden])
 
     if (hidden) {
         return null
@@ -30,6 +34,8 @@ export function NavPanelCampaignAd({ campaign }: { campaign: CampaignPayload }):
                 onClose={() => {
                     posthog.capture('nav panel campaign dismissed', {
                         campaign: campaign.campaign,
+                        card_type: NAV_PANEL_CARD_TYPE.FLAG_CAMPAIGN,
+                        product_key: campaign.productKey,
                     })
                 }}
             />
