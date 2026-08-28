@@ -605,9 +605,7 @@ impl MismatchTracker {
     /// race the suppression exists to filter.
     async fn clear_pending(&self, team_id: TeamId, key: String) -> Vec<TrackerStoreOp> {
         match with_timeout(self.redis.del(key)).await {
-            // Redis reports no error for a DEL of a key that is not there, and
-            // an absent key is the state this call wants anyway.
-            Ok(()) | Err(CustomRedisError::NotFound) => Vec::new(),
+            Ok(()) => Vec::new(),
             Err(e) => {
                 tracing::warn!(team_id, error = %e, "Shadow mismatch tracker clear failed; the team's pending state stands until it expires");
                 vec![TrackerStoreOp::Clear]
@@ -1113,9 +1111,12 @@ mod tests {
         let first_pod = MockRedisClient::new();
         tracker(&first_pod).observe(7, mismatch_diffs()).await;
 
-        let second_pod = next_build(&first_pod);
+        let mut second_pod = next_build(&first_pod);
+        second_pod.del_ret(PENDING_KEY_TEAM_7, Ok(()));
+
         let clean = tracker(&second_pod).observe(7, Vec::new()).await;
         assert!(clean.is_match());
+        assert!(clean.store_errors.is_empty());
 
         // Asserted against the store, not against the next build: an unseeded mock
         // reads as an absent key, so a later first sighting proves nothing about
@@ -1215,6 +1216,7 @@ mod tests {
             first_pod
         });
         second_pod.set_ret(PENDING_KEY_TEAM_7, Err(CustomRedisError::Timeout));
+        second_pod.del_ret(PENDING_KEY_TEAM_7, Ok(()));
 
         let second = tracker(&second_pod)
             .observe(7, other_mismatch_diffs())
