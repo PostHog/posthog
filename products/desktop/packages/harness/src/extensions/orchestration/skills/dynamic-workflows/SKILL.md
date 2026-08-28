@@ -107,9 +107,9 @@ Use it for public content, support queues, issue bodies, and other prompt-inject
 
 ### Model routing
 
-Use a cheap agent for inventory, classification, or simple checks. Route only ambiguous or high-impact items to a stronger model.
+Use Luna for tightly specified classification and simple checks, Terra for moderate analysis, and Sol for open-ended exploration or difficult judgment.
 
-Base routing on observable complexity, not arbitrary variety. Most workflows need many inexpensive workers and one capable judge or synthesizer.
+Base routing on observable complexity, not arbitrary variety. Spend stronger models where they can change the outcome.
 
 ## Design for independent contexts
 
@@ -274,13 +274,13 @@ The runtime allows up to 8 active agents and 256 agent calls per workflow.
 
 | Agent | Capability | Best use |
 |---|---|---|
-| `Explore` | Read-only, fast model | Inventory, evidence collection, classification, repeated checks |
+| `Explore` | Read-only, Sol model | Inventory, evidence collection, classification, repeated checks |
 | `Plan` | Read-only, parent model | Evaluation, comparison, verification, synthesis |
 | `General` | Read-write, parent model | Independent implementation work |
 
 Only `General` edits files. All agents use the same working directory unless `cwd` points elsewhere. There is no automatic worktree isolation. Run `General` agents concurrently only when their file sets and side effects cannot overlap. For shared files, fan out read-only analysis and use one writer after the barrier.
 
-The optional `model` value can be `cheap`, `medium`, or `strong`. Omit it for the agent's default. Use stronger models for ambiguous routing, difficult implementation, final judgment, or synthesis. Use cheaper models for broad and well-specified work.
+The optional model tiers are `cheap` (Luna), `medium` (Terra), and `strong` (Sol). Omit `model` to use the agent's default. Use Sol for ambiguous routing, open-ended exploration, difficult implementation, final judgment, or synthesis. Use Luna for broad work only when each task is tightly specified.
 
 There is no per-workflow token-budget parameter. Control cost with the number of calls, hard loop bounds, agent choice, model tier, and compact prompts.
 

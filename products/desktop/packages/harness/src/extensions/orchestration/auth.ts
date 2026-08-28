@@ -93,11 +93,11 @@ export async function resolveModelAuth(
 /**
  * Tries `primary`, then each of `fallbacks` in order, resolving to the first
  * model with usable credentials. If every explicit candidate fails and
- * `primary` named a specific model (e.g. a bundled agent pinned to a fast
- * model that doesn't exist under the parent's current provider), makes one
+ * `primary` named a specific model (e.g. a bundled agent pinned to a model
+ * that doesn't exist under the parent's current provider), makes one
  * last attempt with no model at all — i.e. "inherit" the parent's current
  * model — before giving up. This is what lets an agent declare `model:
- * claude-haiku-4-5` and still run somewhere that model isn't available,
+ * gpt-5.6-sol` and still run somewhere that model isn't available,
  * rather than hard-failing the whole subagent. Throws the last error if
  * nothing resolves.
  *

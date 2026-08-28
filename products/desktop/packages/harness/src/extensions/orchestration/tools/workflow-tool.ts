@@ -38,14 +38,14 @@ const CONCURRENCY = 8;
  * it would otherwise have to guess and that could silently be wrong — the
  * gateway's model list is fetched dynamically and changes over time.
  *
- * Deliberately just two extra tiers, not the arbitrary N a user-configurable
+ * Deliberately just three tiers, not the arbitrary N a user-configurable
  * tiers file would need: `strong`/`medium`/`cheap` are fixed, known-good
  * anchors, not a new settings surface.
  */
 const MODEL_TIERS: Record<string, string> = {
-  strong: "claude-opus-4-8",
-  medium: "claude-sonnet-5",
-  cheap: "claude-haiku-4-5",
+  strong: "gpt-5.6-sol",
+  medium: "gpt-5.6-terra",
+  cheap: "gpt-5.6-luna",
 };
 
 /** A tier keyword resolves to its mapped id; anything else (a bare id or an explicit `provider/id`) passes through unchanged as an escape hatch. */
@@ -91,9 +91,9 @@ export function registerWorkflowTool(pi: ExtensionAPI): void {
         "Use workflow when a task decomposes into several independent investigations or changes (audit many files, research many topics, review from multiple perspectives, edit many independent files). Do not use it for a single quick read or edit, or when the subagent tool alone is enough.",
         "For workflow, pass one raw JavaScript string in `script` — no Markdown fences, no TypeScript, no import/export statements or require() (a leading `export const meta = {name, description}` is tolerated).",
         "For workflow, available globals: agent(prompt, {label, agent?, schema?, cwd?, model?, objective?, inputs?, produces?}), parallel(arrayOfFunctions), pipeline(items, ...stages), phase(title, {goal?, inputs?, produces?}), log(message), parseJson(text), args, cwd. Anything else (require, fs, fetch, setTimeout) is unavailable.",
-        "For workflow, agent() runs one isolated subagent and resolves to its final text, or null if it failed — check for nulls before synthesizing. Valid agent names: 'Explore' (default; fast read-only recon), 'Plan' (read-only implementation planning), 'General' (read-write — makes real edits).",
+        "For workflow, agent() runs one isolated subagent and resolves to its final text, or null if it failed — check for nulls before synthesizing. Valid agent names: 'Explore' (default; focused read-only recon using Sol), 'Plan' (read-only implementation planning), 'General' (read-write — makes real edits).",
         "For workflow, only General edits files; Explore and Plan are read-only. Use General for the actual changes an Explore/Plan investigation identified, or any fan-out that needs real edits, not just findings.",
-        "For workflow, agent()'s optional model lets a call use a different model than its persona's default: 'strong' (best available model), 'medium', or 'cheap' (fast/cheap) — use these tier keywords, not a guessed exact model id, since the available model list changes over time. Omit model to use the persona's own default.",
+        "For workflow, agent()'s optional model lets a call use a different model than its persona's default: 'strong' (Sol), 'medium' (Terra), or 'cheap' (Luna). Use these tier keywords instead of a guessed exact model ID. Omit model to use the persona's own default.",
         "For workflow, when an agent's output feeds later stages, pass a plain JSON Schema via {schema: {type: 'object', required: [...], properties: {...}}} — agent() then returns the parsed, shape-checked object instead of text. Use JSON Schema syntax, not TypeScript.",
         "For workflow, parallel() takes functions, not promises: `await parallel(items.map(item => () => agent(...)))`. Results come back in input order. At most 8 agents run concurrently and 256 per workflow.",
         "For workflow, pipeline(items, ...stages) fans items out through sequential stages (map → verify → summarize); different items run concurrently, each item's stages run in order, and each stage receives (previousValue, originalItem, index).",

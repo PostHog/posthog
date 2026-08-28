@@ -101,7 +101,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
       description: [
         "Delegate a task to a focused subagent running in its own isolated Pi session and context window.",
         "Modes: single ({agent, task}) or parallel ({tasks:[...]}, max 4 concurrent tasks).",
-        "Bundled agents: Explore (fast read-only recon on a cheap model), Plan (read-only implementation planning), General (read-write implementation — actually makes the requested edits). Only General edits; Explore and Plan never do.",
+        "Bundled agents: Explore (focused read-only recon using Sol), Plan (read-only implementation planning), General (read-write implementation — actually makes the requested edits). Only General edits; Explore and Plan never do.",
         'Set agentScope: "both" to also allow project-local .pi/agents/*.md (gated by trust + confirmation).',
       ].join(" "),
       promptSnippet:

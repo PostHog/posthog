@@ -34,10 +34,10 @@ describe("agents", () => {
     expect(general?.source).toBe("bundled");
   });
 
-  it("Explore is read-only and pinned to a fast model", () => {
+  it("Explore is read-only and pinned to Sol", () => {
     const explore = findBundledAgent("Explore");
     expect(explore?.tools).toEqual(["read", "bash", "grep", "find", "ls"]);
-    expect(explore?.model).toBe("claude-haiku-4-5");
+    expect(explore?.model).toBe("gpt-5.6-sol");
   });
 
   it("Plan is read-only and inherits the parent's model", () => {
@@ -70,20 +70,7 @@ describe("agents", () => {
     expect(findBundledAgent("does-not-exist")).toBeUndefined();
   });
 
-  // Regression test for a real bug: `bundled-agents/Explore.md` once pinned
-  // `model: anthropic/claude-haiku-4-5`. This provider registers every
-  // vendor's models (Anthropic, OpenAI, Cloudflare) under one gateway
-  // provider name (`posthog`) with bare ids like `claude-haiku-4-5` — there
-  // is no provider literally named `anthropic` in `ctx.modelRegistry`. A
-  // `vendor/id`-shaped pin therefore never resolves in `auth.ts` and
-  // silently falls through to inheriting the parent's current model — no
-  // error, no warning, just a "fast" agent quietly running on whatever
-  // (possibly large, slow) model the parent session happened to be on.
-  // `auth.test.ts`'s fakes can't catch this: they invent their own
-  // provider/model names, so they never notice a mismatch against this
-  // repo's real provider shape. This test closes that gap by resolving
-  // every bundled agent's pinned `model` against the real (offline-safe)
-  // model list this provider actually registers.
+  // Gateway models share the `posthog` provider, so bundled pins must use bare IDs.
   it("every bundled agent's pinned model exists in the real provider's model list, unprefixed", () => {
     const realModelIds = fallbackModelConfigs("us").map((m) => m.id);
 

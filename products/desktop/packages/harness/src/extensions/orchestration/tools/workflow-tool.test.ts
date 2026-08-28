@@ -183,9 +183,9 @@ return { count: inv.files.length }`,
   });
 
   it.each([
-    ["strong", "claude-opus-4-8"],
-    ["medium", "claude-sonnet-5"],
-    ["cheap", "claude-haiku-4-5"],
+    ["strong", "gpt-5.6-sol"],
+    ["medium", "gpt-5.6-terra"],
+    ["cheap", "gpt-5.6-luna"],
   ])(
     "resolves model tier %s to %s before calling runAgent",
     async (tier, expectedModel) => {
@@ -236,7 +236,7 @@ return { count: inv.files.length }`,
       fakeCtx,
     );
     const passedAgent = runAgentMock.mock.calls[0][0].agent;
-    expect(passedAgent.model).toBe("claude-haiku-4-5"); // Explore's own bundled default
+    expect(passedAgent.model).toBe("gpt-5.6-sol");
   });
 
   it("can dispatch to the General (read-write) persona by name", async () => {

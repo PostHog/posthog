@@ -27,7 +27,7 @@ almost everything is relevant, delegation adds overhead for no benefit.
 
 | Agent | Use for | Tools | Model | Notes |
 |-------|---------|-------|-------|-------|
-| `Explore` | Fast, read-only recon: find files, entry points, data flow | read, bash, grep, find, ls | Fast/cheap model, falls back to your current model | Reports compressed findings, never edits |
+| `Explore` | Focused, read-only recon: find files, entry points, data flow | read, bash, grep, find, ls | Sol, falls back to your current model | Reports compressed findings, never edits |
 | `Plan` | Turn Explore's findings (or your own) into a concrete implementation plan | read, bash, grep, find, ls | Inherits your current model | Never edits |
 | `General` | Actual implementation: make the code changes an Explore/Plan investigation identified, or any task that needs real edits | read, bash, edit, write, grep, find, ls | Inherits your current model | Same read-write capability as you have; makes real changes |
 
