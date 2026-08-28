@@ -143,7 +143,10 @@ class TestAgentProxyCallback(TestCase):
 
     def test_awaiting_input_dispatches_for_interactive_run(self) -> None:
         run = self.task.create_run(mode="interactive")
-        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify:
+        with (
+            patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify,
+            patch.object(TaskRun, "signal_agent_state_changed") as agent_state,
+        ):
             response = self._post(
                 self._body(kind="awaiting_input", agent_active=False),
                 token=self._token(run),
@@ -152,13 +155,18 @@ class TestAgentProxyCallback(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["dispatched"])
         notify.assert_called_once()
+        agent_state.assert_called_once_with(False)
 
     def test_awaiting_input_skipped_for_background_run(self) -> None:
-        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify:
+        with (
+            patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify,
+            patch.object(TaskRun, "signal_agent_state_changed") as agent_state,
+        ):
             response = self._post(self._body(kind="awaiting_input", agent_active=False), token=self._token())
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["dispatched"])
         notify.assert_not_called()
+        agent_state.assert_called_once_with(False)
 
     def test_unknown_run_returns_200_not_dispatched(self) -> None:
         run = self.task.create_run()

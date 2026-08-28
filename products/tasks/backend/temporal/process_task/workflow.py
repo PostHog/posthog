@@ -71,6 +71,7 @@ from .activities.get_task_processing_context import (
 )
 from .activities.materialize_context_layer import MaterializeContextLayerInput, materialize_context_layer_in_sandbox
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
+from .activities.probe_sandbox_agent import ProbeSandboxAgentInput, probe_sandbox_agent
 from .activities.provision_sandbox import (
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
@@ -137,6 +138,7 @@ from .activities.start_dev_stack_preview import (
 from .activities.track_workflow_event import SANDBOX_DEADLINE_EVENT, TrackWorkflowEventInput, track_workflow_event
 from .activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
+    SANDBOX_UNRESPONSIVE_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
     UpdateTaskRunStatusInput,
     update_task_run_status,
@@ -145,6 +147,8 @@ from .credential_refresh import SANDBOX_GONE_ERROR_MESSAGE, CredentialRefreshExi
 from .slack_agent_design_relay import SlackAgentDesignRelayInput, SlackAgentDesignRelayWorkflow
 
 DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
+SANDBOX_UNRESPONSIVE_ERROR_MESSAGE = "Sandbox stopped responding; resume to continue"
+AGENT_HEARTBEAT_GAP_TIMEOUT = timedelta(minutes=10)
 MAX_ACCEPTED_MESSAGE_IDS = 500
 _PATCH_ID_CANCEL_SANDBOX_CREATION_ON_COMPLETION = "tasks-cancel-sandbox-creation-on-completion"
 _PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE = "tasks-continue-after-repository-clone-failure"
@@ -286,6 +290,7 @@ class TaskEvent(StrEnum):
     MAX_DURATION_REACHED = "max_duration_reached"
     CI_FOLLOW_UP = "ci_follow_up"
     SANDBOX_GONE = "sandbox_gone"
+    AGENT_HEARTBEAT_GAP = "agent_heartbeat_gap"
     QUOTA_RECHECK = "quota_recheck"
     SANDBOX_TTL_APPROACHING = "sandbox_ttl_approaching"
 
@@ -401,6 +406,7 @@ _PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE = "tasks-complete-stream-after-c
 # onboarding-origin FAILED terminalizations for the inactivity and sandbox-gone paths.
 # Same two-step deprecate-then-delete cleanup lifecycle as the patches above.
 _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
+_PATCH_ID_AGENT_HEARTBEAT_GAP = "tasks-agent-heartbeat-gap"
 
 _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 
@@ -436,6 +442,12 @@ def _run_lifecycle_bounds_enabled() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_RUN_LIFECYCLE_BOUNDS)
+
+
+def _agent_heartbeat_gap_enabled() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_AGENT_HEARTBEAT_GAP)
 
 
 def _dev_stack_preview_enabled() -> bool:
@@ -631,7 +643,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _finish_active_followup(self) -> None:
         self._shutting_down = True
-        if self._completion_status == "cancelled":
+        if self._completion_status == "cancelled" or self._completion_timeout_marker == SANDBOX_UNRESPONSIVE_STATE_KEY:
             self._pending_followup = None
             self._pending_followups.clear()
             if self._active_followup_task is not None:
@@ -761,6 +773,57 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return "run_completed"
         return None
 
+    def _agent_heartbeat_gap_scheduled(self) -> bool:
+        return bool(self._agent_active) and self._last_agent_heartbeat_at is not None and _agent_heartbeat_gap_enabled()
+
+    async def _wait_for_agent_heartbeat_gap(self) -> TaskEvent:
+        """Wake up when a mid-turn agent has not heartbeated for AGENT_HEARTBEAT_GAP_TIMEOUT.
+
+        The relay heartbeats every 30s while the agent-server's event stream is open and a
+        turn is in flight, so a gap this long means the stream died under a turn: the box is
+        starved or wedged, not merely quiet.
+        """
+        assert self._last_agent_heartbeat_at is not None
+        remaining = (self._last_agent_heartbeat_at + AGENT_HEARTBEAT_GAP_TIMEOUT) - workflow.now()
+        if remaining.total_seconds() > 0:
+            await workflow.sleep(remaining.total_seconds())
+        return TaskEvent.AGENT_HEARTBEAT_GAP
+
+    async def _handle_agent_heartbeat_gap(self, sandbox_id: str | None) -> None:
+        armed_at = self._last_agent_heartbeat_at
+        responsive = False
+        reason = "no_sandbox"
+        if sandbox_id is not None:
+            try:
+                probe = await workflow.execute_activity(
+                    probe_sandbox_agent,
+                    ProbeSandboxAgentInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                responsive, reason = probe.responsive, probe.reason
+            except Exception as e:
+                reason = f"probe_activity_failed:{_failure_error_type(getattr(e, 'cause', None), e)}"
+        signal_arrived = not self._agent_active or self._last_agent_heartbeat_at != armed_at
+        workflow.logger.warning(
+            "agent_heartbeat_gap",
+            extra={
+                "run_id": self.context.run_id,
+                "sandbox_id": sandbox_id,
+                "responsive": responsive,
+                "reason": reason,
+                "signal_arrived": signal_arrived,
+            },
+        )
+        if signal_arrived:
+            return
+        if responsive:
+            now = workflow.now()
+            self._last_agent_heartbeat_at = now
+            self._last_active_time = now
+            return
+        self._mark_sandbox_gone(unresponsive=True)
+
     async def _wait_for_sandbox_deadline(self) -> TaskEvent:
         """Wake up shortly before the provider kills the sandbox.
 
@@ -852,6 +915,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 possible_events.append(asyncio.create_task(self._wait_for_max_run_duration(max_run_duration)))
         if self._sandbox_deadline_snapshot_scheduled():
             possible_events.append(asyncio.create_task(self._wait_for_sandbox_deadline()))
+        if not warm_idle and self._agent_heartbeat_gap_scheduled():
+            possible_events.append(asyncio.create_task(self._wait_for_agent_heartbeat_gap()))
         if ci_follow_up_scheduled:
             possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
         if not warm_idle and self._self_driving_quota_recheck_scheduled():
@@ -1378,6 +1443,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                 self._task_completed = True
                     case TaskEvent.SANDBOX_GONE:
                         self._mark_sandbox_gone()
+                    case TaskEvent.AGENT_HEARTBEAT_GAP:
+                        await self._handle_agent_heartbeat_gap(sandbox_id)
                     case TaskEvent.SIGNAL_RECEIVED:
                         if workflow.patched(_PATCH_ID_CONCURRENT_FOLLOWUP_STEERING):
                             if self._has_dispatchable_followup():
@@ -2601,12 +2668,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return False
         return not self.context.create_pr or self._ci_repetitions > 0
 
-    def _mark_sandbox_gone(self) -> None:
+    def _mark_sandbox_gone(self, *, unresponsive: bool = False) -> None:
         # A sandbox that vanished mid-setup is a failed setup for onboarding; see
         # _onboarding_exit_is_failure for why a run that already opened its PR is exempt.
         self._completion_status = "failed" if self._onboarding_exit_is_failure() else "completed"
-        self._completion_error = SANDBOX_GONE_ERROR_MESSAGE
-        self._completion_timeout_marker = SANDBOX_GONE_STATE_KEY
+        self._completion_error = SANDBOX_UNRESPONSIVE_ERROR_MESSAGE if unresponsive else SANDBOX_GONE_ERROR_MESSAGE
+        self._completion_timeout_marker = SANDBOX_UNRESPONSIVE_STATE_KEY if unresponsive else SANDBOX_GONE_STATE_KEY
         self._task_completed = True
 
     async def _rotate_sandbox_before_deadline(
@@ -3094,6 +3161,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return
         now = workflow.now()
         self._heartbeat_received = True
+        self._agent_active = True
         self._last_active_time = now
         self._last_agent_heartbeat_at = now
 

@@ -2313,6 +2313,20 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
+    def signal_agent_state_changed(self, agent_active: bool) -> None:
+        import asyncio
+
+        from posthog.temporal.common.client import sync_connect
+
+        from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(self.workflow_id)
+            asyncio.run(handle.signal(ProcessTaskWorkflow.agent_state_changed, arg=agent_active))
+        except Exception as e:
+            logger.warning("task_run.agent_state_signal_failed", task_run_id=str(self.id), error=str(e))
+
     def signal_client_activity(self) -> None:
         from products.tasks.backend.redis import get_tasks_cache
 

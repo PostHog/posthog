@@ -25,12 +25,15 @@ TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 TIMED_OUT_WALL_CLOCK_STATE_KEY = "timed_out_wall_clock"
 # TaskRun.state marker for runs terminalized because their sandbox disappeared.
 SANDBOX_GONE_STATE_KEY = "sandbox_gone"
+# TaskRun.state marker for runs terminalized because their sandbox stopped answering mid-turn.
+SANDBOX_UNRESPONSIVE_STATE_KEY = "sandbox_unresponsive"
 
 # Allowlist for `timeout_marker` so the activity never writes an arbitrary state key.
 _TERMINAL_STATE_MARKERS = (
     TIMED_OUT_INACTIVITY_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
     SANDBOX_GONE_STATE_KEY,
+    SANDBOX_UNRESPONSIVE_STATE_KEY,
 )
 
 _TERMINAL_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)

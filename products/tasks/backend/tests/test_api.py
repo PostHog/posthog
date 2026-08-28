@@ -5430,6 +5430,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "timed_out_inactivity": True,
                     "timed_out_wall_clock": True,
                     "sandbox_gone": True,
+                    "sandbox_unresponsive": True,
                     # implementation provenance is what the self-driving review carve-outs trust
                     "ai_stage": "implementation",
                     # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
@@ -5479,6 +5480,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert "timed_out_inactivity" not in run.state  # caller cannot forge a timeout reason
         assert "timed_out_wall_clock" not in run.state
         assert run.state["sandbox_gone"] is False
+        assert "sandbox_unresponsive" not in run.state
         assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
         assert run.state["self_driving_head_branch"] == "posthog-self-driving/real-3f9a2c"
         assert run.state["runtime_adapter"] == "claude"

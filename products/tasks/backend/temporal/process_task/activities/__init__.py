@@ -16,6 +16,7 @@ from .materialize_context_layer import (
     materialize_context_layer_in_sandbox,
 )
 from .post_slack_update import PostSlackUpdateInput, post_slack_update
+from .probe_sandbox_agent import ProbeSandboxAgentInput, ProbeSandboxAgentOutput, probe_sandbox_agent
 from .provision_sandbox import (
     CheckoutBranchInSandboxInput,
     CheckoutBranchInSandboxOutput,
@@ -109,6 +110,8 @@ __all__ = [
     "PrepareSandboxForRepositoryOutput",
     "ReadSandboxLogsInput",
     "RunWizardInput",
+    "ProbeSandboxAgentInput",
+    "ProbeSandboxAgentOutput",
     "RefreshSandboxCredentialsInput",
     "RefreshSandboxCredentialsOutput",
     "MarkRepoReadyInput",
@@ -153,6 +156,7 @@ __all__ = [
     "wait_dev_stack_preview",
     "prepare_sandbox_for_repository",
     "read_sandbox_logs",
+    "probe_sandbox_agent",
     "refresh_sandbox_credentials",
     "run_wizard",
     "start_agent_server",

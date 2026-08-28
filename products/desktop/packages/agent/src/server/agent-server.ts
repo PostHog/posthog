@@ -124,8 +124,18 @@ import {
 import { resolveRtkSavings } from "./rtk-savings";
 import { RunUsageAccumulator } from "./run-usage";
 import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
+import {
+  DEFAULT_TURN_STALL_HARD_TIMEOUT_MS,
+  DEFAULT_TURN_STALL_SOFT_TIMEOUT_MS,
+  probeSandboxResponsive,
+  readTurnStallTimeoutMs,
+  type TurnStallReason,
+  TurnStallWatchdog,
+} from "./turn-stall-watchdog";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
+
+type TurnErrorType = AgentErrorClassification | TurnStallReason;
 
 const agentErrorClassificationSchema = z.enum([
   "upstream_stream_terminated",
@@ -135,6 +145,15 @@ const agentErrorClassificationSchema = z.enum([
   "turn_ended_without_response",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
+
+const TURN_STALL_CANCEL_GRACE_MS = 60_000;
+const TURN_STALL_DRAIN_POLL_MS = 500;
+export const TURN_STALL_MESSAGES: Record<TurnStallReason, string> = {
+  sandbox_unresponsive:
+    "The sandbox stopped responding while the agent was working. Resume the task to continue.",
+  turn_silent:
+    "The agent produced no output for a long time and the turn was stopped. Resume the task to continue.",
+};
 
 const INITIAL_TASK_RUN_REFRESH_TIMEOUT_MS = 5_000;
 
@@ -548,7 +567,9 @@ export class AgentServer {
   private deliveredMessageIds = new Set<string>();
   private pendingCompactContinuationMessageIds = new Set<string>();
   private inFlightMessageDeliveries = new Map<string, Promise<unknown>>();
-  private activeOwnedTurnCount = 0;
+  private readonly activeOwnedTurns = new Set<number>();
+  private ownedTurnSequence = 0;
+  private turnStallWatchdog: TurnStallWatchdog;
   private activeStartupTurnCount = 0;
   // Normal follow-ups own turns in arrival order. Explicit steering bypasses
   // this tail so it can still reach the active adapter turn immediately.
@@ -641,6 +662,23 @@ export class AgentServer {
       this.posthogExecPermissionRegexSource,
     );
     this.logger = new Logger({ debug: true, prefix: "[AgentServer]" });
+    this.turnStallWatchdog = new TurnStallWatchdog({
+      softTimeoutMs: readTurnStallTimeoutMs(
+        process.env.POSTHOG_TURN_STALL_SOFT_TIMEOUT_MS,
+        DEFAULT_TURN_STALL_SOFT_TIMEOUT_MS,
+      ),
+      hardTimeoutMs: readTurnStallTimeoutMs(
+        process.env.POSTHOG_TURN_STALL_HARD_TIMEOUT_MS,
+        DEFAULT_TURN_STALL_HARD_TIMEOUT_MS,
+      ),
+      probe: () => probeSandboxResponsive(),
+      isWaitingOnUser: () => this.pendingPermissions.size > 0,
+      onStall: (reason, silentMs) => this.handleTurnStall(reason, silentMs),
+      logger: {
+        debug: (message, data) => this.logger.debug(message, data),
+        warn: (message, data) => this.logger.warn(message, data),
+      },
+    });
     this.posthogAPI = new PostHogAPIClient({
       apiUrl: config.apiUrl,
       projectId: config.projectId,
@@ -1303,7 +1341,7 @@ export class AgentServer {
             let declineReason: SteerDeclineReason = "no_active_turn";
             if (this.activeStartupTurnCount > 0) {
               declineReason = "startup_turn";
-            } else if (this.activeOwnedTurnCount > 0) {
+            } else if (this.activeOwnedTurns.size > 0) {
               const result = await commandSession.clientConnection.prompt({
                 sessionId: commandSession.acpSessionId,
                 prompt,
@@ -2254,11 +2292,18 @@ export class AgentServer {
   }
 
   private async runOwnedTurn<T>(operation: () => Promise<T>): Promise<T> {
-    this.activeOwnedTurnCount += 1;
+    const turnId = ++this.ownedTurnSequence;
+    this.activeOwnedTurns.add(turnId);
+    if (this.activeOwnedTurns.size === 1) {
+      this.turnStallWatchdog.start();
+    }
     try {
       return await operation();
     } finally {
-      this.activeOwnedTurnCount -= 1;
+      this.activeOwnedTurns.delete(turnId);
+      if (this.activeOwnedTurns.size === 0) {
+        this.turnStallWatchdog.stop();
+      }
     }
   }
 
@@ -2269,6 +2314,40 @@ export class AgentServer {
     } finally {
       this.activeStartupTurnCount -= 1;
     }
+  }
+
+  private async handleTurnStall(
+    reason: TurnStallReason,
+    silentMs: number,
+  ): Promise<void> {
+    const session = this.session;
+    if (!session) return;
+    const message = TURN_STALL_MESSAGES[reason];
+    this.logger.error("turn_stalled", { reason, silentMs });
+    this.emitConsoleLog(
+      "warn",
+      "TurnStall",
+      `${message} (no agent output for ${Math.round(silentMs / 1000)}s)`,
+    );
+    this.broadcastTurnFailure(reason, message);
+
+    void session.clientConnection
+      .cancel({ sessionId: session.acpSessionId })
+      .catch((error: unknown) => {
+        this.logger.warn("Turn stall cancel failed", { error });
+      });
+    const stalledTurns = [...this.activeOwnedTurns];
+    const deadline = Date.now() + TURN_STALL_CANCEL_GRACE_MS;
+    while (
+      stalledTurns.some((turnId) => this.activeOwnedTurns.has(turnId)) &&
+      Date.now() < deadline
+    ) {
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, TURN_STALL_DRAIN_POLL_MS),
+      );
+    }
+    if (this.session !== session) return;
+    await this.signalTaskComplete(session.payload, "error", message);
   }
 
   private async acquireNonSteerDeliveryTurn(): Promise<() => void> {
@@ -2385,7 +2464,7 @@ export class AgentServer {
   }
 
   private broadcastTurnFailure(
-    classification: AgentErrorClassification,
+    classification: TurnErrorType,
     message: string,
   ): void {
     if (!this.session) return;
@@ -4978,12 +5057,14 @@ ${commonInstructions}
         method: string,
         params: Record<string, unknown>,
       ) => {
+        this.turnStallWatchdog.recordActivity();
         this.logger.debug("Extension notification", { method, params });
       },
       sessionUpdate: async (params: {
         sessionId: string;
         update?: Record<string, unknown>;
       }) => {
+        this.turnStallWatchdog.recordActivity();
         // Track permission mode changes for relay decisions
         if (
           params.update?.sessionUpdate === "current_mode_update" &&

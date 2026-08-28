@@ -10,6 +10,7 @@ from temporalio.testing import ActivityEnvironment
 from products.tasks.backend.models import Loop, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
+    SANDBOX_UNRESPONSIVE_STATE_KEY,
     TIMED_OUT_INACTIVITY_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
     UpdateTaskRunStatusInput,
@@ -159,7 +160,7 @@ class TestUpdateTaskRunStatusActivity:
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
         "marker",
-        [TIMED_OUT_WALL_CLOCK_STATE_KEY, SANDBOX_GONE_STATE_KEY],
+        [TIMED_OUT_WALL_CLOCK_STATE_KEY, SANDBOX_GONE_STATE_KEY, SANDBOX_UNRESPONSIVE_STATE_KEY],
     )
     def test_timeout_marker_is_recorded_in_state(self, activity_environment, test_task_run, marker):
         input_data = UpdateTaskRunStatusInput(

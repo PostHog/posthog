@@ -1513,6 +1513,143 @@ describe("AgentServer HTTP Mode", () => {
     });
   });
 
+  describe("turn stall", () => {
+    type StallServer = {
+      session: unknown;
+      activeOwnedTurns: Set<number>;
+      eventStreamSender: {
+        enqueue: ReturnType<typeof vi.fn>;
+        stop: ReturnType<typeof vi.fn>;
+      };
+      posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+      emitRtkSavings: ReturnType<typeof vi.fn>;
+      turnStallWatchdog: { running: boolean };
+      runOwnedTurn<T>(operation: () => Promise<T>): Promise<T>;
+      handleTurnStall(
+        reason: "sandbox_unresponsive" | "turn_silent",
+        silentMs: number,
+      ): Promise<void>;
+    };
+
+    function createStallServer(): StallServer {
+      const testServer = createServer() as unknown as StallServer;
+      testServer.eventStreamSender = {
+        enqueue: vi.fn(),
+        stop: vi.fn(async () => {}),
+      };
+      testServer.posthogAPI = { updateTaskRun: vi.fn(async () => ({})) };
+      testServer.emitRtkSavings = vi.fn(async () => {});
+      testServer.session = {
+        acpSessionId: "acp-1",
+        payload: { run_id: "run-1", task_id: "task-1" },
+        logWriter: {
+          appendRawLine: vi.fn(),
+          flush: vi.fn(async () => {}),
+          flushAll: vi.fn(async () => {}),
+        },
+        clientConnection: { cancel: vi.fn(async () => {}) },
+        acpConnection: { cleanup: vi.fn(async () => {}) },
+        sseController: null,
+      };
+      return testServer;
+    }
+
+    function findErrorType(server: StallServer): string | undefined {
+      return server.eventStreamSender.enqueue.mock.calls
+        .map(
+          ([event]) =>
+            event as {
+              notification?: {
+                params?: {
+                  update?: { sessionUpdate?: string; errorType?: string };
+                };
+              };
+            },
+        )
+        .find(
+          (event) =>
+            event.notification?.params?.update?.sessionUpdate === "error",
+        )?.notification?.params?.update?.errorType;
+    }
+
+    it("runs the watchdog only while an owned turn is active", async () => {
+      const testServer = createServer() as unknown as StallServer;
+      let seenRunning = false;
+
+      await testServer.runOwnedTurn(async () => {
+        seenRunning = testServer.turnStallWatchdog.running;
+      });
+
+      expect(seenRunning).toBe(true);
+      expect(testServer.turnStallWatchdog.running).toBe(false);
+    });
+
+    it.each(["sandbox_unresponsive", "turn_silent"] as const)(
+      "interrupts a %s turn and fails the run once the turn unwinds",
+      async (reason) => {
+        vi.useFakeTimers();
+        try {
+          const testServer = createStallServer();
+          testServer.activeOwnedTurns.add(1);
+          const cancel = (
+            testServer.session as {
+              clientConnection: { cancel: ReturnType<typeof vi.fn> };
+            }
+          ).clientConnection.cancel;
+          cancel.mockImplementation(async () => {
+            testServer.activeOwnedTurns.delete(1);
+          });
+
+          const stall = testServer.handleTurnStall(reason, 600_000);
+          await vi.advanceTimersByTimeAsync(1_000);
+          await stall;
+
+          expect(cancel).toHaveBeenCalledWith({ sessionId: "acp-1" });
+          expect(findErrorType(testServer)).toBe(reason);
+          expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+            "task-1",
+            "run-1",
+            expect.objectContaining({ status: "failed" }),
+          );
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
+    it("waits for the stalled turn rather than a newer one, and still fails the run if it never unwinds", async () => {
+      vi.useFakeTimers();
+      try {
+        const testServer = createStallServer();
+        testServer.activeOwnedTurns.add(1);
+        let settled = false;
+
+        const stall = testServer
+          .handleTurnStall("sandbox_unresponsive", 600_000)
+          .then(() => {
+            settled = true;
+          });
+        await vi.advanceTimersByTimeAsync(5_000);
+        testServer.activeOwnedTurns.add(2);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(settled).toBe(false);
+
+        testServer.activeOwnedTurns.delete(1);
+        await vi.advanceTimersByTimeAsync(1_000);
+        await stall;
+
+        expect(settled).toBe(true);
+        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+          "task-1",
+          "run-1",
+          expect.objectContaining({ status: "failed" }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe("broadcastEvent", () => {
     function exposeBroadcastEvent(testServer: AgentServer) {
       return testServer as unknown as {
@@ -2806,14 +2943,14 @@ describe("AgentServer HTTP Mode", () => {
       const broadcastTurnComplete = vi.fn();
       const resetTurnMessages = vi.fn();
       const serverInternals = s as unknown as {
-        activeOwnedTurnCount: number;
+        activeOwnedTurns: Set<number>;
         broadcastTurnComplete: typeof broadcastTurnComplete;
         session: {
           clientConnection: { prompt: typeof prompt };
           logWriter: { resetTurnMessages: typeof resetTurnMessages };
         };
       };
-      serverInternals.activeOwnedTurnCount = 1;
+      serverInternals.activeOwnedTurns.add(1);
       serverInternals.broadcastTurnComplete = broadcastTurnComplete;
       serverInternals.session.clientConnection.prompt = prompt;
       serverInternals.session.logWriter.resetTurnMessages = resetTurnMessages;
@@ -2850,11 +2987,11 @@ describe("AgentServer HTTP Mode", () => {
       await s.start();
       const prompt = vi.fn();
       const serverInternals = s as unknown as {
-        activeOwnedTurnCount: number;
+        activeOwnedTurns: Set<number>;
         activeStartupTurnCount: number;
         session: { clientConnection: { prompt: typeof prompt } };
       };
-      serverInternals.activeOwnedTurnCount = 1;
+      serverInternals.activeOwnedTurns.add(1);
       serverInternals.activeStartupTurnCount = 1;
       serverInternals.session.clientConnection.prompt = prompt;
 
@@ -3035,16 +3172,16 @@ describe("AgentServer HTTP Mode", () => {
       const broadcastTurnComplete = vi.fn();
       const resetTurnMessages = vi.fn();
       const serverInternals = s as unknown as {
-        activeOwnedTurnCount: number;
+        activeOwnedTurns: Set<number>;
         broadcastTurnComplete: typeof broadcastTurnComplete;
         session: {
           clientConnection: { prompt: typeof prompt };
           logWriter: { resetTurnMessages: typeof resetTurnMessages };
         };
       };
-      serverInternals.activeOwnedTurnCount = 1;
+      serverInternals.activeOwnedTurns.add(1);
       prompt.mockImplementationOnce(async () => {
-        serverInternals.activeOwnedTurnCount = 0;
+        serverInternals.activeOwnedTurns.clear();
         return { stopReason: "end_turn", _meta: { steer: false } };
       });
       serverInternals.broadcastTurnComplete = broadcastTurnComplete;

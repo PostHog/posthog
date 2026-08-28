@@ -67,9 +67,11 @@ from products.tasks.backend.temporal.process_task.activities import (
 )
 from products.tasks.backend.temporal.process_task.activities.create_resume_snapshot import CreateResumeSnapshotOutput
 from products.tasks.backend.temporal.process_task.activities.emit_progress_activity import EmitProgressInput
+from products.tasks.backend.temporal.process_task.activities.probe_sandbox_agent import ProbeSandboxAgentOutput
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import SendFollowupToSandboxInput
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
+    SANDBOX_UNRESPONSIVE_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
 )
 from products.tasks.backend.temporal.process_task.credential_refresh import (
@@ -444,6 +446,150 @@ class TestSandboxDeadline:
 
         assert event == process_task_workflow_module.TaskEvent.SANDBOX_TTL_APPROACHING
         sleep_mock.assert_not_awaited()
+
+
+class TestAgentHeartbeatGap:
+    def _workflow(self, *, agent_active: bool | None, last_heartbeat: datetime | None) -> ProcessTaskWorkflow:
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(github_integration_id=123)
+        wf._agent_active = agent_active
+        wf._last_agent_heartbeat_at = last_heartbeat
+        return wf
+
+    @pytest.mark.parametrize(
+        "agent_active, last_heartbeat, expected",
+        [
+            (True, datetime(2026, 7, 16, 12, 0, tzinfo=UTC), True),
+            (False, datetime(2026, 7, 16, 12, 0, tzinfo=UTC), False),
+            (None, datetime(2026, 7, 16, 12, 0, tzinfo=UTC), False),
+            (True, None, False),
+        ],
+    )
+    def test_only_a_mid_turn_run_with_a_heartbeat_waits_on_the_gap(self, agent_active, last_heartbeat, expected):
+        wf = self._workflow(agent_active=agent_active, last_heartbeat=last_heartbeat)
+
+        assert wf._agent_heartbeat_gap_scheduled() is expected
+
+    async def test_an_active_heartbeat_alone_arms_the_gap_detector(self, monkeypatch):
+        wf = self._workflow(agent_active=None, last_heartbeat=None)
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "now", Mock(return_value=datetime(2026, 7, 16, 12, 0, tzinfo=UTC))
+        )
+
+        await wf.heartbeat(agent_active=True)
+
+        assert wf._agent_active is True
+        assert wf._agent_heartbeat_gap_scheduled() is True
+
+        await wf.agent_state_changed(False)
+
+        assert wf._agent_heartbeat_gap_scheduled() is False
+
+    async def test_timer_sleeps_until_the_gap_after_the_last_heartbeat(self, monkeypatch):
+        wf = self._workflow(agent_active=True, last_heartbeat=datetime(2026, 7, 16, 12, 0, tzinfo=UTC))
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "now", Mock(return_value=datetime(2026, 7, 16, 12, 4, tzinfo=UTC))
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "sleep", sleep_mock)
+
+        event = await wf._wait_for_agent_heartbeat_gap()
+
+        assert event == process_task_workflow_module.TaskEvent.AGENT_HEARTBEAT_GAP
+        expected = (process_task_workflow_module.AGENT_HEARTBEAT_GAP_TIMEOUT - timedelta(minutes=4)).total_seconds()
+        sleep_mock.assert_awaited_once_with(expected)
+
+    async def test_a_responsive_probe_restarts_the_gap_clock(self, monkeypatch):
+        wf = self._workflow(agent_active=True, last_heartbeat=datetime(2026, 7, 16, 12, 0, tzinfo=UTC))
+        now = datetime(2026, 7, 16, 12, 10, tzinfo=UTC)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=now))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow,
+            "execute_activity",
+            AsyncMock(return_value=ProbeSandboxAgentOutput(responsive=True, reason="agent_server_healthy")),
+        )
+
+        await wf._handle_agent_heartbeat_gap("sb-1")
+
+        assert wf._task_completed is False
+        assert wf._last_agent_heartbeat_at == now
+        assert wf._last_active_time == now
+
+    @pytest.mark.parametrize(
+        "probe",
+        [
+            AsyncMock(return_value=ProbeSandboxAgentOutput(responsive=False, reason="agent_server_unhealthy:7")),
+            AsyncMock(side_effect=RuntimeError("Activity task timed out")),
+        ],
+    )
+    async def test_an_unresponsive_or_failed_probe_ends_the_run_as_unresponsive(self, monkeypatch, probe):
+        wf = self._workflow(agent_active=True, last_heartbeat=datetime(2026, 7, 16, 12, 0, tzinfo=UTC))
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "now", Mock(return_value=datetime(2026, 7, 16, 12, 10, tzinfo=UTC))
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", probe)
+
+        await wf._handle_agent_heartbeat_gap("sb-1")
+
+        assert wf._task_completed is True
+        assert wf._completion_status == "completed"
+        assert wf._completion_timeout_marker == SANDBOX_UNRESPONSIVE_STATE_KEY
+
+    @pytest.mark.parametrize("signal", ["heartbeat", "agent_state_changed"])
+    async def test_a_signal_that_lands_during_the_probe_keeps_the_run_alive(self, monkeypatch, signal):
+        wf = self._workflow(agent_active=True, last_heartbeat=datetime(2026, 7, 16, 12, 0, tzinfo=UTC))
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "now", Mock(return_value=datetime(2026, 7, 16, 12, 10, tzinfo=UTC))
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        async def probe_while_signal_lands(*args, **kwargs):
+            if signal == "heartbeat":
+                await wf.heartbeat(agent_active=True)
+            else:
+                await wf.agent_state_changed(False)
+            return ProbeSandboxAgentOutput(responsive=False, reason="agent_server_unhealthy:7")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", probe_while_signal_lands)
+
+        await wf._handle_agent_heartbeat_gap("sb-1")
+
+        assert wf._task_completed is False
+
+    async def test_an_unresponsive_sandbox_drops_queued_followups_instead_of_delivering_them(self, monkeypatch):
+        wf = self._workflow(agent_active=True, last_heartbeat=datetime(2026, 7, 16, 12, 0, tzinfo=UTC))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=Mock()))
+        hang = asyncio.Event()
+
+        async def hung_delivery() -> None:
+            await hang.wait()
+
+        wf._active_followup_task = asyncio.create_task(hung_delivery())
+        await wf.send_followup_message("still there?")
+        wf._mark_sandbox_gone(unresponsive=True)
+
+        await asyncio.wait_for(wf._finish_active_followup(), timeout=1)
+
+        assert wf._active_followup_task is None
+        assert wf._pending_followups == []
+        assert wf._completion_error == process_task_workflow_module.SANDBOX_UNRESPONSIVE_ERROR_MESSAGE
+        assert wf._completion_timeout_marker == SANDBOX_UNRESPONSIVE_STATE_KEY
+
+    async def test_a_gap_without_a_sandbox_ends_the_run_without_probing(self, monkeypatch):
+        wf = self._workflow(agent_active=True, last_heartbeat=datetime(2026, 7, 16, 12, 0, tzinfo=UTC))
+        execute_activity = AsyncMock()
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
+
+        await wf._handle_agent_heartbeat_gap(None)
+
+        execute_activity.assert_not_awaited()
+        assert wf._task_completed is True
+        assert wf._completion_timeout_marker == SANDBOX_UNRESPONSIVE_STATE_KEY
 
 
 class TestSandboxRotation:

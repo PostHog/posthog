@@ -343,13 +343,42 @@ the agent up. The in-sandbox script (`start-dev-stack-preview.sh`) runs `pnpm in
 `failed` in `/tmp/posthog-preview/status.json`, which the wait activity polls. A crashed or unready
 dev-stack process fails the preview instead of publishing a half-working one, and each click on the
 link re-probes Django and Vite inside the sandbox before redirecting. Startup peaks around 19 GB, so
-these runs default to 32 GB rather than the standard VM memory size; the core limit stays at the
-VM default, but a box that actually boots the dev-stack image reserves 4 cores instead of the
-burstable 0.5 floor (a fallback to the plain base image keeps the plain floor), and a per-task
-`sandbox_resources` override still wins. The launcher starts with a scrubbed
-environment (`env -i`, fixed PATH), so the stack and its containers never inherit the run's
-GitHub token or personal API key. Relaunching is safe: the script takes an `flock` and reports
-`ready` straight away when the stack is already serving.
+these runs default to 32 GB rather than the standard VM memory size; cores stay at the VM default,
+and a per-task `sandbox_resources` override still wins. Every VM sandbox that actually boots from the
+dev-stack image also reserves a 4-core CPU floor (`SandboxConfig.effective_cpu_request_cores`, from
+`DEV_STACK_CPU_REQUEST_CORES`) instead of the generic 0.5-core burstable floor, because booting
+compose, Django and Vite next to the agent's own builds from half a core starves the VM; a fallback
+to the plain base image keeps the plain floor. The
+launcher starts with a scrubbed environment (`env -i`, fixed PATH), so the stack and its containers
+never inherit the run's GitHub token or personal API key. Relaunching is safe: the script takes an
+`flock` and reports `ready` straight away when the stack is already serving, and `bin/start` (so
+`hogli start`) exits 0 pointing at `hogli wait` while that lock is held or the stack it started is
+answering `/_health`. The launcher exports `HOGLI_SKIP_PREVIEW_CHECK=1` for its own `hogli start`;
+set it yourself to force a start.
+
+##### Wedged sandboxes
+
+A sandbox that is starved rather than dead keeps its Modal handle but stops answering: tool calls
+never return, heartbeats stop, and the run looks alive until the inactivity timeout ends it. Two
+detectors shorten that window:
+
+- The agent-server runs a turn stall watchdog (`turn-stall-watchdog.ts`). When the adapter has
+  produced no output for `POSTHOG_TURN_STALL_SOFT_TIMEOUT_MS` (10 minutes) it probes the box by
+  spawning a trivial process; a probe that fails, or silence past
+  `POSTHOG_TURN_STALL_HARD_TIMEOUT_MS` (45 minutes), interrupts the turn, emits a
+  `sandbox_unresponsive` or `turn_silent` error to the stream, waits up to a minute for that turn
+  to unwind, then fails the run. A turn waiting on a permission response is not silence. Set either
+  variable to `0` to disable.
+- The workflow watches the agent heartbeat. The relay (or, on direct-ingest runs, the ingest path
+  and the agent-proxy callback) signals `heartbeat` every 30 seconds while a turn is in flight and
+  reports the end of the turn, so a mid-turn gap of
+  `AGENT_HEARTBEAT_GAP_TIMEOUT` (10 minutes) means the stream died under a turn. The workflow then
+  runs `probe_sandbox_agent`, which curls the agent-server `/health` inside the sandbox. A heartbeat
+  or end of turn that lands while the probe runs wins and nothing happens. A healthy answer restarts
+  the gap clock and the CI follow-up timer. Anything else ends the run with "Sandbox stopped
+  responding; resume to continue" and the `sandbox_unresponsive` state marker, drops any follow-up
+  still queued for the dead box, and takes the usual teardown snapshot so the working tree survives.
+  This path also covers a VM too starved for the agent-server itself to run.
 
 A Modal tunnel cannot reach the 127.0.0.1 listeners the dev compose stack publishes, and a
 two-origin setup breaks ES module loading, so the script puts one host-network Caddy container on

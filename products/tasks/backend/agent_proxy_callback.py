@@ -130,6 +130,7 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
             task_run = TaskRun.objects.select_related("task__created_by").get(
                 id=run_id, task_id=task_id, team_id=team_id
             )
+            task_run.signal_agent_state_changed(False)
             if task_run.mode == "interactive":
                 notify_task_run_turn_completed(task_run)
                 dispatched = True

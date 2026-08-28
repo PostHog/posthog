@@ -321,9 +321,12 @@ class TestTaskRunEventIngest(TestCase):
         self.task_run.save(update_fields=["state"])
         token = self._create_token()
 
-        with patch(
-            "products.tasks.backend.logic.stream.event_ingest.notify_task_run_turn_completed"
-        ) as notify_turn_completed:
+        with (
+            patch(
+                "products.tasks.backend.logic.stream.event_ingest.notify_task_run_turn_completed"
+            ) as notify_turn_completed,
+            patch.object(TaskRun, "signal_agent_state_changed") as signal_agent_state_changed,
+        ):
             status, body = self._call_ingest(
                 token,
                 [
@@ -341,6 +344,7 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(body["accepted"], 1)
         notify_turn_completed.assert_called_once()
         self.assertEqual(notify_turn_completed.call_args.args[0].id, self.task_run.id)
+        signal_agent_state_changed.assert_called_once_with(False)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_workflow_heartbeat_does_not_block_event_loop(self) -> None:
