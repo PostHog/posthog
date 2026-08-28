@@ -111,7 +111,6 @@ import {
     CostContext,
     costContextFromProperties,
     costContextFromTrace,
-    firstAiOutputWithContent,
     formatLLMCost,
     formatLLMEventTitle,
     formatLLMLatency,
@@ -124,6 +123,7 @@ import {
     isLLMEvent,
     removeMilliseconds,
     sanitizeTraceUrlSearchParams,
+    selectAiValue,
 } from './utils'
 
 interface TraceQueueContext {
@@ -1778,7 +1778,7 @@ const EventContent = React.memo(
                                                                 traceId={trace.id}
                                                                 timestamp={event.createdAt}
                                                                 rawInput={event.properties.$ai_input}
-                                                                rawOutput={firstAiOutputWithContent(
+                                                                rawOutput={selectAiValue(
                                                                     event.properties.$ai_output_choices,
                                                                     event.properties.$ai_output
                                                                 )}

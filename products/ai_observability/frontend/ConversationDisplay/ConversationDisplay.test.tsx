@@ -84,6 +84,22 @@ describe('ConversationDisplay', () => {
             },
         ],
         [
+            '$ai_generation whose output is genuinely empty',
+            '$ai_generation',
+            {
+                $ai_input: [{ role: 'user', content: 'generation input' }],
+                $ai_output_choices: [],
+                $ai_tools: [{ function: { name: 'search' } }],
+                $ai_trace_id: 'trace-1',
+            },
+            {
+                input: [{ role: 'user', content: 'generation input' }],
+                // The empty container still counts as arrived. Passing undefined instead would make
+                // useAIData run the heavy-prop lookup for a generation this PR's notice explains.
+                output: [],
+            },
+        ],
+        [
             '$ai_embedding',
             '$ai_embedding',
             {

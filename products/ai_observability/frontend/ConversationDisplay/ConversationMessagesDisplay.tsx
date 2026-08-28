@@ -23,6 +23,7 @@ import { containsSearchQuery } from '../searchUtils'
 import type { GenerationSentiment } from '../sentimentResults'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
 import {
+    aiTokenCount,
     describeStopReason,
     getGeminiInlineData,
     hasStringContentField,
@@ -73,21 +74,8 @@ function getInitialMessageShowStates(
     return { input: inputStates, output: outputStates }
 }
 
-// Token counts arrive straight off untyped event properties, so a provider that reports one as a
-// string still has to reach the empty-output notice. posthog-ai below 7.3.0 sent them as
-// `{ total, noCache, cacheRead }`. Ingestion normalizes that now, but events captured before it
-// still hold the object shape.
-function tokenCountOf(value: unknown): number | null {
-    const unwrapped =
-        value !== null && typeof value === 'object' && !Array.isArray(value) && 'total' in value
-            ? (value as { total: unknown }).total
-            : value
-    const parsed = typeof unwrapped === 'string' ? Number(unwrapped) : unwrapped
-    return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null
-}
-
 function billedTokenCount(value: unknown): number | null {
-    const count = tokenCountOf(value)
+    const count = aiTokenCount(value)
     return count !== null && count > 0 ? count : null
 }
 
@@ -104,7 +92,7 @@ function describeEmptyOutput(
     const output = billedTokenCount(outputTokens)
     const reasoning = billedTokenCount(reasoningTokens)
     const namedCause = describeStopReason(stopReason)
-    const textOutput = tokenCountOf(textOutputTokens)
+    const textOutput = aiTokenCount(textOutputTokens)
 
     // Providers disagree on where reasoning tokens are counted. OpenAI-style providers count them
     // inside the output total, so reasoning can never exceed output there, and matching counts mean

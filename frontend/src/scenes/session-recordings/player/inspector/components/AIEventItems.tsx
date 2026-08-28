@@ -8,13 +8,13 @@ import { ConversationMessagesDisplay } from 'products/ai_observability/frontend/
 import { useAIData } from 'products/ai_observability/frontend/hooks/useAIData'
 import { LLMInputOutput } from 'products/ai_observability/frontend/LLMInputOutput'
 import { normalizeMessages } from 'products/ai_observability/frontend/messageNormalization'
-import { firstAiOutputWithContent } from 'products/ai_observability/frontend/utils'
+import { selectAiValue } from 'products/ai_observability/frontend/utils'
 
 export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.Element {
     const { input, output, tools, isLoading } = useAIData({
         uuid: event.uuid,
         input: event.properties?.$ai_input,
-        output: firstAiOutputWithContent(event.properties?.$ai_output_choices, event.properties?.$ai_output),
+        output: selectAiValue(event.properties?.$ai_output_choices, event.properties?.$ai_output),
         tools: event.properties?.$ai_tools,
         traceId: event.properties?.$ai_trace_id,
         timestamp: event.timestamp,

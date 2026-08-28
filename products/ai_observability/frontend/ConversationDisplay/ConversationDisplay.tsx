@@ -10,7 +10,7 @@ import { buildInputSourceIndices } from '../extractSessionTurns'
 import { useAIData } from '../hooks/useAIData'
 import { normalizeMessages } from '../messageNormalization'
 import { openInPlayground } from '../playground/llmPlaygroundPromptsLogic'
-import { costContextFromProperties, firstAiOutputWithContent } from '../utils'
+import { costContextFromProperties, selectAiValue } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
 
@@ -34,7 +34,7 @@ export function ConversationDisplay({
             : eventProperties.$ai_input_state
     const rawOutput =
         eventName === '$ai_generation'
-            ? firstAiOutputWithContent(eventProperties.$ai_output_choices, eventProperties.$ai_output)
+            ? selectAiValue(eventProperties.$ai_output_choices, eventProperties.$ai_output)
             : eventName === '$ai_embedding'
               ? 'Embedding vector generated'
               : eventProperties.$ai_output_state

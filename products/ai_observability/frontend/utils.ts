@@ -122,12 +122,26 @@ export function hasAiContent(value: unknown): boolean {
 }
 
 /**
- * Picks the first output property that carries content. A generation can send an empty
- * `$ai_output_choices` while `$ai_output` holds the response, and a nullish check keeps the empty
- * container, so the fallback is never reached and the panel reports nothing was captured.
+ * Picks the AI value to render or pass on: the first that carries content, else the first that is
+ * present at all. Content first, because a generation can send an empty `$ai_output_choices` while
+ * `$ai_output` holds the response, and a nullish check would keep the empty container. Presence as
+ * the fallback, because `useAIData` runs the heavy-property lookup when a side is nullish — a
+ * generation whose output genuinely is empty must render its notice, not fire that query.
  */
-export function firstAiOutputWithContent(...values: unknown[]): unknown {
-    return values.find(hasAiContent)
+export function selectAiValue(...values: unknown[]): unknown {
+    return values.find(hasAiContent) ?? values.find((value) => value !== null && value !== undefined)
+}
+
+// Token counts arrive straight off untyped event properties, so a provider that reports one as a
+// string still has to be readable. posthog-ai below 7.3.0 sent them as `{ total, noCache, cacheRead }`.
+// Ingestion normalizes that now, but events captured before it still hold the object shape.
+export function aiTokenCount(value: unknown): number | null {
+    const unwrapped =
+        value !== null && typeof value === 'object' && !Array.isArray(value) && 'total' in value
+            ? (value as { total: unknown }).total
+            : value
+    const parsed = typeof unwrapped === 'string' ? Number(unwrapped) : unwrapped
+    return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null
 }
 
 // Stop reasons that explain an empty output. Each provider spells the same outcome its own way, and
