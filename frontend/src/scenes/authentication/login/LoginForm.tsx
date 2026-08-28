@@ -50,12 +50,14 @@ function buildLoginSupportMessage({
     region,
     ssoEnforcement,
     availableLoginMethods,
+    precheckTrusted,
     codeVerificationPending,
 }: {
     errorCode?: string
     region?: Region | null
     ssoEnforcement?: SSOProvider | null
     availableLoginMethods: LoginMethod[]
+    precheckTrusted: boolean
     codeVerificationPending: boolean
 }): string {
     const lines = ['I need help logging in.']
@@ -65,12 +67,17 @@ function buildLoginSupportMessage({
     if (region) {
         lines.push(`Data region: ${region}`)
     }
-    if (ssoEnforcement) {
-        lines.push(`Login method: SSO enforced (${SSO_PROVIDER_NAMES[ssoEnforcement]})`)
-    } else {
-        const labels = availableLoginMethods.map(loginMethodLabel).filter(Boolean)
-        if (labels.length) {
-            lines.push(`Login methods available: ${labels.join(', ')}`)
+    // Only state the account's methods when the precheck is trustworthy. A failed or stale one
+    // reports permissive defaults (e.g. password login for an SSO-only account), which would point
+    // support the wrong way.
+    if (precheckTrusted) {
+        if (ssoEnforcement) {
+            lines.push(`Login method: SSO enforced (${SSO_PROVIDER_NAMES[ssoEnforcement]})`)
+        } else {
+            const labels = availableLoginMethods.map(loginMethodLabel).filter(Boolean)
+            if (labels.length) {
+                lines.push(`Login methods available: ${labels.join(', ')}`)
+            }
         }
     }
     if (codeVerificationPending) {
@@ -173,6 +180,13 @@ export function LoginForm(): JSX.Element {
                                     data-attr="login-error-contact-support"
                                     onClick={(e) => {
                                         e.preventDefault()
+                                        // Trust the precheck only when it resolved for the email now
+                                        // in the form: a failed precheck reports permissive defaults,
+                                        // and a stale one still holds the previous email's account.
+                                        const precheckTrusted =
+                                            precheckResponse.status === 'completed' &&
+                                            !precheckResponse.precheckFailed &&
+                                            precheckResponse.email === login.email
                                         openSupportForm({
                                             kind: 'support',
                                             email: login.email,
@@ -181,6 +195,7 @@ export function LoginForm(): JSX.Element {
                                                 region: preflight?.region,
                                                 ssoEnforcement: precheckResponse.sso_enforcement,
                                                 availableLoginMethods,
+                                                precheckTrusted,
                                                 codeVerificationPending: codeVerificationRequired,
                                             }),
                                         })
