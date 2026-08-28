@@ -52,9 +52,8 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `_bytes_compressed` UInt64 CODEC(DoubleDelta, ZSTD(1)),
     `_record_count` UInt64 CODEC(DoubleDelta, ZSTD(1)),
 
-    -- logs32 is the shard the dev and test schema still builds `logs_distributed` on, while
-    -- production has moved to logs34. Keep the pattern columns here so both shards expose the
-    -- same columns to HogQL until the schema is repointed at logs34.
+    -- The dev and test schema builds logs_distributed on this shard, so these columns have to
+    -- match the ones on logs34. HogQL reads logs_distributed for every logs query.
     `pattern` String,
     `pattern_version` UInt8,
 
