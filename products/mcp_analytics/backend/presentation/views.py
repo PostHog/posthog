@@ -19,6 +19,7 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.mcp_analytics.backend import logic
+from products.mcp_analytics.backend.constants import MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
@@ -303,7 +304,7 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # the write scope; the snapshot read stays on the read scope.
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["recompute"]
-    posthog_feature_flag = "mcp-analytics"
+    posthog_feature_flag = MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
     permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = None
 
