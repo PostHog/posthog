@@ -3,6 +3,8 @@ from collections.abc import Callable
 from posthog.hogql.errors import QueryError
 
 TRINO_FUNCTION_RENAMES: dict[str, str] = {
+    "any": "arbitrary",
+    "anyLast": "arbitrary",
     "ifNull": "coalesce",
     "groupArray": "array_agg",
     "JSONExtractString": "json_extract_scalar",
@@ -17,6 +19,9 @@ TRINO_FUNCTION_RENAMES: dict[str, str] = {
     "now": "now",
     "startsWith": "starts_with",
     "rand": "random",
+    "dateTrunc": "date_trunc",
+    "substringUTF8": "substring",
+    "toLastDayOfMonth": "last_day_of_month",
 }
 
 
@@ -29,6 +34,16 @@ def _cast(name: str, trino_type: str) -> Callable[[list[str]], str]:
     def handler(args: list[str]) -> str:
         _require_args(name, args, 1)
         return f"CAST({args[0]} AS {trino_type})"
+
+    return handler
+
+
+def _cast_or_default(name: str, trino_type: str, default: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        if len(args) not in {1, 2}:
+            raise QueryError(f"{name} expects one or two arguments in Trino mode.")
+        fallback = args[1] if len(args) == 2 else default
+        return f"COALESCE(TRY_CAST({args[0]} AS {trino_type}), {fallback})"
 
     return handler
 
@@ -119,14 +134,62 @@ def _to_unix_timestamp(args: list[str]) -> str:
     return f"CAST(to_unixtime({args[0]}) AS BIGINT)"
 
 
-def _empty(args: list[str]) -> str:
-    _require_args("empty", args, 1)
-    return f"({args[0]} IS NULL OR cardinality({args[0]}) = 0)"
+def _binary(name: str, operator: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 2)
+        return f"({args[0]} {operator} {args[1]})"
+
+    return handler
 
 
-def _not_empty(args: list[str]) -> str:
-    _require_args("notEmpty", args, 1)
-    return f"({args[0]} IS NOT NULL AND cardinality({args[0]}) > 0)"
+def _logical(name: str, operator: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        if len(args) < 2:
+            raise QueryError(f"{name} expects at least two arguments in Trino mode.")
+        return f"({f' {operator} '.join(args)})"
+
+    return handler
+
+
+def _null_check(name: str, negated: bool) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 1)
+        return f"({args[0]} IS {'NOT ' if negated else ''}NULL)"
+
+    return handler
+
+
+def _identity(name: str) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        _require_args(name, args, 1)
+        return args[0]
+
+    return handler
+
+
+def _format_date_time(args: list[str]) -> str:
+    _require_args("formatDateTime", args, 2)
+    return f"date_format({args[0]}, {args[1]})"
+
+
+def _position(args: list[str]) -> str:
+    _require_args("position", args, 2)
+    return f"strpos({args[0]}, {args[1]})"
+
+
+def _to_monday(args: list[str]) -> str:
+    _require_args("toMonday", args, 1)
+    return f"date_trunc('week', {args[0]})"
+
+
+def _to_interval_month(args: list[str]) -> str:
+    _require_args("toIntervalMonth", args, 1)
+    return f"CAST(CAST({args[0]} AS VARCHAR) || ' MONTH' AS INTERVAL YEAR TO MONTH)"
+
+
+def _current_timestamp(args: list[str]) -> str:
+    _require_args("current_timestamp", args, 0)
+    return "CURRENT_TIMESTAMP"
 
 
 TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
@@ -134,11 +197,11 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toDateTime": _cast("toDateTime", "TIMESTAMP"),
     "toString": _cast("toString", "VARCHAR"),
     "toInt": _cast("toInt", "BIGINT"),
-    "toIntOrZero": _cast("toIntOrZero", "BIGINT"),
-    "toIntOrDefault": _cast("toIntOrDefault", "BIGINT"),
+    "toIntOrZero": _cast_or_default("toIntOrZero", "BIGINT", "0"),
+    "toIntOrDefault": _cast_or_default("toIntOrDefault", "BIGINT", "0"),
     "toFloat": _cast("toFloat", "DOUBLE"),
-    "toFloatOrZero": _cast("toFloatOrZero", "DOUBLE"),
-    "toFloatOrDefault": _cast("toFloatOrDefault", "DOUBLE"),
+    "toFloatOrZero": _cast_or_default("toFloatOrZero", "DOUBLE", "0e0"),
+    "toFloatOrDefault": _cast_or_default("toFloatOrDefault", "DOUBLE", "0e0"),
     "toBool": _cast("toBool", "BOOLEAN"),
     "toUUID": _cast("toUUID", "UUID"),
     "toYear": _extract("toYear", "YEAR"),
@@ -186,8 +249,27 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toIntervalWeek": _interval("weeks"),
     "today": _today,
     "yesterday": _yesterday,
-    "empty": _empty,
-    "notEmpty": _not_empty,
+    "equals": _binary("equals", "="),
+    "notEquals": _binary("notEquals", "<>"),
+    "greater": _binary("greater", ">"),
+    "greaterOrEquals": _binary("greaterOrEquals", ">="),
+    "less": _binary("less", "<"),
+    "lessOrEquals": _binary("lessOrEquals", "<="),
+    "plus": _binary("plus", "+"),
+    "minus": _binary("minus", "-"),
+    "multiply": _binary("multiply", "*"),
+    "divide": _binary("divide", "/"),
+    "modulo": _binary("modulo", "%"),
+    "and": _logical("and", "AND"),
+    "or": _logical("or", "OR"),
+    "isNull": _null_check("isNull", False),
+    "isNotNull": _null_check("isNotNull", True),
+    "assumeNotNull": _identity("assumeNotNull"),
+    "formatDateTime": _format_date_time,
+    "position": _position,
+    "toMonday": _to_monday,
+    "toIntervalMonth": _to_interval_month,
+    "current_timestamp": _current_timestamp,
 }
 
 TRINO_FUNCTION_RENAMES_LOWER = {name.lower(): target for name, target in TRINO_FUNCTION_RENAMES.items()}
@@ -208,22 +290,23 @@ TRINO_PASSTHROUGH_FUNCTIONS = frozenset(
         "exp",
         "floor",
         "greatest",
+        "json_value",
         "lag",
         "lead",
         "least",
         "length",
+        "log10",
         "lower",
         "max",
-        "md5",
         "min",
         "nullif",
-        "position",
         "pow",
         "rank",
         "round",
         "row_number",
         "sqrt",
         "sum",
+        "substring",
         "upper",
     }
 )

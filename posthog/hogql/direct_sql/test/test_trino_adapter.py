@@ -43,6 +43,16 @@ def test_convert_pyformat_placeholders_rejects_missing_values() -> None:
         convert_pyformat_placeholders("SELECT %(missing)s", {})
 
 
+def test_convert_pyformat_placeholders_ignores_quoted_placeholder_shapes() -> None:
+    sql, values = convert_pyformat_placeholders(
+        "SELECT '%(literal)s', \"%(identifier)s\", %(bound)s, 'it''s %(still_literal)s'",
+        {"bound": "value"},
+    )
+
+    assert sql == "SELECT '%(literal)s', \"%(identifier)s\", ?, 'it''s %(still_literal)s'"
+    assert values == ["value"]
+
+
 def test_execute_returns_rows_and_types() -> None:
     adapter = TrinoAdapter()
     request = MagicMock()

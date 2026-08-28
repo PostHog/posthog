@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import threading
 from typing import TYPE_CHECKING, cast
 
@@ -14,6 +13,7 @@ from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResu
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -30,23 +30,6 @@ DIRECT_TRINO_MAX_ROWS = 1_000_000
 RAW_TRINO_READ_ONLY_ERROR = "Raw Trino queries must be read-only SELECT statements."
 DIRECT_TRINO_ROW_CAP_ERROR = f"Trino query returned more than {DIRECT_TRINO_MAX_ROWS:,} rows. Add a LIMIT clause."
 DIRECT_TRINO_TIMEOUT_ERROR = "Trino query timed out."
-_PYFORMAT_PLACEHOLDER_RE = re.compile(r"%\((?P<name>[A-Za-z0-9_]+)\)s")
-
-
-def convert_pyformat_placeholders(sql: str, values: dict[str, object] | None) -> tuple[str, list[object]]:
-    bound_values: list[object] = []
-
-    def replace(match: re.Match[str]) -> str:
-        name = match.group("name")
-        if values is None or name not in values:
-            raise ExposedHogQLError(f"Missing bound value for Trino parameter '{name}'.")
-        bound_values.append(values[name])
-        return "?"
-
-    converted = _PYFORMAT_PLACEHOLDER_RE.sub(replace, sql)
-    if values and not bound_values:
-        raise ExposedHogQLError("Trino query has bound values but no parameter placeholders.")
-    return converted, bound_values
 
 
 def ensure_read_only_raw_trino_statement(sql: str) -> str:

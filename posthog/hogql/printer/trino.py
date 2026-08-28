@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import ClassVar
+from typing import ClassVar, cast
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
@@ -11,6 +11,28 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_FUNCTION_HANDLERS_LOWER,
     TRINO_FUNCTION_RENAMES_LOWER,
     TRINO_PASSTHROUGH_FUNCTIONS,
+)
+from posthog.hogql.visitor import clone_expr
+
+_TRINO_WINDOW_FUNCTIONS = frozenset(
+    {
+        "avg",
+        "count",
+        "cume_dist",
+        "dense_rank",
+        "first_value",
+        "lag",
+        "last_value",
+        "lead",
+        "max",
+        "min",
+        "nth_value",
+        "ntile",
+        "percent_rank",
+        "rank",
+        "row_number",
+        "sum",
+    }
 )
 
 
@@ -33,6 +55,357 @@ class TrinoPrinter(PostgresPrinter):
     def _get_connection_supported_functions(self) -> set[str]:
         return set()
 
+    def visit_call(self, node: ast.Call) -> str:
+        name = node.name.lower()
+        if name in {"empty", "notempty"}:
+            return self._visit_empty(node, negated=name == "notempty")
+        if name == "concat":
+            if node.distinct or node.order_by:
+                raise QueryError("concat does not support DISTINCT or ORDER BY in Trino mode.")
+            args = [self.visit(arg) for arg in node.args]
+            rendered = [
+                f"CAST({value} AS VARCHAR)" if isinstance(arg, ast.Constant) and isinstance(arg.value, str) else value
+                for arg, value in zip(node.args, args, strict=True)
+            ]
+            return f"concat({', '.join(rendered)})"
+        if name in {
+            "jsonextract",
+            "jsonextractstring",
+            "jsonextractraw",
+            "jsonextractarrayraw",
+            "jsonextractint",
+            "jsonextractuint",
+            "jsonextractfloat",
+            "jsonextractbool",
+        }:
+            return self._visit_json_extract(node)
+        if name in {"jsonextractkeys", "jsonextractkeysandvaluesraw", "jsonhas", "jsonlength"}:
+            return self._visit_json_metadata(node)
+        if name == "tojsonstring":
+            return self._visit_to_json_string(node)
+        if name == "arraymap":
+            return self._visit_lambda_array_call(node, "transform")
+        if name == "arrayfilter":
+            return self._visit_lambda_array_call(node, "filter")
+        if name == "arrayelement":
+            return self._visit_binary_function(node, "element_at")
+        if name == "arraydistinct":
+            return self._visit_unary_function(node, "array_distinct")
+        if name == "arraysort":
+            return self._visit_unary_function(node, "array_sort")
+        if name == "arrayflatten":
+            return self._visit_unary_function(node, "flatten")
+        if name == "arraymin":
+            return self._visit_unary_function(node, "array_min")
+        if name == "arrayfirst":
+            return self._visit_array_first(node)
+        if name == "arrayconcat":
+            return self._visit_variadic_function(node, "concat", minimum=2)
+        if name == "arraysum":
+            return self._visit_unary_function(node, "array_sum")
+        if name == "has":
+            return self._visit_binary_function(node, "contains")
+        if name == "hasany":
+            left, right = self._visit_binary_args(node)
+            return f"(cardinality(array_intersect({left}, {right})) > 0)"
+        if name == "hasall":
+            left, right = self._visit_binary_args(node)
+            return f"(cardinality(array_except({right}, {left})) = 0)"
+        if name == "range":
+            return self._visit_range(node)
+        if name in {"argmax", "argmin"}:
+            return self._visit_binary_function(node, "max_by" if name == "argmax" else "min_by")
+        if name in {"argmaxif", "argminif"}:
+            if len(node.args) != 3:
+                raise QueryError(f"{node.name} expects exactly 3 arguments in Trino mode.")
+            values = [self.visit(arg) for arg in node.args]
+            target = "max_by" if name == "argmaxif" else "min_by"
+            return f"{target}({values[0]}, {values[1]}) FILTER (WHERE {values[2]})"
+        if name == "groupuniqarray":
+            if len(node.args) != 1:
+                raise QueryError("groupUniqArray expects exactly 1 argument in Trino mode.")
+            return f"array_agg(DISTINCT {self.visit(node.args[0])})"
+        if name == "grouparrayif":
+            if len(node.args) != 2:
+                raise QueryError("groupArrayIf expects exactly 2 arguments in Trino mode.")
+            return f"array_agg({self.visit(node.args[0])}) FILTER (WHERE {self.visit(node.args[1])})"
+        if name == "groupuniqarrayif":
+            if len(node.args) != 2:
+                raise QueryError("groupUniqArrayIf expects exactly 2 arguments in Trino mode.")
+            return f"array_agg(DISTINCT {self.visit(node.args[0])}) FILTER (WHERE {self.visit(node.args[1])})"
+        if name == "countdistinct":
+            return self._visit_count_distinct(node)
+        if name == "todecimal":
+            return self._visit_to_decimal(node)
+        if name == "tuple":
+            return f"ROW({', '.join(self.visit(arg) for arg in node.args)})"
+        if name == "tupleelement":
+            return self._visit_tuple_element(node)
+        if name == "match":
+            return self._visit_binary_function(node, "regexp_like")
+        if name in {"splitbychar", "splitbystring"}:
+            left, right = self._visit_binary_args(node)
+            return f"split({right}, {left})"
+        if name == "md5":
+            value = self._visit_unary_arg(node)
+            return f"lower(to_hex(md5(to_utf8(CAST({value} AS VARCHAR)))))"
+        if name == "extract":
+            return self._visit_extract(node)
+        if name in {"quantile", "quantileif"}:
+            return self._visit_quantile(node, filtered=name == "quantileif")
+        if name == "json_value":
+            return self._visit_json_value(node)
+        return super().visit_call(node)
+
+    def _visit_json_extract(self, node: ast.Call) -> str:
+        name = node.name.lower()
+        if name == "jsonextractarrayraw" and len(node.args) == 1:
+            source = self.visit(node.args[0])
+            value = self._print_identifier("__hogql_json_value")
+            return (
+                f"transform(CAST(json_parse(CAST({source} AS VARCHAR)) AS ARRAY(JSON)), "
+                f"{value} -> json_format({value}))"
+            )
+        if len(node.args) < 2:
+            raise QueryError(f"{node.name} expects a JSON expression and key path in Trino mode.")
+        if name == "jsonextract":
+            return self._visit_typed_json_extract(node)
+        path_members: list[str | int] = []
+        for key in node.args[1:]:
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, (str, int)):
+                raise QueryError(f"{node.name} requires a constant key path in Trino mode.")
+            path_members.append(key.value)
+        path = self._json_path(path_members)
+        source = self.visit(node.args[0])
+        extracted = f"json_extract({source}, {path})"
+        if name in {"jsonextractraw", "jsonextractarrayraw"}:
+            return f"json_format({extracted})"
+        scalar = f"json_extract_scalar({source}, {path})"
+        casts = {
+            "jsonextractint": "BIGINT",
+            "jsonextractuint": "DECIMAL(20, 0)",
+            "jsonextractfloat": "DOUBLE",
+            "jsonextractbool": "BOOLEAN",
+        }
+        target_type = casts.get(name)
+        return scalar if target_type is None else f"CAST({scalar} AS {target_type})"
+
+    def _visit_typed_json_extract(self, node: ast.Call) -> str:
+        type_arg = node.args[-1]
+        if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+            raise QueryError("JSONExtract requires a constant target type in Trino mode.")
+        target_types = {
+            "String": "VARCHAR",
+            "Int64": "BIGINT",
+            "UInt64": "DECIMAL(20, 0)",
+            "Float64": "DOUBLE",
+            "Bool": "BOOLEAN",
+            "Array(String)": "ARRAY(VARCHAR)",
+        }
+        target = target_types.get(type_arg.value)
+        if target is None:
+            raise QueryError(f"JSONExtract target type '{type_arg.value}' is not supported in Trino mode.")
+        path_members: list[str | int] = []
+        for key in node.args[1:-1]:
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, (str, int)):
+                raise QueryError("JSONExtract requires a constant key path in Trino mode.")
+            path_members.append(key.value)
+        source = self.visit(node.args[0])
+        path = self._json_path(path_members)
+        extractor = "json_extract" if target.startswith("ARRAY") else "json_extract_scalar"
+        return f"CAST({extractor}({source}, {path}) AS {target})"
+
+    def _visit_json_metadata(self, node: ast.Call) -> str:
+        name = node.name.lower()
+        if name == "jsonextractkeysandvaluesraw":
+            if len(node.args) != 1:
+                raise QueryError("JSONExtractKeysAndValuesRaw expects exactly 1 argument in Trino mode.")
+            source = self.visit(node.args[0])
+            entry = self._print_identifier("__hogql_json_entry")
+            return (
+                f"transform(map_entries(CAST(json_parse(CAST({source} AS VARCHAR)) AS MAP(VARCHAR, JSON))), "
+                f"{entry} -> ROW({entry}[1], json_format({entry}[2])))"
+            )
+        if not node.args:
+            raise QueryError(f"{node.name} expects a JSON expression in Trino mode.")
+        source = self.visit(node.args[0])
+        path_members: list[str | int] = []
+        for key in node.args[1:]:
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, (str, int)):
+                raise QueryError(f"{node.name} requires a constant key path in Trino mode.")
+            path_members.append(key.value)
+        path = self._json_path(path_members)
+        if name == "jsonhas":
+            return f"(json_extract({source}, {path}) IS NOT NULL)"
+        if name == "jsonlength":
+            return f"json_size({source}, {path})"
+        return f"map_keys(CAST(json_extract({source}, {path}) AS MAP(VARCHAR, JSON)))"
+
+    def _visit_to_json_string(self, node: ast.Call) -> str:
+        value = self._visit_unary_arg(node)
+        return f"json_format(CAST({value} AS JSON))"
+
+    def _visit_empty(self, node: ast.Call, *, negated: bool) -> str:
+        if len(node.args) != 1:
+            raise QueryError(f"{node.name} expects exactly 1 argument in Trino mode.")
+        arg = node.args[0]
+        rendered = self.visit(arg)
+        if isinstance(arg.type, (ast.ArrayType, ast.MapType)):
+            comparison = "> 0" if negated else "= 0"
+            return f"({rendered} IS {'NOT ' if negated else ''}NULL AND cardinality({rendered}) {comparison})"
+        if isinstance(arg.type, ast.StringType):
+            comparison = "<> ''" if negated else "= ''"
+            return f"({rendered} IS {'NOT ' if negated else ''}NULL AND {rendered} {comparison})"
+        raise QueryError(f"{node.name} requires a string, array, or map argument in Trino mode.")
+
+    def _json_path(self, members: list[str | int]) -> str:
+        path = "$"
+        for member in members:
+            if isinstance(member, int):
+                path += f"[{member}]"
+            else:
+                escaped = str(member).replace("\\", "\\\\").replace('"', '\\"')
+                path += f'."{escaped}"'
+        return self.context.add_value(path)
+
+    def _visit_lambda_array_call(self, node: ast.Call, target: str) -> str:
+        if len(node.args) != 2 or not isinstance(node.args[0], ast.Lambda):
+            raise QueryError(f"{node.name} expects a lambda and array in Trino mode.")
+        return f"{target}({self.visit(node.args[1])}, {self.visit(node.args[0])})"
+
+    def _visit_unary_function(self, node: ast.Call, target: str) -> str:
+        return f"{target}({self._visit_unary_arg(node)})"
+
+    def _visit_unary_arg(self, node: ast.Call) -> str:
+        if len(node.args) != 1:
+            raise QueryError(f"{node.name} expects exactly 1 argument in Trino mode.")
+        return self.visit(node.args[0])
+
+    def _visit_binary_args(self, node: ast.Call) -> tuple[str, str]:
+        if len(node.args) != 2:
+            raise QueryError(f"{node.name} expects exactly 2 arguments in Trino mode.")
+        return self.visit(node.args[0]), self.visit(node.args[1])
+
+    def _visit_binary_function(self, node: ast.Call, target: str) -> str:
+        left, right = self._visit_binary_args(node)
+        return f"{target}({left}, {right})"
+
+    def _visit_variadic_function(self, node: ast.Call, target: str, minimum: int) -> str:
+        if len(node.args) < minimum:
+            raise QueryError(f"{node.name} expects at least {minimum} arguments in Trino mode.")
+        return f"{target}({', '.join(self.visit(arg) for arg in node.args)})"
+
+    def _visit_range(self, node: ast.Call) -> str:
+        if len(node.args) == 1:
+            start = "0"
+            end = self.visit(node.args[0])
+        elif len(node.args) == 2:
+            start = self.visit(node.args[0])
+            end = self.visit(node.args[1])
+        else:
+            raise QueryError("range expects one or two arguments in Trino mode.")
+        value = self._print_identifier("__hogql_range_value")
+        return f"filter(sequence({start}, greatest(({end}) - 1, {start})), {value} -> ({value} < {end}))"
+
+    def _visit_array_first(self, node: ast.Call) -> str:
+        if len(node.args) != 2 or not isinstance(node.args[0], ast.Lambda):
+            raise QueryError("arrayFirst expects a lambda and array in Trino mode.")
+        filtered = f"element_at(filter({self.visit(node.args[1])}, {self.visit(node.args[0])}), 1)"
+        array_type = node.args[1].type.resolve_constant_type(self.context) if node.args[1].type is not None else None
+        if not isinstance(array_type, ast.ArrayType):
+            raise QueryError("arrayFirst requires a resolved array type in Trino mode.")
+        defaults: list[tuple[type[ast.ConstantType], object]] = [
+            (ast.IntegerType, 0),
+            (ast.FloatType, 0.0),
+            (ast.DecimalType, 0),
+            (ast.StringType, ""),
+            (ast.BooleanType, False),
+        ]
+        default = next((value for type_class, value in defaults if isinstance(array_type.item_type, type_class)), None)
+        if default is None:
+            raise QueryError("arrayFirst does not support this array item type in Trino mode.")
+        return f"coalesce({filtered}, {self.visit(ast.Constant(value=default))})"
+
+    def _visit_count_distinct(self, node: ast.Call) -> str:
+        if not node.args:
+            raise QueryError("countDistinct expects at least one argument in Trino mode.")
+        return f"count(DISTINCT {', '.join(self.visit(arg) for arg in node.args)})"
+
+    def _visit_to_decimal(self, node: ast.Call) -> str:
+        if len(node.args) != 2:
+            raise QueryError("toDecimal expects a value and scale in Trino mode.")
+        scale = node.args[1]
+        if not isinstance(scale, ast.Constant) or isinstance(scale.value, bool) or not isinstance(scale.value, int):
+            raise QueryError("toDecimal requires a constant integer scale in Trino mode.")
+        if scale.value < 0 or scale.value > 38:
+            raise QueryError("toDecimal scale must be between 0 and 38 in Trino mode.")
+        return f"CAST({self.visit(node.args[0])} AS DECIMAL(38, {scale.value}))"
+
+    def _visit_tuple_element(self, node: ast.Call) -> str:
+        if len(node.args) != 2:
+            raise QueryError("tupleElement expects a tuple and index in Trino mode.")
+        index = node.args[1]
+        if not isinstance(index, ast.Constant) or isinstance(index.value, bool) or not isinstance(index.value, int):
+            raise QueryError("tupleElement requires a constant integer index in Trino mode.")
+        if index.value < 1:
+            raise QueryError("tupleElement index must be positive in Trino mode.")
+        source = node.args[0]
+        if isinstance(source, ast.Call) and source.name.lower() == "tuple":
+            if index.value > len(source.args):
+                raise QueryError("tupleElement index is out of range in Trino mode.")
+            return self.visit(source.args[index.value - 1])
+        return f"({self.visit(source)})[{index.value}]"
+
+    def _visit_extract(self, node: ast.Call) -> str:
+        if len(node.args) != 2:
+            raise QueryError("extract expects exactly 2 arguments in Trino mode.")
+        pattern = node.args[1]
+        if not isinstance(pattern, ast.Constant) or not isinstance(pattern.value, str):
+            raise QueryError("extract requires a constant regular expression in Trino mode.")
+        group = self._first_regex_capture_group(pattern.value)
+        extracted = f"regexp_extract({self.visit(node.args[0])}, {self.visit(pattern)}, {group})"
+        return f"coalesce({extracted}, {self.visit(ast.Constant(value=''))})"
+
+    def _first_regex_capture_group(self, pattern: str) -> int:
+        escaped = False
+        in_character_class = False
+        for index, character in enumerate(pattern):
+            if escaped:
+                escaped = False
+                continue
+            if character == "\\":
+                escaped = True
+                continue
+            if character == "[":
+                in_character_class = True
+                continue
+            if character == "]":
+                in_character_class = False
+                continue
+            if character == "(" and not in_character_class and pattern[index + 1 : index + 2] != "?":
+                return 1
+        return 0
+
+    def _visit_quantile(self, node: ast.Call, *, filtered: bool) -> str:
+        expected_arguments = 2 if filtered else 1
+        if len(node.args) != expected_arguments or node.params is None or len(node.params) != 1:
+            raise QueryError(f"{node.name} expects one percentile parameter in Trino mode.")
+        aggregate = f"approx_percentile({self.visit(node.args[0])}, {self.visit(node.params[0])})"
+        if filtered:
+            aggregate += f" FILTER (WHERE {self.visit(node.args[1])})"
+        return aggregate
+
+    def _visit_json_value(self, node: ast.Call) -> str:
+        if len(node.args) != 2:
+            raise QueryError("JSON_VALUE expects a JSON expression and path in Trino mode.")
+        path = node.args[1]
+        if not isinstance(path, ast.Constant) or not isinstance(path.value, str):
+            raise QueryError("JSON_VALUE requires a constant path in Trino mode.")
+        if "\0" in path.value:
+            raise QueryError("JSON_VALUE path contains an invalid NUL character.")
+        path_literal = "'" + path.value.replace("'", "''") + "'"
+        return f"json_value({self.visit(node.args[0])}, {path_literal})"
+
     def _print_table_sql(self, table) -> str:
         return self._print_table(table)
 
@@ -49,6 +422,51 @@ class TrinoPrinter(PostgresPrinter):
             raise QueryError("Lambdas require at least one argument in Trino mode.")
         arguments = identifiers[0] if len(identifiers) == 1 else f"({', '.join(identifiers)})"
         return f"{arguments} -> {self.visit(node.expr)}"
+
+    def visit_array(self, node: ast.Array) -> str:
+        return f"ARRAY[{', '.join(self.visit(expr) for expr in node.exprs)}]"
+
+    def visit_tuple_access(self, node: ast.TupleAccess) -> str:
+        source = self.visit(node.tuple)
+        return f"({source})[{node.index}]"
+
+    def visit_positional_ref(self, node: ast.PositionalRef) -> str:
+        if not isinstance(node.index, int) or node.index < 1:
+            raise QueryError(f"Positional reference must be a positive integer, got {node.index}")
+        return str(node.index)
+
+    def visit_window_function(self, node: ast.WindowFunction) -> str:
+        name = node.name.lower()
+        if name == "countdistinct":
+            return self._visit_window_count_distinct(node)
+        if name not in _TRINO_WINDOW_FUNCTIONS:
+            raise QueryError(f"Window function '{node.name}' is not supported in Trino mode.")
+        exprs = [self.visit(expr) for expr in node.exprs or []]
+        cloned_node = cast(ast.WindowFunction, clone_expr(node))
+        identifier = self._apply_window_function_rewrites(name, exprs, cloned_node)
+        args = f"({', '.join(self.visit(arg) for arg in cloned_node.args)})" if cloned_node.args else ""
+        if cloned_node.over_expr:
+            over = f"({self.visit(cloned_node.over_expr)})"
+        elif cloned_node.over_identifier:
+            over = self._print_identifier(cloned_node.over_identifier)
+        else:
+            over = "()"
+        if cloned_node.args:
+            return f"{identifier}({', '.join(exprs)}){args} OVER {over}"
+        return f"{identifier}({', '.join(exprs)}) OVER {over}"
+
+    def _visit_window_count_distinct(self, node: ast.WindowFunction) -> str:
+        if node.exprs is None or len(node.exprs) != 1 or node.args:
+            raise QueryError("countDistinct window function expects exactly one argument in Trino mode.")
+        if node.over_expr:
+            over = f"({self.visit(node.over_expr)})"
+        elif node.over_identifier:
+            over = self._print_identifier(node.over_identifier)
+        else:
+            over = "()"
+        value = self._print_identifier("__hogql_count_distinct_value")
+        values = f"array_agg({self.visit(node.exprs[0])}) OVER {over}"
+        return f"cardinality(array_distinct(filter({values}, {value} -> {value} IS NOT NULL)))"
 
     def _get_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:
         if op == ast.CompareOperationOp.Regex:
@@ -123,9 +541,7 @@ class TrinoPrinter(PostgresPrinter):
         return f"json_extract_scalar({unsafe_field}, {unsafe_args[0]})"
 
     def _json_property_args(self, chain) -> list[str]:
-        escaped_members = [str(key).replace("\\", "\\\\").replace('"', '\\"') for key in chain]
-        path = "$" + "".join(f'."{member}"' for member in escaped_members)
-        return [self.context.add_value(path)]
+        return [self._json_path(chain)]
 
     def _assert_qualify_supported(self) -> None:
         raise QueryError("QUALIFY must be lowered before Trino printing.")

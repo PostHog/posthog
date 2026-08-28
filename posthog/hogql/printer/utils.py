@@ -349,7 +349,7 @@ def prepare_ast_for_printing(
         )
 
         with context.timings.measure("trino_lowering"):
-            normalize_trino_ast(node)
+            node = cast(_T_AST, normalize_trino_ast(node, context))
         with context.timings.measure("resolve_types_after_trino_lowering"):
             node = clone_expr(node, clear_types=True)
             node = resolve_types(
