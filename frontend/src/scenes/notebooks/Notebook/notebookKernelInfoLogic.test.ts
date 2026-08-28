@@ -2,8 +2,28 @@ import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
+import { notebooksKernelComputeOptionsRetrieve } from 'products/notebooks/frontend/generated/api'
+
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { NotebookLogicMode } from './notebookLogic'
+
+jest.mock('products/notebooks/frontend/generated/api', () => ({
+    notebooksKernelComputeOptionsRetrieve: jest.fn(),
+}))
+
+const COMPUTE_OPTIONS = {
+    currency: 'USD',
+    cpu_rate_per_core_hour: 0.2,
+    memory_rate_per_gb_hour: 0.025,
+    default_preset_key: 'small',
+    presets: [
+        { key: 'small', name: 'Small', description: '', cpu_cores: 1, memory_gb: 2, hourly_price: 0.25 },
+        { key: 'balanced', name: 'Balanced', description: '', cpu_cores: 4, memory_gb: 8, hourly_price: 1 },
+    ],
+    allowed_cpu_cores: [1, 2, 4, 8],
+    allowed_memory_gb: [2, 4, 8, 16],
+    allowed_idle_timeout_seconds: [600, 1800],
+}
 
 const setHidden = (hidden: boolean): void => {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
@@ -19,6 +39,7 @@ describe('notebookKernelInfoLogic', () => {
         kernelStatusSpy = jest
             .spyOn(api.notebooks, 'kernelStatus')
             .mockResolvedValue({ backend: null, status: 'stopped' })
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockResolvedValue(COMPUTE_OPTIONS)
         jest.useFakeTimers()
     })
 
@@ -115,6 +136,35 @@ describe('notebookKernelInfoLogic', () => {
 
         // One fewer than a full window, because the mount request itself is already counted out.
         expect(kernelStatusSpy).toHaveBeenCalledTimes(callsPerMount - 1)
+    })
+
+    test('quotes a hand-tuned shape at the rates the API returned', async () => {
+        logic = notebookKernelInfoLogic({ shortId: 'pricing-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        logic.actions.setCpuCores(8)
+        logic.actions.setMemoryGb(16)
+
+        // 8 x $0.20 + 16 x $0.025. A hardcoded rate anywhere in the widget fails here.
+        expect(logic.values.selectedHourlyPrice).toBeCloseTo(2.0, 5)
+        // No preset has this shape, so nothing should stay highlighted as selected.
+        expect(logic.values.selectedPresetKey).toBeNull()
+    })
+
+    test('a preset sets both halves of the shape it is priced for', async () => {
+        logic = notebookKernelInfoLogic({ shortId: 'preset-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        const balanced = logic.values.computePresets.find((preset) => preset.key === 'balanced')!
+        logic.actions.applyComputePreset(balanced)
+
+        expect(logic.values.selectedCpu).toBe(balanced.cpu_cores)
+        expect(logic.values.selectedMemory).toBe(balanced.memory_gb)
+        // The preset's advertised price has to be what the user is then quoted.
+        expect(logic.values.selectedHourlyPrice).toBeCloseTo(balanced.hourly_price, 5)
+        expect(logic.values.selectedPresetKey).toBe('balanced')
     })
 
     test('stays stopped when the tab returns after the kea store was replaced', async () => {
