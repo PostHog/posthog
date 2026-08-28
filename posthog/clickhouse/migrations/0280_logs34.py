@@ -16,8 +16,9 @@ from posthog.clickhouse.logs import (
 )
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
-# 0309 dropped log_attributes2 and the two views that wrote to it, so the SQL
-# they need is inlined here instead of in a shared definition module.
+# log_attributes2 and the two views that write to it no longer exist outside
+# this file, so their SQL has to stay local. Migration discovery imports every
+# migration, so an import of a deleted definition module stops every run.
 
 TABLE_NAME = "logs34"
 LOG_ATTRIBUTES2_TABLE_NAME = "log_attributes2"
