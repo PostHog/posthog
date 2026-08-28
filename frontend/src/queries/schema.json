@@ -348,6 +348,17 @@
             "enum": ["sum", "avg", "min", "max", "median"],
             "type": "string"
         },
+        "AccountsTableAssignedFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "assigned",
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "AccountsTableAssignedToFilter": {
             "additionalProperties": false,
             "properties": {
@@ -535,6 +546,9 @@
                 },
                 {
                     "$ref": "#/definitions/AccountsTableAssignedToFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableAssignedFilter"
                 },
                 {
                     "$ref": "#/definitions/AccountsTableUnassignedFilter"
