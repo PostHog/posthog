@@ -13,8 +13,8 @@ vi.mock("../../router/navigationBridge", () => ({
   },
 }));
 
-import type { IActiveView } from "./identifiers";
 import { ActiveTargetToastDismissal } from "./activeTargetToastDismissal.contribution";
+import type { IActiveView } from "./identifiers";
 
 function start(activeTarget: NotificationTarget | undefined) {
   toastMock.dismiss.mockClear();
