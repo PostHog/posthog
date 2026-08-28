@@ -418,10 +418,15 @@ export const OrganizationGetAllSchema = z.object({})
 
 export const ProjectGetAllSchema = z.object({})
 
+const EventDefinitionTagSchema = z
+    .string()
+    .max(255)
+    .refine((tag) => tag.trim().toLowerCase().length <= 255, 'Tag must be at most 255 characters after normalization')
+
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
     tags: z
-        .array(z.string().max(255))
+        .array(EventDefinitionTagSchema)
         .optional()
         .describe(
             'Tags to organize events by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention")'
