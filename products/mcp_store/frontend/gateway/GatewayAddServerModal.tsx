@@ -211,11 +211,11 @@ export function GatewayAddServerModal(): JSX.Element | null {
                 {canManageAgentAccess && (
                     <div className="flex items-center justify-between gap-4 rounded border p-3">
                         <div>
-                            <div className="font-semibold">Share with agents</div>
+                            <div className="font-semibold">Who can use this connection?</div>
                             <div className="text-sm text-secondary">
                                 {addServerForm.agentScope === 'team'
-                                    ? 'Agents use this connection on every run in this project.'
-                                    : 'Agents use this connection only on your runs.'}
+                                    ? 'Anyone in this project can use this connection through agents.'
+                                    : 'Only you can use this connection through agents.'}
                             </div>
                         </div>
                         <LemonSegmentedButton

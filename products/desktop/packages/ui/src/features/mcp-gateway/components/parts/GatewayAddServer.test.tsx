@@ -25,9 +25,11 @@ describe("GatewayAddServer", () => {
     expect(
       screen.getByText("Enabled for your organization"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Share with agents")).toBeInTheDocument();
-    expect(screen.getByText("All team agents")).toBeInTheDocument();
-    expect(screen.getByText("Just my agents")).toBeInTheDocument();
+    expect(
+      screen.getByText("Who can use this connection?"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Everyone in this project")).toBeInTheDocument();
+    expect(screen.getByText("Only me")).toBeInTheDocument();
     expect(screen.queryByText("One shared credential")).not.toBeInTheDocument();
     expect(
       screen.queryByText("Allow personal connections"),

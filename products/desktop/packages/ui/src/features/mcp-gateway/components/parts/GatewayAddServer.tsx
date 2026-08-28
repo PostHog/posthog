@@ -252,11 +252,13 @@ export function GatewayAddServer({
               {canManageAgentAccess && (
                 <div className="flex items-center justify-between gap-3 rounded-md border border-gray-5 bg-gray-2 p-3">
                   <div>
-                    <div className="font-medium text-sm">Share with agents</div>
+                    <div className="font-medium text-sm">
+                      Who can use this connection?
+                    </div>
                     <div className="text-[13px] text-gray-11">
                       {values.agentScope === "team"
-                        ? "Agents use this connection on every run in this project."
-                        : "Agents use this connection only on your runs."}
+                        ? "Anyone in this project can use this connection through agents."
+                        : "Only you can use this connection through agents."}
                     </div>
                   </div>
                   <AgentScopeToggle
