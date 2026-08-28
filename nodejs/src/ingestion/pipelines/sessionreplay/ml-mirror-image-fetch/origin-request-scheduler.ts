@@ -21,11 +21,16 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
     }
 
     public run<T>(url: URL, deadlineMs: number, request: () => Promise<T>): Promise<ScheduledRequest<T>> {
-        return this.runScheduled(url, deadlineMs, true, request)
+        return this.runScheduled(url, deadlineMs, true, undefined, request)
     }
 
-    public runImage<T>(url: URL, deadlineMs: number, request: () => Promise<T>): Promise<ScheduledRequest<T>> {
-        return this.runScheduled(url, deadlineMs, false, request)
+    public runImage<T>(
+        url: URL,
+        deadlineMs: number,
+        request: () => Promise<T>,
+        sourcePartition?: number
+    ): Promise<ScheduledRequest<T>> {
+        return this.runScheduled(url, deadlineMs, false, sourcePartition, request)
     }
 
     public get running(): number {
@@ -36,6 +41,7 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
         url: URL,
         deadlineMs: number,
         configurationRequest: boolean,
+        sourcePartition: number | undefined,
         request: () => Promise<T>
     ): Promise<ScheduledRequest<T>> {
         const origin = url.origin
@@ -53,7 +59,8 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
                         const checkedAtMs = Date.now()
                         ImageFetchRequestMetrics.observeSchedulerWait(
                             'request_capacity',
-                            Math.max(0, checkedAtMs - capacityWaitStartedAtMs) / 1000
+                            Math.max(0, checkedAtMs - capacityWaitStartedAtMs) / 1000,
+                            sourcePartition
                         )
                         const grant = this.budget.take(
                             registrableDomain,
@@ -113,7 +120,11 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
                 if (Date.now() + scheduled.waitMs > deadlineMs) {
                     return { ran: false, reason: 'deadline', waitMs: scheduled.waitMs }
                 }
-                ImageFetchRequestMetrics.observeSchedulerWait(scheduled.waitScope, scheduled.waitMs / 1000)
+                ImageFetchRequestMetrics.observeSchedulerWait(
+                    scheduled.waitScope,
+                    scheduled.waitMs / 1000,
+                    sourcePartition
+                )
                 await delay(scheduled.waitMs)
             }
         } finally {

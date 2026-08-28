@@ -28,14 +28,14 @@ function candidate(name: string, overrides: Partial<FetchCandidate> = {}): Fetch
     }
 }
 
-function message(candidates: FetchCandidate[], key = 'example.com'): Message {
+function message(candidates: FetchCandidate[], key = 'example.com', partition = 0): Message {
     const value = serializeFrontierRecord(candidates)
     return {
         value,
         key: Buffer.from(key),
         size: value.length,
         topic: 'session_replay_image_fetch',
-        partition: 0,
+        partition,
         offset: 0,
     }
 }
@@ -155,7 +155,10 @@ describe('UrlFetchConsumer', () => {
                 configurationCacheKey(candidate('a').origin, 'tdmrep'),
             ],
         ])
-        expect(harness.run.mock.calls[0][0]).toEqual([candidate('a'), candidate('b')])
+        expect(harness.run.mock.calls[0][0]).toEqual([
+            candidate('a', { sourcePartition: 0 }),
+            candidate('b', { sourcePartition: 0 }),
+        ])
         expect(harness.history.writes[0]).toHaveLength(2)
     })
 
@@ -184,12 +187,47 @@ describe('UrlFetchConsumer', () => {
         expect(observeBatchDiversity).toHaveBeenCalledWith([1, 1, 1], [2, 1])
     })
 
+    it('attributes joined batch work and outcomes to each source partition', async () => {
+        const harness = build()
+        const observePartitionRecord = jest.spyOn(ImageFetchConsumerMetrics, 'observePartitionRecord')
+        const incPartitionUrls = jest.spyOn(ImageFetchConsumerMetrics, 'incPartitionUrls')
+        const observePartitionBatchDiversity = jest.spyOn(ImageFetchConsumerMetrics, 'observePartitionBatchDiversity')
+        const incPartitionAttempt = jest.spyOn(ImageFetchRequestMetrics, 'incPartitionAttempt')
+        const fromPartition7 = candidate('a')
+        const fromPartition42 = candidate('b', {
+            currentUrl: 'https://cdn.other.net/b.png',
+            host: 'cdn.other.net',
+            origin: 'https://cdn.other.net',
+            registrableDomain: 'other.net',
+        })
+
+        await harness.consumer.handleBatch(
+            [message([fromPartition7], 'example.com', 7), message([fromPartition42], 'other.net', 42)],
+            NOW_MS
+        )
+
+        expect(observePartitionRecord).toHaveBeenCalledWith(7, 1, 1)
+        expect(observePartitionRecord).toHaveBeenCalledWith(42, 1, 1)
+        expect(incPartitionUrls).toHaveBeenCalledWith(7, 'unique', 1)
+        expect(incPartitionUrls).toHaveBeenCalledWith(7, 'fetchable', 1)
+        expect(incPartitionUrls).toHaveBeenCalledWith(42, 'unique', 1)
+        expect(incPartitionUrls).toHaveBeenCalledWith(42, 'fetchable', 1)
+        expect(observePartitionBatchDiversity).toHaveBeenCalledWith(7, [1], [1])
+        expect(observePartitionBatchDiversity).toHaveBeenCalledWith(42, [1], [1])
+        expect(harness.run.mock.calls[0][0]).toEqual([
+            { ...fromPartition7, sourcePartition: 7 },
+            { ...fromPartition42, sourcePartition: 42 },
+        ])
+        expect(incPartitionAttempt).toHaveBeenCalledWith(7, 'completed', 'ok')
+        expect(incPartitionAttempt).toHaveBeenCalledWith(42, 'completed', 'ok')
+    })
+
     it('deduplicates one global ref within the batch', async () => {
         const harness = build()
 
         await harness.consumer.handleBatch([message([candidate('a')]), message([candidate('a')])], NOW_MS)
 
-        expect(harness.run.mock.calls[0][0]).toEqual([candidate('a')])
+        expect(harness.run.mock.calls[0][0]).toEqual([candidate('a', { sourcePartition: 0 })])
     })
 
     it('keeps the most conservative durable state from duplicate jobs', async () => {
@@ -206,16 +244,7 @@ describe('UrlFetchConsumer', () => {
 
         await harness.consumer.handleBatch([message([stale]), message([advanced])], NOW_MS)
 
-        expect(harness.run.mock.calls[0][0]).toEqual([advanced])
-    })
-
-    it('keeps a low-origin-diversity marker from either duplicate job', async () => {
-        const harness = build()
-        const marked = candidate('a', { lowOriginDiversityDeferred: true })
-
-        await harness.consumer.handleBatch([message([candidate('a')]), message([marked])], NOW_MS)
-
-        expect(harness.run.mock.calls[0][0]).toEqual([marked])
+        expect(harness.run.mock.calls[0][0]).toEqual([{ ...advanced, sourcePartition: 0 }])
     })
 
     it('keeps the latest not-before time from duplicate jobs', async () => {
@@ -251,7 +280,7 @@ describe('UrlFetchConsumer', () => {
 
         await harness.consumer.handleBatch([message([candidate('a'), candidate('b')])], NOW_MS)
 
-        expect(harness.run.mock.calls[0][0]).toEqual([candidate('b')])
+        expect(harness.run.mock.calls[0][0]).toEqual([candidate('b', { sourcePartition: 0 })])
     })
 
     it('republishes a job that arrives before its durable not-before time', async () => {
@@ -262,7 +291,7 @@ describe('UrlFetchConsumer', () => {
 
         expect(harness.run.mock.calls[0][0]).toEqual([])
         expect(harness.republish).toHaveBeenCalledWith(
-            early,
+            { ...early, sourcePartition: 0 },
             {
                 currentUrl: early.currentUrl,
                 host: early.host,

@@ -71,6 +71,11 @@ export class UrlFetchConsumer {
                     continue
                 }
                 ImageFetchConsumerMetrics.observeRecord(parsed.urlCount)
+                ImageFetchConsumerMetrics.observePartitionRecord(
+                    message.partition,
+                    parsed.urlCount,
+                    parsed.candidates.length
+                )
                 if (parsed.rejected.length > 0) {
                     rejectedRecords.push({
                         message,
@@ -78,12 +83,16 @@ export class UrlFetchConsumer {
                     })
                 }
                 for (const candidate of parsed.candidates) {
-                    const existing = candidatesByRef.get(candidate.originalRef)
+                    const partitionCandidate = { ...candidate, sourcePartition: message.partition }
+                    const existing = candidatesByRef.get(partitionCandidate.originalRef)
                     if (existing) {
                         dedupedInBatch += 1
-                        candidatesByRef.set(candidate.originalRef, mergeDuplicateFetchCandidates(existing, candidate))
+                        candidatesByRef.set(
+                            partitionCandidate.originalRef,
+                            mergeDuplicateFetchCandidates(existing, partitionCandidate)
+                        )
                     } else {
-                        candidatesByRef.set(candidate.originalRef, candidate)
+                        candidatesByRef.set(partitionCandidate.originalRef, partitionCandidate)
                     }
                 }
             }
@@ -91,6 +100,8 @@ export class UrlFetchConsumer {
             candidatesByRef.clear()
             const origins = new Map<string, number>()
             const registrableDomains = new Map<string, number>()
+            const partitionOrigins = new Map<number, Map<string, number>>()
+            const partitionRegistrableDomains = new Map<number, Map<string, number>>()
             for (const candidate of candidates) {
                 ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000)
                 origins.set(candidate.origin, (origins.get(candidate.origin) ?? 0) + 1)
@@ -98,11 +109,27 @@ export class UrlFetchConsumer {
                     candidate.registrableDomain,
                     (registrableDomains.get(candidate.registrableDomain) ?? 0) + 1
                 )
+                if (candidate.sourcePartition !== undefined) {
+                    ImageFetchConsumerMetrics.incPartitionUrls(candidate.sourcePartition, 'unique', 1)
+                    incrementNestedCount(partitionOrigins, candidate.sourcePartition, candidate.origin)
+                    incrementNestedCount(
+                        partitionRegistrableDomains,
+                        candidate.sourcePartition,
+                        candidate.registrableDomain
+                    )
+                }
             }
             originCount = origins.size
             registrableDomainCount = registrableDomains.size
             originCandidateCounts = [...origins.values()]
             registrableDomainCandidateCounts = [...registrableDomains.values()]
+            for (const [partition, partitionOriginCounts] of partitionOrigins) {
+                ImageFetchConsumerMetrics.observePartitionBatchDiversity(
+                    partition,
+                    [...partitionOriginCounts.values()],
+                    [...(partitionRegistrableDomains.get(partition)?.values() ?? [])]
+                )
+            }
 
             if (this.options.dryRun || candidates.length === 0) {
                 await this.parkRejectedRecords(rejectedRecords, drops)
@@ -124,12 +151,21 @@ export class UrlFetchConsumer {
                 const history = stored.get(candidate.originalRef)
                 if (history?.kind === 'url' && history.nextFetchAtMs > nowMs) {
                     ImageFetchConsumerMetrics.incDeduped('store', 1)
+                    if (candidate.sourcePartition !== undefined) {
+                        ImageFetchConsumerMetrics.incPartitionUrls(candidate.sourcePartition, 'store_deduped', 1)
+                    }
                     continue
                 }
                 if (candidate.notBeforeMs > nowMs) {
                     notReady.push(candidate)
+                    if (candidate.sourcePartition !== undefined) {
+                        ImageFetchConsumerMetrics.incPartitionUrls(candidate.sourcePartition, 'not_ready', 1)
+                    }
                 } else {
                     fetchable.push(candidate)
+                    if (candidate.sourcePartition !== undefined) {
+                        ImageFetchConsumerMetrics.incPartitionUrls(candidate.sourcePartition, 'fetchable', 1)
+                    }
                 }
             }
             ImageFetchConsumerMetrics.incFetchable(fetchable.length)
@@ -157,6 +193,13 @@ export class UrlFetchConsumer {
                 throw new Error(`the image fetch lane could not account for ${lost} URLs`)
             }
             for (const attempt of attempts) {
+                if (attempt.candidate.sourcePartition !== undefined) {
+                    ImageFetchRequestMetrics.incPartitionAttempt(
+                        attempt.candidate.sourcePartition,
+                        attempt.finished ? 'completed' : 'republished',
+                        attempt.outcome
+                    )
+                }
                 if (!attempt.finished && isTransientOutcome(attempt.outcome)) {
                     ImageFetchRequestMetrics.incRetryCause(attempt.outcome)
                 }
@@ -374,4 +417,13 @@ export class UrlFetchConsumer {
             Number(process.hrtime.bigint() - startedAt) / 1e9
         )
     }
+}
+
+function incrementNestedCount(counts: Map<number, Map<string, number>>, partition: number, key: string): void {
+    let partitionCounts = counts.get(partition)
+    if (!partitionCounts) {
+        partitionCounts = new Map<string, number>()
+        counts.set(partition, partitionCounts)
+    }
+    partitionCounts.set(key, (partitionCounts.get(key) ?? 0) + 1)
 }
