@@ -2,6 +2,8 @@
     "schemaVersion": 1,
     "limits": {
         "maxTypeLength": 100,
+        "maxTypes": 20,
+        "maxNodes": 2048,
         "maxSourceLength": 100000,
         "maxPayloadLength": 20000
     },
@@ -299,7 +301,7 @@
             "capturedDomIds": [],
             "input": {
                 "@context": "https://schema.org",
-                "@type": ["https://schema.org/Product", "Car", "PrivateType", 42],
+                "@type": ["https://schema.org/Product", "Product", "Car", "Car", "PrivateType", 42],
                 "name": ["Camera", 2, true, null],
                 "color": [
                     "black",
@@ -312,6 +314,94 @@
                 "@context": "https://schema.org",
                 "@type": ["Product", "Car", "PrivateType"],
                 "name": ["Camera", 2, true, null]
+            }
+        },
+        {
+            "name": "duplicate types at nested entities",
+            "capturedDomIds": [],
+            "input": {
+                "@context": "https://schema.org",
+                "@type": ["Product", "Product", "https://schema.org/Product"],
+                "offers": {
+                    "@type": ["Offer", "Offer"],
+                    "seller": {
+                        "@type": ["Organization", "Organization"],
+                        "brand": {
+                            "@type": ["Brand", "Brand"],
+                            "name": "Camera brand"
+                        }
+                    }
+                }
+            },
+            "expected": {
+                "@context": "https://schema.org",
+                "@type": ["Product"],
+                "offers": {
+                    "@type": ["Offer"],
+                    "seller": {
+                        "@type": ["Organization"],
+                        "brand": {
+                            "@type": ["Brand"],
+                            "name": "Camera brand"
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "name": "type count is capped after deduplication",
+            "capturedDomIds": [],
+            "input": {
+                "@context": "https://schema.org",
+                "@type": [
+                    "Type01",
+                    "Type01",
+                    "Type02",
+                    "Type03",
+                    "Type04",
+                    "Type05",
+                    "Type06",
+                    "Type07",
+                    "Type08",
+                    "Type09",
+                    "Type10",
+                    "Type11",
+                    "Type12",
+                    "Type13",
+                    "Type14",
+                    "Type15",
+                    "Type16",
+                    "Type17",
+                    "Type18",
+                    "Type19",
+                    "Type20",
+                    "Type21"
+                ]
+            },
+            "expected": {
+                "@context": "https://schema.org",
+                "@type": [
+                    "Type01",
+                    "Type02",
+                    "Type03",
+                    "Type04",
+                    "Type05",
+                    "Type06",
+                    "Type07",
+                    "Type08",
+                    "Type09",
+                    "Type10",
+                    "Type11",
+                    "Type12",
+                    "Type13",
+                    "Type14",
+                    "Type15",
+                    "Type16",
+                    "Type17",
+                    "Type18",
+                    "Type19",
+                    "Type20"
+                ]
             }
         },
         {

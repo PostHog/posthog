@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::HashSet;
 
 use simd_json::borrowed::{Object, Value};
 use simd_json::prelude::Writable;
@@ -10,6 +11,8 @@ use crate::json::{as_array, as_object, as_str, key};
 const MAX_JSON_LD_LENGTH: usize = 100_000;
 const MAX_JSON_LD_OUTPUT_LENGTH: usize = 20_000;
 const MAX_JSON_LD_TYPE_LENGTH: usize = 100;
+const MAX_JSON_LD_TYPES: usize = 20;
+const MAX_JSON_LD_NODES: usize = 2_048;
 const SCHEMA_CONTEXT: &str = "https://schema.org";
 const TYPE_INDEPENDENT_LEAF_PROPERTIES: &str =
     "actionStatus availability bestRating contentRating encodingFormat eventAttendanceMode eventStatus highPrice inLanguage isAccessibleForFree isFamilyFriendly itemCondition itemListOrder lowPrice maximumAttendeeCapacity nonprofitStatus numberOfItems offerCount position price priceCurrency priceValidUntil publicAccess ratingCount ratingValue reviewCount smokingAllowed worstRating";
@@ -31,6 +34,22 @@ const TYPES_WITHOUT_PROPERTIES: &str =
 enum PropertyRule {
     Scalar(&'static str),
     Entity(&'static str, &'static str),
+}
+
+struct SanitizationBudget {
+    remaining_nodes: usize,
+    exceeded: bool,
+}
+
+impl SanitizationBudget {
+    fn take_node(&mut self) -> bool {
+        if self.remaining_nodes == 0 {
+            self.exceeded = true;
+            return false;
+        }
+        self.remaining_nodes -= 1;
+        true
+    }
 }
 
 const EMPTY_RULES: &[PropertyRule] = &[];
@@ -204,12 +223,15 @@ fn entity_types(value: Option<&Value<'_>>) -> Vec<String> {
         Some(Value::Array(values)) => values.iter().filter_map(as_str).collect(),
         _ => Vec::new(),
     };
+    let mut seen = HashSet::new();
     values
         .into_iter()
         .map(normalize_entity_type)
         .filter(|entity_type| {
             !entity_type.is_empty() && entity_type.encode_utf16().count() <= MAX_JSON_LD_TYPE_LENGTH
         })
+        .filter(|entity_type| seen.insert(*entity_type))
+        .take(MAX_JSON_LD_TYPES)
         .map(str::to_string)
         .collect()
 }
@@ -218,19 +240,30 @@ fn owned_string<'v>(value: String) -> Value<'v> {
     Value::String(Cow::Owned(value))
 }
 
-fn sanitize_entity_value<'v>(value: &Value<'v>, allowed_types: &str) -> Option<Value<'v>> {
+fn sanitize_entity_value<'v>(
+    value: &Value<'v>,
+    allowed_types: &str,
+    budget: &mut SanitizationBudget,
+) -> Option<Value<'v>> {
     if let Some(items) = as_array(value) {
         let sanitized: Vec<Value<'v>> = items
             .iter()
-            .filter_map(|item| sanitize_entity(item, Some(allowed_types)))
+            .filter_map(|item| sanitize_entity(item, Some(allowed_types), budget))
             .collect();
         return (!sanitized.is_empty()).then_some(Value::Array(Box::new(sanitized)));
     }
-    sanitize_entity(value, Some(allowed_types))
+    sanitize_entity(value, Some(allowed_types), budget)
 }
 
-fn sanitize_entity<'v>(value: &Value<'v>, allowed_types: Option<&str>) -> Option<Value<'v>> {
+fn sanitize_entity<'v>(
+    value: &Value<'v>,
+    allowed_types: Option<&str>,
+    budget: &mut SanitizationBudget,
+) -> Option<Value<'v>> {
     let object = as_object(value)?;
+    if !budget.take_node() {
+        return None;
+    }
     let type_value = object.get("@type");
     let types = entity_types(type_value);
 
@@ -271,7 +304,7 @@ fn sanitize_entity<'v>(value: &Value<'v>, allowed_types: Option<&str>) -> Option
                 PropertyRule::Entity(property, allowed_types) => {
                     if let Some(value) = object
                         .get(property)
-                        .and_then(|value| sanitize_entity_value(value, allowed_types))
+                        .and_then(|value| sanitize_entity_value(value, allowed_types, budget))
                     {
                         result.insert(Cow::Borrowed(property), value);
                     }
@@ -282,7 +315,7 @@ fn sanitize_entity<'v>(value: &Value<'v>, allowed_types: Option<&str>) -> Option
 
     if let Some(graph) = object
         .get("@graph")
-        .and_then(|value| sanitize_entity_value(value, ""))
+        .and_then(|value| sanitize_entity_value(value, "", budget))
     {
         result.insert(key("@graph"), graph);
     }
@@ -302,13 +335,13 @@ fn is_schema_context(value: &Value<'_>) -> bool {
     )
 }
 
-fn sanitize_root<'v>(value: &Value<'v>) -> Option<Value<'v>> {
+fn sanitize_root<'v>(value: &Value<'v>, budget: &mut SanitizationBudget) -> Option<Value<'v>> {
     let object = as_object(value)?;
     if !object.get("@context").is_some_and(is_schema_context) {
         return None;
     }
 
-    let Value::Object(mut entity) = sanitize_entity(value, None)? else {
+    let Value::Object(mut entity) = sanitize_entity(value, None, budget)? else {
         return None;
     };
     entity.insert(key("@context"), owned_string(SCHEMA_CONTEXT.to_string()));
@@ -320,15 +353,26 @@ fn sanitize_json_ld<'v>(value: &Value<'v>) -> Option<Value<'v>> {
         return None;
     }
 
+    let mut budget = SanitizationBudget {
+        remaining_nodes: MAX_JSON_LD_NODES,
+        exceeded: false,
+    };
     let sanitized = if let Some(roots) = as_array(value) {
         if roots.is_empty() {
             return None;
         }
-        let roots: Option<Vec<Value<'v>>> = roots.iter().map(sanitize_root).collect();
+        let roots: Option<Vec<Value<'v>>> = roots
+            .iter()
+            .map(|root| sanitize_root(root, &mut budget))
+            .collect();
         Value::Array(Box::new(roots?))
     } else {
-        sanitize_root(value)?
+        sanitize_root(value, &mut budget)?
     };
+
+    if budget.exceeded {
+        return None;
+    }
 
     (sanitized.encode().encode_utf16().count() <= MAX_JSON_LD_OUTPUT_LENGTH).then_some(sanitized)
 }
@@ -400,6 +444,8 @@ mod tests {
         ))
         .unwrap();
         let max_type_length = contract["limits"]["maxTypeLength"].as_u64().unwrap() as usize;
+        let max_types = contract["limits"]["maxTypes"].as_u64().unwrap() as usize;
+        let max_nodes = contract["limits"]["maxNodes"].as_u64().unwrap() as usize;
         let max_source_length = contract["limits"]["maxSourceLength"].as_u64().unwrap() as usize;
         let max_payload_length = contract["limits"]["maxPayloadLength"].as_u64().unwrap() as usize;
 
@@ -430,6 +476,53 @@ mod tests {
             .is_some());
         assert_eq!(
             scrub(without_name(root("😀".repeat(51), None))),
+            json!({ "tag": "$json_ld" })
+        );
+
+        let types: Vec<String> = (0..max_types).map(|index| format!("Type{index}")).collect();
+        let type_input = json!({
+            "@context": "https://schema.org",
+            "@type": types,
+        });
+        assert_eq!(
+            scrub(type_input.clone()),
+            json!({ "tag": "$json_ld", "payload": type_input })
+        );
+        let mut types_over_limit = types.clone();
+        types_over_limit.push("TypeOverLimit".to_string());
+        assert_eq!(
+            scrub(json!({
+                "@context": "https://schema.org",
+                "@type": types_over_limit,
+            })),
+            json!({
+                "tag": "$json_ld",
+                "payload": {
+                    "@context": "https://schema.org",
+                    "@type": types,
+                }
+            })
+        );
+
+        let root_with_graph = |graph_size: usize| {
+            json!({
+                "@context": "https://schema.org",
+                "@type": "Thing",
+                "@graph": vec![json!({}); graph_size],
+            })
+        };
+        assert_eq!(
+            scrub(root_with_graph(max_nodes - 1)),
+            json!({
+                "tag": "$json_ld",
+                "payload": {
+                    "@context": "https://schema.org",
+                    "@type": "Thing",
+                }
+            })
+        );
+        assert_eq!(
+            scrub(root_with_graph(max_nodes)),
             json!({ "tag": "$json_ld" })
         );
 
