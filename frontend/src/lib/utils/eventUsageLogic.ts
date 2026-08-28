@@ -50,6 +50,7 @@ import {
 } from '~/queries/utils'
 import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
+    BehavioralEventType,
     ChartDisplayType,
     CohortType,
     DashboardTileSpacing,
@@ -77,6 +78,7 @@ import {
     type SDK,
     Survey,
     SurveyQuestionType,
+    TimeUnitType,
 } from '~/types'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
@@ -389,19 +391,19 @@ function sanitizeDashboard(dashboard: DashboardType<QueryBasedInsightModel> | nu
     }
 }
 
-function countBehavioralFilters(value: unknown): number {
+function findBehavioralFilters(value: unknown): Record<string, unknown>[] {
     if (Array.isArray(value)) {
-        return value.reduce((count, item) => count + countBehavioralFilters(item), 0)
+        return value.flatMap(findBehavioralFilters)
     }
     if (!value || typeof value !== 'object') {
-        return 0
+        return []
     }
 
     const record = value as Record<string, unknown>
-    return (
-        Number(record.type === PropertyFilterType.Behavioral) +
-        Object.values(record).reduce<number>((count, item) => count + countBehavioralFilters(item), 0)
-    )
+    return [
+        ...(record.type === PropertyFilterType.Behavioral ? [record] : []),
+        ...Object.values(record).flatMap(findBehavioralFilters),
+    ]
 }
 
 /** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
@@ -432,8 +434,20 @@ export function sanitizeQuery(query: Node | null): Record<string, string | numbe
         payload.data_warehouse_entity_count = getSeries(querySource)?.filter((e) => isAnyDataWarehouseNode(e)).length
 
         // properties
+        const behavioralFilters = findBehavioralFilters(querySource)
         payload.has_properties = !!properties
-        payload.behavioral_filter_count = countBehavioralFilters(querySource)
+        payload.behavioral_filter_count = behavioralFilters.length
+        payload.has_negated_behavioral_filter = behavioralFilters.some((filter) => filter.negation === true)
+        payload.has_custom_behavioral_filter_count = behavioralFilters.some(
+            (filter) => filter.value === BehavioralEventType.PerformMultipleEvents
+        )
+        payload.has_custom_behavioral_filter_time = behavioralFilters.some(
+            (filter) =>
+                !!filter.explicit_datetime ||
+                (filter.time_value != null && filter.time_value !== 30) ||
+                (filter.time_interval != null && filter.time_interval !== TimeUnitType.Day)
+        )
+        payload.has_action_behavioral_filter = behavioralFilters.some((filter) => filter.event_type === 'actions')
         payload.filter_test_accounts = filterTestAccounts
 
         // breakdown
