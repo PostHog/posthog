@@ -76,8 +76,8 @@
         {% if schema_page.paginator.num_pages > 1 %}
         <div style="padding: 10px; text-align: center; border-top: 1px solid #ddd;">
             {% if schema_page.has_previous %}
-                <a href="?page=1">&laquo; First</a>
-                <a href="?page={{ schema_page.previous_page_number }}" style="margin-left: 8px;">&lsaquo; Previous</a>
+                <a href="{{ page_link_prefix }}1">&laquo; First</a>
+                <a href="{{ page_link_prefix }}{{ schema_page.previous_page_number }}" style="margin-left: 8px;">&lsaquo; Previous</a>
             {% endif %}
 
             <span style="margin: 0 12px;">
@@ -85,8 +85,8 @@
             </span>
 
             {% if schema_page.has_next %}
-                <a href="?page={{ schema_page.next_page_number }}">Next &rsaquo;</a>
-                <a href="?page={{ schema_page.paginator.num_pages }}" style="margin-left: 8px;">Last &raquo;</a>
+                <a href="{{ page_link_prefix }}{{ schema_page.next_page_number }}">Next &rsaquo;</a>
+                <a href="{{ page_link_prefix }}{{ schema_page.paginator.num_pages }}" style="margin-left: 8px;">Last &raquo;</a>
             {% endif %}
         </div>
         {% endif %}

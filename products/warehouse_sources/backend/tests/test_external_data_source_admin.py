@@ -114,6 +114,21 @@ class TestExternalDataSourceAdmin(BaseTest):
         schema_url = reverse("admin:warehouse_sources_externaldataschema_change", args=[schema.pk])
         assert schema_url.encode() in response.content
 
+    def test_pagination_links_keep_changelist_filters(self) -> None:
+        source = self._source(credential_kind="project_reader")
+        for name in ("public.users", "public.orders"):
+            ExternalDataSchema.objects.create(team_id=self.team.pk, source=source, name=name)
+        self.client.force_login(self.user)
+
+        with patch.object(ExternalDataSourceAdmin, "SCHEMAS_PER_PAGE", 1):
+            response = self.client.get(
+                reverse("admin:warehouse_sources_externaldatasource_change", args=[source.pk]),
+                {"_changelist_filters": "source_type=Postgres"},
+            )
+
+        assert response.status_code == 200
+        assert b"_changelist_filters=source_type%3DPostgres&amp;page=2" in response.content
+
     def test_credential_kind_filter_uses_connection_metadata(self) -> None:
         project_reader = self._source(credential_kind="project_reader")
         dynamic = self._source(credential_kind="duckgres_service")

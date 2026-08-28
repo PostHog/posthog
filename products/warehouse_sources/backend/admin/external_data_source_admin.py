@@ -143,6 +143,13 @@ class ExternalDataSourceAdmin(admin.ModelAdmin):
                 .order_by("name", "id")
             )
             extra_context["schema_page"] = Paginator(schemas, self.SCHEMAS_PER_PAGE).get_page(request.GET.get("page"))
+            # Django admin puts `_changelist_filters` on the change page URL to remember where the
+            # user came from. A bare `?page=` link drops it, so the breadcrumb back to the
+            # changelist loses the filtered position. Carry the rest of the query string over.
+            page_params = request.GET.copy()
+            page_params.pop("page", None)
+            query = page_params.urlencode()
+            extra_context["page_link_prefix"] = f"?{query}&page=" if query else "?page="
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     def has_add_permission(self, request: HttpRequest) -> bool:
