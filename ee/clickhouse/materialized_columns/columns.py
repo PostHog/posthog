@@ -120,6 +120,10 @@ class MaterializedColumn:
             name="get_all_materialized_columns",
             product=Product.INTERNAL,
             feature=Feature.SCHEMA_INTROSPECTION,
+            # This cache refresh can fire inside another query's SQL generation, where a client_query_id
+            # tag may already be set without a team_id tag (e.g. temporal workers, which only tag team_id
+            # at sync_execute time). Inheriting it would make validated_client_query_id raise.
+            client_query_id=None,
         ):
             # Query columns and their indexes using multiple LEFT JOINs
             # Returns index names as an array, parsed in Python to set boolean flags
