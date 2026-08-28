@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, TypeVar
 
 from django.conf import settings
@@ -59,6 +60,11 @@ class RunAgenticReportInput:
     report_id: str
     signals: list[SignalData]
     repo_selection: RepoSelectionResult
+    # Workflow time from just before repo_selection was resolved. Lets the persist step detect a
+    # reviewer rewriting the selection while the run was in flight (a wrong-repo dismissal
+    # correcting or clearing it) so the run does not bury that newer row. Defaults to None so an
+    # older workflow history that predates this field replays cleanly (guard off).
+    repo_selection_as_of: datetime | None = None
 
 
 @dataclass
@@ -294,6 +300,18 @@ def _report_has_live_suggested_reviewers(report_id: str) -> bool:
         return True
 
 
+def _reviewer_selection_written_since(team_id: int, report_id: str, since: datetime) -> bool:
+    """Whether a person wrote a repo_selection artefact after `since` — a wrong-repo dismissal's
+    correction or clear that landed while the run was in flight."""
+    return SignalReportArtefact.objects.filter(
+        team_id=team_id,
+        report_id=report_id,
+        type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+        created_at__gt=since,
+        created_by__isnull=False,
+    ).exists()
+
+
 def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts: list[ArtefactDraft]) -> None:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
@@ -351,6 +369,7 @@ async def _persist_agentic_report_artefacts(
     report_id: str,
     result: ReportResearchOutput,
     repo_selection: RepoSelectionResult,
+    repo_selection_as_of: datetime | None = None,
 ) -> None:
     # Resolve suggested reviewers from commit hashes (always, from the effective findings —
     # auto-start below needs them even when nothing is persisted this run)
@@ -385,8 +404,27 @@ async def _persist_agentic_report_artefacts(
     # model. Reviewers are derived from findings, so they're only re-persisted when a finding changed.
     has_new_finding = any(isinstance(content, SignalFinding) for content in result.new_artefacts)
 
+    # A reviewer can rewrite the selection while this run is in flight (a wrong-repo dismissal
+    # correcting or clearing it). The run's value predates that decision, so persisting it would
+    # bury the reviewer's row (latest-wins) and hand the next run the rejected repository; the
+    # stale value must not grant auto-start below either.
+    superseded_by_reviewer = repo_selection_as_of is not None and await database_sync_to_async(
+        _reviewer_selection_written_since, thread_sensitive=False
+    )(team_id, report_id, repo_selection_as_of)
+    if superseded_by_reviewer:
+        logger.info(
+            "signals repo selection persist skipped: a reviewer rewrote the selection mid-run",
+            report_id=report_id,
+            team_id=team_id,
+            repository=repo_selection.repository,
+        )
+
     artefacts = [
-        ArtefactDraft(content=repo_selection, attribution=repo_selection_attribution),
+        *(
+            []
+            if superseded_by_reviewer
+            else [ArtefactDraft(content=repo_selection, attribution=repo_selection_attribution)]
+        ),
         *(ArtefactDraft(content=content, attribution=research_attribution) for content in result.new_artefacts),
     ]
     if reviewers_content and has_new_finding:
@@ -456,7 +494,7 @@ async def _persist_agentic_report_artefacts(
             actionability=result.effective_actionability(),
             priority=result.effective_priority(),
             reviewers_content=reviewers_content,
-            repository_autostart_eligible=repo_selection.autostart_eligible,
+            repository_autostart_eligible=repo_selection.autostart_eligible and not superseded_by_reviewer,
         )
     except Exception as error:
         posthoganalytics.capture_exception(error)
@@ -564,6 +602,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 input.report_id,
                 result,
                 input.repo_selection,
+                repo_selection_as_of=input.repo_selection_as_of,
             )
         actionability = result.effective_actionability()
         priority = result.effective_priority()
