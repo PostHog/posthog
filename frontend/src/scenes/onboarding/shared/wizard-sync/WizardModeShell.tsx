@@ -47,6 +47,24 @@ const WIZARD_FRAMEWORKS: WizardBadgeItem[] = [
     { name: 'Python', icon: pythonImage },
 ]
 
+// Some SDK pages label the framework differently from the wizard's own name, so map those to the
+// badge the wizard lists. Anything not here and not in WIZARD_FRAMEWORKS is a framework the wizard
+// does not set up.
+const WIZARD_FRAMEWORK_ALIASES: Record<string, string> = {
+    swift: 'iOS',
+    svelte: 'SvelteKit',
+    'nuxt 3.7+': 'Nuxt',
+    'nuxt 3.6 and below': 'Nuxt',
+}
+
+/** True when the setup agent can set up `integrationName`, matching known aliases. */
+export function wizardSupportsFramework(integrationName: string): boolean {
+    const normalized = integrationName.trim().toLowerCase()
+    return (
+        normalized in WIZARD_FRAMEWORK_ALIASES || WIZARD_FRAMEWORKS.some((fw) => fw.name.toLowerCase() === normalized)
+    )
+}
+
 export function WizardFrameworkBadges({ items = WIZARD_FRAMEWORKS }: { items?: WizardBadgeItem[] } = {}): JSX.Element {
     return (
         <div className="flex flex-wrap gap-1.5 items-center justify-center">

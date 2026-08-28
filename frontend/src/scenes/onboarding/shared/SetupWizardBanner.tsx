@@ -5,7 +5,7 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 import { useWizardCommand } from './useWizardCommand'
-import { WizardFrameworkBadges } from './wizard-sync/WizardModeShell'
+import { WizardFrameworkBadges, wizardSupportsFramework } from './wizard-sync/WizardModeShell'
 
 const SetupWizardBanner = ({
     integrationName,
@@ -37,9 +37,13 @@ const SetupWizardBanner = ({
                         Run this command from the root of your {integrationName} project.
                     </p>
                     <CodeSnippet language={Language.Bash}>{wizardCommand}</CodeSnippet>
-                    <div className="pt-3">
-                        <WizardFrameworkBadges />
-                    </div>
+                    {/* Only list the frameworks when this page's framework is one of them — a "Supports:"
+                        row that omits the reader's framework reads as "not yours". */}
+                    {wizardSupportsFramework(integrationName) && (
+                        <div className="pt-3">
+                            <WizardFrameworkBadges />
+                        </div>
+                    )}
                 </div>
             </LemonBanner>
             <LemonDivider label="OR" />
