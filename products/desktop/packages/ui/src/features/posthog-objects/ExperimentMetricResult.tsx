@@ -3,9 +3,13 @@ import type {
   ExperimentVariantResultPresentation,
 } from "@posthog/api-client/evidence-previews";
 import {
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
   Badge,
-  Card,
-  CardContent,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   Table,
   TableBody,
   TableCell,
@@ -60,185 +64,275 @@ function SignificanceBadge({
   );
 }
 
-function CompactMetric({
+/** One-line verdict for a collapsed metric row: its strongest variant. */
+function BestVariantLine({
   metric,
-  showStatistics,
 }: {
   metric: ExperimentMetricResultPresentation;
-  showStatistics: boolean;
+}): ReactElement | null {
+  const best = metric.bestVariant;
+  if (!best) return null;
+  return (
+    <span
+      className={`shrink-0 font-medium text-xs tabular-nums ${
+        best.significance === "significant" && best.isImprovement === true
+          ? "text-success"
+          : best.significance === "significant" && best.isImprovement === false
+            ? "text-destructive"
+            : "text-muted-foreground"
+      }`}
+    >
+      Best observed: {best.key} {best.uplift}
+    </span>
+  );
+}
+
+function MetricHeading({
+  metric,
+  compact,
+}: {
+  metric: ExperimentMetricResultPresentation;
+  compact: boolean;
 }): ReactElement {
   return (
-    <div className="rounded-md border border-border bg-card p-2.5">
-      <div className="flex min-w-0 items-center justify-between gap-2">
-        <div className="min-w-0">
+    <span className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+      <span className="min-w-0">
+        <Text
+          render={<span />}
+          size={compact ? "xs" : "sm"}
+          weight="semibold"
+          className="block truncate text-foreground"
+        >
+          {metric.name}
+        </Text>
+        {compact && (
           <Text
-            size="xs"
-            weight="semibold"
-            className="block truncate text-foreground"
+            render={<span />}
+            size="xxs"
+            variant="muted"
+            className="block capitalize"
           >
-            {metric.name}
-          </Text>
-          <Text size="xxs" variant="muted" className="capitalize">
             {metric.metricType} metric
           </Text>
-        </div>
+        )}
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        <BestVariantLine metric={metric} />
         <MetricStateBadge metric={metric} />
-      </div>
-      {metric.error ? (
-        <Text size="xs" variant="muted" className="mt-2 block">
-          {metric.error}
+      </span>
+    </span>
+  );
+}
+
+function MetricDetail({
+  metric,
+}: {
+  metric: ExperimentMetricResultPresentation;
+}): ReactElement {
+  if (metric.error) {
+    return (
+      <ExperimentResultNotice tone="destructive">
+        {metric.error}
+      </ExperimentResultNotice>
+    );
+  }
+  if (metric.variants.length === 0) {
+    return (
+      <ExperimentResultNotice tone="neutral">
+        No variant results are available for this metric yet.
+      </ExperimentResultNotice>
+    );
+  }
+
+  const control = metric.variants.find((variant) => variant.isControl);
+  return (
+    <div className="flex flex-col gap-2.5">
+      {metric.controlOutcome && control && (
+        <Text size="xxs" variant="muted" className="block tabular-nums">
+          Control ({control.key}): {metric.controlOutcome}
         </Text>
-      ) : metric.variants.length === 0 ? (
-        <Text size="xs" variant="muted" className="mt-2 block">
-          No variant results yet.
-        </Text>
-      ) : (
-        <div className="mt-2 flex flex-col gap-2">
-          {metric.variants.map((variant) => (
-            <div key={variant.key} className="min-w-0">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <Text size="xs" weight="medium" className="block truncate">
-                    {variant.key}
-                    {variant.isControl ? " (control)" : ""}
-                  </Text>
-                  <Text
-                    size="xxs"
-                    variant="muted"
-                    className="block break-words tabular-nums"
-                  >
-                    {variant.outcome} · {variant.sampleContext}
-                  </Text>
-                </div>
-                <Text
-                  size="xs"
-                  weight="semibold"
-                  className="shrink-0 tabular-nums"
+      )}
+      <div className="overflow-x-auto">
+        <Table size="sm" className="min-w-[720px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Variant</TableHead>
+              <TableHead>{metric.outcomeLabel}</TableHead>
+              <TableHead>Sample and exposure</TableHead>
+              <TableHead>Uplift</TableHead>
+              <TableHead>95% interval</TableHead>
+              <TableHead>Statistical measure</TableHead>
+              <TableHead>Significance</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {metric.variants.map((variant) => (
+              <TableRow
+                key={variant.key}
+                className={
+                  variant.significance === "significant" &&
+                  variant.isImprovement === true
+                    ? "bg-success/5"
+                    : variant.isControl
+                      ? "text-muted-foreground"
+                      : undefined
+                }
+              >
+                <TableCell className="whitespace-nowrap font-medium">
+                  {variant.key}
+                  {variant.isControl ? " (control)" : ""}
+                </TableCell>
+                <TableCell className="whitespace-nowrap tabular-nums">
+                  {variant.outcome}
+                </TableCell>
+                <TableCell className="whitespace-nowrap tabular-nums">
+                  {variant.sampleContext}
+                </TableCell>
+                <TableCell
+                  className={`whitespace-nowrap font-medium tabular-nums ${
+                    variant.isImprovement === true
+                      ? "text-success"
+                      : variant.isImprovement === false
+                        ? "text-destructive"
+                        : ""
+                  }`}
                 >
                   {variant.uplift ?? "Baseline"}
-                </Text>
-              </div>
-              {showStatistics && !variant.isControl && (
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground tabular-nums">
-                  {variant.interval && (
-                    <span>95% interval {variant.interval}</span>
+                </TableCell>
+                <TableCell className="whitespace-nowrap tabular-nums">
+                  {variant.isControl
+                    ? "Baseline"
+                    : (variant.interval ?? "Not available")}
+                </TableCell>
+                <TableCell className="whitespace-nowrap tabular-nums">
+                  {variant.isControl
+                    ? "Baseline"
+                    : variant.pValue
+                      ? `p-value ${variant.pValue}`
+                      : variant.chanceToWin
+                        ? `${variant.chanceToWin} chance to win`
+                        : "Not available"}
+                </TableCell>
+                <TableCell className="whitespace-nowrap">
+                  {variant.isControl ? (
+                    <span className="text-muted-foreground">Baseline</span>
+                  ) : (
+                    <SignificanceBadge variant={variant} />
                   )}
-                  {variant.pValue && <span>p-value {variant.pValue}</span>}
-                  {variant.chanceToWin && (
-                    <span>{variant.chanceToWin} chance to win</span>
-                  )}
-                  <SignificanceBadge variant={variant} />
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }
 
-function FullMetric({
+function CompactVariantRows({
   metric,
 }: {
   metric: ExperimentMetricResultPresentation;
 }): ReactElement {
+  if (metric.error) {
+    return (
+      <ExperimentResultNotice tone="destructive">
+        {metric.error}
+      </ExperimentResultNotice>
+    );
+  }
+  if (metric.variants.length === 0) {
+    return (
+      <ExperimentResultNotice tone="neutral">
+        No variant results yet.
+      </ExperimentResultNotice>
+    );
+  }
   return (
-    <Card size="sm" flush>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-border border-b px-3 py-2.5">
-        <div>
-          <Text size="sm" weight="semibold" className="block">
-            {metric.name}
-          </Text>
-          <Text size="xs" variant="muted" className="capitalize">
-            {metric.metricType} metric
-          </Text>
+    <div className="flex flex-col gap-2">
+      {metric.variants.map((variant) => (
+        <div key={variant.key} className="min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <Text size="xs" weight="medium" className="block truncate">
+                {variant.key}
+                {variant.isControl ? " (control)" : ""}
+              </Text>
+              <Text
+                size="xxs"
+                variant="muted"
+                className="block break-words tabular-nums"
+              >
+                {variant.outcome} · {variant.sampleContext}
+              </Text>
+            </div>
+            <Text
+              size="xs"
+              weight="semibold"
+              className={`shrink-0 tabular-nums ${
+                variant.isImprovement === true
+                  ? "text-success"
+                  : variant.isImprovement === false
+                    ? "text-destructive"
+                    : ""
+              }`}
+            >
+              {variant.uplift ?? "Baseline"}
+            </Text>
+          </div>
+          {!variant.isControl && (
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground tabular-nums">
+              {variant.interval && <span>95% interval {variant.interval}</span>}
+              {variant.pValue && <span>p-value {variant.pValue}</span>}
+              {variant.chanceToWin && (
+                <span>{variant.chanceToWin} chance to win</span>
+              )}
+              <SignificanceBadge variant={variant} />
+            </div>
+          )}
         </div>
-        <MetricStateBadge metric={metric} />
-      </div>
-      <CardContent>
-        {metric.error ? (
-          <div className="p-3">
-            <ExperimentResultNotice tone="destructive">
-              {metric.error}
-            </ExperimentResultNotice>
-          </div>
-        ) : metric.variants.length === 0 ? (
-          <div className="p-3">
-            <ExperimentResultNotice tone="neutral">
-              No variant results are available for this metric yet.
-            </ExperimentResultNotice>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table size="sm" className="min-w-[760px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Variant</TableHead>
-                  <TableHead>{metric.outcomeLabel}</TableHead>
-                  <TableHead>Sample and exposure</TableHead>
-                  <TableHead>Uplift</TableHead>
-                  <TableHead>95% interval</TableHead>
-                  <TableHead>Statistical measure</TableHead>
-                  <TableHead>Significance</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {metric.variants.map((variant) => (
-                  <TableRow key={variant.key}>
-                    <TableCell className="font-medium">
-                      {variant.key}
-                      {variant.isControl ? " (control)" : ""}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap tabular-nums">
-                      {variant.outcome}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap tabular-nums">
-                      {variant.sampleContext}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap font-medium tabular-nums">
-                      {variant.uplift ?? "Baseline"}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap tabular-nums">
-                      {variant.interval ?? "Not available"}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap tabular-nums">
-                      {variant.pValue
-                        ? `p-value ${variant.pValue}`
-                        : variant.chanceToWin
-                          ? `${variant.chanceToWin} chance to win`
-                          : "Not available"}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {variant.isControl ? (
-                        <span className="text-muted-foreground">Baseline</span>
-                      ) : (
-                        <SignificanceBadge variant={variant} />
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+      ))}
+    </div>
   );
 }
 
 export function ExperimentMetricResult({
   metric,
   display,
-  showStatistics,
+  defaultOpen = false,
 }: {
   metric: ExperimentMetricResultPresentation;
   display: "compact" | "full";
-  showStatistics: boolean;
+  defaultOpen?: boolean;
 }): ReactElement {
-  return display === "compact" ? (
-    <CompactMetric metric={metric} showStatistics={showStatistics} />
-  ) : (
-    <FullMetric metric={metric} />
+  if (display === "full") {
+    return (
+      <AccordionItem value={metric.id}>
+        <AccordionTrigger
+          data-attr="experiment-metric-toggle"
+          className="[&>span:first-child]:min-w-0 [&>span:first-child]:flex-1"
+        >
+          <MetricHeading metric={metric} compact={false} />
+        </AccordionTrigger>
+        <AccordionContent>
+          <MetricDetail metric={metric} />
+        </AccordionContent>
+      </AccordionItem>
+    );
+  }
+  return (
+    <Collapsible defaultOpen={defaultOpen}>
+      <CollapsibleTrigger
+        data-attr="experiment-metric-toggle"
+        className="w-full rounded-md border border-border bg-card px-2.5 py-2 text-left"
+      >
+        <MetricHeading metric={metric} compact />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mt-2">
+          <CompactVariantRows metric={metric} />
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

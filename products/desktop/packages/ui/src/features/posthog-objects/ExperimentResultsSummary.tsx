@@ -1,6 +1,6 @@
 import type { ExperimentResultsPresentation } from "@posthog/api-client/evidence-previews";
-import { Button, Skeleton } from "@posthog/quill";
-import { type ReactElement, useState } from "react";
+import { Accordion, Skeleton, Text } from "@posthog/quill";
+import type { ReactElement } from "react";
 import { ExperimentMetricResult } from "./ExperimentMetricResult";
 import { ExperimentResultNotice } from "./ExperimentResultNotice";
 
@@ -10,13 +10,15 @@ export interface ExperimentResultsSummaryProps {
   results: ExperimentResultsPresentation | null | undefined;
 }
 
+// Hover cards summarize the strongest metrics and leave the rest to the full
+// page, so a metric-heavy experiment stays a short scannable list.
+const MAX_COMPACT_METRICS = 4;
+
 export function ExperimentResultsSummary({
   display,
   loadState,
   results,
 }: ExperimentResultsSummaryProps): ReactElement {
-  const [expanded, setExpanded] = useState(false);
-
   if (loadState === "loading") {
     return (
       <div
@@ -53,10 +55,12 @@ export function ExperimentResultsSummary({
     );
   }
 
-  const metrics = [...results.primaryMetrics, ...results.secondaryMetrics];
-  const visibleMetrics =
-    display === "compact" && !expanded ? metrics.slice(0, 1) : metrics;
-  const hiddenMetricCount = metrics.length - visibleMetrics.length;
+  const allMetrics = [...results.primaryMetrics, ...results.secondaryMetrics];
+  const metrics =
+    display === "compact"
+      ? allMetrics.slice(0, MAX_COMPACT_METRICS)
+      : allMetrics;
+  const hiddenMetricCount = allMetrics.length - metrics.length;
 
   return (
     <div className="flex flex-col gap-2" data-testid="experiment-results">
@@ -79,35 +83,63 @@ export function ExperimentResultsSummary({
           There isn't enough data to determine significance yet.
         </ExperimentResultNotice>
       )}
-      {metrics.length === 0 ? (
+      {allMetrics.length === 0 ? (
         <ExperimentResultNotice tone="neutral">
           This experiment does not have any metrics yet.
         </ExperimentResultNotice>
+      ) : display === "full" ? (
+        <div className="flex flex-col gap-4">
+          {results.primaryMetrics.length > 0 && (
+            <section>
+              <Text size="xs" weight="semibold" variant="muted">
+                Primary metrics ({results.primaryMetrics.length})
+              </Text>
+              <Accordion
+                multiple
+                defaultValue={results.primaryMetrics.map((metric) => metric.id)}
+              >
+                {results.primaryMetrics.map((metric) => (
+                  <ExperimentMetricResult
+                    key={metric.id}
+                    metric={metric}
+                    display="full"
+                  />
+                ))}
+              </Accordion>
+            </section>
+          )}
+          {results.secondaryMetrics.length > 0 && (
+            <section>
+              <Text size="xs" weight="semibold" variant="muted">
+                Secondary metrics ({results.secondaryMetrics.length})
+              </Text>
+              <Accordion multiple>
+                {results.secondaryMetrics.map((metric) => (
+                  <ExperimentMetricResult
+                    key={metric.id}
+                    metric={metric}
+                    display="full"
+                  />
+                ))}
+              </Accordion>
+            </section>
+          )}
+        </div>
       ) : (
-        visibleMetrics.map((metric) => (
+        metrics.map((metric, index) => (
           <ExperimentMetricResult
             key={metric.id}
             metric={metric}
-            display={display}
-            showStatistics={expanded}
+            display="compact"
+            defaultOpen={allMetrics.length === 1 && index === 0}
           />
         ))
       )}
-      {display === "compact" && metrics.length > 0 && (
-        <Button
-          variant="link-muted"
-          size="xs"
-          className="self-start"
-          data-attr="experiment-results-toggle-details"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((isExpanded) => !isExpanded)}
-        >
-          {expanded
-            ? "Hide result details"
-            : hiddenMetricCount > 0
-              ? `Show all ${metrics.length} metrics and statistics`
-              : "Show statistics"}
-        </Button>
+      {display === "compact" && hiddenMetricCount > 0 && (
+        <Text size="xxs" variant="muted">
+          +{hiddenMetricCount} more metric
+          {hiddenMetricCount === 1 ? "" : "s"} on the full page
+        </Text>
       )}
     </div>
   );

@@ -14,6 +14,13 @@ const results: ExperimentResultsPresentation = {
       state: "ready",
       error: null,
       outcomeLabel: "Conversions",
+      controlOutcome: "312 · 6.00% · 5.2K samples",
+      bestVariant: {
+        key: "test",
+        uplift: "+34.0%",
+        significance: "significant",
+        isImprovement: true,
+      },
       variants: [
         {
           key: "control",
@@ -21,6 +28,8 @@ const results: ExperimentResultsPresentation = {
           outcome: "312 · 6.00%",
           sampleContext: "5.2K samples · 5.3K exposed",
           uplift: null,
+          upliftDirection: null,
+          isImprovement: null,
           interval: null,
           pValue: null,
           chanceToWin: null,
@@ -32,6 +41,8 @@ const results: ExperimentResultsPresentation = {
           outcome: "410 · 8.04%",
           sampleContext: "5.1K samples · 5.2K exposed",
           uplift: "+34.0%",
+          upliftDirection: "positive",
+          isImprovement: true,
           interval: "+1.10% to +4.90%",
           pValue: "0.003",
           chanceToWin: null,
@@ -48,9 +59,39 @@ const results: ExperimentResultsPresentation = {
       state: "insufficient_data",
       error: null,
       outcomeLabel: "Outcome",
+      controlOutcome: null,
+      bestVariant: null,
       variants: [],
     },
   ],
+};
+
+const sampleMetric = results.primaryMetrics[0];
+if (!sampleMetric) {
+  throw new Error("The experiment results story needs one sample metric.");
+}
+const manyResults: ExperimentResultsPresentation = {
+  ...results,
+  primaryMetrics: [sampleMetric],
+  secondaryMetrics: [
+    "Activation rate",
+    "Files uploaded",
+    "Invites sent",
+    "Seven-day retention",
+    "Revenue per user",
+    "Support requests",
+  ].map((name, index) => ({
+    ...sampleMetric,
+    id: `secondary-${index}`,
+    name,
+    metricType: "secondary" as const,
+    bestVariant: {
+      key: "test",
+      uplift: "+34.0%",
+      significance: index === 2 ? "significant" : "not_significant",
+      isImprovement: true,
+    },
+  })),
 };
 
 const meta: Meta<typeof ExperimentResultsSummary> = {
@@ -81,6 +122,10 @@ export const Compact: Story = {
       </div>
     ),
   ],
+};
+
+export const ManyMetrics: Story = {
+  args: { display: "full", loadState: "ready", results: manyResults },
 };
 
 export const Stale: Story = {

@@ -30,6 +30,8 @@ export interface ExperimentVariantResultPresentation {
   outcome: string;
   sampleContext: string;
   uplift: string | null;
+  upliftDirection: "positive" | "negative" | null;
+  isImprovement: boolean | null;
   interval: string | null;
   pValue: string | null;
   chanceToWin: string | null;
@@ -43,6 +45,14 @@ export interface ExperimentMetricResultPresentation {
   state: "ready" | "error" | "insufficient_data";
   error: string | null;
   outcomeLabel: string;
+  controlOutcome: string | null;
+  /** Strongest test variant by uplift, so collapsed metric rows stay scannable. */
+  bestVariant: {
+    key: string;
+    uplift: string;
+    significance: ExperimentVariantResultPresentation["significance"];
+    isImprovement: boolean | null;
+  } | null;
   variants: ExperimentVariantResultPresentation[];
 }
 
@@ -490,6 +500,7 @@ interface ExperimentMetricDefinition {
   name: string;
   metricType: "primary" | "secondary";
   valueType: string | null;
+  goal: string | null;
 }
 
 function metricName(metric: QueryRecord, index: number): string {
@@ -531,6 +542,7 @@ function orderedMetricDefinitions(
               name: metricName(metric, index),
               metricType,
               valueType: conciseValue(metric.metric_type),
+              goal: conciseValue(metric.goal),
             },
           ]
         : [],
@@ -549,6 +561,7 @@ function orderedMetricDefinitions(
         savedMetric.name || metricName(savedMetric.query, definitions.length),
       metricType,
       valueType: conciseValue(savedMetric.query.metric_type),
+      goal: conciseValue(savedMetric.query.goal),
     });
   }
 
@@ -660,6 +673,8 @@ function shapeMetricResult(
       state: "insufficient_data",
       error: null,
       outcomeLabel: "Outcome",
+      controlOutcome: null,
+      bestVariant: null,
       variants: [],
     };
   }
@@ -671,6 +686,8 @@ function shapeMetricResult(
       state: "error",
       error: "Couldn't calculate this metric.",
       outcomeLabel: "Outcome",
+      controlOutcome: null,
+      bestVariant: null,
       variants: [],
     };
   }
@@ -685,6 +702,8 @@ function shapeMetricResult(
       state: "insufficient_data",
       error: null,
       outcomeLabel: "Outcome",
+      controlOutcome: null,
+      bestVariant: null,
       variants: [],
     };
   }
@@ -692,6 +711,10 @@ function shapeMetricResult(
   const baselineOutcome = outcomeValue(baseline, definition.valueType);
   const allStats = [baseline, ...variants];
   const insufficient = hasInsufficientData(response, allStats);
+  const upliftedRows: Array<{
+    row: ExperimentVariantResultPresentation;
+    value: number;
+  }> = [];
   const rows = allStats.map((stats, index) => {
     const outcome = outcomeValue(stats, definition.valueType);
     const isControl = index === 0;
@@ -720,7 +743,7 @@ function shapeMetricResult(
       baselineOutcome.comparable !== 0
         ? outcome.comparable / baselineOutcome.comparable - 1
         : null;
-    return {
+    const builtRow: ExperimentVariantResultPresentation = {
       key: stats.key,
       isControl,
       outcome: outcome.display,
@@ -733,6 +756,18 @@ function shapeMetricResult(
         .filter(Boolean)
         .join(" · "),
       uplift: isControl || uplift === null ? null : formatPercent(uplift, true),
+      upliftDirection:
+        uplift === null || uplift === 0
+          ? null
+          : uplift > 0
+            ? ("positive" as const)
+            : ("negative" as const),
+      isImprovement:
+        uplift === null || uplift === 0
+          ? null
+          : definition.goal === "decrease"
+            ? uplift < 0
+            : uplift > 0,
       interval:
         isControl || !interval
           ? null
@@ -750,7 +785,22 @@ function shapeMetricResult(
               ? ("significant" as const)
               : ("not_significant" as const),
     };
+    if (uplift !== null) {
+      upliftedRows.push({ row: builtRow, value: uplift });
+    }
+    return builtRow;
   });
+  const best = upliftedRows.reduce<{
+    row: ExperimentVariantResultPresentation;
+    value: number;
+  } | null>((leader, entry) => {
+    if (!leader) return entry;
+    const isBetter =
+      definition.goal === "decrease"
+        ? entry.value < leader.value
+        : entry.value > leader.value;
+    return isBetter ? entry : leader;
+  }, null);
 
   return {
     id: definition.id,
@@ -759,6 +809,15 @@ function shapeMetricResult(
     state: insufficient ? "insufficient_data" : "ready",
     error: null,
     outcomeLabel: baselineOutcome.label,
+    controlOutcome: `${baselineOutcome.display} · ${compactCount(baseline.number_of_samples)} samples`,
+    bestVariant: best
+      ? {
+          key: best.row.key,
+          uplift: formatPercent(best.value, true),
+          significance: best.row.significance,
+          isImprovement: best.row.isImprovement,
+        }
+      : null,
     variants: rows,
   };
 }

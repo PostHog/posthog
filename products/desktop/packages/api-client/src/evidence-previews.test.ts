@@ -103,18 +103,29 @@ describe("evidence preview shaping", () => {
       metricType: "primary",
       outcomeLabel: "Conversions",
       state: "ready",
+      controlOutcome: "100 · 10.0% · 1K samples",
+      bestVariant: {
+        key: "test",
+        uplift: "+25.0%",
+        significance: "significant",
+        isImprovement: true,
+      },
       variants: [
         {
           key: "control",
           outcome: "100 · 10.0%",
           sampleContext: "1K samples · 1.1K exposed",
           uplift: null,
+          upliftDirection: null,
+          isImprovement: null,
         },
         {
           key: "test",
           outcome: "125 · 12.5%",
           sampleContext: "1K samples · 1K exposed",
           uplift: "+25.0%",
+          upliftDirection: "positive",
+          isImprovement: true,
           interval: "+5.00% to +45.0%",
           pValue: "0.020",
           significance: "significant",
@@ -124,6 +135,59 @@ describe("evidence preview shaping", () => {
     expect(results.secondaryMetrics[0]).toMatchObject({
       name: "Orders per user",
       metricType: "secondary",
+    });
+  });
+
+  it("selects the strongest variant using a decrease metric's goal", () => {
+    const experiment = experimentWithMetrics({
+      metrics: [
+        {
+          kind: "ExperimentMetric",
+          uuid: "primary-1",
+          name: "Support requests",
+          metric_type: "mean",
+          goal: "decrease",
+        },
+      ],
+      metrics_secondary: [],
+    } as unknown as Partial<Schemas.Experiment>);
+    const response = {
+      ...readyMetricResponse,
+      baseline: {
+        key: "control",
+        number_of_samples: 100,
+        sum: 100,
+        sum_squares: 100,
+      },
+      variant_results: [
+        {
+          key: "fewer-requests",
+          number_of_samples: 100,
+          sum: 80,
+          sum_squares: 80,
+          significant: true,
+        },
+        {
+          key: "more-requests",
+          number_of_samples: 100,
+          sum: 120,
+          sum_squares: 120,
+          significant: true,
+        },
+      ],
+    } as unknown as Schemas.ExperimentQueryResponse;
+
+    const results = shapeExperimentResults(
+      experiment,
+      exposureResponse,
+      [{ response }],
+      [],
+    );
+
+    expect(results.primaryMetrics[0].bestVariant).toMatchObject({
+      key: "fewer-requests",
+      uplift: "-20.0%",
+      isImprovement: true,
     });
   });
 
