@@ -192,6 +192,7 @@ export interface scoutFleetLogicValues {
     fleetSummary: FleetSummary | null
     lastRunAt: string | null
     manualRunScoutIds: string[]
+    pauseAttentionCounts: { pausingSoon: number; recentlyPaused: number }
     rollups: Map<string, ScoutRollup>
     rosterEvaluatedAt: number
     rosterGroupCounts: Record<ScoutGroupKey, number>
@@ -409,6 +410,10 @@ export interface scoutFleetLogicMeta {
             scoutEnabledFilter: ScoutEnabledFilter,
             scoutRosterSort: ScoutRosterSort
         ) => ScoutRosterRow[]
+        pauseAttentionCounts: (scoutConfigs: SignalScoutConfigApi[] | null) => {
+            pausingSoon: number
+            recentlyPaused: number
+        }
         rosterGroupCounts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>,
@@ -866,6 +871,26 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     counts[scoutGroup(config, rollups.get(config.skill_name), now)] += 1
                 }
                 return counts
+            },
+        ],
+        /**
+         * The two scheduler states the stats call out separately: a warned scout still runs and can
+         * be kept, a system-paused one has stopped and needs turning back on. Whole fleet,
+         * unnarrowed by search, for the same reason as `rosterGroupCounts`.
+         */
+        pauseAttentionCounts: [
+            (s) => [s.scoutConfigs],
+            (scoutConfigs: SignalScoutConfig[] | null): { pausingSoon: number; recentlyPaused: number } => {
+                let pausingSoon = 0
+                let recentlyPaused = 0
+                for (const config of scoutConfigs ?? []) {
+                    if (config.status === 'pending_pause') {
+                        pausingSoon += 1
+                    } else if (config.status === 'paused_by_system') {
+                        recentlyPaused += 1
+                    }
+                }
+                return { pausingSoon, recentlyPaused }
             },
         ],
         // Fleet-wide output tally for the "Scout findings" callout, read from the cheap backend

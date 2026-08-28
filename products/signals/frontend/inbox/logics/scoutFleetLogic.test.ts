@@ -205,6 +205,13 @@ describe('scoutFleetLogic', () => {
                 status: 'paused_by_system',
                 pause_reason: 'repeated_failures',
             },
+            {
+                ...BASE_CONFIG,
+                id: 'warned',
+                skill_name: 'signals-scout-warned',
+                status: 'pending_pause',
+                pause_reason: 'ignored',
+            },
         ])
         // `busy` filed a report in the window, which is what separates Working from Watching.
         logic.actions.loadScoutRunsSuccess([makeRun({ skill_name: 'signals-scout-busy', emitted_report_ids: ['r-1'] })])
@@ -215,7 +222,10 @@ describe('scoutFleetLogic', () => {
             ['busy', 'working'],
             ['off', 'off'],
             ['quiet', 'watching'],
+            ['warned', 'needs_you'],
         ])
+        // The stats tell a warning apart from a pause; a human pause is neither.
+        expect(logic.values.pauseAttentionCounts).toEqual({ pausingSoon: 1, recentlyPaused: 1 })
     })
 
     it('keeps configs unresolved until the current team is available', async () => {
