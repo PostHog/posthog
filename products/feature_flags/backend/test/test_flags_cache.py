@@ -49,6 +49,7 @@ from products.feature_flags.backend.flags_cache import (
     _serialize_cohort,
     _strip_null_values,
     clear_flags_cache,
+    coalesced_flags_cache_rebuilds,
     flags_hypercache,
     get_flags_from_cache,
     get_team_ids_with_recently_updated_flags,
@@ -4259,6 +4260,89 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
         cohort.name = "updated"
         cohort.save()
         mock_task.delay.assert_not_called()
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+@patch("django.db.transaction.on_commit", lambda fn: fn())
+@patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+@patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+class TestCoalescedFlagsCacheRebuilds(BaseTest):
+    def _save_definition(self, cohort: Cohort) -> None:
+        cohort.filters = {"properties": {"type": "AND", "values": []}}
+        cohort.save(update_fields=["filters"])
+
+    def test_saves_inside_the_block_dispatch_once_on_exit(self, mock_service, mock_definitions):
+        cohort_one = Cohort.objects.create(team=self.team, name="one")
+        cohort_two = Cohort.objects.create(team=self.team, name="two")
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        with coalesced_flags_cache_rebuilds():
+            self._save_definition(cohort_one)
+            self._save_definition(cohort_two)
+            mock_service.delay.assert_not_called()
+            mock_definitions.delay.assert_not_called()
+
+        mock_service.delay.assert_called_once_with(self.team.id)
+        mock_definitions.delay.assert_called_once_with(self.team.id)
+
+    def test_dispatches_once_per_team(self, mock_service, mock_definitions):
+        other_team = Team.objects.create(organization=self.organization)
+        cohort_here = Cohort.objects.create(team=self.team, name="here")
+        cohort_there = Cohort.objects.create(team=other_team, name="there")
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        with coalesced_flags_cache_rebuilds():
+            self._save_definition(cohort_here)
+            self._save_definition(cohort_there)
+            self._save_definition(cohort_here)
+
+        assert sorted(call.args[0] for call in mock_service.delay.call_args_list) == sorted(
+            [self.team.id, other_team.id]
+        )
+        assert sorted(call.args[0] for call in mock_definitions.delay.call_args_list) == sorted(
+            [self.team.id, other_team.id]
+        )
+
+    def test_dispatches_recorded_teams_when_the_block_raises(self, mock_service, mock_definitions):
+        cohort = Cohort.objects.create(team=self.team, name="one")
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        with pytest.raises(RuntimeError):
+            with coalesced_flags_cache_rebuilds():
+                self._save_definition(cohort)
+                raise RuntimeError("interrupted")
+
+        mock_service.delay.assert_called_once_with(self.team.id)
+        mock_definitions.delay.assert_called_once_with(self.team.id)
+
+    @override_settings(FLAGS_REDIS_URL=None)
+    def test_skips_the_service_cache_when_no_flags_redis_url(self, mock_service, mock_definitions):
+        cohort = Cohort.objects.create(team=self.team, name="one")
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        with coalesced_flags_cache_rebuilds():
+            self._save_definition(cohort)
+            mock_definitions.delay.assert_not_called()
+
+        mock_service.delay.assert_not_called()
+        mock_definitions.delay.assert_called_once_with(self.team.id)
+
+    def test_receivers_enqueue_again_after_the_block_exits(self, mock_service, mock_definitions):
+        cohort = Cohort.objects.create(team=self.team, name="one")
+
+        with coalesced_flags_cache_rebuilds():
+            self._save_definition(cohort)
+
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+        self._save_definition(cohort)
+
+        mock_service.delay.assert_called_once_with(self.team.id)
+        mock_definitions.delay.assert_called_once_with(self.team.id)
 
 
 class TestStripNullValues(unittest.TestCase):

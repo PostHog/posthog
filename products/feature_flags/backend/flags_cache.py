@@ -27,7 +27,11 @@ Manual operations:
 """
 
 from collections import defaultdict
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -1310,6 +1314,68 @@ def enqueue_evaluation_cache_invalidation(team_id: int) -> None:
     _enqueue_invalidation(team_id)
 
 
+_deferred_rebuild_teams: ContextVar[set[int] | None] = ContextVar("deferred_flags_cache_rebuild_teams", default=None)
+
+
+def defer_flags_cache_rebuild(team_id: int) -> bool:
+    """Record the team for a coalesced rebuild if a coalescing block is active.
+
+    Returns True when the team was recorded, which means the caller must not enqueue its
+    own rebuild.
+    """
+    teams = _deferred_rebuild_teams.get()
+    if teams is None:
+        return False
+    teams.add(team_id)
+    return True
+
+
+def _dispatch_flags_cache_rebuilds(team_id: int) -> None:
+    from products.feature_flags.backend.tasks import update_team_flags_cache, update_team_service_flags_cache
+
+    try:
+        # Same guard the service-cache receiver applies, because that cache does not exist
+        # when the dedicated Redis is unconfigured.
+        if settings.FLAGS_REDIS_URL:
+            update_team_service_flags_cache.delay(team_id)
+        update_team_flags_cache.delay(team_id)
+        logger.info("coalesced_flags_cache_dispatch", team_id=team_id)
+    except Exception:
+        # The saves already committed, and this runs outside the command's per-cohort error
+        # handling, so raising would abort the rest of a fleet-wide run. The trade-off is that
+        # the run still exits 0 and reports no errors, which leaves this log line as the only
+        # signal that a team kept a stale cache. The definitions cache is repaired by the
+        # hourly verifier, which diffs the cohorts blob; the service cache has no equivalent
+        # sweep, so it stays stale until that team's next cohort or flag change.
+        logger.error("coalesced_flags_cache_dispatch_failed", team_id=team_id, exc_info=True)
+
+
+@contextmanager
+def coalesced_flags_cache_rebuilds() -> Iterator[None]:
+    """Coalesce the cohort-save flags-cache rebuilds inside the block to one dispatch per team.
+
+    A bulk cohort resave otherwise enqueues two whole-team rebuilds per cohort, where two per
+    team are sufficient.
+
+    Both caches are dispatched for every recorded team, which is coarser than the two
+    receivers' own update_fields gates. No rebuild is dropped, because each receiver records
+    only after its own gates pass, so a team is recorded whenever a receiver would have
+    enqueued. The extra work is bounded to the saves that pass the local-eval gate but not the
+    service one.
+    """
+    token = _deferred_rebuild_teams.set(set())
+    try:
+        yield
+    finally:
+        teams = _deferred_rebuild_teams.get() or set()
+        # Reset before dispatching. Eager Celery runs the rebuild inline, and a cohort save
+        # inside that rebuild would otherwise record into this set after it is read, which
+        # silently drops the rebuild. The token also makes nested blocks safe.
+        _deferred_rebuild_teams.reset(token)
+        for team_id in sorted(teams):
+            transaction.on_commit(partial(_dispatch_flags_cache_rebuilds, team_id))
+
+
 @receiver(post_save, sender=FeatureFlag)
 @receiver(post_delete, sender=FeatureFlag)
 def feature_flag_changed_flags_cache(sender, instance: "FeatureFlag", **kwargs):
@@ -1411,6 +1477,9 @@ def cohort_changed_flags_cache(sender, instance: "Cohort", **kwargs):
 
     update_fields = kwargs.get("update_fields")
     if update_fields is not None and frozenset(update_fields) <= _COHORT_RECALCULATION_FIELDS:
+        return
+
+    if defer_flags_cache_rebuild(instance.team_id):
         return
 
     from products.feature_flags.backend.tasks import update_team_service_flags_cache

@@ -517,6 +517,32 @@ class TestResaveCohortsCommandTwoTeams(BaseTest):
         assert cohorts_b[4].cohort_type == "realtime"
 
 
+@override_settings(FLAGS_REDIS_URL="redis://test")
+@patch("django.db.transaction.on_commit", lambda fn: fn())
+class TestResaveCohortsCommandFlagsCacheRebuilds(BaseTest):
+    @parameterized.expand([("apply", False, 1), ("dry_run", True, 0)])
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    def test_rebuilds_each_changed_team_once(
+        self, _name, dry_run, expected_calls, mock_service, mock_definitions
+    ) -> None:
+        team_a: Team = self.team
+        team_b: Team = Team.objects.create(organization=self.organization)
+        for team in (team_a, team_b):
+            for index in range(3):
+                Cohort.objects.create(team=team, name=f"rt_{team.id}_{index}", filters=_make_realtime_filters())
+
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        call_command("resave_cohorts", team_id=[team_a.id, team_b.id], dry_run=dry_run)
+
+        for mock_task in (mock_service, mock_definitions):
+            dispatched = [call.args[0] for call in mock_task.delay.call_args_list]
+            assert dispatched.count(team_a.id) == expected_calls
+            assert dispatched.count(team_b.id) == expected_calls
+
+
 class TestResaveCohortsCommandTeamSelection(BaseTest):
     def test_team_id_processes_only_the_listed_teams(self):
         team_a: Team = self.team

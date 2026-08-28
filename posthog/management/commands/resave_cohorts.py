@@ -13,6 +13,7 @@ from posthog.models.team.team import Team
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team, realtime_allowlist_matches_every_team
+from products.feature_flags.backend.flags_cache import coalesced_flags_cache_rebuilds
 
 logger = structlog.get_logger(__name__)
 
@@ -300,93 +301,101 @@ class Command(BaseCommand):
         # Sort cohorts topologically - dependencies first, then dependents
         sorted_cohort_ids = sort_cohorts_topologically({c.id for c in all_cohorts}, seen_cohorts_cache)
 
-        # Process cohorts in dependency order
-        for cohort_id in sorted_cohort_ids:
-            cohort = seen_cohorts_cache.get(cohort_id)
-            if not cohort:
-                continue
-
-            total += 1
-            try:
-                # Skip cohorts without filters (nothing to recompute)
-                if not cohort.filters:
+        # Process cohorts in dependency order. Each save fires two whole-team flags-cache
+        # rebuilds, so the block coalesces them into one dispatch per team. Per-team scoping
+        # keeps the stale-cache window one team wide, and an exception or Ctrl-C still
+        # dispatches the teams already saved. SIGTERM does not run the block, so a deploy that
+        # rolls the pod mid-team leaves that team stale until the hourly verifier repairs it.
+        with coalesced_flags_cache_rebuilds():
+            for cohort_id in sorted_cohort_ids:
+                cohort = seen_cohorts_cache.get(cohort_id)
+                if not cohort:
                     continue
 
-                # Compute the new filters with inline bytecode and cohort_type
-                # Use defensive validation with detailed error reporting
-                clean_filters, computed_type, validation_error_list = validate_filters_and_compute_realtime_support(
-                    cohort.filters, cohort.team, current_cohort_type=cohort.cohort_type, cohort_count=cohort.count
-                )
+                total += 1
+                try:
+                    # Skip cohorts without filters (nothing to recompute)
+                    if not cohort.filters:
+                        continue
 
-                # If validation failed but we got the original filters back, log the issue and skip
-                if validation_error_list:
-                    validation_errors += 1
-                    logger.warning(
-                        "cohort_validation_skipped",
-                        cohort_id=cohort.id,
-                        team_id=team.pk,
-                        reason="Invalid filter structure - keeping original filters",
+                    # Compute the new filters with inline bytecode and cohort_type
+                    # Use defensive validation with detailed error reporting
+                    clean_filters, computed_type, validation_error_list = validate_filters_and_compute_realtime_support(
+                        cohort.filters,
+                        cohort.team,
+                        current_cohort_type=cohort.cohort_type,
+                        cohort_count=cohort.count,
                     )
-                    continue
 
-                # Check if any directly referenced cohorts have dependencies
-                if computed_type == "realtime" and cohort.filters:
-                    direct_refs = self._get_direct_cohort_references(cohort.filters)
-                    for ref_id in direct_refs:
-                        ref_cohort = seen_cohorts_cache.get(ref_id)
-                        if ref_cohort:
-                            # Static cohorts cannot be realtime, so any cohort referencing them can't be realtime
-                            if ref_cohort.is_static:
-                                computed_type = None
-                                break
-                            # Cohorts without filters (empty cohorts) can be considered realtime-compatible
-                            # since they match no one (always false)
-                            if not ref_cohort.filters:
-                                continue
-                            # If any directly referenced cohort has dependencies, this cannot be realtime
-                            if ref_id in cohort_dependencies and len(cohort_dependencies[ref_id]) > 0:
-                                computed_type = None
-                                break
-                            # Also check if the referenced cohort is not realtime
-                            if ref_cohort.cohort_type != "realtime":
-                                computed_type = None
-                                break
+                    # If validation failed but we got the original filters back, log the issue and skip
+                    if validation_error_list:
+                        validation_errors += 1
+                        logger.warning(
+                            "cohort_validation_skipped",
+                            cohort_id=cohort.id,
+                            team_id=team.pk,
+                            reason="Invalid filter structure - keeping original filters",
+                        )
+                        continue
 
-                computed_condition_type = Cohort.compute_condition_type(clean_filters)
+                    # Check if any directly referenced cohorts have dependencies
+                    if computed_type == "realtime" and cohort.filters:
+                        direct_refs = self._get_direct_cohort_references(cohort.filters)
+                        for ref_id in direct_refs:
+                            ref_cohort = seen_cohorts_cache.get(ref_id)
+                            if ref_cohort:
+                                # Static cohorts cannot be realtime, so any cohort referencing them can't be realtime
+                                if ref_cohort.is_static:
+                                    computed_type = None
+                                    break
+                                # Cohorts without filters (empty cohorts) can be considered realtime-compatible
+                                # since they match no one (always false)
+                                if not ref_cohort.filters:
+                                    continue
+                                # If any directly referenced cohort has dependencies, this cannot be realtime
+                                if ref_id in cohort_dependencies and len(cohort_dependencies[ref_id]) > 0:
+                                    computed_type = None
+                                    break
+                                # Also check if the referenced cohort is not realtime
+                                if ref_cohort.cohort_type != "realtime":
+                                    computed_type = None
+                                    break
 
-                # Decide if there is any change worth persisting/reporting
-                will_change = (
-                    clean_filters != cohort.filters
-                    or computed_type != cohort.cohort_type
-                    or computed_condition_type != cohort.condition_type
-                )
+                    computed_condition_type = Cohort.compute_condition_type(clean_filters)
 
-                # ALWAYS update in-memory for dependency checking
-                cohort.filters = clean_filters
-                cohort.cohort_type = computed_type
-                cohort.condition_type = computed_condition_type
+                    # Decide if there is any change worth persisting/reporting
+                    will_change = (
+                        clean_filters != cohort.filters
+                        or computed_type != cohort.cohort_type
+                        or computed_condition_type != cohort.condition_type
+                    )
 
-                # Track summary stats
-                if computed_type == "realtime":
-                    prospective_realtime += 1
-                if dry_run:
+                    # ALWAYS update in-memory for dependency checking
+                    cohort.filters = clean_filters
+                    cohort.cohort_type = computed_type
+                    cohort.condition_type = computed_condition_type
+
+                    # Track summary stats
+                    if computed_type == "realtime":
+                        prospective_realtime += 1
+                    if dry_run:
+                        if will_change:
+                            changed += 1
+                        continue
+
+                    # Persist changes to database if needed
                     if will_change:
+                        cohort.save(update_fields=["filters", "cohort_type", "condition_type"])
                         changed += 1
-                    continue
-
-                # Persist changes to database if needed
-                if will_change:
-                    cohort.save(update_fields=["filters", "cohort_type", "condition_type"])
-                    changed += 1
-            except Exception as err:
-                errors += 1
-                logger.error(
-                    "cohort_resave_error",
-                    cohort_id=cohort.id,
-                    team_id=team.id,
-                    error=str(err),
-                    exc_info=True,
-                )
+                except Exception as err:
+                    errors += 1
+                    logger.error(
+                        "cohort_resave_error",
+                        cohort_id=cohort.id,
+                        team_id=team.id,
+                        error=str(err),
+                        exc_info=True,
+                    )
 
         return CohortResaveStats(
             total=total,
