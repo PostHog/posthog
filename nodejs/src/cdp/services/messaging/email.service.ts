@@ -148,8 +148,8 @@ export function parseTierCaps(value: string | undefined): number[] {
 
 // Mirrors WORKFLOWS_EMAIL_TIER_HOURLY_CAPS / _DAILY_CAPS in posthog/settings/web.py. Both sides
 // read the same tier index, so the two tables must stay in step.
-const DEFAULT_TEAM_EMAIL_TIER_HOURLY_CAPS = [200, 600, 2000, 6000, 20000, 60000, 200000]
-const DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS = [1000, 3000, 10000, 30000, 100000, 300000, 1000000]
+const DEFAULT_TEAM_EMAIL_TIER_HOURLY_CAPS = [50, 200, 600, 2000, 6000, 20000, 60000, 200000]
+const DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS = [100, 1000, 3000, 10000, 30000, 100000, 300000, 1000000]
 
 // Comfortably longer than the window each bucket paces, so an idle bucket is never reset to full
 // by expiry before it would have refilled on its own. Without that, a team that pauses for a day

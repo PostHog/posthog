@@ -338,8 +338,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Ships dark: tiers are computed and stored first, then observed in shadow mode, and only
         // then enforced. Match the defaults in posthog/settings/web.py.
         EMAIL_TEAM_SENDING_CAP_MODE: 'off',
-        EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: '200,600,2000,6000,20000,60000,200000',
-        EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '1000,3000,10000,30000,100000,300000,1000000',
+        EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: '50,200,600,2000,6000,20000,60000,200000',
+        EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
         EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER: '',
 
         // Destination migration diffing
