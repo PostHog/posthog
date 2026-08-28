@@ -1,7 +1,7 @@
 # LOGS role, all envs — the Kafka metrics ingest chain: kafka_metrics_avro + the MVs
 # into metrics1 (raw), metric_samples1/metric_series1, metric_attributes, and the
 # metrics_kafka_metrics lag bookkeeping. Declared in the local single-shard shape
-# migration 0305 creates; the cloud envs restore their /clickhouse/tables/logs/{shard}
+# migration 0309 creates; the cloud envs restore their /clickhouse/tables/logs/{shard}
 # ZK paths via patches in roles/logs/shared, and the prod codec deltas sit in
 # roles/logs/prod. The local codec deltas (value/count, matching prod) sit in
 # roles/logs/local.

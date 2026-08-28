@@ -30,7 +30,7 @@ role "ops" {
 }
 
 # Every logs node composes the trace suite and the metrics ingest chain
-# (roles/logs/metrics, created locally by migration 0305); the local node adds a
+# (roles/logs/metrics, created locally by migration 0309); the local node adds a
 # self-contained roles/logs/local (extracted from the live node) for the legacy
 # logs32 family it still runs.
 role "logs" {
