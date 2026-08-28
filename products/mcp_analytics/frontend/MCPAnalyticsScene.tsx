@@ -5,6 +5,9 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
@@ -50,6 +53,12 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)
     const { notificationCount } = useValues(mcpAnalyticsNotificationsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const intentRoutingEnabled = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]
+
+    if (activeTab === 'intent-clustering' && !intentRoutingEnabled) {
+        return <NotFound object="page" />
+    }
 
     // landing is a one-shot redirect marker, while search is Sessions-only.
     // The date range stays shared across every tab.
@@ -88,13 +97,17 @@ function MCPAnalyticsSceneContent(): JSX.Element {
             link: combineUrl(urls.mcpAnalyticsToolQuality(), sharedParams).url,
             'data-attr': 'mcp-analytics-tool-quality-tab',
         },
-        {
-            key: 'intent-clustering',
-            label: 'Intent clustering',
-            content: <MCPAnalyticsClustering />,
-            link: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
-            'data-attr': 'mcp-analytics-intent-clustering-tab',
-        },
+        ...(intentRoutingEnabled
+            ? [
+                  {
+                      key: 'intent-clustering' as const,
+                      label: 'Intent clustering',
+                      content: <MCPAnalyticsClustering />,
+                      link: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
+                      'data-attr': 'mcp-analytics-intent-clustering-tab',
+                  },
+              ]
+            : []),
         {
             key: 'notifications',
             label: (
