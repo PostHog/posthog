@@ -1,6 +1,6 @@
 # pgcollector — design
 
-A self-owned replacement for the pganalyze collector. Scrapes Postgres telemetry
+A self-owned Postgres telemetry collector. Scrapes telemetry
 from a fleet of RDS/Aurora instances and writes it to a Postgres stats database.
 An API / UI / MCP server will sit on top of the stats DB later; this document
 covers only the collector and its storage schema.

@@ -1,7 +1,7 @@
 # Telemetry sources on Aurora PostgreSQL beyond pg_stat_*
 
 Research (2026-08) into what Aurora PostgreSQL 15/16/17 exposes that could give
-pgcollector *more* than pganalyze, ranked by value. Our fleet runs Aurora
+pgcollector more than the usual `pg_stat_*` views, ranked by value. Our fleet runs Aurora
 `aurora-postgresql15/16/17` (some 18), with Performance Insights enabled
 (7-day retention), `pg_stat_statements` (`max=10000`, `track=all`),
 `auto_explain` on some clusters (json, 1% sample), `log_min_duration_sample=1s`
@@ -26,7 +26,7 @@ columns 14.12+/15.7+/16.3+):
   the real "did this query hit the network" signal.
 * `orcache_blks_hit`, `orcache_blk_read_time` — Optimized Reads tiered cache.
 * `total/min/max_exec_peakmem`, `*_plan_peakmem` — **peak memory per query**.
-  pganalyze does not have this; it's the direct answer to "which query is
+  Most monitoring tools lack this; it's the direct answer to "which query is
   blowing `work_mem`".
 
 Same `queryid`, same reset function. Plan: `query_stats` detects
@@ -40,14 +40,14 @@ APG 14.10+/15.5+, **on by default** (`aurora_compute_plan_id`), no
 `aurora_stat_activity()` = `pg_stat_activity` + `plan_id`, so activity samples
 can be grouped by (query_id, plan_id).
 
-pganalyze added this in 2024 ("Plan Statistics"). We get parity cheaply, plus
+Commercial tools expose this as "plan statistics"; we get it cheaply, plus
 we can store *every* plan variant and diff them (plan flips). Limited to
 `pg_stat_statements.max` plans.
 
 ### `aurora_stat_system_waits()` / `aurora_stat_backend_waits(pid)` — wait *time*
 
 Cumulative `waits` and `wait_time` (ms) per wait event, instance-wide and per
-backend. pganalyze (and our `activity_samples`) only *sample* wait events every
+backend. Our `activity_samples` only *sample* wait events every
 10s; this gives exact counts and durations — e.g. total ms spent in
 `IO:XactSync` or `Lock:transactionid` per minute, and per-session wait
 profiles for the "interesting" backends we already record. Join with
@@ -73,8 +73,7 @@ Replaces the community `replication` collector on Aurora.
 
 Supported on Aurora. `pg_cputime()`, `pg_loadavg()`, `pg_memusage()`,
 `pg_diskusage()`, and **`pg_proctab()` per process** (utime/stime/RSS per
-backend). Per-backend CPU is what `pg_stat_kcache` would give and pganalyze
-lacks; joined to `pg_stat_activity` it attributes CPU to queries/users.
+backend). Per-backend CPU is what `pg_stat_kcache` would give; joined to `pg_stat_activity` it attributes CPU to queries/users.
 Cheaper and lower-latency than CloudWatch for host metrics.
 
 ### `aurora_stat_memctx_usage()`
@@ -98,7 +97,7 @@ quantiles.
 ### `pgstattuple` — exact bloat
 
 `pgstattuple_approx(rel)` (heap, cheap-ish) and `pgstatindex` for B-trees give
-real dead-tuple %, free space, leaf fragmentation. pganalyze uses the
+real dead-tuple %, free space, leaf fragmentation, versus the usual
 statistical estimate. Run weekly on the reader for tables over N GB; never on
 the writer during business hours.
 
@@ -106,13 +105,13 @@ the writer during business hours.
 
 What's in `shared_buffers` by relation. PG16+ `pg_buffercache_summary()` and
 `pg_buffercache_usage_counts()` are cheap; per-relation aggregation scans every
-buffer (fine every 10m on the reader). "Is my hot table actually cached" — not
-in pganalyze.
+buffer (fine every 10m on the reader). Answers "is my hot table actually
+cached".
 
 ### `hypopg` — validate index recommendations
 
 Hypothetical indexes + `EXPLAIN` on the reader: propose an index, see the plan
-and cost change without building it. pganalyze's index advisor models this
+and cost change without building it. Index advisors usually model this
 offline; we can ask the real planner. Foundation for our own advisor (phase 5).
 
 ### `log_fdw` — read logs via SQL
@@ -177,5 +176,4 @@ Sources: [Aurora functions reference](https://docs.aws.amazon.com/AmazonRDS/late
 [aurora_stat_get_db_commit_latency](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora_stat_get_db_commit_latency.html),
 [log_fdw](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/CHAP_PostgreSQL.Extensions.log_fdw.html),
 [Performance Insights API](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PerfInsights.API.html),
-[pganalyze on aurora_stat_plans](https://pganalyze.com/blog/introducing-postgres-plan-statistics-for-amazon-aurora),
 [pg_stat_monitor not on Aurora (re:Post)](https://repost.aws/questions/QUGNBveStSTx66XIIN9IrT-w/add-support-for-postgresql-pg-stat-monitor-extension-in-rds-aurora).

@@ -3,7 +3,7 @@ name = "pgcollector"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Postgres telemetry collector (pganalyze-style) for RDS/Aurora, writing to a stats Postgres"
+description = "Postgres telemetry collector for RDS/Aurora, writing to a stats Postgres"
 
 [dependencies]
 anyhow = { workspace = true }

@@ -2,7 +2,7 @@
 
 `rust/pgcollector` scrapes telemetry from our RDS/Aurora clusters (pg*stat*\*,
 Aurora stat functions, `pg_proctab`, CloudWatch-exported logs) into a stats
-Postgres, replacing the pganalyze collector. `rust/pgapi`
+Postgres. `rust/pgapi`
 ([pgapi.md](pgapi.md)) serves the data. Design, catalog and deployment details
 live in the crate: [`DESIGN.md`](../../rust/pgcollector/DESIGN.md),
 [`docs/deploy.md`](../../rust/pgcollector/docs/deploy.md),

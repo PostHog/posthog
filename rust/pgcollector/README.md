@@ -1,7 +1,9 @@
 # pgcollector
 
-A self-owned Postgres telemetry collector in the spirit of the pganalyze
-collector, targeting RDS/Aurora, writing to a Postgres stats database.
+A Postgres telemetry collector for RDS/Aurora: query statistics, activity and
+wait events, table/index/vacuum health, schema and settings changes, and
+statement-level data from the Postgres log, written to a Postgres stats
+database that `pgapi` serves.
 See [DESIGN.md](DESIGN.md) for the full design.
 
 ## Run
@@ -81,5 +83,5 @@ migrations/*.sql          hand-written sink tables
 
 Every query in `collectors/` and `src/collectors/` was written for this project
 against the PostgreSQL and Aurora documentation. Nothing is copied from
-pgwatch, postgres_exporter, pganalyze-collector or any other project; the
+pgwatch, postgres_exporter or any other project; the
 research notes in `docs/telemetry-sources.md` cite their docs only.
