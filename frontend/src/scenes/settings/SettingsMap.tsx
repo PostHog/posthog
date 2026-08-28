@@ -149,6 +149,7 @@ import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { CIMDVerificationTokens } from './organization/CIMDVerificationTokens'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
+import { NotificationGovernanceSetting } from './organization/NotificationGovernanceSetting'
 import { OAuthApps } from './organization/OAuthApps'
 import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationAITrainingOptOut } from './organization/OrgAITraining'
@@ -1854,6 +1855,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'View and manage current members of your organization and their roles.',
                 component: <Members />,
                 keywords: ['member', 'user', 'role', 'admin', 'owner'],
+            },
+            {
+                id: 'member-notifications',
+                title: 'Member notifications',
+                description:
+                    'Choose which email notifications your members receive. Anything you set here they cannot change back themselves.',
+                component: <NotificationGovernanceSetting />,
+                flag: 'ORG_NOTIFICATION_GOVERNANCE',
+                allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
+                keywords: ['notification', 'email', 'member', 'lock', 'digest', 'pipeline'],
             },
         ],
     },
