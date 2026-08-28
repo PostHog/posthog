@@ -3,7 +3,10 @@
 Composes the curated ``workflow_jobs`` and ``workflow_runs`` builders (one row per job attempt)
 and renders the Depot cost model from ``logic.cost`` as ClickHouse expressions, so
 ``provider`` / ``os`` / ``vcpu`` / ``multiplier`` / ``billable_seconds`` / ``estimated_cost_usd``
-are computed at query time from the same constants the Python model uses. The cost model stays
+are computed at query time from the same constants the Python model uses. Cost runs off Depot's
+billed clock, which starts at the job's first step rather than at ``started_at`` (GitHub stamps that
+when Depot accepts the job, ~23s before the machine has booted); ``duration_seconds`` stays the full
+wall-clock window the duration and queue reads want. The cost model stays
 defined once in ``logic.cost``; this module only wires its rendered expressions over the join.
 
 Rows are kept for every job attempt the source landed, including the ones GitHub re-listed under a
@@ -34,6 +37,7 @@ from posthog.hogql.database.models import (
 
 from products.engineering_analytics.backend.logic.cost import (
     render_billable_seconds,
+    render_billed_elapsed_seconds,
     render_depot_label,
     render_estimated_cost_usd,
     render_hosted_label,
@@ -73,11 +77,16 @@ FIELDS: dict[str, FieldOrTable] = {
     "started_at": DateTimeDatabaseField(name="started_at", nullable=True),
     "completed_at": DateTimeDatabaseField(name="completed_at", nullable=True),
     "queue_seconds": IntegerDatabaseField(name="queue_seconds", nullable=True),
+    # Full wall-clock, started_at -> completed_at, as GitHub reports it. NOT what Depot bills — that
+    # is billable_seconds, which starts the clock at the job's first step (see logic/cost.py).
     "duration_seconds": IntegerDatabaseField(name="duration_seconds", nullable=True),
     "provider": StringDatabaseField(name="provider", nullable=True),
     "os": StringDatabaseField(name="os", nullable=True),
     "vcpu": IntegerDatabaseField(name="vcpu", nullable=True),
     "multiplier": IntegerDatabaseField(name="multiplier", nullable=True),
+    # Depot-billed seconds for a billable row: duration_seconds minus the runner boot GitHub stamps
+    # into it. NULL when the row isn't billable (non-Depot / non-Linux / unclassified / a re-run copy)
+    # or hasn't settled.
     "billable_seconds": IntegerDatabaseField(name="billable_seconds", nullable=True),
     "estimated_cost_usd": FloatDatabaseField(name="estimated_cost_usd", nullable=True),
     # Non-nullable unlike the attribution columns above, because it is derived rather than read off
@@ -125,7 +134,9 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
     unjoined run (no ``r`` row) leaves only the attribution columns (``repo_owner`` / ``repo_name`` /
     ``pr_number``) NULL.
 
-    Layered so each per-row classification step is computed once: the join layer parses ``labels_arr``;
+    Layered so each per-row classification step is computed once: the join layer parses ``labels_arr``
+    and derives ``billed_seconds`` (an internal column — the exposed ``billable_seconds`` is that clock
+    gated on the row being billable);
     the label layer picks ``depot_label`` / ``hosted_label`` from it (one ``arrayFilter`` scan each);
     the tier layer derives ``provider`` / ``os`` / ``vcpu`` from those two cheap columns; the final
     layer derives ``multiplier`` / ``billable_seconds`` / ``estimated_cost_usd``.
@@ -139,6 +150,7 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
     # labels is already ifNull'd to '[]' by the jobs builder; JSONExtract to Array(String) yields
     # [] for any non-array/invalid JSON, matching cost._parse_labels' empty-on-bad-input behavior.
     labels_array = "JSONExtract(labels, 'Array(String)')"
+    billed_seconds = render_billed_elapsed_seconds("j.duration_seconds", "j.provisioning_seconds")
 
     inner_run_columns = _run_passthrough_defs() if include_run_columns else ""
     run_columns = _run_passthrough_aliases() if include_run_columns else ""
@@ -165,8 +177,8 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
             os,
             vcpu,
             {render_multiplier("vcpu")} AS multiplier,
-            {render_billable_seconds("provider", "os", "is_rerun_copy", "duration_seconds")} AS billable_seconds,
-            {render_estimated_cost_usd("provider", "os", "vcpu", "is_rerun_copy", "duration_seconds")} AS estimated_cost_usd,
+            {render_billable_seconds("provider", "os", "is_rerun_copy", "billed_seconds")} AS billable_seconds,
+            {render_estimated_cost_usd("provider", "os", "vcpu", "is_rerun_copy", "billed_seconds")} AS estimated_cost_usd,
             is_merge_queue,
             is_rerun_copy{run_columns}
         FROM (
@@ -187,6 +199,7 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
                 completed_at,
                 queue_seconds,
                 duration_seconds,
+                billed_seconds,
                 is_merge_queue,
                 is_rerun_copy,
                 {render_provider("depot_label", "hosted_label")} AS provider,
@@ -210,6 +223,7 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
                     completed_at,
                     queue_seconds,
                     duration_seconds,
+                    billed_seconds,
                     is_merge_queue,
                     is_rerun_copy,
                     {render_depot_label("labels_arr")} AS depot_label,
@@ -234,6 +248,9 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
                         j.completed_at AS completed_at,
                         j.queue_seconds AS queue_seconds,
                         j.duration_seconds AS duration_seconds,
+                        -- What Depot actually bills: the wall-clock minus the runner boot GitHub
+                        -- stamps into it. duration_seconds stays the full window for queue/duration UX.
+                        {billed_seconds} AS billed_seconds,
                         r.is_merge_queue AS is_merge_queue,
                         j.is_rerun_copy AS is_rerun_copy,
                         {labels_array} AS labels_arr{inner_run_columns}

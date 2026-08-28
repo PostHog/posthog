@@ -3,8 +3,15 @@
 Estimates the Depot dollar cost of CI from GitHub Actions job data. GitHub's jobs
 API exposes wall-clock (``started_at`` -> ``completed_at``) and the requested runner
 ``labels`` -- not Depot's billed minutes -- so every figure here is an estimate:
-``elapsed_minutes x tier_multiplier x reference_rate``. This mirrors the model the
+``billed_minutes x tier_multiplier x reference_rate``. This mirrors the model the
 DevEx Depot cost tooling already uses (list price, per-vCPU multiplier ladder).
+
+Billed, not wall-clock: GitHub stamps ``started_at`` when Depot accepts the job, and the
+machine then boots before the first step runs. Depot bills only the time after the job
+started running, so the elapsed every function here takes is ``billed_elapsed_seconds``
+-- wall-clock minus that provisioning. It is ~23s per job on ``PostHog/posthog`` (~4-5%
+of billed minutes), which is why the correction sits in the model rather than being
+waved off as noise.
 
 GitHub/Depot specifics (the ``depot-*`` label shapes, the rate ladder) live here in
 the read layer per SPEC section 3; provider-neutral contract types stay in
@@ -152,10 +159,28 @@ def runner_tier_descriptor(provider: str | None, os: str | None, vcpu: int | Non
     return "self_hosted", (os or "")
 
 
+def billed_elapsed_seconds(elapsed_seconds: float | None, provisioning_seconds: float | None) -> float | None:
+    """The seconds Depot bills for one job: its wall-clock elapsed minus the provisioning it opens with.
+
+    ``elapsed_seconds`` is the job's ``started_at`` -> ``completed_at`` (the curated jobs builder's
+    ``duration_seconds``); ``provisioning_seconds`` is its ``started_at`` -> its first step's
+    ``started_at`` (that builder's ``provisioning_seconds``), or ``None`` when the ``steps`` payload
+    isn't there. No steps means nothing is subtracted — an under-correction, never an over-correction.
+    An unknown elapsed (queued / not-yet-finished job) stays ``None`` so it never becomes a measured
+    zero; a negative result is clamped to 0 for clock skew.
+    """
+    if elapsed_seconds is None:
+        return None
+    return max(elapsed_seconds - (provisioning_seconds or 0), 0)
+
+
 def estimate_job_cost_usd(
     labels: list[str], elapsed_seconds: float | None, *, is_rerun_copy: bool = False
 ) -> float | None:
     """Estimated Depot dollar cost for one job, or ``None`` when no honest figure exists.
+
+    ``elapsed_seconds`` is the BILLED elapsed (``billed_elapsed_seconds``), not the raw wall-clock,
+    so provisioning time Depot doesn't charge for never reaches the rate.
 
     ``None`` means "no Depot cost to report": the job is github-hosted, its runner can't be
     classified, it ran on a non-Linux Depot tier (macOS / Windows — separate price tiers not
@@ -321,6 +346,13 @@ def render_is_billable_job(provider_sql: str, os_sql: str, is_rerun_copy_sql: st
     billed nothing and the row must not be costed. Every cost consumer partitions on this, not on
     ``render_is_billable_tier``, so the "does this row cost money" rule stays in one place."""
     return f"({render_is_billable_tier(provider_sql, os_sql)} AND NOT {is_rerun_copy_sql})"
+
+
+def render_billed_elapsed_seconds(elapsed_sql: str, provisioning_sql: str) -> str:
+    """The seconds Depot bills for one job — the SQL form of ``billed_elapsed_seconds``: wall-clock
+    elapsed minus provisioning, clamped at 0, and NULL exactly when the elapsed is NULL so "unsettled"
+    stays the single condition every consumer already tests on ``duration_seconds``."""
+    return f"if({elapsed_sql} IS NULL, NULL, greatest({elapsed_sql} - ifNull({provisioning_sql}, 0), 0))"
 
 
 def render_billable_seconds(provider_sql: str, os_sql: str, is_rerun_copy_sql: str, elapsed_sql: str) -> str:

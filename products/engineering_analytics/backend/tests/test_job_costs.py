@@ -13,6 +13,7 @@ from posthog.hogql.query import execute_hogql_query
 from products.engineering_analytics.backend.logic.cost import (
     RunnerOS,
     RunnerProvider,
+    billed_elapsed_seconds,
     billing_multiplier,
     classify_runner,
     estimate_job_cost_usd,
@@ -29,7 +30,9 @@ TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.job_co
 GITHUB_SOURCE_PREFIX = "myprefix"
 
 # The classification matrix: (scenario, labels, started_at, completed_at, status). The view derives
-# cost from labels + elapsed only, so every row exercises a distinct classify_runner / cost branch.
+# cost from labels + the billed elapsed only, so every row exercises a distinct classify_runner / cost
+# branch. None of these rows carry a steps payload, so their billed elapsed IS the wall-clock; the
+# first-step correction has its own test below.
 # Expected values are computed from the Python model in the test, so a row fails only on Python↔SQL
 # drift — exactly the regression this guards.
 _BASE = "2026-01-01 10:00:00"
@@ -64,7 +67,7 @@ def _elapsed_seconds(started: str, completed: str | None, status: str) -> int | 
     return int((pd.Timestamp(completed) - pd.Timestamp(started)).total_seconds())
 
 
-def _expected_billable(labels: list[str], elapsed: int | None) -> int | None:
+def _expected_billable(labels: list[str], elapsed: float | None) -> float | None:
     tier = classify_runner(labels)
     if tier is None or tier.provider is not RunnerProvider.DEPOT or tier.os is not RunnerOS.LINUX or elapsed is None:
         return None
@@ -81,6 +84,7 @@ def _job_row(
     run_id: int | None = None,
     run_attempt: int = 1,
     name: str | None = None,
+    steps: str = "[]",
 ) -> dict[str, Any]:
     return {
         "id": job_id,
@@ -98,7 +102,7 @@ def _job_row(
         "created_at": started,
         "started_at": started,
         "completed_at": completed,
-        "steps": "[]",
+        "steps": steps,
     }
 
 
@@ -164,7 +168,9 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         by_job = {row[0]: row for row in rows}
 
         for index, (scenario, labels, started, completed, status) in enumerate(_MATRIX):
-            elapsed = _elapsed_seconds(started, completed, status)
+            # No steps in these fixtures -> nothing to subtract. Routed through the model anyway, so
+            # the assertion states the billed clock rather than assuming it equals the wall-clock.
+            billed = billed_elapsed_seconds(_elapsed_seconds(started, completed, status), None)
             tier = classify_runner(labels)
             _job_name, provider, os_, vcpu, multiplier, billable, cost = by_job[f"job-{index}"]
 
@@ -172,13 +178,54 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
             assert os_ == (tier.os.value if tier else None), scenario
             assert vcpu == (tier.vcpu if tier else None), scenario
             assert multiplier == (billing_multiplier(tier) if tier else None), scenario
-            assert billable == _expected_billable(labels, elapsed), scenario
+            assert billable == _expected_billable(labels, billed), scenario
 
-            expected_cost = estimate_job_cost_usd(labels, elapsed)
+            expected_cost = estimate_job_cost_usd(labels, billed)
             if expected_cost is None:
                 assert cost is None, scenario
             else:
                 assert cost == pytest.approx(expected_cost), scenario
+
+    def test_cost_is_billed_from_the_first_step_not_from_started_at(self) -> None:
+        # GitHub stamps started_at when Depot accepts the job; the machine boots for ~23s before the
+        # first step runs, and Depot doesn't bill provisioning. So a 10-minute job whose steps show it
+        # started running at +23s must cost 577s, not 600s — while duration_seconds stays the full
+        # window GitHub reports. Without the steps payload nothing is subtracted.
+        labels = ["depot-ubuntu-latest"]
+        steps = json.dumps(
+            [
+                {"name": "Set up job", "started_at": _plus(23), "completed_at": _plus(30)},
+                {"name": "Run tests", "started_at": _plus(30), "completed_at": _plus(600)},
+            ]
+        )
+        jobs_table = self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(1, labels, _BASE, _plus(600), "completed", name="with-steps", steps=steps),
+                _job_row(2, labels, _BASE, _plus(600), "completed", name="no-steps"),
+            ],
+        )
+        runs_table = self._create_table(
+            "github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [dict.fromkeys(WORKFLOW_RUNS_COLUMNS)]
+        )
+
+        sql = (
+            "SELECT job_name, duration_seconds, billable_seconds, estimated_cost_usd "
+            f"FROM ({job_costs.build_query(jobs_table=jobs_table, runs_table=runs_table)}) ORDER BY job_name"
+        )
+        rows = execute_hogql_query(query=sql, team=self.team, query_type="engineering_analytics.test").results
+        by_job = {row[0]: row for row in rows}
+
+        _name, duration, billable, cost = by_job["with-steps"]
+        assert duration == 600
+        assert billable == billed_elapsed_seconds(600, 23) == 577
+        assert cost == pytest.approx(estimate_job_cost_usd(labels, 577))
+
+        _name, duration, billable, cost = by_job["no-steps"]
+        assert duration == 600
+        assert billable == billed_elapsed_seconds(600, None) == 600
+        assert cost == pytest.approx(estimate_job_cost_usd(labels, 600))
 
     def test_rerun_copies_are_flagged_and_not_costed(self) -> None:
         # "Re-run failed jobs" on a run whose 'passed' job succeeded and whose 'failed' job did not:

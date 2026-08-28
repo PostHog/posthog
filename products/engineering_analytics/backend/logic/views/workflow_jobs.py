@@ -9,7 +9,16 @@ back to ``github_workflow_runs``. The source table name is resolved per-team and
 
 Same layered shape as ``workflow_runs``: the inner SELECT parses timestamps with
 ``parseDateTimeBestEffortOrNull`` (a queued/running job has no start/finish) and unwraps Nullable
-JSON with ``ifNull``; the outer SELECT derives the duration and the copy flag off the parsed columns.
+JSON with ``ifNull``; the outer SELECT derives the durations and the copy flag off the parsed columns.
+
+**``provisioning_seconds`` — the VM boot Depot does not bill.** GitHub stamps a job's ``started_at``
+the moment Depot accepts it, but the machine then boots before the first step ("Set up job") runs, and
+Depot bills only the time after the job started running, not provisioning. The gap is the job's
+``started_at`` to its first step's ``started_at``: ~23s per job measured over 95K ``PostHog/posthog``
+jobs, ~4-5% of billed minutes (the tail at the other end is negligible — last step to ``completed_at``
+averages 2s). NULL when the ``steps`` payload is missing or empty, which ``logic.cost`` reads as "don't
+correct" — an under-correction, never an over-correction. ``duration_seconds`` stays the full
+wall-clock, because that is what queue and duration UX is about; only cost reads this.
 
 **``is_rerun_copy`` — rows for jobs that never executed.** "Re-run failed jobs" re-lists every job
 that already passed under the new ``run_attempt``: new job ids, but ``started_at`` / ``completed_at``
@@ -36,6 +45,17 @@ coarseness the floor already has, and why the floor sits a day below the window.
 
 Embedded as a subquery by the jobs query module (see ``_curated``); nothing registers a global view.
 """
+
+# The moment the job actually began running: the first entry of the ``steps`` JSON array. ``steps`` is
+# a Nullable JSON string, and ClickHouse rejects an Array nested inside a Nullable, so it is
+# ``ifNull``-unwrapped before ``JSONExtractArrayRaw`` (``toString`` keeps this correct if the pipeline
+# ever lands the column as a JSON type rather than a String). An empty array yields '' from
+# ``arrayElement``, which extracts to '' and parses to NULL — the "steps not synced" fallback.
+_FIRST_STEP_STARTED_AT = (
+    "parseDateTimeBestEffort("
+    "JSONExtractString(arrayElement(JSONExtractArrayRaw(ifNull(toString(steps), '[]')), 1), 'started_at')"
+    ")"
+)
 
 # A row GitHub re-listed under a later attempt without re-running it (see the module docstring): the
 # same run, job name, and exact start/finish already exist at a lower attempt. Both timestamps must be
@@ -77,6 +97,13 @@ def build_query(table_name: str, *, created_floor: bool = False) -> str:
             if(status = 'completed', dateDiff('second', started_at, completed_at), NULL) AS duration_seconds,
             -- Queue wait: webhook creation to first execution. NULL while still queued.
             if(started_at IS NOT NULL, dateDiff('second', created_at, started_at), NULL) AS queue_seconds,
+            -- Runner boot: the job's start to its first step's start. NULL when steps aren't synced;
+            -- clamped so a skewed pair can never hand the cost model a negative correction.
+            if(
+                started_at IS NOT NULL AND first_step_started_at IS NOT NULL,
+                greatest(dateDiff('second', started_at, first_step_started_at), 0),
+                NULL
+            ) AS provisioning_seconds,
             {_IS_RERUN_COPY} AS is_rerun_copy
         FROM (
             SELECT
@@ -96,7 +123,8 @@ def build_query(table_name: str, *, created_floor: bool = False) -> str:
                 parseDateTimeBestEffort(created_at) AS created_at,
                 created_at_raw,
                 parseDateTimeBestEffort(started_at) AS started_at,
-                parseDateTimeBestEffort(completed_at) AS completed_at
+                parseDateTimeBestEffort(completed_at) AS completed_at,
+                {_FIRST_STEP_STARTED_AT} AS first_step_started_at
             FROM (SELECT *, created_at AS created_at_raw FROM {table_source})
         )
     """
