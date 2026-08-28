@@ -8,6 +8,7 @@ import {
     LemonColorGlyph,
     LemonDivider,
     LemonSegmentedButton,
+    Link,
     LemonSwitch,
     LemonTable,
     LemonTableColumns,
@@ -402,6 +403,13 @@ function PreviewRuleValue({
     }
     if (definition?.display_type === 'boolean') {
         return stringValue === 'true' || stringValue === '1' ? <IconCheck /> : <IconX className="text-muted" />
+    }
+    if (definition?.display_type === 'link') {
+        return (
+            <Link to={stringValue} target="_blank" targetBlankIcon={false}>
+                {stringValue}
+            </Link>
+        )
     }
     if (definition?.display_type === 'select') {
         const option = definition.options?.find((candidate) => candidate.label === stringValue)
