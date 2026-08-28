@@ -31,6 +31,8 @@ from posthog.schema import (
     AccountsTableQuery,
     AccountsTableQueryResponse,
     AccountsTableRelationshipColumn,
+    AccountsTableRelationshipFilter,
+    AccountsTableRelationshipOperator,
     AccountsTableSearchFilter,
     AccountsTableSort,
     AccountsTableSortDirection,
@@ -445,6 +447,41 @@ class TestAccountsTableQueryRunner(BaseTest):
 
         assert [row.id for row in response.results] == [str(active_account.id)]
         assert str(untagged_account.id) not in {row.id for row in response.results}
+
+    def test_filters_by_relationship_definition_and_user(self) -> None:
+        csm_account = create_account(team_id=self.team.id, name="CSM")
+        ae_account = create_account(team_id=self.team.id, name="AE")
+        csm_definition = AccountRelationshipDefinition.objects.unscoped().create(team=self.team, name="CSM")
+        ae_definition = AccountRelationshipDefinition.objects.unscoped().create(
+            team=self.team, name="Account executive"
+        )
+        AccountRelationship.objects.unscoped().create(
+            team=self.team,
+            account=csm_account,
+            definition=csm_definition,
+            user=self.user,
+        )
+        AccountRelationship.objects.unscoped().create(
+            team=self.team,
+            account=ae_account,
+            definition=ae_definition,
+            user=self.user,
+        )
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[
+                    AccountsTableRelationshipFilter(
+                        definitionId=str(csm_definition.id),
+                        operator=AccountsTableRelationshipOperator.EXACT,
+                        userIds=[self.user.id],
+                    )
+                ],
+            )
+        )
+
+        assert [row.id for row in response.results] == [str(csm_account.id)]
 
     def test_unassigned_and_account_id_filters(self) -> None:
         assigned_account = create_account(team_id=self.team.id, name="Assigned")

@@ -2715,6 +2715,9 @@ def _validate_account_table_definitions(
     sort: contracts.AccountTableSort | None,
 ) -> dict[UUID, DisplayType]:
     relationship_ids = set(selection.relationship_definition_ids)
+    relationship_ids.update(
+        filter_.definition_id for filter_ in filters if isinstance(filter_, contracts.AccountTableRelationshipFilter)
+    )
     if sort and sort.kind == contracts.AccountTableSortKind.RELATIONSHIP:
         if sort.definition_id is None:
             raise InvalidAccountTableColumn("Relationship sorting requires a definition.")
