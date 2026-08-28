@@ -213,16 +213,18 @@ tasks:
       success_criteria: "Resolves the flag by its key ('mcp-analytics') directly — does not guess a numeric id."
 
     # The lifecycle tasks below act on a flag the benchmark project owns, so an agent-mode
-    # run flips only that flag's state. Seed `mcp-eval-lifecycle` (enabled, not archived)
-    # before running this slice.
+    # run flips only that flag's state. They score tool selection whether or not
+    # `mcp-eval-lifecycle` exists, because a missing flag must produce a clear answer rather
+    # than a fallback to the generic update tool. Seed it (enabled, not archived) to also
+    # exercise the state change itself.
     - id: flag-enable-by-key
       category: feature-flags
       intent: 'Turn on the mcp-eval-lifecycle feature flag.'
       expected_tools: [feature-flag-enable]
       acceptable_tools: [feature-flag-get-definition-by-key, feature-flag-get-all, feature-flag-get-definition]
       success_criteria: >
-          Enables the flag through feature-flag-enable rather than a generic update, and sends no filters payload
-          in any call.
+          Calls feature-flag-enable rather than a generic update, and sends no filters payload in any call. If the
+          flag does not exist, says so rather than reaching for update-feature-flag.
 
     - id: flag-disable-reports-impact
       category: feature-flags
@@ -236,8 +238,9 @@ tasks:
               feature-flags-dependent-flags-retrieve,
           ]
       success_criteria: >
-          Resolves the key to an id, disables the flag through feature-flag-disable with no filters payload, and says
-          what else the flag is wired into (linked experiments, surveys, replay settings) or that nothing is.
+          Resolves the key to an id and calls feature-flag-disable with no filters payload. Reads the definition first
+          and says what else the flag is wired into (linked experiments, surveys, replay settings), or that nothing
+          is. If the flag does not exist, says so rather than reaching for update-feature-flag.
 
     - id: flag-archive-completed
       category: feature-flags
@@ -245,8 +248,8 @@ tasks:
       expected_tools: [feature-flag-archive]
       acceptable_tools: [feature-flag-get-definition-by-key, feature-flag-get-all, feature-flag-get-definition]
       success_criteria: >
-          Archives the flag through feature-flag-archive with no filters payload, and tells the user archiving also
-          turns the flag off.
+          Calls feature-flag-archive with no filters payload, and tells the user archiving also turns the flag off.
+          If the flag does not exist, says so rather than reaching for update-feature-flag.
 
     - id: flag-unarchive-stays-off
       category: feature-flags
@@ -254,7 +257,8 @@ tasks:
       expected_tools: [feature-flag-unarchive]
       acceptable_tools: [feature-flag-get-all, feature-flag-get-definition-by-key, feature-flag-get-definition]
       success_criteria: >
-          Unarchives the flag with no filters payload and does not enable it, saying the flag is still turned off.
+          Calls feature-flag-unarchive with no filters payload and does not enable it, saying the flag is still turned
+          off. If the flag does not exist, says so rather than reaching for update-feature-flag.
 
     - id: flag-targeting-edit-uses-update
       category: feature-flags
@@ -263,7 +267,7 @@ tasks:
       acceptable_tools: [feature-flag-get-definition-by-key, feature-flag-get-definition, feature-flag-get-all]
       success_criteria: >
           Reads the current definition first, then edits targeting through update-feature-flag. Does not reach for a
-          lifecycle tool, which cannot change targeting.
+          lifecycle tool, which cannot change targeting. If the flag does not exist, says so.
 
     # --- session-replay ----------------------------------------------------------
     - id: replay-rage-clicks
