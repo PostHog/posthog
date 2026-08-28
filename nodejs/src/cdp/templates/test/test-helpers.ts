@@ -7,6 +7,8 @@ import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { formatLiquidInput } from '~/cdp/services/hog-inputs.service'
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { isNativeHogFunction } from '~/cdp/utils'
+import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { defaultConfig } from '~/common/config/config'
 import { GeoIPService, GeoIp } from '~/common/utils/geoip'
 
@@ -225,9 +227,14 @@ export class TemplateTester {
                 fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: config.SITE_URL,
+                internalApiBaseUrl: config.INTERNAL_API_BASE_URL,
             },
             {
                 teamManager: this.mockTeamManager as any,
+                // Disabled on purpose: template tests pin Hog response handling, and
+                // invokeFetchResponse simulates any transport's response push. The scoped-JWT
+                // transport itself is covered in hog-executor.service.test.ts.
+                conversationsTicketsJwt: new ScopedServiceJwt(PosthogJwtAudience.CONVERSATIONS_TICKETS, ''),
                 hogInputsService,
                 emailService,
                 recipientTokensService,
