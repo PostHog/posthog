@@ -25,10 +25,8 @@ interface UsePendingModelSwitchInput {
    */
   hasConversationStarted: boolean;
   contextTokens?: number;
-  /** Applies the queued switch unchanged once the dialog is confirmed.
-   *  Resolves `true` only when the change reached the agent. */
+  /** Applies the queued switch unchanged once the dialog is confirmed. */
   onApply: (configId: string, value: string) => Promise<boolean>;
-  onCompactAndApply: (configId: string, value: string) => Promise<boolean>;
 }
 
 interface UsePendingModelSwitchResult {
@@ -39,7 +37,6 @@ interface UsePendingModelSwitchResult {
    */
   interceptModelSwitch: (configId: string, value: string) => boolean;
   confirmModelSwitch: () => Promise<boolean>;
-  compactAndConfirmModelSwitch: () => Promise<boolean>;
   cancelModelSwitch: () => void;
 }
 
@@ -54,7 +51,6 @@ export function usePendingModelSwitch({
   hasConversationStarted,
   contextTokens,
   onApply,
-  onCompactAndApply,
 }: UsePendingModelSwitchInput): UsePendingModelSwitchResult {
   const warnOnMidSessionModelSwitch = useSettingsStore(
     (state) => state.warnOnMidSessionModelSwitch,
@@ -128,24 +124,6 @@ export function usePendingModelSwitch({
     return succeeded;
   }, [pendingModelSwitch, onApply, taskId, contextTokens]);
 
-  const compactAndConfirmModelSwitch = useCallback(async () => {
-    if (!pendingModelSwitch) return false;
-    const succeeded = await onCompactAndApply(
-      pendingModelSwitch.configId,
-      pendingModelSwitch.value,
-    );
-    track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION, {
-      task_id: taskId,
-      from_model: pendingModelSwitch.fromValue,
-      to_model: pendingModelSwitch.value,
-      context_tokens: contextTokens,
-      action: "compact_and_switch",
-      result: succeeded ? "succeeded" : "failed",
-    });
-    if (succeeded) setPendingModelSwitch(null);
-    return succeeded;
-  }, [pendingModelSwitch, onCompactAndApply, taskId, contextTokens]);
-
   const cancelModelSwitch = useCallback(() => {
     if (pendingModelSwitch) {
       track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION, {
@@ -163,7 +141,6 @@ export function usePendingModelSwitch({
     pendingModelSwitch,
     interceptModelSwitch,
     confirmModelSwitch,
-    compactAndConfirmModelSwitch,
     cancelModelSwitch,
   };
 }

@@ -1,9 +1,6 @@
 import { Pause, Spinner, Warning } from "@phosphor-icons/react";
 import type { FileAttachment } from "@posthog/core/message-editor/content";
-import {
-  getCompactionOutcome,
-  hasSessionPromptEvent,
-} from "@posthog/core/sessions/sessionEvents";
+import { hasSessionPromptEvent } from "@posthog/core/sessions/sessionEvents";
 import {
   createLatestPlanTracker,
   SESSION_SERVICE,
@@ -72,7 +69,6 @@ import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/
 import { useSessionEventsResidency } from "@posthog/ui/features/sessions/hooks/useSessionEventsResidency";
 import { useToggleMessagingMode } from "@posthog/ui/features/sessions/hooks/useToggleMessagingMode";
 import {
-  sessionStoreSetters,
   useAdapterForTask,
   useConfigOptionForTask,
   useModeConfigOptionForTask,
@@ -265,9 +261,6 @@ export function SessionView({
   const canCopyHandoffSummary = useSessionSelector(taskId, (session) =>
     session ? sessionSupportsSideQuestion(session) : false,
   );
-  // The handoff summary sends a side question directly, and the Claude adapter
-  // aborts any in-flight one. Withhold it while a `/btw` question is pending so
-  // copying a summary cannot cancel the user's visible question.
   const hasPendingSideQuestion = useSideQuestionStore((s) =>
     taskId ? s.byTaskId[taskId]?.status === "pending" : false,
   );
@@ -284,36 +277,10 @@ export function SessionView({
     [taskId, sessionService],
   );
 
-  const compactAndApplyConfigOption = useCallback(
-    async (configId: string, value: string): Promise<boolean> => {
-      if (!taskId) return false;
-      const startingEventCount =
-        sessionStoreSetters.getSessionByTaskId(taskId)?.events.length ?? 0;
-      if (!(await onSendPrompt("/compact"))) return false;
-
-      const latestEvents =
-        sessionStoreSetters.getSessionByTaskId(taskId)?.events ?? [];
-      if (
-        getCompactionOutcome(latestEvents, startingEventCount) !== "succeeded"
-      ) {
-        toast.error("Could not compact the conversation", {
-          description:
-            "The model was not switched. Try again or switch without compacting.",
-        });
-        return false;
-      }
-
-      await applyConfigOption(configId, value);
-      return true;
-    },
-    [taskId, onSendPrompt, applyConfigOption],
-  );
-
   const {
     pendingModelSwitch,
     interceptModelSwitch,
     confirmModelSwitch,
-    compactAndConfirmModelSwitch,
     cancelModelSwitch,
   } = usePendingModelSwitch({
     taskId,
@@ -321,7 +288,6 @@ export function SessionView({
     hasConversationStarted: hasSessionPromptEvent(events),
     contextTokens: contextUsage?.used,
     onApply: applyConfigOption,
-    onCompactAndApply: compactAndApplyConfigOption,
   });
 
   const handleCopyHandoffSummary = useCallback(async (): Promise<void> => {
@@ -982,22 +948,11 @@ export function SessionView({
         toModelLabel={pendingModelSwitch?.label ?? ""}
         contextTokens={contextUsage?.used}
         sessionCostUsd={
-          // A windowed cloud transcript holds only its tail, so the summed
-          // cost would understate the session; hide it until older history is
-          // resident rather than label a partial sum as the total.
           olderHistoryCursor === 0 && contextUsage?.cost?.currency === "USD"
             ? contextUsage.cost.amount
             : undefined
         }
         onConfirm={confirmModelSwitch}
-        onCompactAndConfirm={
-          // While a queued message is being edited, onSendPrompt routes the
-          // synthetic "/compact" into that edit and overwrites the user's text.
-          // Withhold the action until the edit is saved or cancelled.
-          !isPromptPending && !isCompacting && !isEditingQueued
-            ? compactAndConfirmModelSwitch
-            : undefined
-        }
         onCopyHandoffSummary={
           canCopyHandoffSummary && !hasPendingSideQuestion
             ? handleCopyHandoffSummary

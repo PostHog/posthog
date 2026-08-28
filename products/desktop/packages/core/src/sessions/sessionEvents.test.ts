@@ -12,7 +12,6 @@ import {
   convertStoredEntriesToEvents,
   dropEventsCoveredByTail,
   extractUserPromptsFromEvents,
-  getCompactionOutcome,
   hasSessionPromptEvent,
   hasSessionPromptEventForTaskRun,
   isAbsoluteFolderPath,
@@ -234,42 +233,6 @@ describe("hasSessionPromptEvent", () => {
       hasSessionPromptEventForTaskRun(events.slice(0, 2), "resume-run"),
     ).toBe(false);
     expect(hasSessionPromptEventForTaskRun(events, "resume-run")).toBe(true);
-  });
-});
-
-describe("getCompactionOutcome", () => {
-  const notification = (
-    method: string,
-    params: Record<string, unknown> = {},
-  ): AcpMessage => ({
-    type: "acp_message",
-    ts: 1,
-    message: { jsonrpc: "2.0", method, params },
-  });
-
-  it.each([
-    [
-      "successful boundary",
-      [notification("_posthog/compact_boundary")],
-      "succeeded",
-    ],
-    [
-      "failure status",
-      [notification("_posthog/status", { status: "compacting_failed" })],
-      "failed",
-    ],
-    ["unrelated event", [notification("session/update")], "unknown"],
-  ] as const)("returns the outcome for a %s", (_name, events, expected) => {
-    expect(getCompactionOutcome([...events])).toBe(expected);
-  });
-
-  it("ignores compaction events before the requested starting point", () => {
-    expect(
-      getCompactionOutcome(
-        [notification("_posthog/compact_boundary"), notification("other")],
-        1,
-      ),
-    ).toBe("unknown");
   });
 });
 
