@@ -63,6 +63,7 @@ from products.signals.backend.scout_harness.tools.structured_output import (
 from products.signals.backend.serializers import ReportChartSerializer
 from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
+    SPEC_DESCRIPTION_MAX_LENGTH,
     LLMSkillFileInputSerializer,
     validate_skill_body_size,
     validate_skill_name_value,
@@ -2838,7 +2839,7 @@ class SignalScoutCreateSerializer(serializers.Serializer):
         ),
     )
     description = serializers.CharField(
-        max_length=4096,
+        max_length=SPEC_DESCRIPTION_MAX_LENGTH,
         help_text="Short description of the signal or behavior this scout investigates.",
     )
     body = serializers.CharField(
