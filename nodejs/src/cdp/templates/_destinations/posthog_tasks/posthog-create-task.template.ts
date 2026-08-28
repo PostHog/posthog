@@ -153,7 +153,7 @@ return response.body
             default: true,
             templating: false,
             description:
-                'The agent posts its updates as replies in the Slack thread that started this workflow. Replies in that thread are sent to the agent.',
+                'The agent posts its updates as replies in the Slack thread that started this workflow. Replies in that thread are sent to the agent. The run stays open for about 2 minutes after the agent finishes so replies can reach it.',
         },
         {
             // The engine treats a 4xx as a step failure before the code above runs, unless the
