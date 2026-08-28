@@ -541,6 +541,8 @@ export interface sessionRecordingPlayerLogicValues {
     createExportJSON: () => ExportedSessionRecordingFileV2 // sessionRecordingDataCoordinatorLogic
     customRRWebEvents: customEvent[] // sessionRecordingDataCoordinatorLogic
     fullyLoaded: boolean // sessionRecordingDataCoordinatorLogic
+    hasOversizedMutations: boolean // sessionRecordingDataCoordinatorLogic
+    recordingTooLargeToPlay: boolean // sessionRecordingDataCoordinatorLogic
     sessionPlayerData: SessionPlayerData // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaData: SessionRecordingType | null // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaDataLoading: boolean // sessionRecordingDataCoordinatorLogic
@@ -1161,6 +1163,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'customRRWebEvents',
                 'fullyLoaded',
                 'trackedWindow',
+                'recordingTooLargeToPlay',
+                'hasOversizedMutations',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
@@ -2566,6 +2570,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             breakpoint()
         },
         loadRecordingMetaSuccess: () => {
+            if (values.recordingTooLargeToPlay) {
+                actions.setPlayerError('recordingTooLarge')
+                return
+            }
+
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.syncSnapshotsWithPlayer()
 
@@ -2607,6 +2616,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.retrySnapshotLoading()
         },
         setPlay: () => {
+            // Clicking or pressing space on the "unable to play" card must not start the load anyway
+            if (values.recordingTooLargeToPlay || values.hasOversizedMutations) {
+                return
+            }
             if (!values.snapshotsLoaded) {
                 actions.loadSnapshots()
             }
@@ -3270,6 +3283,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
 
     subscriptions(({ actions, values }) => ({
+        hasOversizedMutations: (detected: boolean) => {
+            if (detected) {
+                actions.setPause()
+                actions.setPlayerError('recordingTooLarge')
+            }
+        },
         sessionPlayerData: (value, oldValue) => {
             const hasSnapshotChanges = value?.snapshotsByWindowId !== oldValue?.snapshotsByWindowId
 

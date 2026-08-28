@@ -409,6 +409,7 @@ class TestUserAPI(APIBaseTest):
             ("live_refresh_token_only", -1, True, False, True),
             ("expired_access_token_only", -1, False, False, False),
             ("live_access_token_first_party", 1, False, True, False),
+            ("live_refresh_token_only_first_party", -1, True, True, False),
         ]
     )
     def test_requires_credential_review_for_oauth_access(
