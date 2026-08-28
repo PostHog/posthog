@@ -102,17 +102,11 @@ describe("feedback commands", () => {
     );
   });
 
-  it("rejects an over-limit comment instead of silently truncating it", async () => {
-    track.mockClear();
-    toastError.mockClear();
-    const oversized = "x".repeat(AI_FEEDBACK_TEXT_MAX_LENGTH + 1);
-    expect(await tryExecuteCodeCommand(`/feedback ${oversized}`, context)).toBe(
-      true,
-    );
-    expect(track).not.toHaveBeenCalled();
-    expect(toastError).toHaveBeenCalledWith(
-      expect.stringContaining("Shorten your comment"),
-    );
+  it("rejects an over-limit comment pre-submit and reports the counts", () => {
+    const oversized = "x".repeat(AI_FEEDBACK_TEXT_MAX_LENGTH + 234);
+    const error = getCodeCommandInputError(`/feedback ${oversized}`);
+    expect(error).toContain("4,234 characters");
+    expect(error).toContain("the limit is 4,000");
   });
 
   it.each([
@@ -120,6 +114,8 @@ describe("feedback commands", () => {
     ["/feedback  ", true],
     ["/btw", true],
     ["/feedback add a diff view", false],
+    [`/good ${"x".repeat(AI_FEEDBACK_TEXT_MAX_LENGTH + 1)}`, true],
+    [`/feedback ${"x".repeat(AI_FEEDBACK_TEXT_MAX_LENGTH)}`, false],
     ["/good", false],
     ["/bad no comment needed", false],
     ["plain message", false],
