@@ -121,6 +121,8 @@ Add one story per mode to `lib/components/ProductEmptyState/ProductEmptyState.st
 
 ## QA checklist
 
+Add `?empty_state=1` to the scene URL to pull up the setup screen on a project that already has data - it overrides detection and a local skip, and `?empty_state=waiting-for-data` gives you the other mode. Check the list below through that param rather than emptying a project.
+
 - Dark mode, reduced motion (`prefers-reduced-motion`), self-hosted (no wizard terminal).
 - Loading never flashes the real scene or the empty dashboard.
 - Skip → scene renders immediately, persists across reload, "Set up" banner shows, onboarding redirect suppressed.
