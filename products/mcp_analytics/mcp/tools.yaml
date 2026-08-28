@@ -147,8 +147,8 @@ tools:
             idempotent: false
         title: Report missing capability
         description: >
-            Deprecated compatibility tool for reporting that the current MCP tools are insufficient for the user's
-            goal. Prefer get-more-tools for new calls. Existing callers can continue using this tool while they migrate.
+            Deprecated compatibility tool for reporting that the current MCP tools are insufficient for the user's goal.
+            Prefer get-more-tools for new calls. Existing callers can continue using this tool while they migrate.
         include_params:
             - goal
             - missing_capability
