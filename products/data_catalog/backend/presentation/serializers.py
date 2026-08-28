@@ -16,7 +16,6 @@ from ..facade import api
 from ..facade.api import MAX_DESCRIPTION_LENGTH, METRIC_NAME_MAX_LENGTH
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric, RelationshipProposal, TableCertification
-from ..logic.analytics import certification_target_name
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -288,7 +287,7 @@ class CertificationSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_target_name(self, obj: TableCertification) -> str:
-        return certification_target_name(obj)
+        return api.certification_target_name(obj)
 
 
 class CertificationCreateSerializer(serializers.Serializer):
