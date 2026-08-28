@@ -31,6 +31,7 @@ from products.alerts.backend.destinations import (
     soft_delete_alert_destinations,
     soft_delete_alert_destinations_for_alerts,
     soft_delete_all_alert_destinations,
+    update_alert_destination_hog_function,
 )
 from products.alerts.backend.email_notifications import send_alert_email
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
@@ -225,6 +226,7 @@ __all__ = [
     "soft_delete_alert_destinations_for_alerts",
     "soft_delete_all_alert_destinations",
     "send_alert_email",
+    "update_alert_destination_hog_function",
     "validate_destination_data",
     "validate_and_normalize_schedule_restriction",
 ]

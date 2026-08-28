@@ -48,6 +48,7 @@ import type {
     PaginatedLogsRetentionRuleListApi,
     PaginatedLogsSamplingRuleListApi,
     PaginatedLogsViewListApi,
+    PatchedHogFunctionApi,
     PatchedLogsAlertConfigurationApi,
     PatchedLogsMetricRuleApi,
     PatchedLogsRetentionRuleApi,
@@ -216,6 +217,28 @@ export const logsAlertsDestinationsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsAlertCreateDestinationApi),
+    })
+}
+
+export const getLogsAlertsDestinationsUpdateUrl = (projectId: string, id: string, hogFunctionId: string) => {
+    return `/api/projects/${projectId}/logs/alerts/${id}/destinations/${hogFunctionId}/`
+}
+
+/**
+ * Update one HogFunction belonging to this alert destination. The destination's payload, message, filters, and enabled state may be changed, but its alert and lifecycle event binding remain owned by this API.
+ */
+export const logsAlertsDestinationsUpdate = async (
+    projectId: string,
+    id: string,
+    hogFunctionId: string,
+    patchedHogFunctionApi?: NonReadonly<PatchedHogFunctionApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLogsAlertsDestinationsUpdateUrl(projectId, id, hogFunctionId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHogFunctionApi),
     })
 }
 

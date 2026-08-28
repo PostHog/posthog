@@ -9,7 +9,7 @@ from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -40,9 +40,11 @@ from products.alerts.backend.facade.api import (
     owned_alert_destinations_qs,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
+    update_alert_destination_hog_function,
     validate_and_normalize_schedule_restriction,
     validate_destination_data,
 )
+from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
@@ -1038,6 +1040,55 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         response = LogsAlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
         return Response(response.data, status=201)
+
+    @extend_schema(
+        operation_id="logs_alerts_destinations_update",
+        parameters=[
+            OpenApiParameter(
+                "hog_function_id",
+                str,
+                OpenApiParameter.PATH,
+                description="ID of the lifecycle HogFunction to update.",
+            )
+        ],
+        request=HogFunctionSerializer,
+        responses={204: None},
+        description=(
+            "Update one HogFunction belonging to this alert destination. The destination's payload, "
+            "message, filters, and enabled state may be changed, but its alert and lifecycle event "
+            "binding remain owned by this API."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["PATCH"],
+        url_path=r"destinations/(?P<hog_function_id>[^/.]+)",
+        required_scopes=["logs:write"],
+    )
+    def update_destination(
+        self, request: Request, *args: object, hog_function_id: str | None = None, **kwargs: object
+    ) -> Response:
+        if "deleted" in request.data:
+            raise ValidationError({"deleted": "Use the destination delete endpoint to remove a destination."})
+
+        with transaction.atomic():
+            alert = self._get_locked_alert()
+            update_alert_destination_hog_function(
+                team_id=self.team_id,
+                alert_id=str(alert.id),
+                hog_function_id=hog_function_id or "",
+                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+                data=dict(request.data),
+                request=request,
+            )
+
+        report_user_action(
+            request.user,
+            "logs alert destination updated",
+            {"alert_id": str(alert.id), "hog_function_id": hog_function_id},
+            request=request,
+        )
+        return Response(status=204)
 
     @extend_schema(
         request=LogsAlertDeleteDestinationSerializer,
