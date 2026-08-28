@@ -149,6 +149,21 @@
         },
         "feature_flag": "customer-analytics-csp"
     },
+    "accounts-meetings-list": {
+        "description": "List synced calendar meetings for one Customer analytics account, newest first. Each meeting includes its title, start and end times, organizer, status, optional Gong call URL, and participants. Each participant includes their email, display name, RSVP status, organizer status, and resolved PostHog person UUID when available. Pass `search` to filter by meeting title, attendee email, or attendee name. The account must be accessible to the caller. Meetings and participants are read-only because they sync from connected calendars.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account meetings",
+        "title": "List account meetings",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "accounts-notebooks-create": {
         "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; in most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list.",
         "category": "Customer analytics",
@@ -3018,7 +3033,7 @@
         }
     },
     "endpoint-create": {
-        "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Materialization is auto-enabled if the query is eligible.",
+        "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Set is_materialized to true to materialize an eligible query.",
         "category": "Endpoints",
         "feature": "endpoints",
         "summary": "Create endpoint",
@@ -3612,6 +3627,48 @@
         "required_scopes": ["error_tracking:write"],
         "annotations": {
             "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-severity-rules-create": {
+        "description": "Create an error tracking severity rule for the current project. Provide `filters` and the `severity` to assign when a newly created issue first matches this rule. Supported severities are `low`, `medium`, `high`, and `critical`. Use `order_key` to set the evaluation priority. Lower values run first, and only the first matching rule applies. Rules do not change existing issues.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking severity rule",
+        "title": "Create error tracking severity rule",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-severity-rules-list": {
+        "description": "List error tracking severity rules for the current project. Returns rules in evaluation order with their filters, assigned severity, order key, and disabled state. Read the existing rules before creating or updating one because only the first matching rule applies.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking severity rules",
+        "title": "List error tracking severity rules",
+        "required_scopes": ["error_tracking:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-severity-rules-update": {
+        "description": "Update an error tracking severity rule by ID. Include `filters`, `severity`, or both. Omitted fields keep their existing values. Supported severities are `low`, `medium`, `high`, and `critical`. Updating filters recompiles the rule and clears any auto-disable state. Changes apply only to issues created after the update.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking severity rule",
+        "title": "Update error tracking severity rule",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -5729,7 +5786,7 @@
         "feature": "llm_analytics",
         "summary": "Get clustering config",
         "title": "Get clustering config",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["ai_observability_clusters:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5743,7 +5800,7 @@
         "feature": "llm_analytics",
         "summary": "Set clustering config filters",
         "title": "Set clustering config filters",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["ai_observability_clusters:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5757,7 +5814,7 @@
         "feature": "llm_analytics",
         "summary": "Create clustering job",
         "title": "Create clustering job",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["ai_observability_clusters:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -5771,7 +5828,7 @@
         "feature": "llm_analytics",
         "summary": "Delete clustering job",
         "title": "Delete clustering job",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["ai_observability_clusters:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -5785,7 +5842,7 @@
         "feature": "llm_analytics",
         "summary": "Get clustering job",
         "title": "Get clustering job",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["ai_observability_clusters:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5799,7 +5856,7 @@
         "feature": "llm_analytics",
         "summary": "List clustering jobs",
         "title": "List clustering jobs",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["ai_observability_clusters:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5813,7 +5870,7 @@
         "feature": "llm_analytics",
         "summary": "Update clustering job",
         "title": "Update clustering job",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["ai_observability_clusters:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -8494,7 +8551,7 @@
         "system_prompt_hint": "One MCP tool's top callers — calls, error rate, harnesses, person email/name"
     },
     "query-metrics": {
-        "description": "Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series. The response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.\n\nAll parameters are nested inside a `query` object. Two request forms:\n\n- **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).\n- **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `\"(a - b) / a\"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.\n\n# Workflow — follow this order every time\n\n1. **Discover names first.** Call `metric-names-list` with a substring (`value`) before querying — metric names must match exactly, and the returned `metric_type` tells you the right aggregation.\n2. **Pick the aggregation by metric type:**\n   - `sum` counters (usually `_total`): use `rate` (per-second) or `increase` — both are counter-reset safe and temporality-aware. Do NOT use `sum`/`avg` on cumulative counters; absolute counter values are meaningless.\n   - `gauge`: `avg` (typical), `p95`, `sum`.\n   - Every aggregation combines across series, never across raw samples, so a result never scales with the scrape rate: `sum`/`avg`/`p95` reduce each series to its latest value in the bucket and combine those, and `count` is the number of series that reported.\n   - `histogram`: `histogram_quantile` with `quantile` (e.g. 0.95). All selected series must share one bucket layout — narrow with `filters` if you get a bounds-mismatch error.\n3. **Narrow with filters.** `filters: [{key, op, value, scope?}]`, ANDed. Ops: `eq`, `neq`, `regex`, `not_regex` (RE2). Leave `scope` at its default `auto` unless you know whether the attribute is per-target (`resource`) or per-datapoint (`attribute`). Negative ops also match rows lacking the key, like Prometheus negative matchers.\n4. **Split with groupBy.** `groupBy: [{key}]` returns one series per label value (capped at the 100 largest). The service name is always available — `service_name` and `service.name` both resolve to it in metrics (logs only accept the dotted `service.name`); discover other keys from a sample query's labels or ask the user.\n5. **Control the grid with `interval`.** One of `second, minute, minute_5, minute_15, hour, hour_6, day, week`. Omit to auto-pick (~60 buckets across the range). Use the same interval when comparing windows.\n\n# Investigating an anomaly (\"metric X is rising — why?\")\n\n1. Query the metric over a window that includes the anomaly AND an equal-length healthy baseline before it (one call, auto interval).\n2. Find the onset: the first bucket where the value clearly departs from the baseline range.\n3. Re-query grouped by `service_name` (then by other candidate keys) over the same window to see WHICH series moved — a single label value moving points at the culprit; all moving together points at something shared (upstream dependency, infra).\n4. Use `formula` for normalized comparisons, e.g. error ratio `errors / requests` instead of raw error counts.\n5. Correlate the onset window across signals: query logs (`query-logs`, filtered to the same `service.name` and time window, severity error) and traces (APM span tools, same service/window) to find the cause and its blast radius.\n\nCRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` is required, ISO 8601; `dateTo` defaults to now.",
+        "description": "Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series. The response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.\n\nAll parameters are nested inside a `query` object. Two request forms:\n\n- **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).\n- **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `\"(a - b) / a\"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.\n\n# Workflow — follow this order every time\n\n1. **Discover names first.** Call `metric-names-list` with a substring (`value`) before querying — metric names must match exactly, and the returned `metric_type` tells you the right aggregation.\n2. **Pick the aggregation by metric type:**\n   - `sum` counters (usually `_total`): use `rate` (per-second) or `increase` — both are counter-reset safe and temporality-aware. Do NOT use `sum`/`avg` on cumulative counters; absolute counter values are meaningless.\n   - `gauge`: `avg` (typical), `p95`, `sum`.\n   - Every aggregation combines across series, never across raw samples, so a result never scales with the scrape rate: `sum`/`avg`/`p95` reduce each series to its latest value in the bucket and combine those, and `count` is the number of series that reported.\n   - `histogram`: `histogram_quantile` with `quantile` (e.g. 0.95). All selected series must share one bucket layout — narrow with `filters` if you get a bounds-mismatch error.\n3. **Narrow with filters.** `filters: [{key, op, value, scope?}]`, ANDed. Ops: `eq`, `neq`, `regex`, `not_regex` (RE2). Leave `scope` at its default `auto` unless you know whether the attribute is per-target (`resource`) or per-datapoint (`attribute`). Negative ops also match rows lacking the key, like Prometheus negative matchers.\n4. **Split with groupBy.** `groupBy: [{key}]` returns one series per label value (capped at the 100 largest). The service name is always available — `service_name` and `service.name` both resolve to it in metrics (logs only accept the dotted `service.name`); discover other keys from a sample query's labels or ask the user.\n5. **Control the grid with `interval`.** One of `second, minute, minute_5, minute_15, hour, hour_6, day, week`. Omit to auto-pick (~60 buckets across the range). Use the same interval when comparing windows.\n\n# Investigating an anomaly (\"metric X is rising — why?\")\n\n1. Query the metric over a window that includes the anomaly AND an equal-length healthy baseline before it (one call, auto interval).\n2. Find the onset: the first bucket where the value clearly departs from the baseline range.\n3. Re-query grouped by `service_name` (then by other candidate keys) over the same window to see WHICH series moved — a single label value moving points at the culprit; all moving together points at something shared (upstream dependency, infra).\n4. Use `formula` for normalized comparisons, e.g. error ratio `errors / requests` instead of raw error counts.\n5. Correlate the onset window across signals: query logs (`query-logs`, filtered to the same `service.name` and time window, severity error) and traces (APM span tools, same service/window) to find the cause and its blast radius.\n\nCRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` is required, ISO 8601; `dateTo` defaults to now. `dateFrom` snaps down to its bucket boundary, so the first point can be labelled up to one interval earlier than requested but always covers a whole bucket.",
         "category": "Metrics",
         "feature": "metrics",
         "summary": "Query metrics",
@@ -11473,12 +11530,42 @@
         },
         "requires_ai_consent": true
     },
+    "visual-review-repos-flakiness-retrieve": {
+        "description": "Snapshots in a repo whose rendering cannot be trusted: those carrying a live tolerated variant against their current baseline, those that failed the gate on a recent default-branch run, and those under an active quarantine. Recency changes an entry's state rather than excluding it, so a snapshot that has gone quiet is still listed. This is the triage view, and it is far smaller than the baselines universe, so start here when asked why a suite is unreliable, which snapshots to quarantine, or which quarantines to lift. Each entry carries `hard_rate`, the share of recent default-branch runs that failed the gate, and `soft_rate`, the share a toleration absorbed, plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Every `totals` field except `listed` covers the whole population even when the entry list is capped; `listed` counts the entries actually returned, so it stops at the cap. Takes no filter parameters: filter the returned entries yourself, and pass `fields` to keep the response small when you only need a few of them.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Visual review flakiness overview",
+        "title": "Visual review flakiness overview",
+        "required_scopes": ["visual_review:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
     "visual-review-repos-list": {
         "description": "List visual review repos (test suites) for the current project. A repo typically maps to a GitHub repository and owns the baselines, runs, and tolerated hashes for that codebase. Returns repo id, external id, full name, baseline file paths, and pr-comment configuration.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List visual review repos",
         "title": "List visual review repos",
+        "required_scopes": ["visual_review:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-repos-quarantine-list": {
+        "description": "Quarantined snapshot identifiers in a repo, with the reason, who opened it, when, when it expires, and the run whose failure prompted it. A quarantined snapshot is still captured, classified and diffed; it is only excluded when a run decides pass or fail. Returns active entries by default. Pass `identifier` for that one identifier's full history including expired entries, which is how you tell a long-standing mute from one somebody opened this morning. Pass `run_type` to narrow to one kind of run.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "List quarantined snapshots",
+        "title": "List quarantined snapshots",
         "required_scopes": ["visual_review:read"],
         "annotations": {
             "destructiveHint": false,
@@ -11503,8 +11590,38 @@
         },
         "feature_flag": "visual-review"
     },
+    "visual-review-repos-runs-counts-retrieve": {
+        "description": "Review state counts (`needs_review`, `clean`, `processing`, `stale`) for one repo's runs. The repo-scoped counterpart to `visual-review-runs-counts-retrieve`, which spans every repo in the project.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Visual review run counts for a repo",
+        "title": "Visual review run counts for a repo",
+        "required_scopes": ["visual_review:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-repos-runs-list": {
+        "description": "Runs belonging to one repo. Prefer this over `visual-review-runs-list` whenever you know the repo: that tool spans every repo in the project and cannot be narrowed to one, so its results mix repos together. Filter by `review_state` to triage, or `search` for a free-text match over branch, commit SHA, run type and PR number. For a specific PR, commit or branch, use `visual-review-runs-list`, which takes those filters.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "List runs in a visual review repo",
+        "title": "List runs in a visual review repo",
+        "required_scopes": ["visual_review:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
     "visual-review-runs-approve-create": {
-        "description": "Mark specific snapshots as reviewed (approved) in a run. Pass a `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. This only records the review in the database (the per-snapshot \"Accept change\" action) — it does NOT update the baseline, push a commit, or change the GitHub gate, and it can be re-run safely. To actually ship the visual change (commit the baseline + green the gate), use `visual-review-runs-finalize-create`.",
+        "description": "Mark specific snapshots as reviewed (approved) in a run. Pass a `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. This only records the review in the database (the per-snapshot \"Accept change\" action) — it does NOT update the baseline, push a commit, or change the GitHub gate, and it can be re-run safely. To actually ship the visual change (commit the baseline + green the gate), use `visual-review-runs-finalize-create`. Approving a quarantined `new` snapshot here makes finalize commit its baseline entry while the quarantine stays in place — the way to give a quarantined story an entry without failing other runs.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Mark visual review snapshots reviewed",
@@ -11534,7 +11651,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-finalize-create": {
-        "description": "Finalize a fully-reviewed run: commit the approved baseline to the PR branch and green the GitHub visual-review check. Commits exactly the snapshots approved in the DB (tolerated snapshots keep their baseline and are never overwritten) and is all-or-nothing — it only succeeds once every changed/new snapshot is resolved (approved, tolerated, or quarantined), otherwise it returns the unresolved list. With `approve_all: true` every still-pending changed/new snapshot is approved first. When a baseline commit is pushed its SHA comes back on the run's `metadata.baseline_commit_sha`; it's absent when nothing needed committing (all changes resolved by toleration/quarantine — the gate still greens) or when the commit was skipped (no PR, or a `409 sha_mismatch` from newer PR commits, which leaves the gate red — re-run CI and finalize again). STOP: never finalize on your own initiative. Require explicit, per-run human confirmation first — finalizing ships the visual change and rewrites the committed baseline.",
+        "description": "Finalize a fully-reviewed run: commit the approved baseline to the PR branch and green the GitHub visual-review check. Commits exactly the snapshots approved in the DB (tolerated snapshots keep their baseline and are never overwritten) and is all-or-nothing — it only succeeds once every changed/new snapshot is resolved (approved, tolerated, or quarantined), otherwise it returns the unresolved list. With `approve_all: true` every still-pending changed/new snapshot is approved first; quarantined snapshots are skipped by that, but a quarantined `new` snapshot approved by identifier through `visual-review-runs-approve-create` is committed, so a quarantined story can get its baseline entry while the quarantine stays in place. When a baseline commit is pushed its SHA comes back on the run's `metadata.baseline_commit_sha`; it's absent when nothing needed committing (all changes resolved by toleration/quarantine — the gate still greens) or when the commit was skipped (no PR, or a `409 sha_mismatch` from newer PR commits, which leaves the gate red — re-run CI and finalize again). STOP: never finalize on your own initiative. Require explicit, per-run human confirmation first — finalizing ships the visual change and rewrites the committed baseline.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Finalize a visual review run",

@@ -88,7 +88,7 @@ export function AppearanceStep(): JSX.Element {
 
                 {/* Paywall */}
                 {!surveysStylingAvailable && (
-                    <PayGateMini feature={AvailableFeature.SURVEYS_STYLING}>
+                    <PayGateMini feature={AvailableFeature.SURVEYS_STYLING} featureDetail="survey-appearance-wizard">
                         <></>
                     </PayGateMini>
                 )}
