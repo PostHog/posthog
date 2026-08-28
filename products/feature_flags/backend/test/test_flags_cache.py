@@ -49,7 +49,7 @@ from products.feature_flags.backend.flags_cache import (
     _serialize_cohort,
     _strip_null_values,
     clear_flags_cache,
-    coalesced_flags_cache_rebuilds,
+    coalesced_cohort_flags_cache_rebuilds,
     flags_hypercache,
     get_flags_from_cache,
     get_team_ids_with_recently_updated_flags,
@@ -4277,7 +4277,7 @@ class TestCoalescedFlagsCacheRebuilds(BaseTest):
         mock_service.reset_mock()
         mock_definitions.reset_mock()
 
-        with coalesced_flags_cache_rebuilds():
+        with coalesced_cohort_flags_cache_rebuilds():
             self._save_definition(cohort_one)
             self._save_definition(cohort_two)
             mock_service.delay.assert_not_called()
@@ -4293,7 +4293,7 @@ class TestCoalescedFlagsCacheRebuilds(BaseTest):
         mock_service.reset_mock()
         mock_definitions.reset_mock()
 
-        with coalesced_flags_cache_rebuilds():
+        with coalesced_cohort_flags_cache_rebuilds():
             self._save_definition(cohort_here)
             self._save_definition(cohort_there)
             self._save_definition(cohort_here)
@@ -4311,7 +4311,7 @@ class TestCoalescedFlagsCacheRebuilds(BaseTest):
         mock_definitions.reset_mock()
 
         with pytest.raises(RuntimeError):
-            with coalesced_flags_cache_rebuilds():
+            with coalesced_cohort_flags_cache_rebuilds():
                 self._save_definition(cohort)
                 raise RuntimeError("interrupted")
 
@@ -4324,7 +4324,7 @@ class TestCoalescedFlagsCacheRebuilds(BaseTest):
         mock_service.reset_mock()
         mock_definitions.reset_mock()
 
-        with coalesced_flags_cache_rebuilds():
+        with coalesced_cohort_flags_cache_rebuilds():
             self._save_definition(cohort)
             mock_definitions.delay.assert_not_called()
 
@@ -4334,12 +4334,69 @@ class TestCoalescedFlagsCacheRebuilds(BaseTest):
     def test_receivers_enqueue_again_after_the_block_exits(self, mock_service, mock_definitions):
         cohort = Cohort.objects.create(team=self.team, name="one")
 
-        with coalesced_flags_cache_rebuilds():
+        with coalesced_cohort_flags_cache_rebuilds():
             self._save_definition(cohort)
 
         mock_service.reset_mock()
         mock_definitions.reset_mock()
         self._save_definition(cohort)
+
+        mock_service.delay.assert_called_once_with(self.team.id)
+        mock_definitions.delay.assert_called_once_with(self.team.id)
+
+    def test_a_cohort_saved_while_dispatching_still_enqueues(self, mock_service, mock_definitions):
+        cohort = Cohort.objects.create(team=self.team, name="one")
+        saved_during_dispatch = Cohort.objects.create(team=self.team, name="two")
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        def save_another_cohort(_team_id):
+            mock_definitions.delay.side_effect = None
+            self._save_definition(saved_during_dispatch)
+
+        # Stands in for eager Celery, which runs the rebuild inline.
+        mock_definitions.delay.side_effect = save_another_cohort
+
+        with coalesced_cohort_flags_cache_rebuilds():
+            self._save_definition(cohort)
+
+        assert mock_definitions.delay.call_count == 2
+
+    @parameterized.expand([("definitions",), ("service",)])
+    def test_a_failed_publish_is_reported_and_does_not_drop_the_other_rebuild(
+        self, mock_service, mock_definitions, failing
+    ):
+        cohort = Cohort.objects.create(team=self.team, name="one")
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+        failing_mock, surviving_mock = (
+            (mock_definitions, mock_service) if failing == "definitions" else (mock_service, mock_definitions)
+        )
+        failing_mock.delay.side_effect = RuntimeError("broker unreachable")
+
+        with coalesced_cohort_flags_cache_rebuilds() as stale_cache_teams:
+            self._save_definition(cohort)
+
+        assert stale_cache_teams == {self.team.id}
+        surviving_mock.delay.assert_called_once_with(self.team.id)
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestCoalescedRebuildsWaitForTheCommit(BaseTest):
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    def test_dispatch_is_deferred_to_the_commit(self, mock_service, mock_definitions):
+        cohort = Cohort.objects.create(team=self.team, name="one")
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            with coalesced_cohort_flags_cache_rebuilds():
+                cohort.filters = {"properties": {"type": "AND", "values": []}}
+                cohort.save(update_fields=["filters"])
+            # A worker started here would read the cohort rows before they commit.
+            mock_service.delay.assert_not_called()
+            mock_definitions.delay.assert_not_called()
 
         mock_service.delay.assert_called_once_with(self.team.id)
         mock_definitions.delay.assert_called_once_with(self.team.id)

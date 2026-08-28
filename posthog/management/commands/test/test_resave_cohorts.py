@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import signal
 from io import StringIO
 from typing import Any
 
@@ -9,10 +10,11 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.management.commands.resave_cohorts import sigterm_unwinds
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -519,28 +521,52 @@ class TestResaveCohortsCommandTwoTeams(BaseTest):
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 @patch("django.db.transaction.on_commit", lambda fn: fn())
+@patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+@patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
 class TestResaveCohortsCommandFlagsCacheRebuilds(BaseTest):
-    @parameterized.expand([("apply", False, 1), ("dry_run", True, 0)])
-    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
-    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    def test_rebuilds_each_changed_team_once(
-        self, _name, dry_run, expected_calls, mock_service, mock_definitions
-    ) -> None:
+    def _seed_two_teams(self) -> tuple[Team, Team]:
         team_a: Team = self.team
         team_b: Team = Team.objects.create(organization=self.organization)
         for team in (team_a, team_b):
             for index in range(3):
                 Cohort.objects.create(team=team, name=f"rt_{team.id}_{index}", filters=_make_realtime_filters())
+        return team_a, team_b
 
+    def test_rebuilds_each_changed_team_once(self, mock_service, mock_definitions) -> None:
+        team_a, team_b = self._seed_two_teams()
         mock_service.reset_mock()
         mock_definitions.reset_mock()
 
-        call_command("resave_cohorts", team_id=[team_a.id, team_b.id], dry_run=dry_run)
+        call_command("resave_cohorts", team_id=[team_a.id, team_b.id])
 
         for mock_task in (mock_service, mock_definitions):
             dispatched = [call.args[0] for call in mock_task.delay.call_args_list]
-            assert dispatched.count(team_a.id) == expected_calls
-            assert dispatched.count(team_b.id) == expected_calls
+            assert dispatched.count(team_a.id) == 1
+            assert dispatched.count(team_b.id) == 1
+
+    def test_reports_the_teams_left_with_a_stale_cache(self, mock_service, mock_definitions) -> None:
+        team_a, team_b = self._seed_two_teams()
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+        mock_service.delay.side_effect = RuntimeError("broker unreachable")
+
+        out = StringIO()
+        call_command("resave_cohorts", team_id=[team_a.id, team_b.id], stdout=out)
+
+        assert "2 teams with a stale flags cache" in out.getvalue()
+
+
+class TestSigtermUnwinds(SimpleTestCase):
+    def test_sigterm_raises_inside_the_block_and_is_restored_after(self) -> None:
+        previous = signal.getsignal(signal.SIGTERM)
+
+        with sigterm_unwinds():
+            handler = signal.getsignal(signal.SIGTERM)
+            assert callable(handler)
+            with pytest.raises(KeyboardInterrupt):
+                handler(signal.SIGTERM, None)
+
+        assert signal.getsignal(signal.SIGTERM) is previous
 
 
 class TestResaveCohortsCommandTeamSelection(BaseTest):

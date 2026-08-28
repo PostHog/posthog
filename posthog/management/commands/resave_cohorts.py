@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import signal
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+from types import FrameType
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
@@ -13,7 +18,7 @@ from posthog.models.team.team import Team
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team, realtime_allowlist_matches_every_team
-from products.feature_flags.backend.flags_cache import coalesced_flags_cache_rebuilds
+from products.feature_flags.backend.flags_cache import coalesced_cohort_flags_cache_rebuilds
 
 logger = structlog.get_logger(__name__)
 
@@ -23,6 +28,32 @@ UNCLASSIFIED_REPORT_LIMIT = 20
 # The cohort types the realtime membership gate routes, so a null condition_type changes how they
 # evaluate. See `uses_realtime_membership` in rust/feature-flags/src/cohorts/cohort_models.rs.
 REALTIME_GATED_COHORT_TYPES = (CohortType.REALTIME, CohortType.BEHAVIORAL)
+
+
+@contextmanager
+def sigterm_unwinds() -> Iterator[None]:
+    """Raise on SIGTERM instead of dying in place.
+
+    A pod roll otherwise kills the process between a team's cohort saves committing and its
+    coalesced cache rebuild being enqueued, and nothing sweeps that back: the service-cache
+    verifier does not compare cohorts, and a rerun finds nothing left to change. Unwinding lets
+    the coalescing block dispatch the teams it has already recorded. `KeyboardInterrupt` because
+    the per-cohort `except Exception` must not swallow it.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        # Only the main thread may install a handler, and the admin view calls the command from
+        # a request thread.
+        yield
+        return
+
+    def raise_interrupt(signum: int, frame: FrameType | None) -> None:
+        raise KeyboardInterrupt("received SIGTERM")
+
+    previous = signal.signal(signal.SIGTERM, raise_interrupt)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 class UnclassifiedCohortsError(CommandError):
@@ -40,6 +71,9 @@ class CohortResaveStats:
     errors: int
     validation_errors: int
     prospective_realtime: int
+    # The team's cohorts were resaved but its cache rebuild never reached the broker, so the
+    # team keeps a stale flags cache.
+    rebuild_dispatch_failed: bool
 
 
 @frozen
@@ -106,47 +140,53 @@ class Command(BaseCommand):
         global_errors = 0
         global_validation_errors = 0
         global_prospective_realtime = 0
+        global_stale_cache_teams = 0
         teams_processed = 0
         total_teams = teams_qs.count()
 
         # Process each team separately
-        for team in teams_qs:
-            teams_processed += 1
-            logger.info(
-                "cohort_resave_team_started",
-                team_id=team.id,
-                team_progress=f"{teams_processed}/{total_teams}",
-            )
-            self.stdout.write(f"Processing team {team.id} ({teams_processed}/{total_teams})")
-
-            stats = self._process_team_cohorts(team, batch_size, dry_run)
-
-            # Accumulate stats
-            global_total += stats.total
-            global_changed += stats.changed
-            global_errors += stats.errors
-            global_validation_errors += stats.validation_errors
-            global_prospective_realtime += stats.prospective_realtime
-
-            # Log team completion
-            if stats.total > 0:
+        with sigterm_unwinds():
+            for team in teams_qs:
+                teams_processed += 1
                 logger.info(
-                    "cohort_resave_team_completed",
+                    "cohort_resave_team_started",
                     team_id=team.id,
-                    total_cohorts=stats.total,
-                    changed_cohorts=stats.changed,
-                    realtime_cohorts=stats.prospective_realtime,
-                    error_count=stats.errors,
-                    validation_error_count=stats.validation_errors,
-                    dry_run=dry_run,
+                    team_progress=f"{teams_processed}/{total_teams}",
                 )
-                msg = f"  Team {team.id}: {stats.total} cohorts, {stats.changed} changed, {stats.prospective_realtime} realtime"
-                if stats.errors > 0:
-                    msg += f", {stats.errors} errors"
-                if stats.validation_errors > 0:
-                    msg += f", {stats.validation_errors} validation errors"
-                style = self.style.WARNING if (stats.errors > 0 or stats.validation_errors > 0) else self.style.SUCCESS
-                self.stdout.write(style(msg))
+                self.stdout.write(f"Processing team {team.id} ({teams_processed}/{total_teams})")
+
+                stats = self._process_team_cohorts(team, batch_size, dry_run)
+
+                # Accumulate stats
+                global_total += stats.total
+                global_changed += stats.changed
+                global_errors += stats.errors
+                global_validation_errors += stats.validation_errors
+                global_prospective_realtime += stats.prospective_realtime
+                global_stale_cache_teams += 1 if stats.rebuild_dispatch_failed else 0
+
+                # Log team completion
+                if stats.total > 0:
+                    logger.info(
+                        "cohort_resave_team_completed",
+                        team_id=team.id,
+                        total_cohorts=stats.total,
+                        changed_cohorts=stats.changed,
+                        realtime_cohorts=stats.prospective_realtime,
+                        error_count=stats.errors,
+                        validation_error_count=stats.validation_errors,
+                        rebuild_dispatch_failed=stats.rebuild_dispatch_failed,
+                        dry_run=dry_run,
+                    )
+                    msg = f"  Team {team.id}: {stats.total} cohorts, {stats.changed} changed, {stats.prospective_realtime} realtime"
+                    if stats.errors > 0:
+                        msg += f", {stats.errors} errors"
+                    if stats.validation_errors > 0:
+                        msg += f", {stats.validation_errors} validation errors"
+                    if stats.rebuild_dispatch_failed:
+                        msg += ", flags cache rebuild not enqueued"
+                    unhealthy = stats.errors > 0 or stats.validation_errors > 0 or stats.rebuild_dispatch_failed
+                    self.stdout.write((self.style.WARNING if unhealthy else self.style.SUCCESS)(msg))
 
         # A dry run persists nothing, so there is no post-run state to verify. `None` keeps that
         # apart from an empty list, which would claim the check ran and found nothing.
@@ -164,12 +204,15 @@ class Command(BaseCommand):
             realtime_cohorts=global_prospective_realtime,
             error_count=global_errors,
             validation_error_count=global_validation_errors,
+            stale_cache_team_count=global_stale_cache_teams,
             change_percentage=change_pct,
             realtime_percentage=realtime_pct,
             unclassified_count=None if unclassified is None else len(unclassified),
         )
         self.stdout.write("")
-        healthy = global_errors == 0 and global_validation_errors == 0 and not unclassified
+        healthy = (
+            global_errors == 0 and global_validation_errors == 0 and global_stale_cache_teams == 0 and not unclassified
+        )
         final_style = self.style.SUCCESS if healthy else self.style.WARNING
         unclassified_label = "unclassified not checked" if unclassified is None else f"{len(unclassified)} unclassified"
         self.stdout.write(
@@ -179,6 +222,7 @@ class Command(BaseCommand):
                 f"{global_changed} changed ({change_pct}%), "
                 f"{global_prospective_realtime} realtime ({realtime_pct}%), "
                 f"{global_errors} errors, {global_validation_errors} validation errors, "
+                f"{global_stale_cache_teams} teams with a stale flags cache, "
                 f"{unclassified_label}"
             )
         )
@@ -302,11 +346,10 @@ class Command(BaseCommand):
         sorted_cohort_ids = sort_cohorts_topologically({c.id for c in all_cohorts}, seen_cohorts_cache)
 
         # Process cohorts in dependency order. Each save fires two whole-team flags-cache
-        # rebuilds, so the block coalesces them into one dispatch per team. Per-team scoping
-        # keeps the stale-cache window one team wide, and an exception or Ctrl-C still
-        # dispatches the teams already saved. SIGTERM does not run the block, so a deploy that
-        # rolls the pod mid-team leaves that team stale until the hourly verifier repairs it.
-        with coalesced_flags_cache_rebuilds():
+        # rebuilds, so the block coalesces them into one dispatch per team. Scoping it to one
+        # team keeps the window in which that team reads a stale cache as narrow as the pattern
+        # allows.
+        with coalesced_cohort_flags_cache_rebuilds() as stale_cache_teams:
             for cohort_id in sorted_cohort_ids:
                 cohort = seen_cohorts_cache.get(cohort_id)
                 if not cohort:
@@ -403,6 +446,7 @@ class Command(BaseCommand):
             errors=errors,
             validation_errors=validation_errors,
             prospective_realtime=prospective_realtime,
+            rebuild_dispatch_failed=bool(stale_cache_teams),
         )
 
     def _get_direct_cohort_references(self, filters: dict[str, Any]) -> set[int]:
