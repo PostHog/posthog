@@ -12,4 +12,4 @@ Products detectable from event definitions also declare a `setupProbe` in their 
 
 **To adopt this for your product, follow the `building-product-empty-states` skill** (`.agents/skills/building-product-empty-states/SKILL.md`). Reference adoption: `products/mcp_analytics/frontend/emptyState/`.
 
-`ProductIntroduction` is deprecated in favor of this component.
+`ProductIntroduction` is deprecated in favor of this component. Which scenes have adopted this one and which are still on the old path is tracked in [`docs/internal/product-empty-state-adoption.md`](../../../../../docs/internal/product-empty-state-adoption.md).
