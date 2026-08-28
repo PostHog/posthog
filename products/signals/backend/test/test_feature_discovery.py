@@ -18,6 +18,9 @@ from products.signals.backend.features.discovery import (
     DiscoveredFeatureCodeReference,
     DiscoveredFeatureDocument,
     DiscoveredFeatureOwner,
+    DiscoveredFeatureSummary,
+    FeatureDiscoveryActiveWorkSource,
+    FeatureDiscoveryCandidate,
     FeatureDiscoveryContinuation,
     FeatureDiscoveryExploration,
     FeatureDiscoveryOutputError,
@@ -36,26 +39,43 @@ from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 from products.tasks.backend.models import Task, TaskRun
 
 
-def _exploration() -> FeatureDiscoveryExploration:
+def _exploration(candidate_titles: list[str] | None = None) -> FeatureDiscoveryExploration:
+    titles = candidate_titles or ["Session replay"]
     return FeatureDiscoveryExploration(
         codebase_overview="The app has a replay product.",
         repositories_examined=["PostHog/posthog"],
         has_candidates=True,
         discovery_strategy="Treat the replay journey as one feature.",
+        active_work_sources=[
+            FeatureDiscoveryActiveWorkSource(
+                source="GitHub pull requests",
+                status="checked",
+                details="No relevant open pull requests.",
+            )
+        ],
+        feature_candidates=[
+            FeatureDiscoveryCandidate(
+                title=title,
+                user_goal=f"Use {title.lower()}.",
+                boundary="This journey has its own entry point and success measure.",
+                entry_points=["/replay"],
+            )
+            for title in titles
+        ],
     )
 
 
 def _feature(title: str = "Session replay") -> DiscoveredFeatureDocument:
     return DiscoveredFeatureDocument(
         title=title,
-        summary=(
-            "## Overview\n\nUsers can record and replay browser sessions.\n\n"
-            "## Current status\n\nAvailable.\n\n"
-            "## User experience\n\nOpen a recording and play it back.\n\n"
-            "## Implementation\n\nThe replay scene loads captured snapshots.\n\n"
-            "## In-flight work\n\nNone found.\n\n"
-            "## Measurement and health\n\nMonitor playback errors.\n\n"
-            "## Next steps\n\nValidate playback reliability."
+        summary=DiscoveredFeatureSummary(
+            overview="Users can record and replay browser sessions.",
+            current_status="Available.",
+            user_experience="Open a recording and play it back.",
+            implementation="The replay scene loads captured snapshots.",
+            in_flight_work="GitHub pull requests were checked; none affect this feature.",
+            measurement_and_health="Monitor playback errors.",
+            next_steps="Validate playback reliability.",
         ),
         repository="PostHog/posthog",
         related_repositories=[],
@@ -107,25 +127,24 @@ def _set_discovery_failure_details(team_id: int, run_id: str, failure_details: s
     )
 
 
-@pytest.mark.parametrize(
-    ("summary", "expected_error"),
-    [
-        ("## Outcome\n\nUsers understand behavior.", "must include feature overview sections"),
-        (
-            _feature().summary + "\n\n## Recommendation\n\nShip an improvement.",
-            "must not use reactive report sections",
-        ),
-    ],
-)
-def test_feature_document_rejects_reactive_report_summaries(summary: str, expected_error: str) -> None:
-    document = _feature().model_dump()
-    document["summary"] = summary
+def test_feature_summary_renders_the_bounded_living_overview() -> None:
+    rendered = _feature().summary.render_markdown()
 
-    with pytest.raises(ValidationError, match=expected_error):
+    assert len(rendered) <= 2500
+    assert rendered.startswith("## Overview\n\nUsers can record and replay browser sessions.")
+    assert "## In-flight work\n\nGitHub pull requests were checked" in rendered
+    assert rendered.endswith("## Next steps\n\nValidate playback reliability.")
+
+
+def test_feature_summary_rejects_embedded_section_headings() -> None:
+    document = _feature().model_dump()
+    document["summary"]["overview"] = "## Outcome\n\nUsers understand behavior."
+
+    with pytest.raises(ValidationError, match="must not include section headings"):
         DiscoveredFeatureDocument.model_validate(document)
 
 
-def test_feature_document_normalizes_oversized_code_reference() -> None:
+def test_feature_document_rejects_oversized_code_reference_instead_of_truncating_it() -> None:
     document = _feature().model_dump()
     source_lines = [f"line {index}" for index in range(MAX_DISCOVERY_CODE_REFERENCE_LINES + 5)]
     document["code_references"][0].update(
@@ -134,30 +153,36 @@ def test_feature_document_normalizes_oversized_code_reference() -> None:
         contents="\n".join(source_lines),
     )
 
-    parsed = DiscoveredFeatureDocument.model_validate(document)
-    reference = parsed.code_references[0]
-
-    assert reference.contents == "\n".join(source_lines[:MAX_DISCOVERY_CODE_REFERENCE_LINES])
-    assert reference.start_line == 40
-    assert reference.end_line == 40 + MAX_DISCOVERY_CODE_REFERENCE_LINES - 1
+    with pytest.raises(ValidationError, match="must not exceed 10 lines"):
+        DiscoveredFeatureDocument.model_validate(document)
 
 
 @pytest.mark.asyncio
-async def test_feature_discovery_stops_when_agent_says_there_are_no_more_features() -> None:
+async def test_feature_discovery_follows_candidate_ledger_until_agent_stops() -> None:
     session = MagicMock()
     session.task.id = "task-id"
     session.task_run.id = "run-id"
-    session.send_followup = AsyncMock(
+    session.send_followup_raw = AsyncMock(
         side_effect=[
-            _feature(),
-            FeatureDiscoveryContinuation(has_more=False, reason="The remaining code is implementation detail."),
+            _feature().model_dump_json(),
+            FeatureDiscoveryContinuation(
+                has_more=True,
+                next_candidate_title="Replay playlists",
+                reason="The replay playlist journey still needs a report.",
+            ).model_dump_json(),
+            _feature("Replay playlists").model_dump_json(),
+            FeatureDiscoveryContinuation(
+                has_more=False,
+                reason="The remaining code is implementation detail.",
+            ).model_dump_json(),
         ]
     )
     session.end = AsyncMock()
-    start_session = AsyncMock(return_value=(session, _exploration()))
+    exploration = _exploration(["Session replay", "Replay playlists"])
+    start_session = AsyncMock(return_value=(session, exploration.model_dump_json()))
 
     with patch(
-        "products.signals.backend.features.discovery.MultiTurnSession.start",
+        "products.signals.backend.features.discovery.MultiTurnSession.start_raw",
         new=start_session,
     ):
         result = await run_multi_turn_feature_discovery(
@@ -166,32 +191,37 @@ async def test_feature_discovery_stops_when_agent_says_there_are_no_more_feature
             context=MagicMock(),
         )
 
-    assert [feature.title for feature in result.features] == ["Session replay"]
-    assert session.send_followup.await_count == 2
+    assert [feature.title for feature in result.features] == ["Session replay", "Replay playlists"]
+    assert session.send_followup_raw.await_count == 4
+    assert start_session.await_args is not None
     exploration_prompt = start_session.await_args.kwargs["prompt"]
     assert "open pull requests or merge requests" in exploration_prompt
     assert "active remote branches" in exploration_prompt
     assert "relevant open issues" in exploration_prompt
     assert "Do not infer that no work is in flight from the default branch alone" in exploration_prompt
-    assert "record which active-work sources were checked" in exploration_prompt
-    feature_prompt = session.send_followup.await_args_list[0].args[0]
+    assert "Build `feature_candidates` as an ordered ledger" in exploration_prompt
+    assert "Administrative management and public consumption are separate candidates" in exploration_prompt
+    assert "Do not repeat this ledger in `codebase_overview`" in exploration_prompt
+    feature_prompt = session.send_followup_raw.await_args_list[0].args[0]
     assert "Only replay features" in feature_prompt
-    assert "living overview" in feature_prompt
-    assert "## Current status" in feature_prompt
+    assert "candidate `Session replay`" in feature_prompt
+    assert "structured set of bounded sections" in feature_prompt
     assert "open_questions" in feature_prompt
     assert "Do not guess about intended behavior" in feature_prompt
-    assert "Treat 2,500 characters as the response budget, not a suggestion" in feature_prompt
-    assert 'instead of writing a bare "None found"' in feature_prompt
+    assert "include only active work connected to this candidate" in feature_prompt
     assert "Do not merge distinct workflows merely because they share files" in feature_prompt
     assert "target 4 to 8 contiguous lines and never exceed 10" in feature_prompt
     assert "end_line = start_line + line_count - 1" in feature_prompt
     prompt_schema = json.loads(feature_prompt.split("<jsonschema>\n", 1)[1].split("\n</jsonschema>", 1)[0])
     assert "title" in prompt_schema["properties"]
     assert "title" not in prompt_schema
-    continuation_prompt = session.send_followup.await_args_list[1].args[0]
-    assert "name only the next strongest candidate" in continuation_prompt
-    assert "user journeys, entry points, and relevant active work" in continuation_prompt
-    assert "even if another feature mentions it or it shares implementation files" in continuation_prompt
+    continuation_prompt = session.send_followup_raw.await_args_list[1].args[0]
+    assert "Exploration candidate ledger" in continuation_prompt
+    assert "next_candidate_title" in continuation_prompt
+    assert "user journey, entry point, and relevant active-work item" in continuation_prompt
+    assert "even if another feature mentions it or shares implementation files" in continuation_prompt
+    second_feature_prompt = session.send_followup_raw.await_args_list[2].args[0]
+    assert "candidate `Replay playlists`" in second_feature_prompt
     session.end.assert_awaited_once_with()
 
 
@@ -199,25 +229,25 @@ async def test_feature_discovery_stops_when_agent_says_there_are_no_more_feature
 async def test_feature_discovery_corrects_an_invalid_feature_document() -> None:
     invalid_document = _feature().model_dump()
     invalid_document["open_questions"] = [""]
-    with pytest.raises(ValidationError) as validation_error:
+    with pytest.raises(ValidationError):
         DiscoveredFeatureDocument.model_validate(invalid_document)
 
     session = MagicMock()
     session.task.id = "task-id"
     session.task_run.id = "run-id"
-    session.send_followup = AsyncMock(
+    session.send_followup_raw = AsyncMock(
         side_effect=[
-            validation_error.value,
-            validation_error.value,
-            _feature(),
-            FeatureDiscoveryContinuation(has_more=False, reason="No other feature remains."),
+            json.dumps(invalid_document),
+            json.dumps(invalid_document),
+            _feature().model_dump_json(),
+            FeatureDiscoveryContinuation(has_more=False, reason="No other feature remains.").model_dump_json(),
         ]
     )
     session.end = AsyncMock()
 
     with patch(
-        "products.signals.backend.features.discovery.MultiTurnSession.start",
-        new=AsyncMock(return_value=(session, _exploration())),
+        "products.signals.backend.features.discovery.MultiTurnSession.start_raw",
+        new=AsyncMock(return_value=(session, _exploration().model_dump_json())),
     ):
         result = await run_multi_turn_feature_discovery(
             repository="PostHog/posthog",
@@ -226,9 +256,45 @@ async def test_feature_discovery_corrects_an_invalid_feature_document() -> None:
         )
 
     assert [feature.title for feature in result.features] == ["Session replay"]
-    assert session.send_followup.await_count == 4
-    assert "questions must not be blank" in session.send_followup.await_args_list[1].args[0]
-    assert "questions must not be blank" in session.send_followup.await_args_list[2].args[0]
+    assert session.send_followup_raw.await_count == 4
+    assert "questions must not be blank" in session.send_followup_raw.await_args_list[1].args[0]
+    assert "questions must not be blank" in session.send_followup_raw.await_args_list[2].args[0]
+    session.end.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_feature_discovery_corrects_an_invalid_exploration_turn() -> None:
+    invalid_exploration = _exploration().model_dump()
+    invalid_exploration["feature_candidates"] = []
+
+    session = MagicMock()
+    session.task.id = "task-id"
+    session.task_run.id = "run-id"
+    session.send_followup_raw = AsyncMock(
+        side_effect=[
+            _exploration().model_dump_json(),
+            _feature().model_dump_json(),
+            FeatureDiscoveryContinuation(has_more=False, reason="No other feature remains.").model_dump_json(),
+        ]
+    )
+    session.end = AsyncMock()
+
+    with patch(
+        "products.signals.backend.features.discovery.MultiTurnSession.start_raw",
+        new=AsyncMock(return_value=(session, json.dumps(invalid_exploration))),
+    ):
+        result = await run_multi_turn_feature_discovery(
+            repository="PostHog/posthog",
+            focus="Only replay features",
+            context=MagicMock(),
+        )
+
+    assert [feature.title for feature in result.features] == ["Session replay"]
+    assert session.send_followup_raw.await_count == 3
+    assert (
+        "has_candidates must match whether feature_candidates is empty"
+        in session.send_followup_raw.await_args_list[0].args[0]
+    )
     session.end.assert_awaited_once_with()
 
 
@@ -391,15 +457,18 @@ class TestPersistDiscoveredFeatures(APIBaseTest):
 
         reports = SignalReport.objects.filter(team=self.team, title="Session replay")
         assert reports.count() == 1
+        report = reports.get()
+        assert report.summary == _feature().summary.render_markdown()
+        assert len(report.summary or "") <= 2500
         lifecycle_row = SignalReportArtefact.objects.get(
-            report=reports.get(),
+            report=report,
             type=SignalReportArtefact.ArtefactType.FEATURE_LIFECYCLE,
         )
         lifecycle = FeatureLifecycle.model_validate_json(lifecycle_row.content)
         assert lifecycle.feature_stage == FeatureStage.STAGED
         assert lifecycle.discovery_run_id == str(run.id)
         question_row = SignalReportArtefact.objects.get(
-            report=reports.get(),
+            report=report,
             type=SignalReportArtefact.ArtefactType.QUESTION,
         )
         question = QuestionArtefact.model_validate_json(question_row.content)
