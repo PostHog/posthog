@@ -19,6 +19,37 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 
+class TestMCPAccessSetting(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS,
+                "name": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS,
+            }
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def test_toggle_round_trip(self) -> None:
+        response = self.client.patch("/api/organizations/@current/", {"read_only_mcp_access": True})
+        assert response.status_code == 200
+        assert response.json()["read_only_mcp_access"] is True
+        self.organization.refresh_from_db()
+        assert self.organization.read_only_mcp_access is True
+
+        response = self.client.patch("/api/organizations/@current/", {"read_only_mcp_access": False})
+        assert response.json()["read_only_mcp_access"] is False
+
+    def test_toggle_requires_the_entitlement(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+        response = self.client.patch("/api/organizations/@current/", {"read_only_mcp_access": True})
+        assert response.status_code == 400
+        assert response.json()["code"] == "payment_required"
+
+
 class TestMCPReadOnlyEnforcement(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

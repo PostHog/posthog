@@ -10,16 +10,6 @@
 import * as zod from 'zod'
 
 /**
- * Redeem a PostHog Desktop invite code to enable legacy access.
- * @summary Redeem invite code
- */
-export const codeInvitesRedeemCreateBodyCodeMax = 50
-
-export const CodeInvitesRedeemCreateBody = /* @__PURE__ */ zod.object({
-    code: zod.string().max(codeInvitesRedeemCreateBodyCodeMax),
-})
-
-/**
  * API for managing loops — named, cloud-executed agent automations triggered by
  * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
  * @summary Create a loop
@@ -2464,13 +2454,6 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.'
         ),
     error_message: zod.string().nullish().describe('Error message if execution failed'),
-    environment: zod
-        .enum(['local'])
-        .describe('\* `local` - local')
-        .optional()
-        .describe(
-            'Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.\n\n\* `local` - local'
-        ),
 })
 
 /**

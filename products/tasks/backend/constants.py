@@ -1,6 +1,7 @@
 import json
 import hashlib
-from typing import Literal, get_args
+from collections.abc import Mapping
+from typing import Any, Literal, get_args
 
 import posthoganalytics
 
@@ -39,6 +40,37 @@ TASK_ANALYSIS_INSIGHTS_STATE_KEY = "task_analysis_insights"
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
+SAME_RUN_RESUME_STATE_KEY = "same_run_resume"
+SAME_RUN_RESUME_IDLE_STATE_KEY = "same_run_resume_idle"
+_LEGACY_SAME_RUN_RESUME_STATE_KEY = "handoff_resumed"
+_LEGACY_SAME_RUN_RESUME_IDLE_STATE_KEY = "handoff_resume_idle"
+SERVER_OWNED_RESUME_STATE_KEYS = frozenset(
+    {
+        SAME_RUN_RESUME_STATE_KEY,
+        SAME_RUN_RESUME_IDLE_STATE_KEY,
+        _LEGACY_SAME_RUN_RESUME_STATE_KEY,
+        _LEGACY_SAME_RUN_RESUME_IDLE_STATE_KEY,
+    }
+)
+
+
+def is_same_run_resume_state(state: Mapping[str, Any] | None) -> bool:
+    if not state:
+        return False
+    return state.get(SAME_RUN_RESUME_STATE_KEY) is True or state.get(_LEGACY_SAME_RUN_RESUME_STATE_KEY) is True
+
+
+def is_same_run_resume_idle_state(state: Mapping[str, Any] | None) -> bool:
+    if not state:
+        return False
+    return (
+        state.get(SAME_RUN_RESUME_IDLE_STATE_KEY) is True or state.get(_LEGACY_SAME_RUN_RESUME_IDLE_STATE_KEY) is True
+    )
+
+
+DEV_STACK_PREVIEW_STATE_KEY = "dev_stack_preview"
+DEV_STACK_PREVIEW_FEATURE_FLAG = "tasks-dev-stack-preview"
+DEV_STACK_PREVIEW_PORT = 8020
 
 # Models a caller may only select while the paired flag is enabled for them. The Desktop
 # pickers already hide these client-side (`products/desktop/packages/shared/src/flags.ts`),
@@ -47,6 +79,9 @@ PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
 # entitlement is re-checked server-side. Keys are the model ids callers send.
 MODEL_ACCESS_FLAGS: dict[str, str] = {
     "moonshotai/kimi-k3": "tasks-kimi-k3",
+    "deepseek-ai/deepseek-v4-flash-0731": "posthog-code-deepseek-model",
+    "zai-org/glm-5.3": "posthog-code-glm-53-model",
+    "zai-org/glm-5.3-flash": "posthog-code-glm-53-flash-model",
 }
 
 

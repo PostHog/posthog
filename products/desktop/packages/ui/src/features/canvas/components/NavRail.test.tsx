@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   href: "/",
   navigate: vi.fn(),
   navigateToActivity: vi.fn(),
+  navigateToCanvases: vi.fn(),
   navigateToSpaces: vi.fn(),
   navigateToChannel: vi.fn(),
   navigateToHome: vi.fn(),
@@ -41,7 +42,7 @@ vi.mock(
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: (key: string) => mocks.featureFlags.get(key) ?? false,
 }));
-vi.mock("@posthog/ui/features/feature-flags/useSpacesTabs", () => ({
+vi.mock("@posthog/ui/features/browser-tabs/useSpacesTabs", () => ({
   useSpacesTabs: () => true,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
@@ -66,6 +67,7 @@ vi.mock("@posthog/ui/features/settings/hooks/useOpenSettings", () => ({
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   getCurrentMatches: () => [{ fullPath: mocks.fullPath }],
   navigateToActivity: (...a: unknown[]) => mocks.navigateToActivity(...a),
+  navigateToCanvases: (...a: unknown[]) => mocks.navigateToCanvases(...a),
   navigateToSpaces: (...a: unknown[]) => mocks.navigateToSpaces(...a),
   navigateToChannel: (...a: unknown[]) => mocks.navigateToChannel(...a),
   navigateToHome: (...a: unknown[]) => mocks.navigateToHome(...a),

@@ -1480,6 +1480,18 @@ body.ph-window-blurred .app-fade-in {
  * caps are utility classes on the elements themselves, and a rule inside
  * @layer components would lose to them.
  */
+@layer components {
+  /*
+   * Arrow navigation can place one row under a stationary pointer while another row stays highlighted.
+   * Remove the non-highlighted row's hover style so the list shows one active row.
+  */
+  .sidebar-autocomplete-tree:has([data-highlighted])
+  [role="option"]:not([data-highlighted]):hover {
+    color: inherit;
+    background-color: transparent;
+  }
+}
+
 /*
  * @posthog/quill Tabs — quill paints an active trigger `var(--background)` with
  * `!important`, and `!important` inverts cascade-layer order, so no utility
@@ -1509,4 +1521,13 @@ body.ph-window-blurred .app-fade-in {
   to {
     background-position-x: 6px;
   }
+}
+
+/* Dotted backdrop for scrollable lists. The pattern is anchored to the window,
+   so a sticky header that uses the same class stays aligned while scrolling. */
+.ph-dotted-surface {
+  background-color: var(--gray-2);
+  background-image: radial-gradient(circle, var(--gray-5) 1px, transparent 1px);
+  background-size: 14px 14px;
+  background-attachment: fixed;
 }

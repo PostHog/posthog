@@ -260,11 +260,6 @@ class TaskRunUpdateSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
     )
-    environment = serializers.ChoiceField(
-        choices=["local"],
-        required=False,
-        help_text="Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.",
-    )
 
 
 class TaskRunSkillBundleMetadataSerializer(serializers.Serializer):
@@ -443,6 +438,14 @@ class TaskRunDetailSerializer(DataclassSerializer):
         required=False,
         help_text="Configured reasoning effort for this run when the selected model supports it.",
     )
+    preview_available = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "True when this run's sandbox serves a dev stack preview, so clients can offer the "
+            "preview link. Open it through the run's `preview/` endpoint, which mints a fresh "
+            "access token on every request."
+        ),
+    )
 
     class Meta:
         dataclass = TaskRunDetailDTO
@@ -465,6 +468,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "created_at",
             "updated_at",
             "completed_at",
+            "preview_available",
         ]
 
 
@@ -517,6 +521,14 @@ class TaskSerializer(DataclassSerializer):
         choices=tasks_facade.TaskRuntime.choices,
         help_text="Agent protocol and harness used for this task's runs.",
     )
+    origin_key = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Stable key of the server-side flow that created this task, e.g. "
+            "`desktop_onboarding_session:<user_id>`. Null for tasks people create themselves."
+        ),
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -546,6 +558,7 @@ class TaskSerializer(DataclassSerializer):
             "ci_prompt",
             "channel",
             "slack_thread_references",
+            "origin_key",
         ]
 
 
@@ -968,7 +981,7 @@ class DesktopAccessResponseSerializer(serializers.Serializer):
 
 
 class LegacyDesktopAccessResponseSerializer(serializers.Serializer):
-    has_access = serializers.BooleanField(help_text="Whether the user has legacy PostHog Desktop access.")
+    has_access = serializers.BooleanField(help_text="Whether the current project can use PostHog Desktop.")
     has_loops_access = serializers.BooleanField(help_text="Whether the independent Loops feature is enabled.")
 
 
@@ -3778,10 +3791,6 @@ class TaskRunCommandResponseSerializer(serializers.Serializer):
     id = serializers.JSONField(required=False, default=None, help_text="Request ID echoed back (string or number)")
     result = serializers.JSONField(required=False, help_text="Command result on success")
     error = serializers.DictField(required=False, help_text="Error details on failure")
-
-
-class CodeInviteRedeemRequestSerializer(serializers.Serializer):
-    code = serializers.CharField(max_length=50)
 
 
 class TaskRunSessionLogsQuerySerializer(serializers.Serializer):

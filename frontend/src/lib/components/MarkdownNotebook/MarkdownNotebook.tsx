@@ -241,6 +241,7 @@ export type MarkdownNotebookProps = {
     value: string
     onChange?: (value: string) => void
     onAskAI?: (request: MarkdownNotebookAskAIRequest) => void
+    aiPromptAuthorName?: string
     isAskAIDisabled?: boolean
     createAIConversationId?: () => string
     mode?: NotebookMode
@@ -354,6 +355,17 @@ function createDefaultAIConversationId(): string {
         return window.crypto.randomUUID()
     }
     return makeEmptyParagraph('ai-conversation').id
+}
+
+function makeRetainedAIQuestionNode(authorName: string, question: string, idSeed: string): NotebookTextBlockNode {
+    return {
+        ...makeEmptyParagraph(idSeed),
+        children: [
+            { type: 'text', text: `${authorName.trim() || 'You'}:`, marks: [{ type: 'bold' }] },
+            { type: 'text', text: ' ' },
+            ...plainTextToInlineNodes(question),
+        ],
+    }
 }
 
 /** Below this container width, comment threads render inline instead of in the margin. */
@@ -569,6 +581,7 @@ function MarkdownNotebookEditor({
     value,
     onChange,
     onAskAI,
+    aiPromptAuthorName = 'You',
     isAskAIDisabled: isAIPromptSubmitDisabled = false,
     createAIConversationId = createDefaultAIConversationId,
     mode = 'edit',
@@ -5376,16 +5389,26 @@ function MarkdownNotebookEditor({
         }
 
         let responseNodeIndex = -1
-        const nodesWithResponse = nodes.map((currentNode, index): NotebookBlockNode => {
+        const keepQuestion = currentPromptNode?.props.keepQuestion === true
+        const nodesWithResponse = nodes.flatMap((currentNode, index): NotebookBlockNode[] => {
             if (currentNode.id !== nodeId || !isPromptComponentNode(currentNode)) {
-                return currentNode
+                return [currentNode]
             }
-            responseNodeIndex = index
-            return {
+
+            const responseNode: NotebookTextBlockNode = {
                 id: currentNode.id,
                 type: 'paragraph',
                 children: plainTextToInlineNodes(NOTEBOOK_AI_WRITING_PLACEHOLDER),
             }
+            if (!keepQuestion) {
+                responseNodeIndex = index
+                return [responseNode]
+            }
+
+            responseNodeIndex = index + 1
+            const questionNode = makeRetainedAIQuestionNode(aiPromptAuthorName, query, `ai-question-${currentNode.id}`)
+            questionNode.startsGroup = currentNode.startsGroup
+            return [questionNode, responseNode]
         })
         if (responseNodeIndex === -1) {
             console.error('Prompt node not found for AI submission')
@@ -5406,14 +5429,8 @@ function MarkdownNotebookEditor({
             conversationId,
             query:
                 source === 'selection' && selectedMarkdown
-                    ? getAskAISelectionQuery(
-                          selectedMarkdown,
-                          query,
-                          responseMarker,
-                          selectedRefId,
-                          markdownWithResponse
-                      )
-                    : getAskAIInlineNotebookQuery(query, responseMarker, markdownWithResponse),
+                    ? getAskAISelectionQuery(selectedMarkdown, query, responseMarker, selectedRefId)
+                    : getAskAIInlineNotebookQuery(query, responseMarker),
             source,
             responseNodeId: nodeId,
             responseNodeIndex,

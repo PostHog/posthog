@@ -54,7 +54,7 @@ tools:
         operation: llm_analytics_clustering_config_list
         enabled: true
         scopes:
-            - llm_analytics:read
+            - ai_observability_clusters:read
         annotations:
             readOnly: true
             destructive: false
@@ -68,7 +68,7 @@ tools:
         operation: llm_analytics_clustering_config_set_event_filters_create
         enabled: true
         scopes:
-            - llm_analytics:write
+            - ai_observability_clusters:write
         annotations:
             readOnly: false
             destructive: false
@@ -82,7 +82,7 @@ tools:
         operation: llm_analytics_clustering_jobs_create
         enabled: true
         scopes:
-            - llm_analytics:write
+            - ai_observability_clusters:write
         annotations:
             readOnly: false
             destructive: false
@@ -96,7 +96,7 @@ tools:
         operation: llm_analytics_clustering_jobs_destroy
         enabled: true
         scopes:
-            - llm_analytics:write
+            - ai_observability_clusters:write
         annotations:
             readOnly: false
             destructive: true
@@ -110,7 +110,7 @@ tools:
         operation: llm_analytics_clustering_jobs_retrieve
         enabled: true
         scopes:
-            - llm_analytics:read
+            - ai_observability_clusters:read
         annotations:
             readOnly: true
             destructive: false
@@ -123,7 +123,7 @@ tools:
         operation: llm_analytics_clustering_jobs_list
         enabled: true
         scopes:
-            - llm_analytics:read
+            - ai_observability_clusters:read
         annotations:
             readOnly: true
             destructive: false
@@ -138,7 +138,7 @@ tools:
         operation: llm_analytics_clustering_jobs_partial_update
         enabled: true
         scopes:
-            - llm_analytics:write
+            - ai_observability_clusters:write
         annotations:
             readOnly: false
             destructive: false

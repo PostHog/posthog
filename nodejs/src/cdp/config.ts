@@ -170,6 +170,7 @@ export type CdpConfig = ClickhouseConfig & {
     // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
     // (see .agents/security.md): empty in prod means the route fails closed until provisioned.
     WORKFLOWS_RESCHEDULE_JWT_SECRET: string
+    CONVERSATIONS_TICKETS_JWT_SECRET: string
     // Scoped JWT keys verifying Django's calls to the cancel routes (invocations/cancel and
     // batch_jobs/:id/cancel). A dedicated key, separate from the reschedule sweep's above: the
     // web tier mints cancels while the worker mints reschedules, so neither tier's key can forge
@@ -185,6 +186,17 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: number
     CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: number
     CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: number
+
+    // Mark-and-sweep deletion of cohort_membership rows a completed reconcile run did not re-assert.
+    // Two flags so a rolling restart never mixes sweeping pods with pods that write no versions:
+    // version writes turn on first and off last, sweeping turns on last and off first. A pod that
+    // writes without versions preserves a row's old stamp, which a sweeping pod then reads as stale.
+    COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED: boolean
+    COHORT_MEMBERSHIP_SWEEP_ENABLED: boolean
+    COHORT_MEMBERSHIP_SWEEP_INTERVAL_MS: number
+    COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE: number
+    COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS: number
+    COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS: number
 
     // Email reputation evaluator (daily Temporal-scheduled bounce/complaint snapshots for workflows email)
 }
@@ -334,6 +346,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         // mass wake, so wakes are trickled (500k parked @ 200/s ≈ 42 min spread).
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_RESCHEDULE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-reschedule-jwt' : '',
+        // Dev default must equal Django's CONVERSATIONS_TICKETS_JWT_SECRETS default so local
+        // end-to-end works; empty in prod until provisioned (worker then stays on legacy auth).
+        CONVERSATIONS_TICKETS_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-conversations-tickets-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_CANCEL_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-cancel-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
@@ -345,5 +360,23 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: 5000,
         CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: 20,
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: 100,
+
+        // Stays off until the schema migrations have applied; a pod reaching an unmigrated
+        // database must degrade to the pre-sweep write shape, not crash on a missing column.
+        COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED: false,
+        // Stays off until the processor writes membership to the live topic and the whole fleet
+        // persists row versions. Sweeping before either would delete rows nothing re-asserts.
+        //
+        // The cohort stream pipeline (cohort-stream-processor and its topics, including the
+        // marker topic) is deployed US-only, like the rest of the cohort streaming system. This
+        // flag follows that scoping: environments without the pipeline keep it off, and the
+        // marker topic must never be created just to let the flag turn on — with no processor
+        // producing markers there, the sweeper would idle forever. start() fails fast when the
+        // flag is set and the marker topic does not exist.
+        COHORT_MEMBERSHIP_SWEEP_ENABLED: false,
+        COHORT_MEMBERSHIP_SWEEP_INTERVAL_MS: 60000,
+        COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE: 1000,
+        COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS: 300000,
+        COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS: 3,
     }
 }

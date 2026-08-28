@@ -12,15 +12,25 @@ vi.mock("@posthog/host-router/react", () => ({
   }),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/features/canvas/hooks/useSelectedCanvasId", () => ({
+  useSelectedCanvasId: () => useSelectedCanvasId(),
+}));
 
-const { useChannelTasks, useDashboard, useParams, usePathname, useTasks } =
-  vi.hoisted(() => ({
-    useChannelTasks: vi.fn(),
-    useDashboard: vi.fn(),
-    useParams: vi.fn(),
-    usePathname: vi.fn(),
-    useTasks: vi.fn(),
-  }));
+const {
+  useChannelTasks,
+  useDashboard,
+  useParams,
+  usePathname,
+  useSelectedCanvasId,
+  useTasks,
+} = vi.hoisted(() => ({
+  useChannelTasks: vi.fn(),
+  useDashboard: vi.fn(),
+  useParams: vi.fn(),
+  usePathname: vi.fn(),
+  useSelectedCanvasId: vi.fn(),
+  useTasks: vi.fn(),
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Outlet: () => null,
@@ -33,11 +43,13 @@ vi.mock("@tanstack/react-router", () => ({
       location: { pathname: string };
       matches: { routeId: string }[];
     }) => unknown;
-  }) =>
-    select({
-      location: { pathname: usePathname() },
+  }) => {
+    const pathname = usePathname();
+    return select({
+      location: { pathname },
       matches: [{ routeId: "/spaces/$channelId/tasks/$taskId" }],
-    }),
+    });
+  },
 }));
 
 vi.mock(
@@ -120,18 +132,22 @@ function renderLayout({
   tasks = [{ id: "task-1", title: "Fix the bug" }],
   channelTaskIds = tasks.map((task) => task.id),
   dashboard,
+  selectedCanvasId,
 }: {
   pathname: string;
   params: Record<string, string>;
   tasks?: { id: string; title: string }[];
   channelTaskIds?: string[];
   dashboard?: {
+    channelId?: string;
     name: string;
     templateId: string;
     generationTaskId: string | null;
   };
+  selectedCanvasId?: string;
 }) {
   usePathname.mockReturnValue(pathname);
+  useSelectedCanvasId.mockReturnValue(selectedCanvasId);
   useParams.mockReturnValue(params);
   useTasks.mockReturnValue({ data: tasks });
   useChannelTasks.mockReturnValue({
@@ -149,7 +165,7 @@ function renderLayout({
   );
 }
 
-describe("ShellLayout task header actions", () => {
+describe("ShellLayout headers", () => {
   it.each([
     ["while generating", "task-1"],
     ["after generation", null],
@@ -196,6 +212,30 @@ describe("ShellLayout task header actions", () => {
       collapsed: false,
       tab: "chat",
     });
+  });
+
+  it("renders the canvas toolbar for a Canvases rail selection", () => {
+    renderLayout({
+      pathname: "/canvases",
+      params: {},
+      selectedCanvasId: "canvas-1",
+      dashboard: {
+        channelId: "chan-1",
+        name: "Launch",
+        templateId: "freeform",
+        generationTaskId: "task-1",
+      },
+    });
+
+    expect(screen.getByText("project-bluebird")).toBeInTheDocument();
+    expect(screen.getByText("Launch")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Comments/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Canvas options" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
   });
 
   it("renders the task action row on a channel task detail", () => {

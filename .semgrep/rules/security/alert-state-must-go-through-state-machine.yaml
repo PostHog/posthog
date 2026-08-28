@@ -58,6 +58,9 @@ rules:
               - '/products/replay_vision/backend/**/test_*.py'
               # Mutates HogFunction.enabled (delivery plumbing), not an alert.
               - '/products/replay_vision/backend/api/delivery.py'
+              # Migrations mutate historical models from apps.get_model, so they
+              # cannot call the state machine.
+              - '/products/replay_vision/backend/migrations/**'
 
     - id: billing-alert-state-direct-mutation
       patterns:
