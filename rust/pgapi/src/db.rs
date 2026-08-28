@@ -53,6 +53,35 @@ impl Db {
         rows.iter().map(row_to_json).collect()
     }
 
+    /// Run one statement in a read-only transaction with a short timeout, then reset
+    /// the session with `DISCARD ALL` so nothing it did (advisory locks, temp objects,
+    /// SET) outlives the request. If the reset fails the connection is dropped.
+    pub async fn query_isolated(&self, sql: &str) -> Result<Value> {
+        let mut c = self.pool.get().await?;
+        let result = async {
+            let tx = c.build_transaction().read_only(true).start().await?;
+            tx.batch_execute("SET LOCAL statement_timeout = 15000; SET LOCAL lock_timeout = 1000")
+                .await?;
+            let rows = tx
+                .query(sql, &[])
+                .await
+                .with_context(|| format!("query failed: {}", sql.lines().next().unwrap_or("")))?;
+            tx.rollback().await?;
+            rows.iter().map(row_to_json).collect::<Result<Vec<_>>>()
+        }
+        .await;
+        if c.batch_execute(
+            "DISCARD ALL; SET default_transaction_read_only = on; SET statement_timeout = 30000",
+        )
+        .await
+        .is_err()
+        {
+            // Don't hand a dirty session back to the pool.
+            drop(deadpool_postgres::Object::take(c));
+        }
+        Ok(json!(result?))
+    }
+
     pub async fn query_one(&self, sql: &str, params: &[&(dyn ToSql + Sync)]) -> Result<Value> {
         Ok(self
             .query(sql, params)
@@ -88,6 +117,9 @@ pub fn row_to_json(r: &tokio_postgres::Row) -> Result<Value> {
             }),
             Type::TIMESTAMPTZ => r.try_get::<_, Option<DateTime<Utc>>>(i)?.map(|t| json!(t)),
             Type::JSON | Type::JSONB => r.try_get::<_, Option<Value>>(i)?,
+            // Functions returning void (raw SQL calling e.g. pg_advisory_lock) produce a
+            // void column; render it as null rather than failing the whole row.
+            Type::VOID => None,
             Type::TEXT_ARRAY | Type::VARCHAR_ARRAY | Type::NAME_ARRAY => {
                 r.try_get::<_, Option<Vec<String>>>(i)?.map(|v| json!(v))
             }

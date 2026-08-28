@@ -37,10 +37,15 @@ struct Cli {
     /// NetworkPolicy that restricts ingress to the operator's proxy pods.
     #[arg(long, env = "PGAPI_TRUST_TAILSCALE", default_value = "false", value_parser = parse_bool)]
     trust_tailscale: bool,
+    /// Hosts on which `Tailscale-User-Login` is trusted (comma-separated). Empty = any
+    /// host ending in `.ts.net`.
+    #[arg(long, env = "PGAPI_TAILSCALE_HOSTS", value_delimiter = ',')]
+    tailscale_hosts: Vec<String>,
     /// Verify ALB/Cognito `x-amzn-oidc-data` tokens (region for the ALB public key endpoint).
-    #[arg(long, env = "PGAPI_ALB_REGION")]
+    /// Requires PGAPI_ALB_CLIENT_ID.
+    #[arg(long, env = "PGAPI_ALB_REGION", requires = "alb_client_id")]
     alb_region: Option<String>,
-    /// Expected Cognito user pool client id (`client` claim) for ALB tokens, if set.
+    /// Cognito app client id the ALB tokens must be minted for.
     #[arg(long, env = "PGAPI_ALB_CLIENT_ID")]
     alb_client_id: Option<String>,
     /// Trust `X-Auth-Request-Email` from the in-cluster auth gateway (heimdall).
@@ -94,12 +99,20 @@ async fn main() -> Result<()> {
             .filter(|d| !d.is_empty())
             .collect(),
         trust_tailscale: cli.trust_tailscale,
+        tailscale_hosts: cli
+            .tailscale_hosts
+            .into_iter()
+            .filter(|h| !h.is_empty())
+            .collect(),
         trust_gateway: cli.trust_gateway,
-        alb: cli.alb_region.map(|region| auth::AlbConfig {
-            region,
-            client_id: cli.alb_client_id,
-            keys: Default::default(),
-        }),
+        alb: match (cli.alb_region, cli.alb_client_id) {
+            (Some(region), Some(client_id)) => Some(auth::AlbConfig {
+                region,
+                client_id,
+                keys: Default::default(),
+            }),
+            _ => None,
+        },
         dev_user: cli.dev_user,
     };
     if auth.dev_user.is_some() {

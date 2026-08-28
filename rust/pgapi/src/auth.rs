@@ -33,7 +33,7 @@ pub struct Principal {
 
 pub struct AlbConfig {
     pub region: String,
-    pub client_id: Option<String>,
+    pub client_id: String,
     /// kid → PEM public key, cached.
     pub keys: RwLock<HashMap<String, String>>,
 }
@@ -42,6 +42,11 @@ pub struct AuthConfig {
     pub allowed_domains: Vec<String>,
     pub allowed_emails: Vec<String>,
     pub trust_tailscale: bool,
+    /// Hosts (from the `Host` header) on which `Tailscale-User-Login` is trusted.
+    /// Empty = any host ending in `.ts.net`. A request arriving on the Cognito
+    /// ingress host can carry a forged header, so the header only counts on the
+    /// tailnet host that the Tailscale proxy terminates.
+    pub tailscale_hosts: Vec<String>,
     pub trust_gateway: bool,
     pub alb: Option<AlbConfig>,
     pub dev_user: Option<String>,
@@ -52,8 +57,7 @@ struct AlbClaims {
     email: Option<String>,
     #[serde(default)]
     email_verified: Option<serde_json::Value>,
-    #[serde(default)]
-    iss: Option<String>,
+    iss: String,
 }
 
 impl AuthConfig {
@@ -79,6 +83,24 @@ impl AuthConfig {
             .unwrap_or(false)
     }
 
+    fn on_tailscale_host(&self, headers: &axum::http::HeaderMap) -> bool {
+        let host = headers
+            .get("host")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .split(':')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if self.tailscale_hosts.is_empty() {
+            host.ends_with(".ts.net")
+        } else {
+            self.tailscale_hosts
+                .iter()
+                .any(|h| h.eq_ignore_ascii_case(&host))
+        }
+    }
+
     async fn identify(
         &self,
         headers: &axum::http::HeaderMap,
@@ -91,7 +113,7 @@ impl AuthConfig {
                 .filter(|s| !s.is_empty())
         };
 
-        if self.trust_tailscale {
+        if self.trust_tailscale && self.on_tailscale_host(headers) {
             if let Some(login) = h("tailscale-user-login") {
                 return Ok(Principal {
                     email: login,
@@ -177,20 +199,28 @@ async fn verify_alb_token(alb: &AlbConfig, token: &str) -> anyhow::Result<String
     v.validate_exp = true;
     v.set_required_spec_claims(&["exp"]);
     let data = decode::<AlbClaims>(&token, &key, &v)?;
-    if let Some(iss) = &data.claims.iss {
-        anyhow::ensure!(iss.contains("cognito-idp"), "unexpected issuer {iss}");
-    }
-    if let (Some(want), Some(got)) = (&alb.client_id, header_client(&token)) {
-        anyhow::ensure!(want == &got, "token for another client ({got})");
-    }
+    // Issuer must be a Cognito user pool in the ALB's region.
+    let want_iss = format!("https://cognito-idp.{}.amazonaws.com/", alb.region);
+    anyhow::ensure!(
+        data.claims.iss.starts_with(&want_iss),
+        "unexpected issuer {}",
+        data.claims.iss
+    );
+    // The token must be minted for our app client; the ALB records it in the JOSE header.
+    let got =
+        header_client(&token).ok_or_else(|| anyhow::anyhow!("token has no client in header"))?;
+    anyhow::ensure!(alb.client_id == got, "token for another client ({got})");
     let email = data
         .claims
         .email
         .ok_or_else(|| anyhow::anyhow!("token has no email claim"))?;
-    let verified = matches!(
-        &data.claims.email_verified,
-        Some(serde_json::Value::Bool(true)) | Some(serde_json::Value::String(_)) | None
-    );
+    // Cognito emits email_verified as a bool or as the strings "true"/"false"; only an
+    // explicit true is a verified address. Missing means unverified.
+    let verified = match &data.claims.email_verified {
+        Some(serde_json::Value::Bool(b)) => *b,
+        Some(serde_json::Value::String(s)) => s.eq_ignore_ascii_case("true"),
+        _ => false,
+    };
     anyhow::ensure!(verified, "email not verified");
     Ok(email)
 }

@@ -25,20 +25,26 @@ No OAuth flow in the app. Identity is established at the edge and read from
 headers, in priority order (`src/auth.rs`):
 
 1. `Tailscale-User-Login` — Tailscale ingress with `whois: true`; trusted only
-   with `PGAPI_TRUST_TAILSCALE=1`, which must be paired with a NetworkPolicy
-   admitting only `tailscale.com/managed=true` proxy pods (see
+   with `PGAPI_TRUST_TAILSCALE=1` **and** on a tailnet `Host`
+   (`PGAPI_TAILSCALE_HOSTS`, default any `*.ts.net`), so the header is ignored
+   when a request arrives through another ingress. Must be paired with a
+   NetworkPolicy admitting only `tailscale.com/managed=true` proxy pods (see
    `values.example.yaml`). This is the path for MCP / CLI callers.
 2. `x-amzn-oidc-data` — ALB + Cognito (`ingress.internal: true`); verified
-   ES256 against `https://public-keys.auth.elb.<region>.amazonaws.com/<kid>`
-   (`PGAPI_ALB_REGION`, optional `PGAPI_ALB_CLIENT_ID`). Browser path.
+   ES256 against `https://public-keys.auth.elb.<region>.amazonaws.com/<kid>`,
+   issuer must be a Cognito pool in `PGAPI_ALB_REGION`, the token must be for
+   `PGAPI_ALB_CLIENT_ID` (required together), `email_verified` must be true.
+   Browser path.
 3. `X-Auth-Request-Email` — the in-cluster auth gateway, if/when adopted
    (`PGAPI_TRUST_GATEWAY=1`).
 4. `PGAPI_DEV_USER` in dev mode.
 
 Authorisation: `PGAPI_ALLOWED_DOMAINS` (default `posthog.com`) and/or
 `PGAPI_ALLOWED_EMAILS`. Everything is read-only; the DB session is forced
-`default_transaction_read_only`. Every request is logged with the caller's
-email and identity source.
+`default_transaction_read_only`, and the raw-SQL tool runs each statement in a
+read-only transaction with a 15 s timeout followed by `DISCARD ALL`, so
+advisory locks or session settings cannot outlive a request. Every request is
+logged with the caller's email and identity source.
 
 This mirrors hosthog-api's dual-host pattern: humans use the Cognito-gated
 `*.posthog.dev` host, agents use the tailnet host — Cognito can't

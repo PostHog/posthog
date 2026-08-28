@@ -300,9 +300,15 @@ pub async fn collector_health(db: &Db) -> Result<Value> {
          FROM collector_runs WHERE started_at > now() - interval '15 minutes' GROUP BY 1, 2, 3 ORDER BY errors DESC, 1, 2, 3", &[]).await?))
 }
 
-/// Free-form read-only SQL against the stats DB for agents. The session is
-/// `default_transaction_read_only`, has a statement timeout, and we still refuse
-/// anything that isn't a single SELECT/WITH.
+/// Free-form read-only SQL against the stats DB for agents.
+///
+/// Defence in depth, because a leading `SELECT` does not make a statement side-effect
+/// free (`pg_advisory_lock()`, `pg_sleep()`, `set_config()` are all callable from one):
+/// * only a single SELECT / WITH / EXPLAIN statement is accepted;
+/// * it runs inside a read-only transaction with its own short statement timeout;
+/// * the session is `DISCARD ALL`ed afterwards (drops advisory locks, temp tables,
+///   session settings) and, if that fails, thrown away rather than returned to the pool;
+/// * the DB user is a read-only role with no privileges beyond SELECT.
 pub async fn raw_sql(db: &Db, sql: &str, limit: i64) -> Result<Value> {
     let trimmed = sql.trim().trim_end_matches(';').trim();
     let head = trimmed
@@ -315,11 +321,16 @@ pub async fn raw_sql(db: &Db, sql: &str, limit: i64) -> Result<Value> {
         "only SELECT / WITH / EXPLAIN statements are allowed"
     );
     anyhow::ensure!(!trimmed.contains(';'), "one statement only");
-    let wrapped = format!(
-        "SELECT * FROM ({trimmed}) _q LIMIT {}",
-        limit.clamp(1, 5000)
-    );
-    Ok(json!(db.query(&wrapped, &[]).await?))
+    let statement = if head == "EXPLAIN" {
+        // EXPLAIN cannot be wrapped in a subquery; it returns text rows itself.
+        trimmed.to_string()
+    } else {
+        format!(
+            "SELECT * FROM ({trimmed}) _q LIMIT {}",
+            limit.clamp(1, 5000)
+        )
+    };
+    db.query_isolated(&statement).await
 }
 
 pub async fn schema_of_stats_db(db: &Db) -> Result<Value> {
