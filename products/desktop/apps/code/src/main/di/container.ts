@@ -742,9 +742,12 @@ container
   .toDynamicValue(
     (ctx) =>
       new DiskCache({
+        // Not "cache": userData already holds Chromium's "Cache" directory, and
+        // case-insensitive file systems (default macOS, Windows) treat the two
+        // as one path, so clear() would delete the live browser cache.
         rootDir: join(
           ctx.get<ElectronStoragePaths>(STORAGE_PATHS_SERVICE).appDataPath,
-          "cache",
+          "disk-cache",
         ),
       }),
   )
