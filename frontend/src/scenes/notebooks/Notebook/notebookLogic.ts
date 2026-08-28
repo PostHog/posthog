@@ -100,6 +100,7 @@ import {
     getMarkdownNotebookTextContent,
     getMarkdownNotebookTitle,
     isMarkdownNotebookContent,
+    normalizeWidgetMarkdownTags,
     notebookArtifactContentToMarkdown,
 } from './markdownNotebookV2'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
@@ -1293,7 +1294,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
         markdownEditorMarkdown: [
             (s) => [s.content],
-            (content: JSONContent): string => getMarkdownNotebookMarkdown(content),
+            (content: JSONContent): string => normalizeWidgetMarkdownTags(getMarkdownNotebookMarkdown(content)),
         ],
         markdownEditorNodeId: [
             (s) => [s.content],

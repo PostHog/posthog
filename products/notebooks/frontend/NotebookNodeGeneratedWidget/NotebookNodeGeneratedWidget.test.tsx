@@ -35,8 +35,7 @@ jest.mock('products/notebooks/frontend/generated/api', () => ({
 }))
 
 const SHORT_ID = 'generated-widget-progress'
-const MARKDOWN =
-    '<GeneratedWidget showFilters showResults nodeId="globe" prompt="Render a globe" model="claude-sonnet-4-6" />'
+const MARKDOWN = '<Widget showFilters showResults nodeId="globe" prompt="Render a globe" model="claude-sonnet-4-6" />'
 const cachedNotebook = {
     id: 'notebook-id',
     short_id: SHORT_ID,

@@ -337,7 +337,9 @@ class TestWidgetGeneration(SimpleTestCase):
         assert 'document.addEventListener("click"' in source
         assert 'document.addEventListener("submit"' in source
 
-    @parameterized.expand([("generated_widget", "GeneratedWidget"), ("legacy_genui", "GenUI")])
+    @parameterized.expand(
+        [("widget", "Widget"), ("legacy_generated_widget", "GeneratedWidget"), ("legacy_genui", "GenUI")]
+    )
     def test_infers_dataframe_context_from_the_notebook(self, _name: str, tag_name: str) -> None:
         notebook = cast(
             Notebook,
@@ -378,7 +380,7 @@ class TestWidgetData(APIBaseTest):
             content=markdown_content(
                 f'<PythonV2 nodeId="source" code="locations_df = points.copy()" '
                 f'returnVariable="{self.INPUT_NAME}" />\n\n'
-                f'<GeneratedWidget nodeId="{self.NODE_ID}" prompt="Render a globe" />'
+                f'<Widget nodeId="{self.NODE_ID}" prompt="Render a globe" />'
             ),
         )
 

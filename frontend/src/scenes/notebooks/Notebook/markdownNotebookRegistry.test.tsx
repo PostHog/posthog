@@ -85,17 +85,19 @@ describe('markdownNotebookRegistry', () => {
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
 
-        it('offers generated widgets in the insert menu and renders legacy GenUI blocks', () => {
+        it('offers widgets in the insert menu and renders legacy widget blocks', () => {
             expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true }, 'Widget')).toEqual([
-                { key: 'component-GeneratedWidget', category: 'Common' },
+                { key: 'component-Widget', category: 'Common' },
             ])
-            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.GenUI).toMatchObject({
-                label: 'Widget',
-                insertCommand: undefined,
-                ToolbarComponent: NOTEBOOK_MARKDOWN_REGISTRY.components.GeneratedWidget.ToolbarComponent,
-                ViewComponent: NOTEBOOK_MARKDOWN_REGISTRY.components.GeneratedWidget.ViewComponent,
-            })
-            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.GeneratedWidget.ToolbarComponent).toBeTruthy()
+            for (const legacyTag of ['GeneratedWidget', 'GenUI']) {
+                expect(NOTEBOOK_MARKDOWN_REGISTRY.components[legacyTag]).toMatchObject({
+                    label: 'Widget',
+                    insertCommand: undefined,
+                    ToolbarComponent: NOTEBOOK_MARKDOWN_REGISTRY.components.Widget.ToolbarComponent,
+                    ViewComponent: NOTEBOOK_MARKDOWN_REGISTRY.components.Widget.ViewComponent,
+                })
+            }
+            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.Widget.ToolbarComponent).toBeTruthy()
         })
 
         // The panel visibility resolver is the notebook shell's public behavior. Testing through it
@@ -103,7 +105,7 @@ describe('markdownNotebookRegistry', () => {
         it.each([
             ['SQL', 'component-SQLV2'],
             ['Python', 'component-PythonV2'],
-            ['Widget', 'component-GeneratedWidget'],
+            ['Widget', 'component-Widget'],
         ])('inserts a %s block with its input panel open', (_label, commandKey) => {
             const insertedNodes: NotebookComponentBlockNode[] = []
             const noop = (): void => {}
@@ -359,7 +361,7 @@ describe('markdownNotebookRegistry', () => {
                 node={{
                     id: 'generated-widget-node',
                     type: 'component',
-                    tagName: 'GeneratedWidget',
+                    tagName: 'Widget',
                     props: { id: 'canvas-id' },
                 }}
                 mode="edit"
