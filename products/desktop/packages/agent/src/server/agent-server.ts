@@ -1823,6 +1823,7 @@ export class AgentServer {
       taskRunId: payload.run_id,
       taskUserId: payload.user_id || preTask?.created_by?.id || null,
       taskTitle: preTask?.title,
+      taskOriginKey: preTask?.origin_key,
       repositories: this.taskRepositories,
       runtimeAdapter,
       sandboxEnvironmentId: getTaskRunStateString(
@@ -4599,6 +4600,7 @@ ${commonInstructions}
     taskRunId,
     taskUserId,
     taskTitle,
+    taskOriginKey,
     repositories,
     runtimeAdapter,
     sandboxEnvironmentId,
@@ -4614,6 +4616,7 @@ ${commonInstructions}
     taskRunId?: string | null;
     taskUserId?: number | null;
     taskTitle?: string | null;
+    taskOriginKey?: string | null;
     repositories?: string[];
     runtimeAdapter?: string | null;
     sandboxEnvironmentId?: string | null;
@@ -4663,6 +4666,7 @@ ${commonInstructions}
       task_run_id: taskRunId,
       task_user_id: taskUserId,
       task_title: taskTitle,
+      task_origin_key: taskOriginKey,
       task_repositories: repositories?.length
         ? JSON.stringify(repositories)
         : null,
