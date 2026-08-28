@@ -246,4 +246,48 @@ describe("subagent tool", () => {
     expect(result.isError).toBeUndefined();
     expect(result.content[0].text).toMatch(/Parallel: 2\/2 succeeded/);
   });
+
+  it.each([
+    {
+      name: "all failed",
+      failed: ["a", "b"],
+      isError: true,
+      summary: /0\/2 succeeded/,
+    },
+    {
+      name: "partially failed",
+      failed: ["a"],
+      isError: undefined,
+      summary: /1\/2 succeeded/,
+    },
+  ])(
+    "flags a $name parallel batch (isError=$isError)",
+    async ({ failed, isError, summary }) => {
+      runAgentMock.mockImplementation(async ({ task }: { task: string }) =>
+        failed.includes(task)
+          ? successResult({
+              task,
+              state: "failed",
+              stopReason: "error",
+              errorMessage: "boom",
+            })
+          : successResult({ task }),
+      );
+      const execute = await getExecute();
+      const result = (await execute(
+        "id",
+        {
+          tasks: [
+            { agent: "Explore", task: "a" },
+            { agent: "Plan", task: "b" },
+          ],
+        },
+        undefined,
+        undefined,
+        fakeCtx,
+      )) as { isError?: boolean; content: Array<{ text: string }> };
+      expect(result.isError).toBe(isError);
+      expect(result.content[0].text).toMatch(summary);
+    },
+  );
 });

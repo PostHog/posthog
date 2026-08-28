@@ -239,6 +239,12 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
             return {
               content: [{ type: "text", text: formatParallelSummary(results) }],
               details: { mode: "parallel", results },
+              // Mirror single mode: a batch where every task failed is an error,
+              // so the tool row renders as failed rather than completed. Partial
+              // success stays non-error.
+              ...(results.length > 0 && results.every(isFailedResult)
+                ? { isError: true }
+                : {}),
             };
           }
 
