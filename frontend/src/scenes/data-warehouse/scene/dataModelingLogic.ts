@@ -830,11 +830,11 @@ export const dataModelingLogic = kea<dataModelingLogicType>([
                 const { upstream, downstream } = buildAdjacencyMaps(edges)
 
                 return (baseName: string, mode: 'upstream' | 'downstream' | 'all'): Set<string> => {
-                    const lowerBaseName = baseName.toLowerCase()
-                    let startNode = nodes.find((n) => n.data.name.toLowerCase() === lowerBaseName)
-                    if (!startNode) {
-                        startNode = nodes.find((n) => n.data.name.toLowerCase().includes(lowerBaseName))
-                    }
+                    // Resolve the lineage start node through the same fuzzy instance the plain search
+                    // uses, so a near-miss term like `custmer+` finds `customer_orders` here too.
+                    // Exact/substring matching left the graph blank while the list view found the model.
+                    graphNodeFuse.setCollection(nodes)
+                    const startNode = graphNodeFuse.search(baseName)[0]?.item
                     if (!startNode) {
                         return new Set()
                     }
