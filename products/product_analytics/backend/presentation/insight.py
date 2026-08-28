@@ -188,6 +188,7 @@ from products.product_analytics.backend.presentation.insight_suggestions import 
     get_insight_analysis,
     get_insight_suggestions,
 )
+from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
 
 from common.hogvm.python.utils import HogVMException
 
@@ -735,6 +736,16 @@ class InsightSerializer(InsightBasicSerializer):
             self.context["request"].user, self.context["get_team"]()
         ):
             raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
+
+        validate_insight_write(
+            query=query,
+            filters=attrs.get("filters"),
+            # A write that omits `query` keeps the stored one, which is still what renders.
+            unchanged_query=None if "query" in attrs else getattr(self.instance, "query", None),
+            team=self.context["get_team"](),
+            user=self.context["request"].user,
+            request=self.context["request"],
+        )
 
         new_dashboard_ids = attrs.get("dashboards")
         if new_dashboard_ids is not None:

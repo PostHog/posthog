@@ -50,6 +50,7 @@ export type CommandMenuAction =
   | "toggle-theme"
   | "toggle-left-sidebar"
   | "open-review-panel"
+  | "archive-task"
   | "go-back"
   | "go-forward"
   | "open-task"
@@ -100,6 +101,7 @@ export interface TaskCreateProperties {
   /** Worktree mode: repo has a non-empty .worktreeinclude file */
   uses_worktree_include?: boolean;
   adapter?: Adapter;
+  codex_model_access?: "posthog-gateway" | "own-subscription";
 }
 
 export interface TaskViewProperties {
@@ -395,6 +397,19 @@ export interface SessionConfigChangedProperties {
   category: string;
   from_value: string;
   to_value: string;
+}
+
+export interface ModelSwitchWarningShownProperties {
+  task_id?: string;
+  from_model: string;
+  to_model: string;
+  context_tokens?: number;
+}
+
+export interface ModelSwitchWarningActionProperties
+  extends ModelSwitchWarningShownProperties {
+  action: "cancel" | "copy_handoff_summary" | "switch_now";
+  result?: "failed" | "succeeded";
 }
 
 // Tour events
@@ -1433,11 +1448,15 @@ export const ANALYTICS_EVENTS = {
 
   // Session config events
   SESSION_CONFIG_CHANGED: "Session config changed",
+  MODEL_SWITCH_WARNING_SHOWN: "Model switch warning shown",
+  MODEL_SWITCH_WARNING_ACTION: "Model switch warning action",
 
   // Settings events
   SETTING_CHANGED: "Setting changed",
   CUSTOM_SOUND_ADDED: "Custom sound added",
   CUSTOM_SOUND_RECORDING_SILENT: "Custom sound recording silent",
+  CODEX_SUBSCRIPTION_CONNECTED: "Codex subscription connected",
+  CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
 
   // Feedback events
   TASK_FEEDBACK: "Task feedback",
@@ -1624,11 +1643,15 @@ export type EventPropertyMap = {
 
   // Session config events
   [ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED]: SessionConfigChangedProperties;
+  [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_SHOWN]: ModelSwitchWarningShownProperties;
+  [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION]: ModelSwitchWarningActionProperties;
 
   // Settings events
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
+  [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;
+  [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT]: never;
 
   // Feedback events
   [ANALYTICS_EVENTS.TASK_FEEDBACK]: TaskFeedbackProperties;

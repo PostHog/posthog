@@ -249,7 +249,7 @@ export function SubscriptionWizard({
                 props={logicProps}
                 formKey="subscription"
                 enableFormOnSubmit
-                className="flex flex-1 flex-col"
+                className="flex flex-1 flex-col min-h-0"
             >
                 <div className="flex min-h-[36rem] flex-1 flex-col overflow-hidden">
                     <header className="border-b p-4">
