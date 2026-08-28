@@ -3334,6 +3334,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // by the kea disposables plugin's beforeUnmount hook
 
         cache.hasInitialized = false
+        cache.lastHandledDeepLinkKey = undefined
         cache.pausedMediaElements = []
 
         actions.setPlayer(null)
@@ -3407,17 +3408,25 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions.schedulePlayerTimeTracking()
     }),
 
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, cache }) => ({
         '*': (_, searchParams, hashParams) => {
             const shouldPause = searchParams.pause || hashParams.pause
             if (shouldPause && !values.pauseForced) {
                 actions.forcePause()
             }
-            const deepLinkTime = parseDeepLinkTime(searchParams.timestamp, searchParams.t)
-            if (deepLinkTime?.kind === 'timestamp') {
-                actions.seekToTimestamp(deepLinkTime.valueMs, true)
-            } else if (deepLinkTime?.kind === 'offset') {
-                actions.seekToTime(deepLinkTime.valueMs)
+            // This handler re-runs on every URL change, including ones that only touch an
+            // unrelated param (opening the inspector, switching a sidebar tab keep `t`). Seek
+            // only when the linked time itself changed, so a routine click does not throw the
+            // playhead back to the linked moment and interrupt playback.
+            const deepLinkKey = `${searchParams.timestamp ?? ''}|${searchParams.t ?? ''}`
+            if (deepLinkKey !== cache.lastHandledDeepLinkKey) {
+                cache.lastHandledDeepLinkKey = deepLinkKey
+                const deepLinkTime = parseDeepLinkTime(searchParams.timestamp, searchParams.t)
+                if (deepLinkTime?.kind === 'timestamp') {
+                    actions.seekToTimestamp(deepLinkTime.valueMs, true)
+                } else if (deepLinkTime?.kind === 'offset') {
+                    actions.seekToTime(deepLinkTime.valueMs)
+                }
             }
         },
     })),
