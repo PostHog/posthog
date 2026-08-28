@@ -16,7 +16,7 @@ from common.hogvm.python.objects import (
     new_hog_closure,
 )
 from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_IDENTIFIER_V0, Operation
-from common.hogvm.python.stl import STL
+from common.hogvm.python.stl import STL, STLFunction
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from common.hogvm.python.utils import (
     HogVMException,
@@ -51,6 +51,19 @@ def _compare_values(left: Any, right: Any, comparison: Callable[[Any, Any], bool
         return comparison(left, right)
     except TypeError as e:
         raise HogVMException(str(e)) from e
+
+
+def _call_stl_function(
+    stl_fn: STLFunction, name: str, args: list[Any], team: Optional["Team"], stdout: list[str], timeout: float
+) -> Any:
+    # The arity check bounds the argument count, but not that every valid count keeps a builtin's
+    # positional access in range (e.g. `multiIf` needs an odd count). An IndexError here means the
+    # source called the builtin with arguments it can not handle, so raise a HogVMException the
+    # caller treats as a broken source instead of a bare crash.
+    try:
+        return stl_fn.fn(args, team, stdout, timeout)
+    except IndexError as e:
+        raise HogVMException(f"Function {name} was called with arguments it can not handle") from e
 
 
 def execute_bytecode(
@@ -564,7 +577,7 @@ def execute_bytecode(
                             args = [pop_stack() for _ in range(arg_count)]
                         else:
                             args = stack_keep_first_elements(len(stack) - arg_count)
-                        push_stack(stl_fn.fn(args, team, stdout, remaining_timeout()))
+                        push_stack(_call_stl_function(stl_fn, name, args, team, stdout, remaining_timeout()))
                     elif name in BYTECODE_STL:
                         arg_names = BYTECODE_STL[name][0]
                         if len(arg_names) != arg_count:
@@ -641,7 +654,7 @@ def execute_bytecode(
                         args = list(reversed([pop_stack() for _ in range(args_length)]))
                         if stl_fn.maxArgs is not None and len(args) < stl_fn.maxArgs:
                             args = [*args, *([None] * (stl_fn.maxArgs - len(args)))]
-                    push_stack(stl_fn.fn(args, team, stdout, remaining_timeout()))
+                    push_stack(_call_stl_function(stl_fn, callable["name"], args, team, stdout, remaining_timeout()))
 
                 elif callable.get("__hogCallable__") == "async":
                     raise HogVMException("Async functions are not supported")

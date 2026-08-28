@@ -190,9 +190,10 @@ class TestBytecodeExecute:
             raise AssertionError("Expected Exception not raised")
 
     def test_every_builtin_tolerates_its_own_min_args(self):
-        # A builtin whose fn indexes past its declared minArgs raises a bare IndexError instead of a
-        # HogVMException, which callers cannot tell apart from a bug in their own code. Blocking
-        # builtins are excluded because calling them would sleep or shell out.
+        # A builtin whose fn indexes past its declared minArgs indexes out of range when called with
+        # exactly minArgs. The VM turns that access into a HogVMException, so a leak means the
+        # builtin's minArgs is too low, not that the source is broken. Blocking builtins are excluded
+        # because calling them would sleep or shell out.
         leaked = []
         for name, stl_fn in STL.items():
             if stl_fn.is_blocking:
@@ -206,10 +207,21 @@ class TestBytecodeExecute:
                 execute_bytecode(bytecode, {})
             except IndexError:
                 leaked.append(name)
+            except HogVMException as e:
+                if "can not handle" in str(e):
+                    leaked.append(name)
             except Exception:
                 pass
 
         assert leaked == []
+
+    def test_builtin_indexing_past_valid_args_raises_hogvm_exception(self):
+        # multiIf needs an odd argument count. Four args pass the min/max arity check but make the
+        # builtin index past its arguments. The VM must surface a HogVMException, not a bare
+        # IndexError a caller reads as an internal crash and pages on.
+        bytecode = [_H, VERSION, op.FALSE, op.INTEGER, 1, op.FALSE, op.INTEGER, 2, op.CALL_GLOBAL, "multiIf", 4]
+        with pytest.raises(HogVMException, match="multiIf was called with arguments it can not handle"):
+            execute_bytecode(bytecode, {})
 
     def test_memory_limits_1(self):
         # let string := 'banana'
