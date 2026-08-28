@@ -34,18 +34,10 @@ def mark_snapshot_as_tolerated(
     if not snapshot.current_hash:
         raise ValueError("Snapshot has no current hash")
 
-    # update_or_create, not get_or_create: the same tuple may already carry a row
-    # the classifier no longer matches, because `complete_run` only reads rows whose
-    # expires_at is null or in the future. get_or_create returns that dead row and
-    # drops the defaults, so the toleration would look like it worked and change
-    # nothing. Clearing expires_at revives it, and rewriting reason and creator
-    # attributes it to whoever decided this time, which also upgrades a row the diff
-    # pipeline minted as auto_threshold into a decision.
-    #
     # Explicit team_id in the lookup (not just defaults) so the IDOR audit
     # rule sees the scope; ProductTeamManager also auto-filters by canonical
     # team — both belt and suspenders.
-    tolerated, _ = ToleratedHash.objects.update_or_create(
+    tolerated, created = ToleratedHash.objects.get_or_create(
         team_id=team_id,
         repo_id=run.repo_id,
         identifier=snapshot.identifier,
@@ -56,13 +48,20 @@ def mark_snapshot_as_tolerated(
             "source_run": run,
             "created_by_id": user_id,
             "diff_percentage": snapshot.diff_percentage,
-            "expires_at": None,
-            # created_at is auto_now_add, so it only fills on insert and a revived row
-            # would keep the old date. The tolerate windows in baseline_overview select
-            # on it, so today's decision would land outside them and read as history.
-            "created_at": timezone.now(),
         },
     )
+
+    # `complete_run` reads only rows whose expires_at is null or in the future, so an
+    # expired row left alone makes this call a silent no-op: it reports success and the
+    # next run flags the snapshot again. Revive it, and change nothing else. The row is
+    # shared by every snapshot that matched this hash pair, and `reason` and `created_at`
+    # describe runs that already happened: `flakiness._SOFT` counts a soft match only
+    # while the row still says auto_threshold, and the baseline overview buckets a
+    # toleration by its created_at. Rewriting either would edit that history. Today's
+    # decision is recorded per snapshot below, which is where it belongs.
+    if not created and tolerated.expires_at is not None:
+        tolerated.expires_at = None
+        tolerated.save(update_fields=["expires_at"])
 
     # result stays CHANGED — it's the technical truth (hashes differ).
     # review_state captures the human decision to tolerate.

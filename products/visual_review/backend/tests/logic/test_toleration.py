@@ -70,6 +70,7 @@ class TestToleratedHashes:
         snapshot = run.snapshots.first()
         toleration.mark_snapshot_as_tolerated(run.id, snapshot.id, user.id, repo.team_id)
         tolerated = ToleratedHash.objects.get(repo_id=repo.id, identifier="Button")
+        created_at = tolerated.created_at
         tolerated.expires_at = timezone.now() - timedelta(days=1)
         tolerated.save(update_fields=["expires_at"])
 
@@ -81,7 +82,11 @@ class TestToleratedHashes:
         # make the toleration look like it worked and change nothing.
         assert updated.tolerated_hash_match is not None
         assert updated.tolerated_hash_match.expires_at is None
-        assert updated.tolerated_hash_match.reason == "agent"
+        # The row is shared with the snapshots that already matched it, and the
+        # flakiness and overview aggregates read reason and created_at to describe
+        # those runs, so a revive must not rewrite them.
+        assert updated.tolerated_hash_match.reason == "human"
+        assert updated.tolerated_hash_match.created_at == created_at
         assert ToleratedHash.objects.filter(repo_id=repo.id, identifier="Button").count() == 1
 
     def test_mark_unchanged_snapshot_rejected(self, repo, user, mocker):
