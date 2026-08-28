@@ -312,7 +312,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                 )
         if self.query.personId:
             with self.timings.measure("person_id"), personhog_caller_tag("persons/sessions-query"):
-                where_exprs.append(self._person_id_where_expr())
+                where_exprs.append(self._person_id_where_expr(self.query.personId))
 
         test_account_event_filters: list = []
         if self.query.filterTestAccounts:
@@ -343,9 +343,9 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         exprs.extend(self._person_property_to_expr(prop) for prop in person_properties)
         return exprs
 
-    def _person_id_where_expr(self) -> ast.Expr:
+    def _person_id_where_expr(self, person_id: str) -> ast.Expr:
         person: Optional[Person] = get_person_by_pk_or_uuid(
-            self.team.pk, self.query.personId, distinct_id_limit=MAX_LIMIT_DISTINCT_IDS
+            self.team.pk, person_id, distinct_id_limit=MAX_LIMIT_DISTINCT_IDS
         )
         # Qualify distinct_id with sessions. when person join is present to avoid ambiguity
         distinct_id_chain: list[str | int] = (
