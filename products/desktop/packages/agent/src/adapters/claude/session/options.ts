@@ -47,6 +47,7 @@ import { loadUserClaudeJsonMcpServers } from "./mcp-config";
 import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
 import { createRtkRewriteHook, resolveRtkPrefix } from "./rtk";
 import type { SettingsManager } from "./settings";
+import { buildTraceparentHookSettingsJson } from "./traceparent-hook";
 
 export interface ProcessSpawnedInfo {
   pid: number;
@@ -115,6 +116,9 @@ export interface BuildOptionsParams {
   getCurrentModelId?: () => string | undefined;
   /** Explicit gateway config — prevents global process.env mutation. */
   gatewayEnv?: GatewayEnv;
+  /** Session's discriminator for the traceparent hook's stderr; the hook is
+   * skipped when absent (see session/traceparent-hook.ts). */
+  traceparentHookNonce?: string;
   /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
   /** Per-session context wiki mount — prevents global process.env mutation. */
@@ -507,6 +511,22 @@ function isLegacyJavaScriptClaudeExecutable(executablePath: string): boolean {
 export function buildSessionOptions(params: BuildOptionsParams): Options {
   ensureLocalSettings(params.cwd);
 
+  // Gateway sessions get the traceparent hook (see session/traceparent-hook.ts)
+  // so each turn's gateway trace id reaches the session as a `hook_response`.
+  // `--settings` is the one hook channel that needs no settingSources; skipped
+  // when the caller supplies its own settings (either the SDK `settings`
+  // option or a raw `extraArgs` flag — both reach the same CLI flag, and the
+  // SDK silently drops the extraArgs one on collision) rather than clobbering
+  // it. The hook command is POSIX shell, so Windows Desktop hosts skip it.
+  const traceparentHookSettings =
+    params.gatewayEnv?.anthropicBaseUrl &&
+    params.traceparentHookNonce &&
+    process.platform !== "win32" &&
+    params.userProvidedOptions?.settings === undefined &&
+    params.userProvidedOptions?.extraArgs?.settings === undefined
+      ? buildTraceparentHookSettingsJson(params.traceparentHookNonce)
+      : undefined;
+
   // Resolve which built-in tools to expose.
   // Explicit tools array from userProvidedOptions takes precedence.
   // disableBuiltInTools is a legacy shorthand for tools: [] — kept for
@@ -541,7 +561,12 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     extraArgs: {
       ...params.userProvidedOptions?.extraArgs,
       "replay-user-messages": "",
+      ...(traceparentHookSettings && { settings: traceparentHookSettings }),
     },
+    // Surfaces the traceparent hook's output as `hook_response` messages.
+    includeHookEvents:
+      params.userProvidedOptions?.includeHookEvents ??
+      traceparentHookSettings !== undefined,
     mcpServers: buildMcpServers(
       params.userProvidedOptions?.mcpServers,
       params.mcpServers,

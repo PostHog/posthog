@@ -211,7 +211,7 @@ function RunSurfaceThread({
                     sessionId={feedbackSessionId}
                     turnIndex={trailer.turnIndex}
                     run={feedbackRun}
-                    isLastTurn={trailer.isLastTurn}
+                    traceId={trailer.traceId}
                     turnText={trailer.turnText}
                 />
             ) : null,

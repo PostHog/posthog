@@ -45,6 +45,7 @@ function makeParams() {
     isResume: false,
     settingsManager: new SettingsManager(cwd),
     taskState: new Map(),
+    traceparentHookNonce: "0123456789abcdef",
   };
 }
 
@@ -610,6 +611,58 @@ describe("buildSessionOptions", () => {
       expect(env?.TRACEPARENT).toBe(
         "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
       );
+    });
+
+    it("registers the traceparent hook and hook events for gateway sessions", () => {
+      const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+
+      const settings = JSON.parse(String(options.extraArgs?.settings));
+      const hook = settings.hooks.UserPromptSubmit[0].hooks[0];
+      expect(hook.command).toContain("$TRACEPARENT");
+      expect(options.includeHookEvents).toBe(true);
+    });
+
+    it("registers no traceparent hook for BYOK sessions", () => {
+      const options = buildSessionOptions(makeParams());
+
+      expect(options.extraArgs?.settings).toBeUndefined();
+      expect(options.includeHookEvents).toBe(false);
+    });
+
+    it("never clobbers a caller-supplied settings flag", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        userProvidedOptions: { extraArgs: { settings: '{"model":"x"}' } },
+      });
+
+      expect(options.extraArgs?.settings).toBe('{"model":"x"}');
+    });
+
+    it("skips the hook when the caller uses the SDK settings option", () => {
+      // Both channels feed the same CLI flag; the SDK silently drops the
+      // extraArgs one, which would kill the caller's settings.
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        userProvidedOptions: { settings: '{"model":"x"}' },
+      });
+
+      expect(options.extraArgs?.settings).toBeUndefined();
+    });
+
+    it("skips the POSIX hook on Windows hosts", () => {
+      const platform = Object.getOwnPropertyDescriptor(process, "platform");
+      Object.defineProperty(process, "platform", { value: "win32" });
+      try {
+        const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+        expect(options.extraArgs?.settings).toBeUndefined();
+        expect(options.includeHookEvents).toBe(false);
+      } finally {
+        if (platform) {
+          Object.defineProperty(process, "platform", platform);
+        }
+      }
     });
   });
 });
