@@ -3926,13 +3926,26 @@ def _parse_datetime(value: str | None) -> datetime | None:
         return None
 
 
-def trigger_calendar_sync(team_id: int, integration_id: int) -> str | None:
+def trigger_calendar_sync(
+    team_id: int,
+    integration_id: int,
+    *,
+    user_id: int | None,
+    has_management_access: bool,
+) -> str | None:
     """Start the calendar-sync workflow for one connected calendar, outside the hourly
     schedule. Returns 'started', 'already_running' (a sync for this calendar is in
     flight; the workflow id is deterministic per integration), or None when the
     integration doesn't exist for this team (→ 404)."""
-    if not Integration.objects.filter(id=integration_id, team_id=team_id, kind="google-calendar").exists():
+    integration = (
+        Integration.objects.only("id", "kind", "created_by_id")
+        .filter(id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.GOOGLE_CALENDAR)
+        .first()
+    )
+    if integration is None:
         return None
+    if not has_management_access and not integration.can_be_managed_by_creator(user_id):
+        raise ResourceForbiddenError
 
     from posthog.temporal.common.client import sync_connect  # noqa: PLC0415 — keeps temporal off the import path
 
