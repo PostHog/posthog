@@ -55,6 +55,9 @@ server reads SubBatch frame             stamp armedAt; hand the allowance to the
     per-element chain
       ◆ StepPipeline.process            soft-exhausted? → timeout, skip the step
       ◆ chunk steps                     pre-mark soft-exhausted elements timeout, run the rest
+      ◆ timeoutBarrier                  the last checkpoint: exhausted → timeout here;
+                                        else the budget swaps to unlimited — everything
+                                        past the barrier runs to completion
     handleResults                       timeout: metric only, no produce
     afterBatch flush                    always runs; commits completed events' writes
   ack PARTIAL { accepted, timed_out: [indices] }
@@ -69,6 +72,12 @@ server reads SubBatch frame             stamp armedAt; hand the allowance to the
 
 Retries are deliberately not a checkpoint: the retry wrappers compose steps and see only the value, so an in-flight step runs its remaining attempts to their configured limit.
 The overrun histogram measures that tail, and the watchdog bounds it.
+
+A pipeline places one **timeout barrier** (`.timeoutBarrier()`) before its first step whose side effects make finishing cheaper than redelivering.
+The barrier is the last checkpoint: an element arriving exhausted is cut there — the cheapest possible cut, nothing critical done — and an element arriving with time has its budget swapped to the unlimited singleton, so every later checkpoint is a no-op and the element is guaranteed to complete.
+The analytics chain puts it between `normalizeEvent` and the person block (`processPersonless` → `processPersons` → `processGroups` → `createEvent` → `emitEvent`): a cut after a person merge but before the emit would redeliver the most expensive, contention-heavy work in the pipeline, where finishing costs one chain tail.
+Merge planning stays in front of the barrier deliberately — it is a pure in-memory scan, so cutting it redelivers a plan, not a write.
+The trade this buys the tail: after expiry, elements already past the barrier finish their remaining chain instead of stopping at the next step — bounded by the in-flight window, and still well inside the watchdog margin.
 
 `TIMEOUT` means "not acked, redeliver" — the one **unacked** result; the other four all mean "handled, do not resend".
 A timed-out element still emits a result, so `BatchingPipeline`'s count invariant holds untouched: N messages in, N results out, `afterBatch` flush still runs for the events that did finish.
@@ -293,25 +302,34 @@ Everything here is inert: no code constructs a limited budget until Phase C buil
     `CompletedSubBatch` gains `accepted` / `timedOut` computed from the completed batch's elements in feed order; the server acks `PARTIAL` when `timedOut` is non-empty after `settled`, `OK` otherwise.
     Tests assert the ack invariant from the wire-protocol section.
 
-### Phase D — consumer (follow-up PR, commits 12–18)
+### The timeout barrier (commits 12–13)
+
+12. `feat(ingestion): timeoutBarrier — elements past it run to completion`
+    The builder stage: the last checkpoint — an exhausted element is cut at the barrier (`budget exceeded before timeoutBarrier`); a live one has its context budget swapped to the unlimited singleton, so everything past the barrier completes.
+    A batch with no time policy crosses without allocating.
+    Unit tests plus a docs-chapter case proving post-expiry completion past the barrier.
+13. `feat(ingestion): run events to completion once person processing starts`
+    The analytics chain places the barrier between `normalizeEvent` and `processPersonless`: parse, validation, transforms, prefetches, and merge planning stay cuttable; person and group writes and the event emit always finish.
+
+### Phase D — consumer (follow-up PR, commits 14–20)
 
 This branch stays on the Node.js side; the consumer commits land in a follow-up PR.
 The wire compatibility rules make the split safe: an old consumer treats `PARTIAL` as retriable `BUSY`, and no consumer sends a budget yet, so the worker's budgets are all unlimited and no `PARTIAL` ack is ever produced.
 
-12. `feat(ingestion-consumer): stamp the sub-batch soft budget from config`
+14. `feat(ingestion-consumer): stamp the sub-batch soft budget from config`
     `INGESTION_WORKER_SUB_BATCH_SOFT_BUDGET_MS` (default 0 — today's semantics), stamped on every `SubBatch`.
-13. `feat(ingestion-consumer): parse PARTIAL acks fail-closed`
+15. `feat(ingestion-consumer): parse PARTIAL acks fail-closed`
     The ack invariant validates on receipt — `timed_out` non-empty, `accepted + timed_out.len() == messages.len()`, `OK` requires it empty; violations handle like `FAILED`.
     A valid `PARTIAL` temporarily takes the existing retriable path (what an old consumer does), so this commit is safe before the mixed resolve exists.
-14. `feat(ingestion-consumer): remap chunk dispositions to sub-batch indices`
+16. `feat(ingestion-consumer): remap chunk dispositions to sub-batch indices`
     The transport's per-message reply shape replaces all-or-nothing acceptance: each 413-split chunk's `timed_out` indices remap to sub-batch positions and merge into one resolution.
-15. `feat(ingestion-consumer): mixed resolve — release completed, stash the remainder`
+17. `feat(ingestion-consumer): mixed resolve — release completed, stash the remainder`
     The dispatcher resolves a partial ack by releasing completed messages and stashing the rest, preserving the outstanding-count invariants (net unchanged for stashed keys, never zero mid-handoff); the cascade rule then defers newer groups behind the stash as today.
-16. `feat(ingestion-consumer): advance watermarks from completed messages only`
+18. `feat(ingestion-consumer): advance watermarks from completed messages only`
     The order sentinel computes a key's watermark from the completed subset of a partial ack, so redelivery of the remainder is not a resend-after-ack violation.
-17. `feat(ingestion-consumer): escalate never-fitting events to unbudgeted resends`
+19. `feat(ingestion-consumer): escalate never-fitting events to unbudgeted resends`
     Stash entries from partial acks carry an attempt count; every `timed_out` occurrence increments it; after N budget-limited attempts the message resends with budget 0, with a counter.
-18. `chore(ingestion-consumer): e2e coverage for partial acks`
+20. `chore(ingestion-consumer): e2e coverage for partial acks`
     `grpc_transport_test.rs` and the integration harness: partial ack → redelivery → completion, hot-key ordering preserved across partial acks, the escalation path.
 
 Out of scope for this branch: the consumer (Phase D, a follow-up PR), a per-step time policy (rollout stage 5 — driven by production overrun metrics), a worker-side hard deadline (designed, implemented, and dropped — § alternatives considered), and any production config enabling budgets.
