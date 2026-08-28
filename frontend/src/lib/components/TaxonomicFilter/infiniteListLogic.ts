@@ -562,7 +562,8 @@ export interface infiniteListLogicMeta {
             listGroupType: TaxonomicFilterGroupType,
             searchQuery: string,
             isLoading: boolean,
-            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
+            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
+            excludedProperties: string[] | undefined
         ) => boolean
         suggestedFiltersSettling: (
             isSuggestedFilters: boolean,
@@ -1255,13 +1256,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         showNonCapturedEventOption: [
-            (s) => [s.allowNonCapturedEvents, s.listGroupType, s.searchQuery, s.isLoading, s.results],
+            (s) => [
+                s.allowNonCapturedEvents,
+                s.listGroupType,
+                s.searchQuery,
+                s.isLoading,
+                s.results,
+                s.excludedProperties,
+            ],
             (
                 allowNonCapturedEvents: boolean,
                 listGroupType: TaxonomicFilterGroupType,
                 searchQuery: string,
                 isLoading: boolean,
-                results: TaxonomicDefinitionTypes[]
+                results: TaxonomicDefinitionTypes[],
+                excludedProperties: string[] | undefined
             ): boolean => {
                 if (!allowNonCapturedEvents) {
                     return false
@@ -1272,7 +1281,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 ) {
                     return false
                 }
-                if (searchQuery.trim().length === 0 || isLoading) {
+                const trimmedSearch = searchQuery.trim()
+                if (trimmedSearch.length === 0 || isLoading) {
+                    return false
+                }
+                // A name this picker excludes is not an uncaptured event: offering it would commit
+                // the value the exclusion forbids.
+                if (excludedProperties?.includes(trimmedSearch)) {
                     return false
                 }
                 // Keyword-shortcut QuickFilterItems don't represent captured events — ignore them

@@ -348,17 +348,23 @@ describe('useGroupList', () => {
             await waitFor(() => expect(result.current.isLoading).toBe(false))
         })
 
-        it('allowNonCapturedEvents surfaces the option for empty Events search', async () => {
+        // Transformation filters exclude `$exception` while allowing uncaptured events, so an excluded
+        // name must never be offered as "not seen yet".
+        it.each([
+            ['unseen', true],
+            ['$exception', false],
+        ])('allowNonCapturedEvents offers %p for an empty Events search: %p', async (query, expected) => {
             apiGet.mockResolvedValueOnce({ results: [], count: 0 })
             const group = makeGroup({
                 type: TaxonomicFilterGroupType.Events,
                 endpoint: 'api/projects/1/event_definitions',
+                excludedProperties: ['$exception'],
             })
             const { result } = renderHook(() =>
-                useGroupList({ group, searchQuery: 'unseen', allowNonCapturedEvents: true })
+                useGroupList({ group, searchQuery: query, allowNonCapturedEvents: true })
             )
             await waitFor(() => expect(result.current.isLoading).toBe(false))
-            expect(result.current.showNonCapturedEventOption).toBe(true)
+            expect(result.current.showNonCapturedEventOption).toBe(expected)
         })
     })
 })

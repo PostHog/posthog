@@ -916,6 +916,33 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    // Transformation filters exclude `$exception` while allowing uncaptured events, so an excluded
+    // name must never be offered as "not seen yet".
+    describe('the "not seen yet" option and excluded names', () => {
+        const EXCLUDED_EVENT = '$exception'
+
+        it.each([
+            [EXCLUDED_EVENT, false],
+            ['checkout_started', true],
+        ])('searching %p offers the option: %p', async (query, expected) => {
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: `excluded-events-${query}`,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+                allowNonCapturedEvents: true,
+                excludedProperties: { [TaxonomicFilterGroupType.Events]: [EXCLUDED_EVENT] },
+            })
+            listLogic.mount()
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setSearchQuery(query)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ showNonCapturedEventOption: expected })
+        })
+    })
+
     describe('data warehouse pin lifecycle', () => {
         beforeEach(() => {
             const databaseLogic = databaseTableListLogic()
