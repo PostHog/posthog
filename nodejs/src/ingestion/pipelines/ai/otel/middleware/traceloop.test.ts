@@ -240,6 +240,21 @@ describe('traceloop middleware', () => {
             expect(event.properties!['$ai_stop_reason']).toBeUndefined()
         })
 
+        it('lifts the per-completion finish reason from indexed attributes', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'gen_ai.completion.0.role': 'assistant',
+                'gen_ai.completion.0.content': 'hi',
+                'gen_ai.completion.0.finish_reason': 'length',
+            })
+            traceloop.process(event, () => mapOtelAttributes(event))
+
+            expect(event.properties!['$ai_stop_reason']).toBe('length')
+            expect(event.properties!['$ai_output_choices']).toEqual([
+                { role: 'assistant', content: 'hi', finish_reason: 'length' },
+            ])
+        })
+
         it('maps gen_ai.response.finish_reasons when the llm.* names are absent', () => {
             const event = createEvent('$ai_generation', {
                 'llm.request.type': 'chat',

@@ -1,6 +1,7 @@
 import { parseJSON } from '~/common/utils/json-parse'
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { liftStopReasonFromOutputChoices } from './stop-reason'
 import { OtelLibraryMiddleware } from './types'
 
 const LOGFIRE_STRIP_KEYS = [
@@ -26,21 +27,9 @@ function process(event: PluginEvent, next: () => void): void {
         props['$ai_span_name'] = props['logfire.msg']
     }
 
-    // pydantic-ai carries the finish reason on each output message rather than as a span attribute,
-    // and the generic mapping has already turned `gen_ai.output.messages` into $ai_output_choices by
-    // this point. Read the last message that names one, so the reason survives as its own property.
-    if (props['$ai_stop_reason'] === undefined && Array.isArray(props['$ai_output_choices'])) {
-        for (const choice of [...props['$ai_output_choices']].reverse()) {
-            const finishReason =
-                typeof choice === 'object' && choice !== null
-                    ? (choice as { finish_reason?: unknown }).finish_reason
-                    : undefined
-            if (typeof finishReason === 'string' && finishReason !== '') {
-                props['$ai_stop_reason'] = finishReason
-                break
-            }
-        }
-    }
+    // pydantic-ai reports the finish reason inside each `gen_ai.output.messages` entry, and the
+    // generic mapping in next() renamed that attribute to $ai_output_choices.
+    liftStopReasonFromOutputChoices(props)
 
     const isAgentRun = event.event === '$ai_trace' || props['pydantic_ai.all_messages'] !== undefined
     if (isAgentRun) {
