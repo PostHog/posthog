@@ -4,7 +4,12 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 import { Experiment } from '~/types'
 
-import { hasEnded, isExperimentExposureFrozen, isExperimentPaused, isLaunched } from './experimentsLogic'
+import {
+    hasEnded,
+    isExperimentExposureFrozen,
+    isExperimentPaused,
+    isLaunched,
+} from 'products/experiments/frontend/experimentStatus'
 
 /** Whether an experiment is in a state where it can be archived (ignoring permissions). */
 export function canArchiveExperiment(

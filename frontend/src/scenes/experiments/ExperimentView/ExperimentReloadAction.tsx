@@ -13,8 +13,9 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Label } from 'lib/ui/Label/Label'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
+import { hasEnded } from 'products/experiments/frontend/experimentStatus'
+
 import { experimentLogic } from '../experimentLogic'
-import { hasEnded } from '../experimentStatus'
 
 /**
  * Hook to check if experiment data is stale and trigger refresh if needed.

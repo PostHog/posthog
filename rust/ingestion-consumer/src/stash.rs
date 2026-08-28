@@ -3,7 +3,7 @@
 //! When a routing key is pinned to a worker that is draining or dead, new
 //! messages for that key can't be sent there (it must finish and exit) and
 //! can't be re-routed elsewhere yet (the key's earlier messages are still in
-//! flight on that worker — re-routing now would reorder the distinct_id). So
+//! flight on that worker — re-routing now would reorder the key). So
 //! they are *stashed* here until the worker's in-flight resolves, then flushed
 //! (re-routed) in order.
 //!
@@ -237,18 +237,15 @@ mod tests {
     use super::*;
     use crate::types::SerializedKafkaMessage;
 
-    fn msg(distinct_id: &str) -> SerializedKafkaMessage {
-        let mut headers = HashMap::new();
-        headers.insert("token".to_string(), "t".to_string());
-        headers.insert("distinct_id".to_string(), distinct_id.to_string());
+    fn msg(key: &str) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
             topic: "test".to_string(),
             partition: 0,
             offset: 0,
             timestamp: 0,
-            key: None,
+            key: Some(key.to_string()),
             value: None,
-            headers,
+            headers: HashMap::new(),
         }
     }
 

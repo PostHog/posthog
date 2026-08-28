@@ -58,6 +58,9 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
+import { AgentAnalytics } from 'products/web_analytics/frontend/agent_analytics/AgentAnalytics'
+import { AgentAnalyticsFilters } from 'products/web_analytics/frontend/agent_analytics/AgentAnalyticsFilters'
+
 import { BotAnalyticsFilters } from './BotAnalyticsFilters'
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
@@ -647,6 +650,8 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
             return <BotAnalyticsFilters tabs={tabs} />
         case ProductTab.PAGE_PERFORMANCE:
             return <PagePerformanceFilters tabs={tabs} />
+        case ProductTab.AGENTS:
+            return <AgentAnalyticsFilters tabs={tabs} />
         default:
             return <WebAnalyticsFilters tabs={tabs} />
     }
@@ -673,6 +678,10 @@ const MainContent = (): JSX.Element => {
 
     if (productTab === ProductTab.PAGE_PERFORMANCE) {
         return <PagePerformance />
+    }
+
+    if (productTab === ProductTab.AGENTS) {
+        return <AgentAnalytics />
     }
 
     return <Tiles />
@@ -773,6 +782,27 @@ const pagePerformanceTab = (
                 </div>
             ),
             link: urls.webAnalyticsPagePerformance(),
+        },
+    ]
+}
+
+const agentAnalyticsTab = (
+    featureFlags: FeatureFlagsSet
+): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_AGENT_ANALYTICS]) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.AGENTS,
+            label: (
+                <div className="flex items-center gap-1">
+                    Agents
+                    <LemonTag type="completion">Alpha</LemonTag>
+                </div>
+            ),
+            link: urls.webAnalyticsAgents(),
         },
     ]
 }
@@ -891,6 +921,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 ...liveTab(),
                 ...botAnalyticsTab(featureFlags),
                 ...pagePerformanceTab(featureFlags),
+                ...agentAnalyticsTab(featureFlags),
                 ...healthTab(),
             ]}
             sceneInset

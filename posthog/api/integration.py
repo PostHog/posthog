@@ -1952,8 +1952,8 @@ class IntegrationViewSet(
             raise ValidationError("domain query parameter is required")
 
         # Extract root domain so subdomains (e.g. ph.example.com) resolve correctly
-        root_domain, _ = extract_root_domain_and_host(domain)
-        result = discover_domain_connect(root_domain)
+        domain_parts = extract_root_domain_and_host(domain)
+        result = discover_domain_connect(domain_parts.root_domain)
         return Response(
             {
                 "supported": result is not None,

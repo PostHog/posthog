@@ -27,6 +27,8 @@ import { urls } from 'scenes/urls'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { isExperimentExposureFrozen, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
+
 import {
     canArchiveExperiment,
     canFreezeExposure,
@@ -37,7 +39,6 @@ import {
     confirmUnfreezeExposure,
 } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
-import { isExperimentExposureFrozen, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { isLegacyExperiment } from '../utils'
 

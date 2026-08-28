@@ -12,8 +12,9 @@ import { urls } from 'scenes/urls'
 import { ExperimentMetric, isExperimentRatioMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
+import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
+
 import { EXPERIMENT_RECALCULATION_MAX_AGE_DAYS } from '../../constants'
-import { hasEnded, isLaunched } from '../../experimentsLogic'
 import { experimentTimeseriesLogic } from '../../experimentTimeseriesLogic'
 import { VariantTag } from '../../ExperimentView/VariantTag'
 import { MetricTitle } from '../shared/MetricTitle'
@@ -102,6 +103,7 @@ export function TimeseriesModal({
                 {timeseriesLoading ? (
                     <div
                         className="flex items-center justify-center gap-2 text-[14px] font-normal"
+                        //eslint-disable-next-line react/forbid-dom-props
                         style={{ height: '200px' }}
                     >
                         <Spinner className="text-lg" />

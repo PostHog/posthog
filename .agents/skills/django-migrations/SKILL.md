@@ -5,6 +5,8 @@ description: Django migration patterns and safety workflow for PostHog. Use when
 
 # Django migrations
 
+Before you propose a change to the migration history or to how migrations run, check [things already tried](../../../docs/internal/ci-things-already-tried.md). It records the closed attempts at squashing the history and at the Person table cutover.
+
 Read these files first, before writing or editing a migration:
 
 - `docs/published/handbook/engineering/developing-locally.md` (`## Django migrations`, `### Non-blocking migrations`, `### Resolving merge conflicts`)
