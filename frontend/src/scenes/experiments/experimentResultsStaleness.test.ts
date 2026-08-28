@@ -2,7 +2,8 @@ import { dayjs } from 'lib/dayjs'
 
 import { CachedNewExperimentQueryResponse } from '~/queries/schema/schema-general'
 
-import { NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES } from './constants'
+import { NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES } from 'products/experiments/frontend/constants'
+
 import { experimentResultsAreStale } from './experimentLogic'
 
 const THRESHOLD = NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES
