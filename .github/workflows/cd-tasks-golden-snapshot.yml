@@ -118,6 +118,28 @@ jobs:
                   echo "ref=${REQUESTED_REF}" >> "$GITHUB_OUTPUT"
                   echo "::notice::ref ${REQUESTED_REF} confirmed an ancestor of master"
 
+    # TEMP diagnostic (dev bake 401): decode the OIDC token this workflow mints
+    # and print only the non-secret claims hogplane's github_oidc trust mapping
+    # matches on. Ungated so it runs from a manual dispatch on any branch (the
+    # token itself is never printed). Remove once the ref-pin mismatch is found.
+    debug_oidc:
+        name: Debug OIDC claims presented to hogplane
+        if: github.event_name == 'workflow_dispatch'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            id-token: write
+        steps:
+            - name: Decode OIDC claims (non-secret)
+              env:
+                  HOG_OIDC_AUDIENCE: hogland.dev.posthog.dev
+              run: |
+                  set -euo pipefail
+                  tok=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$HOG_OIDC_AUDIENCE" | jq -re .value)
+                  echo "token segments: $(printf '%s' "$tok" | awk -F. '{print NF}')"
+                  printf '%s' "$tok" | cut -d. -f2 | python3 -c 'import sys,base64,json; p=sys.stdin.read().strip(); p+="="*(-len(p)%4); c=json.loads(base64.urlsafe_b64decode(p)); print(json.dumps({k:c.get(k) for k in ["repository","repository_owner","ref","job_workflow_ref","workflow","workflow_ref","event_name","sub","aud","iss"]}, indent=2))'
+
     # Render the agent skills the golden ships, the same way the sandbox-base image
     # build does (cd-sandbox-base-image.yml's build_skills job): stand up a DB,
     # uv sync, migrate, `hogli build:skills` to render the .md.j2 templates, then
@@ -443,19 +465,6 @@ jobs:
                   fi
                   tar -czf "$RUNNER_TEMP/golden-skills.tar.gz" -C "$SRC" .
                   echo "SKILLS_TARBALL=$RUNNER_TEMP/golden-skills.tar.gz" >> "$GITHUB_ENV"
-
-            # TEMP diagnostic (dev bake 401): decode the OIDC token this job
-            # presents to hogplane and print only the non-secret claims the
-            # github_oidc trust mapping matches on. The token itself is never
-            # printed. Remove once the ref-pinned mapping mismatch is understood.
-            - name: Debug OIDC claims presented to hogplane
-              if: env.skip != 'true'
-              run: |
-                  set -euo pipefail
-                  tok=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$HOG_OIDC_AUDIENCE" | jq -re .value)
-                  echo "audience requested: $HOG_OIDC_AUDIENCE"
-                  echo "token segments: $(printf '%s' "$tok" | awk -F. '{print NF}')"
-                  printf '%s' "$tok" | cut -d. -f2 | python3 -c 'import sys,base64,json; p=sys.stdin.read().strip(); p+="="*(-len(p)%4); c=json.loads(base64.urlsafe_b64decode(p)); print(json.dumps({k:c.get(k) for k in ["repository","repository_owner","ref","job_workflow_ref","workflow","workflow_ref","event_name","sub","aud","iss"]}, indent=2))'
 
             # The hogland CLI lives in the private PostHog/hogland repo. Check it
             # out with a scoped App token and build it, mirroring
