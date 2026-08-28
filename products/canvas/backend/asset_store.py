@@ -13,7 +13,8 @@ from typing import Any
 from uuid import UUID
 
 import structlog
-from PIL import Image, ImageOps
+import defusedxml.ElementTree as ET
+from PIL import Image, ImageOps, features
 
 from posthog.dataclasses import frozen
 from posthog.storage import object_storage
@@ -26,8 +27,7 @@ logger = structlog.get_logger(__name__)
 _ASSET_CACHE_CONTROL = "private, max-age=31536000, immutable"
 
 # Raster formats are verified by decoding with PIL, which catches truncated or
-# mislabeled files. AVIF and SVG are checked by signature only: Pillow needs a
-# plugin for AVIF, and SVG is XML.
+# mislabeled files.
 _RASTER_MAGIC: list[tuple[bytes, str]] = [
     (b"\x89PNG\r\n\x1a\n", "image/png"),
     (b"\xff\xd8\xff", "image/jpeg"),
@@ -61,6 +61,20 @@ def _verify_raster(data: bytes) -> bool:
         return False
 
 
+def _verify_svg(data: bytes) -> bool:
+    """Well-formed XML whose root element is <svg>.
+
+    Parsed with defusedxml, so a document that defines entities or references
+    external ones is rejected rather than expanded. Text or HTML that merely
+    contains "<svg" does not parse to an svg root and is rejected.
+    """
+    try:
+        root = ET.fromstring(data)
+    except Exception:
+        return False
+    return isinstance(root.tag, str) and root.tag.rsplit("}", 1)[-1] == "svg"
+
+
 def sniff_image_content_type(data: bytes) -> str | None:
     """The content type of well-formed image bytes, or None.
 
@@ -74,10 +88,14 @@ def sniff_image_content_type(data: bytes) -> str | None:
     if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
         return "image/webp" if _verify_raster(data) else None
     if data[4:12] in (b"ftypavif", b"ftypavis"):
+        # Decode to reject a truncated or forged AVIF where the Pillow build
+        # supports it; older builds without AVIF fall back to the signature.
+        if features.check("avif"):
+            return "image/avif" if _verify_raster(data) else None
         return "image/avif"
     head = data[:4096].lstrip(b"\xef\xbb\xbf \t\r\n")
     if head.startswith(b"<") and b"<svg" in head:
-        return "image/svg+xml"
+        return "image/svg+xml" if _verify_svg(data) else None
     return None
 
 
