@@ -71,12 +71,22 @@ def _expected_billable(labels: list[str], elapsed: int | None) -> int | None:
     return max(elapsed, 0)
 
 
-def _job_row(job_id: int, labels: list[str], started: str, completed: str | None, status: str) -> dict[str, Any]:
+def _job_row(
+    job_id: int,
+    labels: list[str],
+    started: str | None,
+    completed: str | None,
+    status: str,
+    *,
+    run_id: int | None = None,
+    run_attempt: int = 1,
+    name: str | None = None,
+) -> dict[str, Any]:
     return {
         "id": job_id,
-        "run_id": 9000 + job_id,
-        "run_attempt": 1,
-        "name": f"job-{job_id}",
+        "run_id": run_id if run_id is not None else 9000 + job_id,
+        "run_attempt": run_attempt,
+        "name": name if name is not None else f"job-{job_id}",
         "workflow_name": "CI",
         "status": status,
         "conclusion": "success" if status == "completed" else None,
@@ -169,3 +179,59 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
                 assert cost is None, scenario
             else:
                 assert cost == pytest.approx(expected_cost), scenario
+
+    def test_rerun_copies_are_flagged_and_not_costed(self) -> None:
+        # "Re-run failed jobs" on a run whose 'passed' job succeeded and whose 'failed' job did not:
+        # GitHub lists BOTH under attempt 2, but only 'failed' actually ran again — 'passed' is
+        # re-listed with a new id and attempt 1's exact timestamps. Costing that row bills minutes
+        # Depot never charged for. The two 'queued' rows guard the NULL trap: neither attempt has
+        # timestamps yet, and NULL == NULL inside a PARTITION BY, so they must not read as copies.
+        labels = ["depot-ubuntu-latest"]
+        run_id = 7700
+        jobs_table = self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(1, labels, _BASE, _plus(600), "completed", run_id=run_id, run_attempt=1, name="passed"),
+                _job_row(2, labels, _BASE, _plus(300), "completed", run_id=run_id, run_attempt=1, name="failed"),
+                # The re-listing: new job id, attempt 1's start and finish verbatim.
+                _job_row(3, labels, _BASE, _plus(600), "completed", run_id=run_id, run_attempt=2, name="passed"),
+                # The real re-run: same name, but it ran later, so it is not a copy.
+                _job_row(4, labels, _plus(700), _plus(1000), "completed", run_id=run_id, run_attempt=2, name="failed"),
+                _job_row(5, labels, None, None, "queued", run_id=run_id, run_attempt=1, name="queued"),
+                _job_row(6, labels, None, None, "queued", run_id=run_id, run_attempt=2, name="queued"),
+            ],
+        )
+        runs_table = self._create_table(
+            "github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [dict.fromkeys(WORKFLOW_RUNS_COLUMNS)]
+        )
+
+        sql = (
+            "SELECT job_name, run_attempt, is_rerun_copy, duration_seconds, billable_seconds, estimated_cost_usd "
+            f"FROM ({job_costs.build_query(jobs_table=jobs_table, runs_table=runs_table)}) "
+            "ORDER BY job_name, run_attempt"
+        )
+        rows = execute_hogql_query(query=sql, team=self.team, query_type="engineering_analytics.test").results
+        by_attempt = {(row[0], row[1]): row for row in rows}
+
+        # Every attempt is still a row — the view's grain is unchanged, the copy is only flagged.
+        assert len(rows) == 6
+
+        _n, _a, copy, duration, billable, cost = by_attempt[("passed", 2)]
+        assert copy
+        # The wall-clock duration stays honest (it is what GitHub reports); only the money is dropped.
+        assert duration == 600
+        assert billable is None
+        assert cost is None
+
+        for key in (("passed", 1), ("failed", 1), ("failed", 2)):
+            _n, _a, copy, _duration, billable, cost = by_attempt[key]
+            assert not copy, key
+            assert billable == _expected_billable(labels, 600 if key == ("passed", 1) else 300), key
+            assert cost == pytest.approx(estimate_job_cost_usd(labels, billable)), key
+
+        for key in (("queued", 1), ("queued", 2)):
+            _n, _a, copy, duration, billable, cost = by_attempt[key]
+            assert not copy, key
+            # Unsettled, not a copy: no elapsed, so no cost — never a $0.00.
+            assert duration is None and billable is None and cost is None, key

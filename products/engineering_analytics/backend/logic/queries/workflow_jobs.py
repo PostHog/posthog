@@ -7,6 +7,8 @@ degrades to an empty breakdown instead of erroring. Per-job cost is derived from
 
 A re-run carries several attempts under one ``run_id``; scoping to a single ``run_attempt`` keeps a
 row's statuses, durations, and costs from merging across attempts (and double-counting cost). The
+attempt's job list is shown whole, matching GitHub's own — including the already-passed jobs GitHub
+re-lists under it — but those rows carry no cost, since nothing ran (``is_rerun_copy``). The
 caller passes the attempt it's showing; when omitted, the run's latest attempt is read from the runs
 source (not the synced job rows) so a default lookup tracks the canonical attempt even when only older
 attempts' jobs have synced — returning an empty breakdown rather than stale jobs for that case.
@@ -25,7 +27,7 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 # by start, a run with >100 jobs (matrix builds, re-run attempts) would silently drop its latest-starting
 # jobs — the breakdown would then miss jobs and not add up to the run's cost.
 _SELECT = """
-    SELECT id, run_id, run_attempt, name, status, conclusion, labels, runner_name, started_at, completed_at, duration_seconds
+    SELECT id, run_id, run_attempt, name, status, conclusion, labels, runner_name, started_at, completed_at, duration_seconds, is_rerun_copy
     FROM __JOBS_SOURCE__ AS j
     WHERE run_id = {run_id}
     ORDER BY started_at ASC, id ASC
@@ -91,6 +93,7 @@ def _to_job(row: tuple[Any, ...]) -> WorkflowJob:
         started_at,
         completed_at,
         duration,
+        is_rerun_copy,
     ) = row
     labels = _parse_labels(labels_raw)
     duration_seconds = int(duration) if duration is not None else None
@@ -106,7 +109,9 @@ def _to_job(row: tuple[Any, ...]) -> WorkflowJob:
         duration_seconds=duration_seconds,
         runner_provider=provider,
         runner_label=runner_label or (runner_name or ""),
-        estimated_cost_usd=estimate_job_cost_usd(labels, duration_seconds),
+        # A row GitHub re-listed under this attempt without re-running it costs nothing — the
+        # attempt that actually ran already carries the minutes (see the workflow_jobs builder).
+        estimated_cost_usd=estimate_job_cost_usd(labels, duration_seconds, is_rerun_copy=bool(is_rerun_copy)),
     )
 
 

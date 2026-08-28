@@ -174,11 +174,15 @@ class CuratedGitHubSource:
         )
         return f"({query})"
 
-    def jobs_source(self) -> str | None:
-        """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced."""
+    def jobs_source(self, *, created_floor: bool = False) -> str | None:
+        """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced.
+
+        ``created_floor`` adds the raw-string scan floor inside the builder — callers must register
+        {job_created_floor} (see run_started_floor_constant). A windowed caller needs it: the builder's
+        ``is_rerun_copy`` window blocks an outer ``created_at_raw`` predicate from pruning the scan."""
         if not self._tables.workflow_jobs:
             return None
-        return f"({workflow_jobs.build_query(self._tables.workflow_jobs)})"
+        return f"({workflow_jobs.build_query(self._tables.workflow_jobs, created_floor=created_floor)})"
 
     def trunk_merge_queue_source(self) -> str | None:
         """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the

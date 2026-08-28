@@ -54,7 +54,11 @@ _AGGREGATE_SELECT = f"""
         countIf(conclusion IN ('failure', 'timed_out')) / nullIf(countIf(status = 'completed'), 0) AS failure_rate,
         countIf(run_attempt > 1) AS retry_job_count
     FROM __JOBS_SOURCE__ AS j
-    WHERE workflow_name = {{workflow_name}} AND created_at >= {{date_from}} __DATE_TO__ __BRANCH__
+    -- NOT is_rerun_copy: "Re-run failed jobs" re-lists every already-passed job under the new attempt
+    -- with the earlier attempt's timestamps. Counting those would double every duration sample and
+    -- report retry pressure for jobs nobody retried.
+    WHERE NOT is_rerun_copy
+        AND workflow_name = {{workflow_name}} AND created_at >= {{date_from}} __DATE_TO__ __BRANCH__
     GROUP BY job_name
     ORDER BY job_count DESC
     LIMIT {_LIMIT}

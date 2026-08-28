@@ -90,6 +90,13 @@ class TestCostModel:
     def test_estimate_job_cost_is_none_when_not_depot_billed(self, _name, labels, elapsed):
         assert estimate_job_cost_usd(labels, elapsed) is None
 
+    def test_estimate_job_cost_is_none_for_a_rerun_copy(self):
+        # GitHub re-lists an already-passed job under the next run_attempt with the earlier attempt's
+        # timestamps. Nothing ran, so there are no minutes to bill — None, not the elapsed-derived
+        # figure the same labels and duration would otherwise produce.
+        assert estimate_job_cost_usd(["depot-ubuntu-latest"], 600) is not None
+        assert estimate_job_cost_usd(["depot-ubuntu-latest"], 600, is_rerun_copy=True) is None
+
     def test_estimate_job_cost_is_none_for_unknown_elapsed(self):
         # A queued / not-yet-started Depot job has no elapsed time: report None ("cost unknown"),
         # never 0.0 — so a consumer never shows a pending job as $0.00.

@@ -36,7 +36,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.cost import (
     PRCostAggregate,
-    render_is_billable_tier,
+    render_is_billable_job,
     runner_tier_descriptor,
 )
 from products.engineering_analytics.backend.logic.queries._buckets import (
@@ -54,9 +54,10 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     window_pair_predicates,
 )
 
-# The billable-tier predicate over the cost source's classified columns — defined once in logic.cost
-# so 'depot'/'linux' never appear as literals here.
-_BILLABLE_TIER = render_is_billable_tier("c.provider", "c.os")
+# The billable-row predicate over the cost source's classified columns — defined once in logic.cost
+# so 'depot'/'linux' never appear as literals here. Row, not tier: a GitHub re-run copy sits on a
+# billable tier but never executed, so it belongs in excluded_jobs rather than in no bucket at all.
+_BILLABLE_ROW = render_is_billable_job("c.provider", "c.os", "c.is_rerun_copy")
 
 
 def _cost_aggregates(when: str = "1", suffix: str = "") -> str:
@@ -65,15 +66,15 @@ def _cost_aggregates(when: str = "1", suffix: str = "") -> str:
 
     ``billable_seconds`` sums ``greatest(elapsed, 0)`` over costed rows; ``cost_sum`` sums the rendered
     per-job dollar cost; ``costed_jobs`` counts rows with a non-NULL cost; ``unsettled_jobs`` and
-    ``excluded_jobs`` complete the three-bucket partition. ``costed_jobs`` is what tells "$0.00" apart
+    ``excluded_jobs`` complete the three-bucket partition (a re-run copy is excluded — it never ran). ``costed_jobs`` is what tells "$0.00" apart
     from "nothing to cost" downstream — a SQL sum can't.
     """
     return (
         f"sumIf(ifNull(c.billable_seconds, 0), {when}) AS billable_seconds{suffix}, "
         f"sumIf(c.estimated_cost_usd, c.estimated_cost_usd IS NOT NULL AND ({when})) AS cost_sum{suffix}, "
         f"countIf(c.estimated_cost_usd IS NOT NULL AND ({when})) AS costed_jobs{suffix}, "
-        f"countIf({_BILLABLE_TIER} AND c.duration_seconds IS NULL AND ({when})) AS unsettled_jobs{suffix}, "
-        f"countIf(NOT {_BILLABLE_TIER} AND ({when})) AS excluded_jobs{suffix}"
+        f"countIf({_BILLABLE_ROW} AND c.duration_seconds IS NULL AND ({when})) AS unsettled_jobs{suffix}, "
+        f"countIf(NOT {_BILLABLE_ROW} AND ({when})) AS excluded_jobs{suffix}"
     )
 
 

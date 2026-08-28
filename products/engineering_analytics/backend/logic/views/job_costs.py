@@ -6,6 +6,12 @@ and renders the Depot cost model from ``logic.cost`` as ClickHouse expressions, 
 are computed at query time from the same constants the Python model uses. The cost model stays
 defined once in ``logic.cost``; this module only wires its rendered expressions over the join.
 
+Rows are kept for every job attempt the source landed, including the ones GitHub re-listed under a
+later attempt without re-running them ("Re-run failed jobs" copies — see the ``workflow_jobs``
+builder). Dropping them would make this view disagree with ``ci_job_history`` on what a run contains,
+so instead they are flagged ``is_rerun_copy`` and carry no cost: nothing executed, so Depot billed
+nothing, and counting them over-reported this repo's CI spend by ~2.6%.
+
 ``build_query`` produces the SELECT for one GitHub source; ``build_team_view`` unions every
 qualifying source into the single view body. The join is a LEFT JOIN (all jobs are kept — a job
 whose run row is missing keeps NULL attribution) rather than the INNER join the per-PR cost
@@ -79,6 +85,12 @@ FIELDS: dict[str, FieldOrTable] = {
     # so "what does the merge queue cost" doesn't get answered by re-deriving a gate branch from
     # head_branch, which would put that definition somewhere other than logic/merge_queue.py.
     "is_merge_queue": BooleanDatabaseField(name="is_merge_queue"),
+    # The row is a job GitHub re-listed under a later run_attempt without re-running it (see the
+    # workflow_jobs builder). Non-nullable, like is_merge_queue: it is derived, not read off the
+    # source. Exposed because it is the third reason the cost columns can be NULL — provider says
+    # "non-billable tier", completed_at says "unsettled", this says "never executed" — so a consumer
+    # can still tell the three apart, and can drop copies from duration metrics too.
+    "is_rerun_copy": BooleanDatabaseField(name="is_rerun_copy"),
 }
 
 
@@ -109,8 +121,9 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
     """The per-job cost SELECT for one GitHub source: curated jobs LEFT JOIN curated runs.
 
     Grain is one row per job attempt (a retry appears once per attempt — correct for cost). The
-    cost columns are derived only from the job's ``labels`` + elapsed, so an unjoined run (no ``r``
-    row) leaves only the attribution columns (``repo_owner`` / ``repo_name`` / ``pr_number``) NULL.
+    cost columns are derived only from the job's ``labels``, elapsed, and ``is_rerun_copy``, so an
+    unjoined run (no ``r`` row) leaves only the attribution columns (``repo_owner`` / ``repo_name`` /
+    ``pr_number``) NULL.
 
     Layered so each per-row classification step is computed once: the join layer parses ``labels_arr``;
     the label layer picks ``depot_label`` / ``hosted_label`` from it (one ``arrayFilter`` scan each);
@@ -152,9 +165,10 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
             os,
             vcpu,
             {render_multiplier("vcpu")} AS multiplier,
-            {render_billable_seconds("provider", "os", "duration_seconds")} AS billable_seconds,
-            {render_estimated_cost_usd("provider", "os", "vcpu", "duration_seconds")} AS estimated_cost_usd,
-            is_merge_queue{run_columns}
+            {render_billable_seconds("provider", "os", "is_rerun_copy", "duration_seconds")} AS billable_seconds,
+            {render_estimated_cost_usd("provider", "os", "vcpu", "is_rerun_copy", "duration_seconds")} AS estimated_cost_usd,
+            is_merge_queue,
+            is_rerun_copy{run_columns}
         FROM (
             SELECT
                 repo_owner,
@@ -174,6 +188,7 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
                 queue_seconds,
                 duration_seconds,
                 is_merge_queue,
+                is_rerun_copy,
                 {render_provider("depot_label", "hosted_label")} AS provider,
                 {render_os("depot_label", "hosted_label")} AS os,
                 {render_vcpu("depot_label", "hosted_label")} AS vcpu{run_columns}
@@ -196,6 +211,7 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
                     queue_seconds,
                     duration_seconds,
                     is_merge_queue,
+                    is_rerun_copy,
                     {render_depot_label("labels_arr")} AS depot_label,
                     {render_hosted_label("labels_arr")} AS hosted_label{run_columns}
                 FROM (
@@ -219,6 +235,7 @@ def build_query(*, jobs_table: str, runs_table: str, include_run_columns: bool =
                         j.queue_seconds AS queue_seconds,
                         j.duration_seconds AS duration_seconds,
                         r.is_merge_queue AS is_merge_queue,
+                        j.is_rerun_copy AS is_rerun_copy,
                         {labels_array} AS labels_arr{inner_run_columns}
                     FROM ({jobs}) AS j
                     LEFT JOIN ({runs}) AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
