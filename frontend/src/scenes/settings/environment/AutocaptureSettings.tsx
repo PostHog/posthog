@@ -106,8 +106,8 @@ function AutocapturePrivacyGuidance(): JSX.Element {
                         hiding sensitive elements
                     </Link>{' '}
                     and{' '}
-                    <Link to="https://posthog.com/docs/privacy/data-collection#masking-sensitive-information">
-                        masking with before_send
+                    <Link to="https://posthog.com/docs/privacy/data-collection#overriding-captured-events">
+                        editing events with before_send
                     </Link>
                     .
                 </li>
