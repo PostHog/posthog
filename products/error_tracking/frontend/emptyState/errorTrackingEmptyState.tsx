@@ -28,22 +28,24 @@ export const errorTrackingEmptyState: SceneProductEmptyState = {
             'waiting-for-data': {
                 headline: "You're set up. Waiting for the first exception",
                 lead: 'Exception capture is on. When your app throws, the error shows up here on its own, grouped into an issue with its stack trace.',
-                hint: 'Adding another platform? The docs cover every SDK:',
             },
         },
+        // Autocapture is already on in `waiting-for-data`, so the opt-in only belongs on the setup screen.
         primaryAction: {
-            label: 'Enable exception autocapture',
-            onClick: () => {
-                const mounted = teamLogic.findMounted()
-                mounted?.actions.addProductIntent({
-                    product_type: ProductKey.ERROR_TRACKING,
-                    intent_context: ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
-                })
-                mounted?.actions.updateCurrentTeam({ autocapture_exceptions_opt_in: true })
-            },
-            accessControl: {
-                resourceType: AccessControlResourceType.ErrorTracking,
-                minAccessLevel: AccessControlLevel.Editor,
+            'needs-setup': {
+                label: 'Enable exception autocapture',
+                onClick: () => {
+                    const mounted = teamLogic.findMounted()
+                    mounted?.actions.addProductIntent({
+                        product_type: ProductKey.ERROR_TRACKING,
+                        intent_context: ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
+                    })
+                    mounted?.actions.updateCurrentTeam({ autocapture_exceptions_opt_in: true })
+                },
+                accessControl: {
+                    resourceType: AccessControlResourceType.ErrorTracking,
+                    minAccessLevel: AccessControlLevel.Editor,
+                },
             },
         },
         docsUrl: 'https://posthog.com/docs/error-tracking',
