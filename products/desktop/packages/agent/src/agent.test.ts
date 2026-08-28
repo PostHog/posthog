@@ -86,8 +86,6 @@ describe("Agent", () => {
   });
 
   it("uses the machine's Claude Code login for an own-subscription session", async () => {
-    // No posthog API config at all: subscription mode must not require or
-    // fetch gateway credentials.
     const agent = new Agent({ skipLogPersistence: true });
 
     await agent.run("task-1", "run-1", {

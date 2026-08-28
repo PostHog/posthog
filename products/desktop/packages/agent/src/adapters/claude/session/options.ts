@@ -116,13 +116,6 @@ export interface BuildOptionsParams {
   getCurrentModelId?: () => string | undefined;
   /** Explicit gateway config — prevents global process.env mutation. */
   gatewayEnv?: GatewayEnv;
-  /**
-   * Authenticate with the machine's own Claude Code login. Strips every
-   * credential variable that outranks the login in Claude Code's auth
-   * precedence (including ambient shell values) and skips PostHog headers.
-   * Explicit opt-in — cloud sessions share this chokepoint and must keep
-   * gateway auth.
-   */
   useMachineAuth?: boolean;
   /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
@@ -194,14 +187,6 @@ function buildEnvironment(
   const mcpNonblocking = process.env.MCP_CONNECTION_NONBLOCKING;
 
   if (useMachineAuth) {
-    // Own-subscription mode: model calls go to api.anthropic.com with the
-    // machine's Claude Code login. Delete every credential variable that
-    // outranks the login in Claude Code's auth precedence — both our gateway
-    // values and ambient shell exports, which the agent's shells can read.
-    // ANTHROPIC_CUSTOM_HEADERS must go too: no x-posthog-* header may reach
-    // Anthropic. CLAUDE_CODE_OAUTH_TOKEN stays — it is itself a subscription
-    // credential. Telemetry stays off: it only enables with a gateway base
-    // URL, and spans carry no task attribution here.
     const env: Record<string, string> = {
       ...process.env,
       ...((process.versions.electron || process.env.ELECTRON_RUN_AS_NODE) && {
@@ -220,11 +205,8 @@ function buildEnvironment(
     delete env.ANTHROPIC_AUTH_TOKEN;
     delete env.ANTHROPIC_API_KEY;
     delete env.ANTHROPIC_CUSTOM_HEADERS;
-    // The gateway also sets these for OpenAI-compatible tools; in machine-auth
-    // mode only ambient values could survive, and they must not either.
     delete env.OPENAI_BASE_URL;
     delete env.OPENAI_API_KEY;
-    // The login lives in the machine's Claude config dir, not the app's.
     applyMachineClaudeConfigDir(env);
     applyContextWikiEnv(env, contextWiki);
     return env;
@@ -648,8 +630,6 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
   }
 
   if (!options.fallbackModel && !params.useMachineAuth) {
-    // The pinned fallback is a gateway-era model version the user's Claude
-    // plan may not have, so machine-auth sessions run without a fallback.
     options.fallbackModel = resolveFallbackModel(
       options.model ?? DEFAULT_MODEL,
     );

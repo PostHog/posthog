@@ -71,7 +71,6 @@ export interface TaskExecutionOptions {
   model?: string;
   gatewayUrl?: string;
   codexModelAccess?: CodexModelAccess;
-  /** Claude adapter: run on the machine's own Claude Code login instead of the PostHog gateway. */
   claudeModelAccess?: ModelAccess;
   codexBinaryPath?: string;
   codexHome?: string;

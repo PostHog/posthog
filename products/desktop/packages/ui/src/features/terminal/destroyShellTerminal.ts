@@ -10,9 +10,7 @@ import { useTerminalStore } from "./terminalStore";
 const log = logger.scope("destroy-shell-terminal");
 
 // Standalone terminals have no task/workspace teardown to kill their pty, so
-// removal must destroy the server-side session explicitly. It must also drop
-// the renderer instance: the manager keeps an exited instance, and a later
-// terminal with the same session id would attach to it instead of starting.
+// removal must destroy the server-side session explicitly.
 export function destroyTerminalSession(
   sessionId: string,
   stateKey: string = sessionId,

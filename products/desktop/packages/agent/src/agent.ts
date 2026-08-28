@@ -82,10 +82,6 @@ export class Agent {
     taskRunId: string,
     options: TaskExecutionOptions = {},
   ): Promise<InProcessAcpConnection> {
-    // Own-subscription Claude sessions authenticate with the machine's Claude
-    // Code login, so the gateway (and the credential it would fetch) is not
-    // needed. Skipping resolution also keeps a missing/failed gateway config
-    // from failing the run.
     const claudeSubscription =
       options.adapter === "claude" &&
       options.claudeModelAccess === "own-subscription";
