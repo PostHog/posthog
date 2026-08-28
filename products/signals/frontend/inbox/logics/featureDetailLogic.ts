@@ -105,6 +105,13 @@ export interface featureDetailLogicActions {
     seedSelectedReport: (report: SignalReport | null) => {
         report: SignalReport | null
     } // inboxSceneLogic
+    loadCurrentTeamSuccess: (
+        currentTeam: null | import('~/types').TeamPublicType,
+        payload?: any
+    ) => {
+        currentTeam: null | import('~/types').TeamPublicType
+        payload?: any
+    } // teamLogic
     cancelAnswering: () => {
         value: true
     }
@@ -230,6 +237,8 @@ export const featureDetailLogic = kea<featureDetailLogicType>([
             ['loadReportArtefacts', 'loadReportArtefactsSuccess'],
             inboxSceneLogic,
             ['seedSelectedReport', 'loadSelectedReport'],
+            teamLogic,
+            ['loadCurrentTeamSuccess'],
         ],
     })),
 
@@ -451,6 +460,11 @@ export const featureDetailLogic = kea<featureDetailLogicType>([
     }),
 
     listeners(({ actions, values, props, cache }) => ({
+        loadCurrentTeamSuccess: () => {
+            if (!values.ownerScoutConfig) {
+                actions.loadOwnerScoutConfig()
+            }
+        },
         // Poll while the planning agent writes from its sandbox. Re-evaluating after each artefact
         // load stops the interval as soon as planning completes.
         loadReportArtefactsSuccess: () => {
@@ -497,10 +511,11 @@ export const featureDetailLogic = kea<featureDetailLogicType>([
             actions.setPromotingFeature(true)
             try {
                 await signalsFeaturesPromoteCreate(String(values.currentProjectId), props.reportId)
-                lemonToast.success('Feature promoted')
+                lemonToast.success('Feature promoted. Its owner scout is active.')
                 actions.loadReportArtefacts()
                 actions.loadSelectedReport({ id: props.reportId })
                 actions.loadOwnerScoutConfig()
+                actions.setActiveSubTab('owner')
             } catch (error: unknown) {
                 lemonToast.error(featureDetailErrorMessage(error, 'Feature could not be promoted. Try again.'))
             } finally {

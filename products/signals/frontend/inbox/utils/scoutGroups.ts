@@ -3,7 +3,7 @@ import { dayjs } from 'lib/dayjs'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
-import { dailyCronToTime, formatRunIntervalShort, prettifyScoutSkillName, ScoutRollup } from './scoutRunsWindow'
+import { dailyCronToTime, formatRunIntervalShort, scoutDisplayName, ScoutRollup } from './scoutRunsWindow'
 
 /**
  * Where a scout sits in the roster, in the backend's own lifecycle vocabulary.
@@ -90,7 +90,7 @@ export interface ScoutRosterRow {
 
 /** A→Z by display name — the roster's default order and the Scout column's sort. */
 export function compareScoutsByName(a: SignalScoutConfig, b: SignalScoutConfig): number {
-    return prettifyScoutSkillName(a.skill_name).localeCompare(prettifyScoutSkillName(b.skill_name))
+    return scoutDisplayName(a).localeCompare(scoutDisplayName(b))
 }
 
 /** Longest run summary the roster shows before it stops being scannable. */

@@ -7,6 +7,7 @@ import {
     deriveRunOutcome,
     mostRecentEmittedRuns,
     runMatchesFilter,
+    scoutDisplayName,
     ScoutRunOutcome,
     scoutReportActivityLabel,
 } from './scoutRunsWindow'
@@ -33,6 +34,20 @@ function makeRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRun
 }
 
 describe('scoutRunsWindow report channel', () => {
+    describe('scoutDisplayName', () => {
+        it.each([
+            ['feature owner metadata', 'Owner - Session replay search', 'Owner - Session replay search'],
+            ['missing metadata', '', 'Feature 01a02457'],
+        ])('%s', (_name, displayName, expected) => {
+            expect(
+                scoutDisplayName({
+                    display_name: displayName,
+                    skill_name: 'signals-scout-feature-01a02457',
+                })
+            ).toEqual(expected)
+        })
+    })
+
     // The report channel (emit_report/edit_report) is invisible to emitted_count, so a report-authoring
     // run used to read as "quiet / 0 signals emitted". These lock in that report activity counts as output.
     describe('deriveRunOutcome', () => {

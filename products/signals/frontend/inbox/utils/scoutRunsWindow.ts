@@ -98,6 +98,10 @@ export function prettifyScoutSkillName(skillName: string): string {
     return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
 }
 
+export function scoutDisplayName(config: Pick<SignalScoutConfig, 'display_name' | 'skill_name'>): string {
+    return config.display_name.trim() || prettifyScoutSkillName(config.skill_name)
+}
+
 // ── Run status / outcome ─────────────────────────────────────────────────────
 
 export type ScoutRunStatus = 'completed' | 'failed' | 'running' | 'queued' | 'unknown'

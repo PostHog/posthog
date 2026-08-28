@@ -47,7 +47,7 @@ import {
     computeScoutRollups,
     FleetSummary,
     isSettledRun,
-    prettifyScoutSkillName,
+    scoutDisplayName,
     SCOUT_ROSTER_WINDOW_HOURS,
     SCOUT_RUNS_PER_SCOUT,
     SCOUT_RUNS_WINDOW_HOURS,
@@ -801,7 +801,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     .filter(
                         (config) =>
                             !query ||
-                            prettifyScoutSkillName(config.skill_name).toLowerCase().includes(query) ||
+                            scoutDisplayName(config).toLowerCase().includes(query) ||
                             config.skill_name.toLowerCase().includes(query) ||
                             (config.description ?? '').toLowerCase().includes(query)
                     )
@@ -1011,7 +1011,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 if (!config) {
                     return
                 }
-                const displayName = prettifyScoutSkillName(config.skill_name)
+                const displayName = scoutDisplayName(config)
                 // Scout skills are seeded under the canonical (parent/root) team, and the coordinator's
                 // `register_missing_configs` only scans skill rows there — so archive against the canonical
                 // project id, not the raw child-environment team id. Archiving the child team would 404 (the

@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { ScoutGroupKey, scoutSubtitle } from '../../../utils/scoutGroups'
-import { prettifyScoutSkillName, ScoutRollup } from '../../../utils/scoutRunsWindow'
+import { scoutDisplayName, ScoutRollup } from '../../../utils/scoutRunsWindow'
 
 const SUBTITLE_TONE_CLASS = {
     danger: 'text-danger',
@@ -28,7 +28,7 @@ export function ScoutNameCell({
         <div className="flex flex-col gap-0.5 py-0.5">
             <div className="flex items-center gap-2">
                 <Link to={urls.inboxScout(config.skill_name)} subtle className="truncate text-sm font-medium">
-                    {prettifyScoutSkillName(config.skill_name)}
+                    {scoutDisplayName(config)}
                 </Link>
                 {config.auto_pause_exempt && group === 'watching' && (
                     <Tooltip title="Exempt from auto-pause — this scout is supposed to stay quiet">
