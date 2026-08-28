@@ -138,9 +138,7 @@ async def test_subscription_slo_failure_summary_preserves_mixed_failure_details(
 
     assert summary == {
         "failure_stage": "asset_generation",
-        "failure_category": "mixed",
         "failure_categories": ["application", "renderer_rate_limited"],
-        "failure_component": "mixed",
         "failure_components": ["browserless", "exporter"],
         "failed_asset_count": 3,
         "failure_category_count": 2,
@@ -150,7 +148,7 @@ async def test_subscription_slo_failure_summary_preserves_mixed_failure_details(
     }
 
 
-async def test_subscription_slo_failure_summary_reports_unclassified_when_no_category_known() -> None:
+async def test_subscription_slo_failure_summary_counts_unclassified_assets() -> None:
     summary = _summarize_export_failure_details(
         [
             ExportError(exception_class="OperationalError"),
@@ -158,9 +156,6 @@ async def test_subscription_slo_failure_summary_reports_unclassified_when_no_cat
         ]
     )
 
-    # No asset carries a category, so the scalar must not claim "mixed" (several causes).
-    assert summary["failure_category"] == "unclassified"
-    assert summary["failure_component"] == "unclassified"
     assert summary["failure_categories"] == []
     assert summary["failure_components"] == []
     assert summary["failed_asset_count"] == 2
@@ -2088,8 +2083,6 @@ async def test_partial_export_failure_delivers_successful_assets(
         assert props["asset_errors"][0]["failure_component"] == "exporter"
         assert props["asset_errors"][0]["failure_retryable"] is False
         assert props["failure_stage"] == "asset_generation"
-        assert props["failure_category"] == "application"
-        assert props["failure_component"] == "exporter"
         assert props["failed_asset_count"] == 1
         assert props["failure_category_count"] == 1
         assert props["failure_categories"] == ["application"]

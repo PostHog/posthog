@@ -57,7 +57,7 @@ class ExportAssetWorkflow(PostHogWorkflow):
                 if is_user_query_error:
                     inputs.slo.outcome = SloOutcome.SUCCESS
                 else:
-                    if failure:
+                    if failure and failure.failure_details:
                         inputs.slo.completion_properties.update(failure.failure_details)
                     inputs.slo.completion_properties["failure_stage"] = "asset_generation"
             raise

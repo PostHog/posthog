@@ -168,3 +168,18 @@ async def test_export_asset_activity_refresh_failure_preserves_export_error(
             await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
 
     assert exc_info.value.type == "ValueError"
+    metadata = [
+        detail
+        for detail in exc_info.value.details
+        if isinstance(detail, dict) and detail.get("kind") == "export_activity_failure"
+    ]
+    assert metadata == [
+        {
+            "kind": "export_activity_failure",
+            "slo_failure_details": {
+                "failure_category": "application",
+                "failure_component": "exporter",
+                "failure_retryable": False,
+            },
+        }
+    ]

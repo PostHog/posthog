@@ -1,5 +1,6 @@
 import sys
 from ssl import SSLError
+from typing import TypedDict
 
 from django.db import OperationalError
 
@@ -72,12 +73,21 @@ SLO_FAILURE_CATEGORY_QUERY_CAPACITY = "query_capacity"
 SLO_FAILURE_CATEGORY_STORAGE = "storage"
 SLO_FAILURE_CATEGORY_TRANSIENT_DEPENDENCY = "transient_dependency"
 SLO_FAILURE_CATEGORY_APPLICATION = "application"
+SLO_FAILURE_CATEGORY_ACTIVITY_TIMEOUT = "activity_timeout"
 
 SLO_FAILURE_COMPONENT_BROWSERLESS = "browserless"
 SLO_FAILURE_COMPONENT_QUERY = "query"
 SLO_FAILURE_COMPONENT_STORAGE = "object_storage"
 SLO_FAILURE_COMPONENT_DEPENDENCY = "dependency"
 SLO_FAILURE_COMPONENT_EXPORTER = "exporter"
+SLO_FAILURE_COMPONENT_EXPORT_WORKER = "export_worker"
+
+
+class ExportFailureDetails(TypedDict):
+    failure_category: str
+    failure_component: str
+    failure_retryable: bool
+
 
 RATE_LIMIT_MESSAGE_PREFIX_CHARS = 8_000
 
@@ -282,7 +292,7 @@ def is_user_query_error_type(exception_type: str | None) -> bool:
     return classify_failure_type(exception_type) == FAILURE_TYPE_USER
 
 
-def export_slo_failure_details(exception: Exception | str) -> dict[str, str | bool]:
+def export_slo_failure_details(exception: Exception | str) -> ExportFailureDetails:
     """Return safe, low-cardinality SLO dimensions for an export failure.
 
     This deliberately does not include the exception message. It is emitted on

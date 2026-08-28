@@ -38,8 +38,6 @@ def unwrap_temporal_cause(exc: BaseException) -> ApplicationError | None:
 
 
 def find_temporal_timeout_error(exc: BaseException) -> TemporalTimeoutError | None:
-    """Find a Temporal timeout anywhere in a failure-wrapper chain."""
-
     current: BaseException | None = exc
     while isinstance(current, FailureError):
         if isinstance(current, TemporalTimeoutError):

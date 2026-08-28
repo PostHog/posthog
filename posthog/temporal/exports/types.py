@@ -1,17 +1,23 @@
 import dataclasses
-from typing import Final, Literal, Optional, TypedDict
+from typing import Optional, TypedDict, cast
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.errors import find_temporal_timeout_error, resolve_error_trace, unwrap_temporal_cause
 
-from products.exports.backend.tasks.failure_handler import SLO_FAILURE_CATEGORY_QUERY, is_user_query_error_type
+from products.exports.backend.tasks.failure_handler import (
+    SLO_FAILURE_CATEGORY_ACTIVITY_TIMEOUT,
+    SLO_FAILURE_CATEGORY_QUERY,
+    SLO_FAILURE_COMPONENT_EXPORT_WORKER,
+    ExportFailureDetails,
+    is_user_query_error_type,
+)
 
-EXPORT_FAILURE_METADATA_KIND: Final[Literal["export_activity_failure"]] = "export_activity_failure"
+_EXPORT_FAILURE_METADATA_KIND = "export_activity_failure"
 
 
 class ExportFailureMetadata(TypedDict):
-    kind: Literal["export_activity_failure"]
-    slo_failure_details: dict[str, str | bool]
+    kind: str
+    slo_failure_details: ExportFailureDetails
 
 
 @dataclasses.dataclass
@@ -24,7 +30,7 @@ class ExportAssetActivityInputs:
 class ExportError:
     exception_class: str
     error_trace: str = ""
-    failure_details: dict[str, str | bool] = dataclasses.field(default_factory=dict)
+    failure_details: ExportFailureDetails | None = None
 
 
 @dataclasses.dataclass
@@ -35,19 +41,14 @@ class ExportAssetResult:
 
 
 def is_user_query_export_error(error: ExportError) -> bool:
-    """Use activity metadata before falling back to legacy exception names."""
-
-    failure_category = error.failure_details.get("failure_category")
-    if failure_category is not None:
-        return failure_category == SLO_FAILURE_CATEGORY_QUERY
+    if error.failure_details is not None:
+        return error.failure_details["failure_category"] == SLO_FAILURE_CATEGORY_QUERY
     return is_user_query_error_type(error.exception_class)
 
 
-def export_failure_metadata(slo_failure_details: dict[str, str | bool]) -> ExportFailureMetadata:
-    """Wrap export failure fields in a named Temporal detail payload."""
-
+def export_failure_metadata(slo_failure_details: ExportFailureDetails) -> ExportFailureMetadata:
     return {
-        "kind": EXPORT_FAILURE_METADATA_KIND,
+        "kind": _EXPORT_FAILURE_METADATA_KIND,
         "slo_failure_details": slo_failure_details,
     }
 
@@ -62,8 +63,8 @@ def extract_error_details(exc: BaseException) -> ExportError | None:
             exception_class=type(timeout).__name__,
             error_trace=resolve_error_trace(exc),
             failure_details={
-                "failure_category": "activity_timeout",
-                "failure_component": "export_worker",
+                "failure_category": SLO_FAILURE_CATEGORY_ACTIVITY_TIMEOUT,
+                "failure_component": SLO_FAILURE_COMPONENT_EXPORT_WORKER,
                 "failure_retryable": True,
             },
         )
@@ -73,13 +74,12 @@ def extract_error_details(exc: BaseException) -> ExportError | None:
         (
             detail
             for detail in reversed(cause.details)
-            if isinstance(detail, dict) and detail.get("kind") == EXPORT_FAILURE_METADATA_KIND
+            if isinstance(detail, dict) and detail.get("kind") == _EXPORT_FAILURE_METADATA_KIND
         ),
         None,
     )
-    failure_details = metadata.get("slo_failure_details", {}) if metadata else {}
-    if not isinstance(failure_details, dict):
-        failure_details = {}
+    raw_failure_details: object = metadata.get("slo_failure_details") if metadata else None
+    failure_details = cast(ExportFailureDetails, raw_failure_details) if isinstance(raw_failure_details, dict) else None
     return ExportError(
         exception_class=cause.type,
         error_trace=resolve_error_trace(exc),

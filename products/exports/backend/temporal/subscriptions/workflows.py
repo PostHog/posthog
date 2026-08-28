@@ -3,7 +3,8 @@ import uuid
 import asyncio
 import datetime as dt
 from collections.abc import Callable, Coroutine
-from typing import Any, Literal
+from enum import StrEnum
+from typing import Any
 
 import temporalio.common
 import temporalio.workflow
@@ -30,6 +31,10 @@ from posthog.temporal.exports.types import (
     is_user_query_export_error,
 )
 
+from products.exports.backend.tasks.failure_handler import (
+    SLO_FAILURE_CATEGORY_ACTIVITY_TIMEOUT,
+    SLO_FAILURE_COMPONENT_EXPORT_WORKER,
+)
 from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
     create_delivery_record,
@@ -69,37 +74,28 @@ from products.exports.backend.temporal.subscriptions.types import (
     UpdateDeliveryRecordInputs,
 )
 
-type SubscriptionFailureStage = Literal[
-    "delivery_record",
-    "validation",
-    "asset_preparation",
-    "asset_generation",
-    "report_generation",
-    "delivery",
-    "record_update",
-    "schedule_update",
-]
+
+class SubscriptionFailureStage(StrEnum):
+    DELIVERY_RECORD = "delivery_record"
+    VALIDATION = "validation"
+    ASSET_PREPARATION = "asset_preparation"
+    ASSET_GENERATION = "asset_generation"
+    REPORT_GENERATION = "report_generation"
+    DELIVERY = "delivery"
+    RECORD_UPDATE = "record_update"
+    SCHEDULE_UPDATE = "schedule_update"
+
 
 _FAILURE_STAGE_COMPONENT: dict[SubscriptionFailureStage, str] = {
-    "delivery_record": "delivery_record",
-    "validation": "subscription_validation",
-    "asset_preparation": "export_preparation",
-    "asset_generation": "export_worker",
-    "report_generation": "ai_report_generation",
-    "delivery": "subscription_delivery",
-    "record_update": "delivery_record",
-    "schedule_update": "subscription_schedule",
+    SubscriptionFailureStage.DELIVERY_RECORD: "delivery_record",
+    SubscriptionFailureStage.VALIDATION: "subscription_validation",
+    SubscriptionFailureStage.ASSET_PREPARATION: "export_preparation",
+    SubscriptionFailureStage.ASSET_GENERATION: SLO_FAILURE_COMPONENT_EXPORT_WORKER,
+    SubscriptionFailureStage.REPORT_GENERATION: "ai_report_generation",
+    SubscriptionFailureStage.DELIVERY: "subscription_delivery",
+    SubscriptionFailureStage.RECORD_UPDATE: "delivery_record",
+    SubscriptionFailureStage.SCHEDULE_UPDATE: "subscription_schedule",
 }
-
-_AGGREGATE_FAILURE_DETAIL_KEYS = (
-    "failure_categories",
-    "failure_components",
-    "failed_asset_count",
-    "failure_category_count",
-    "retryable_failed_asset_count",
-    "non_retryable_failed_asset_count",
-    "unclassified_failed_asset_count",
-)
 
 
 def _to_recipient_dicts(recipient_results: list[RecipientResult]) -> list[dict]:
@@ -142,28 +138,18 @@ def _build_outcome_assets(
     return outcome_assets, successful_asset_ids
 
 
-def _summarize_scalar_dimension(values: list[str]) -> str:
-    # No known value means the cause is unknown, so report "unclassified" rather than
-    # "mixed" — "mixed" must keep its meaning of several distinct known causes.
-    if not values:
-        return "unclassified"
-    return values[0] if len(values) == 1 else "mixed"
-
-
 def _summarize_export_failure_details(errors: list[ExportError]) -> dict[str, str | int | list[str]]:
     """Summarize per-asset failure dimensions onto one subscription SLO event."""
 
-    details = [error.failure_details for error in errors if error.failure_details]
-    categories = sorted({str(detail["failure_category"]) for detail in details if "failure_category" in detail})
-    components = sorted({str(detail["failure_component"]) for detail in details if "failure_component" in detail})
-    retryable_failure_count = sum(detail.get("failure_retryable") is True for detail in details)
+    details = [error.failure_details for error in errors if error.failure_details is not None]
+    categories = sorted({detail["failure_category"] for detail in details})
+    components = sorted({detail["failure_component"] for detail in details})
+    retryable_failure_count = sum(detail["failure_retryable"] for detail in details)
     unclassified_failure_count = len(errors) - len(details)
 
     return {
-        "failure_stage": "asset_generation",
-        "failure_category": _summarize_scalar_dimension(categories),
+        "failure_stage": SubscriptionFailureStage.ASSET_GENERATION.value,
         "failure_categories": categories,
-        "failure_component": _summarize_scalar_dimension(components),
         "failure_components": components,
         "failed_asset_count": len(errors),
         "failure_category_count": len(categories),
@@ -181,23 +167,19 @@ def _record_subscription_failure(
     if slo is None:
         return
 
-    properties = slo.completion_properties
-    for key in _AGGREGATE_FAILURE_DETAIL_KEYS:
-        properties.pop(key, None)
-
     application_error = unwrap_temporal_cause(exc)
     if application_error is None and isinstance(exc, ApplicationError):
         application_error = exc
     timeout = find_temporal_timeout_error(exc)
     cause = application_error or timeout or exc
 
-    properties.update(
+    slo.completion_properties.update(
         {
             "error_type": type(timeout).__name__ if timeout else resolve_exception_class(exc),
             "error_message": truncate_for_temporal_payload(str(cause), MAX_ERROR_MESSAGE_CHARS),
             "error_trace": resolve_error_trace(exc),
-            "failure_stage": stage,
-            "failure_category": "activity_timeout" if timeout else "activity_failure",
+            "failure_stage": stage.value,
+            "failure_category": SLO_FAILURE_CATEGORY_ACTIVITY_TIMEOUT if timeout else "activity_failure",
             "failure_component": _FAILURE_STAGE_COMPONENT[stage],
             "failure_retryable": True if timeout else bool(application_error and not application_error.non_retryable),
         }
@@ -318,9 +300,10 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         assets_with_content = 0
         total_assets = 0
         asset_errors: list[ExportError] = []
+        asset_failure_summary: dict[str, str | int | list[str]] | None = None
         caught_error: BaseException | None = None
         delivery_error: NoExportableInsightsErrorDetails | None = None
-        failure_stage: SubscriptionFailureStage = "delivery_record"
+        failure_stage = SubscriptionFailureStage.DELIVERY_RECORD
 
         # Delivery record tracking
         delivery_id: uuid.UUID | None = None
@@ -353,7 +336,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # Validate up-front: if the subscription is already disabled or its target
             # configuration is permanently broken, auto-disable and short-circuit before
             # the export pipeline runs.
-            failure_stage = "validation"
+            failure_stage = SubscriptionFailureStage.VALIDATION
             abort_info = await temporalio.workflow.execute_activity(
                 validate_subscription_for_delivery,
                 inputs.subscription_id,
@@ -371,7 +354,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # onto SubscriptionDelivery.content_snapshot (written from within the
             # activity to avoid shipping multi-MB query_results across Temporal's
             # ~2 MiB payload boundary).
-            failure_stage = "asset_preparation"
+            failure_stage = SubscriptionFailureStage.ASSET_PREPARATION
             prepare_result = await temporalio.workflow.execute_activity(
                 create_export_assets,
                 CreateExportAssetsInputs(
@@ -433,7 +416,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             delivery_exported_asset_ids = prepare_result.exported_asset_ids
 
             # Phase 2: Fan-out export — one activity per insight, independent retry
-            failure_stage = "asset_generation"
+            failure_stage = SubscriptionFailureStage.ASSET_GENERATION
             export_tasks = []
             for asset_id in prepare_result.exported_asset_ids:
                 task = temporalio.workflow.execute_activity(
@@ -470,7 +453,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     "error_message",
                     f"{len(non_user_errors)} export(s) failed: {', '.join(distinct_classes)}",
                 )
-                inputs.slo.completion_properties.update(_summarize_export_failure_details(non_user_errors))
+                asset_failure_summary = _summarize_export_failure_details(non_user_errors)
 
             # Generate LLM change summary (best-effort, skip if not enabled).
             # Reads content_snapshot back from Postgres — persisted inline by
@@ -506,7 +489,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 if temporalio.workflow.patched("subscription-delivery-campaign-v2")
                 else deliver_subscription
             )
-            failure_stage = "delivery"
+            failure_stage = SubscriptionFailureStage.DELIVERY
             deliver_result: DeliverSubscriptionResult = await temporalio.workflow.execute_activity(
                 delivery_activity,
                 DeliverSubscriptionInputs(
@@ -578,7 +561,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         "update_delivery_record failed (delivery history is best-effort when a prior error exists)"
                     )
                     if caught_error is None:
-                        _record_subscription_failure(inputs.slo, "record_update", update_error)
+                        _record_subscription_failure(inputs.slo, SubscriptionFailureStage.RECORD_UPDATE, update_error)
                         raise
 
             delivery_failed_without_exception = bool(delivery_recipient_results) and all(
@@ -615,11 +598,13 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
                 except Exception as e:
-                    _record_subscription_failure(inputs.slo, "schedule_update", e)
+                    _record_subscription_failure(inputs.slo, SubscriptionFailureStage.SCHEDULE_UPDATE, e)
                     raise
 
             # Enrich SLO event with per-insight detail (non-user errors only).
             if inputs.slo:
+                if caught_error is None and asset_failure_summary is not None:
+                    inputs.slo.completion_properties.update(asset_failure_summary)
                 inputs.slo.completion_properties.update(
                     {
                         "assets_with_content": assets_with_content,
@@ -628,7 +613,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                             {
                                 "error_type": e.exception_class,
                                 "error_trace": e.error_trace,
-                                **e.failure_details,
+                                **(e.failure_details or {}),
                             }
                             for e in asset_errors
                             if not is_user_query_export_error(e)
@@ -663,7 +648,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
         final_status = DeliveryStatus.SKIPPED
         delivery_recipient_results: list[dict] = []
         caught_error: BaseException | None = None
-        failure_stage: SubscriptionFailureStage = "delivery_record"
+        failure_stage = SubscriptionFailureStage.DELIVERY_RECORD
         # Set when a delivered-but-degraded report should record a reason without an exception
         # (every generated query failed). Falls through to update_delivery_record's error column.
         generation_error: dict | None = None
@@ -686,7 +671,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             # Up-front validation: already-disabled (idempotency redispatch) or a
             # permanently broken target (e.g. unsupported target_type) auto-disables and
             # short-circuits before any LLM cost.
-            failure_stage = "validation"
+            failure_stage = SubscriptionFailureStage.VALIDATION
             abort_info = await temporalio.workflow.execute_activity(
                 validate_subscription_for_delivery,
                 inputs.subscription_id,
@@ -704,7 +689,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             # Phase 1: generate the report. Consent is gated inside, before any LLM cost.
             # The markdown is persisted onto the delivery row (read back by delivery),
             # never returned on the wire — it can exceed Temporal's ~2 MiB payload cap.
-            failure_stage = "report_generation"
+            failure_stage = SubscriptionFailureStage.REPORT_GENERATION
             generate_result = await temporalio.workflow.execute_activity(
                 generate_ai_subscription_report,
                 GenerateAIReportInputs(subscription_id=inputs.subscription_id, delivery_id=delivery_id),
@@ -736,7 +721,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 if temporalio.workflow.patched("subscription-delivery-campaign-v2")
                 else deliver_subscription
             )
-            failure_stage = "delivery"
+            failure_stage = SubscriptionFailureStage.DELIVERY
             deliver_result = await temporalio.workflow.execute_activity(
                 delivery_activity,
                 DeliverSubscriptionInputs(
@@ -799,7 +784,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                         "update_delivery_record failed (delivery history is best-effort when a prior error exists)"
                     )
                     if caught_error is None:
-                        _record_subscription_failure(inputs.slo, "record_update", update_error)
+                        _record_subscription_failure(inputs.slo, SubscriptionFailureStage.RECORD_UPDATE, update_error)
                         raise
 
             if (
@@ -833,7 +818,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
                 except Exception as e:
-                    _record_subscription_failure(inputs.slo, "schedule_update", e)
+                    _record_subscription_failure(inputs.slo, SubscriptionFailureStage.SCHEDULE_UPDATE, e)
                     raise
 
             # Auto-disable aborts (consent revoked / prompt invalid) return normally rather

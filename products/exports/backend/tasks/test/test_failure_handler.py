@@ -19,6 +19,7 @@ from products.exports.backend.tasks.failure_handler import (
     SLO_FAILURE_CATEGORY_RENDERER_UNAVAILABLE,
     SLO_FAILURE_CATEGORY_STORAGE,
     BrowserlessUnavailable,
+    ExportCancelled,
     classify_failure_type,
     export_slo_failure_details,
     is_user_query_error_type,
@@ -125,6 +126,13 @@ class TestExportSloFailureDetails(TestCase):
                 True,
             ),
             ("render_timeout", "TimeoutError", SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT, "browserless", True),
+            (
+                "export_cancelled",
+                ExportCancelled("cancelled"),
+                SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT,
+                "browserless",
+                False,
+            ),
             ("query_capacity", "ConcurrencyLimitExceeded", SLO_FAILURE_CATEGORY_QUERY_CAPACITY, "query", True),
             # ClickHouse capacity errors share the query_capacity category — classify_query_error groups
             # the same three as RATE_LIMITED. The instance path is what the export activity feeds in, and
