@@ -1107,7 +1107,7 @@ class Command(BaseCommand):
                 prefix,
                 source_id=TRUNK_SEED_SOURCE_ID,
                 source_type=ExternalDataSourceType.TRUNKIO,
-                job_inputs={"org_url_slug": "posthog-inc"},
+                job_inputs={"org_url_slug": "posthog-inc", "repo_owner": "PostHog", "repo_name": "posthog"},
             )
             self._upsert_schema_table(
                 team,

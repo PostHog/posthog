@@ -214,7 +214,7 @@ class CuratedGitHubSource:
     def _trunk_quarantine(self) -> "TrunkQuarantineSource | None":
         if not self._trunk_quarantine_resolved:
             self._trunk_quarantine_source = resolve_trunk_quarantined_tests_source(
-                self._team, self._user_access_control
+                self._team, self.repository, self._user_access_control
             )
             self._trunk_quarantine_resolved = True
         return self._trunk_quarantine_source
