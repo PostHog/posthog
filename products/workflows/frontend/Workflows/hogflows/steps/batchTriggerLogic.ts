@@ -29,8 +29,13 @@ export function getAudienceDedupeKey(workflow?: { actions?: HogFlowAction[] } | 
 
 export function hogFlowSendsEmail(workflow?: { actions?: HogFlowAction[] } | null): boolean {
     // The tiered batch audience limit only applies to workflows with an email step; SMS, push,
-    // and webhook batches keep the flat limit. Mirrors hog_flow_sends_email on the backend.
-    return (workflow?.actions ?? []).some((action) => action.type === 'function_email')
+    // and webhook batches keep the flat limit. Mirrors hog_flow_sends_email on the backend,
+    // including the email template on a generic function step, which sends the same way.
+    return (workflow?.actions ?? []).some(
+        (action) =>
+            action.type === 'function_email' ||
+            (action.type === 'function' && (action as any)?.config?.template_id === 'template-email')
+    )
 }
 
 export interface BatchTriggerLogicProps {
