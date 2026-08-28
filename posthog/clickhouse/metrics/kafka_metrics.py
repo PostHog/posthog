@@ -2,8 +2,8 @@
 -> materialized views into `metrics1` (raw), `metric_samples1` + `metric_series1` (the split
 the samples/exemplar queries read), and `metrics_kafka_metrics` (consumer-lag bookkeeping).
 
-The cloud logs cluster carries these objects via the HCL layer
-(`posthog/clickhouse/hcl/roles/logs/{shared,cloud}`); this module is the migration-applied
+These objects are modeled in the all-env HCL layer
+(`posthog/clickhouse/hcl/roles/logs/metrics`); this module is the migration-applied
 equivalent so local and multinode dev get a working ingest chain too, the same way
 `posthog/clickhouse/traces/spans.py` does for trace spans. Keep the SQL in sync with the
 HCL definitions — the multinode convergence gate diffs the live schema against the goldens.
