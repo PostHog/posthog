@@ -9485,10 +9485,11 @@ Note: api.getzep.com/api/v2/openapi.json returns 401, so I diffed against the do
 
 ## ZonkaFeedback — gaps
 
-Today (3): `contacts`, `responses`, `surveys`
+Today (4): `contacts`, `responses`, `survey_links`, `surveys`
 
 Diffed against: <https://apidocs.zonkafeedback.com/api/collections/2077940/TVCY7Cby>
 
+- [x] `survey-links` — shareable per-survey link objects from the Survey Links API (GET /survey-links); each carries the URL and tracking code used to attribute a collected response (high)
 - [ ] `workspaces` — lookup resolving the workspace ID carried on surveys and responses; required to segment reporting by workspace (high)
 - [ ] `locations` — lookup resolving the location ID on responses - the standard breakdown dimension for multi-site CX programs (high)
 - [ ] `distribution-logs` — survey send log; pairing it with responses gives delivery, open and response rates instead of responses alone (high)
