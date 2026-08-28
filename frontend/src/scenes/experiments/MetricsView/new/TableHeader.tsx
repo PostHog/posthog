@@ -74,7 +74,12 @@ export function TableHeader({
                                 </Tooltip>
                             </span>
                         ) : (
-                            'p-value'
+                            <span className="inline-flex items-center gap-1">
+                                p-value
+                                <Tooltip title="The probability of seeing a difference at least this large if the variant had no real effect. The result is significant when the p-value drops below your threshold.">
+                                    <IconInfo className="text-secondary text-base" />
+                                </Tooltip>
+                            </span>
                         )
                     ) : (
                         <span className="inline-flex items-center gap-1">
