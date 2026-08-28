@@ -81,7 +81,8 @@ env:
 # Read-only user on the stats DB (users_readonly tier).
 psql:
   pgcollector:
-    read: true
     pgbouncer: false
-    readEnv:
-      PGAPI_DATABASE_URL: POSTGRES_URL
+    read:
+      enabled: true
+      env:
+        PGAPI_DATABASE_URL: POSTGRES_URL
