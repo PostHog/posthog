@@ -256,7 +256,7 @@ export class PersonMergeService {
             sources,
             triggerSourceDistinctId,
             eventOps: extractEventOps(this.context.event, this.context.updateAllProperties),
-            eventUuid: this.context.event.uuid,
+            opId: this.context.event.uuid,
             allowIdentifiedSources: this.context.event.event === '$merge_dangerously',
             mergeMode: this.context.mergeMode,
             // Passed as the event stated it, pre-epoch values included: what a

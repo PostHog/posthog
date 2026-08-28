@@ -281,7 +281,7 @@ export class PostgresPersonMerge {
             })()
 
             this.discardOverrideCounts()
-            const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.eventUuid)
+            const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.opId)
             const result = await this.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
                 // New-world merges claim the person's lifecycle mark, which keeps a concurrent
                 // tombstone from landing between this check and the distinct id insert (an
@@ -366,7 +366,7 @@ export class PostgresPersonMerge {
                         teamId,
                         null,
                         true,
-                        this.request.eventUuid,
+                        this.request.opId,
                         { distinctId: distinctId1, version: distinctId1Version },
                         [{ distinctId: distinctId2, version: distinctId2Version }],
                         tx
@@ -542,11 +542,10 @@ export class PostgresPersonMerge {
         // Sequential property precedence: each source merges its properties
         // under the accumulated target's (target wins, earlier sources win
         // over later ones). Event $set/$set_once apply on top, as in mergePeople.
-        const mergedProperties: Properties = {}
-        for (let i = mergeSources.length - 1; i >= 0; i--) {
-            Object.assign(mergedProperties, mergeSources[i].properties)
+        let mergedProperties: Properties = target.properties
+        for (const source of mergeSources) {
+            mergedProperties = { ...source.properties, ...mergedProperties }
         }
-        Object.assign(mergedProperties, target.properties)
         const propertyUpdates = refineEventOps(this.request.eventOps, mergedProperties, this.policy.updateAllProperties)
         const [updatedTempPerson] = applyEventPropertyUpdates(propertyUpdates, {
             ...target,
@@ -558,7 +557,7 @@ export class PostgresPersonMerge {
 
         const currentTarget = target
         this.discardOverrideCounts()
-        const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.eventUuid)
+        const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.opId)
         const [mergedPerson, kafkaMessages] = await this.inTransaction('mergePeopleFold', async (tx) => {
             // New-world folds claim every person, keeping concurrent lifecycle operations
             // (other merges, the delete saga) off the targets and sources until commit.
@@ -750,18 +749,16 @@ export class PostgresPersonMerge {
             }
         }
 
-        let failedOutcome: MergePersonsSourceResult['outcome']
-        if (result.error instanceof PersonMergeLimitExceededError) {
-            failedOutcome = 'skipped_move_limit'
-        } else if (result.error instanceof SourcePersonHasDistinctIdsError) {
-            failedOutcome = 'failed_source_has_distinct_ids'
-        } else if (result.error instanceof TargetPersonNotFoundError) {
-            failedOutcome = 'failed_target_not_found'
-        } else if (result.error instanceof SourcePersonNotFoundError) {
-            failedOutcome = 'failed_source_not_found'
-        } else {
-            failedOutcome = 'error'
-        }
+        const failedOutcome =
+            result.error instanceof PersonMergeLimitExceededError
+                ? ('skipped_move_limit' as const)
+                : result.error instanceof SourcePersonHasDistinctIdsError
+                  ? ('failed_source_has_distinct_ids' as const)
+                  : result.error instanceof TargetPersonNotFoundError
+                    ? ('failed_target_not_found' as const)
+                    : result.error instanceof SourcePersonNotFoundError
+                      ? ('failed_source_not_found' as const)
+                      : ('error' as const)
         return {
             survivor: null,
             results: [
@@ -790,7 +787,7 @@ export class PostgresPersonMerge {
                 .inc()
 
             this.discardOverrideCounts()
-            const lifecycleOpId = lifecycleOpIdFromEvent(this.teamId, this.request.eventUuid)
+            const lifecycleOpId = lifecycleOpIdFromEvent(this.teamId, this.request.opId)
             const [mergedPerson, kafkaMessages] = await this.inTransaction('mergePeople', async (tx) => {
                 // New-world merges claim both persons in the lifecycle mark table: at
                 // most one live operation (merge or delete saga) may hold a person, so
