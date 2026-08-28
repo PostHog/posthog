@@ -138,6 +138,12 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             "Bing Ads access token not found": "Bing Ads OAuth access token is missing. Please reconnect your Bing Ads integration.",
             "Bing Ads refresh token not found": "Bing Ads OAuth refresh token is missing. Please reconnect your Bing Ads integration.",
             "Bing Ads developer token not configured": None,
+            # A report request that names a column not valid for its report type comes back as a coded
+            # WebFault (InvalidReportColumn), surfaced by _wrap_with_fault_detail. This is deterministic —
+            # retrying re-sends the same bad column list forever — and only a fix to a resource's
+            # field_names in schemas.py can resolve it, so it's internal config (None message), not
+            # customer-actionable.
+            "InvalidReportColumn": None,
             # PostHog's Bing Ads OAuth application credentials aren't configured — an empty client_id makes
             # Microsoft reject the token request with AADSTS900144. Internal config, not customer-actionable.
             "Bing Ads OAuth application credentials not configured": None,

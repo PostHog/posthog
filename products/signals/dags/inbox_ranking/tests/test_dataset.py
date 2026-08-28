@@ -2,7 +2,10 @@ import datetime
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
+
+import pyarrow as pa
+from parameterized import parameterized
 
 from products.signals.backend.models import SignalReport
 from products.signals.dags.inbox_ranking import common
@@ -15,6 +18,9 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
 from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
     LABEL_STREAMS,
+    STATUS_COLUMNS,
+    STATUS_SQL,
+    hogql_rows,
     merge_label_streams,
     utc_bound,
     valid_report_uuids,
@@ -71,6 +77,62 @@ def test_latest_advances_monotonically_and_backfills_never_clobber_it(existing, 
     assert common.latest_is_stale(existing, partition_key) is expected
 
 
+@pytest.mark.parametrize(
+    "existing,row_count,expected",
+    [
+        (None, 0, True),
+        (1200, 1200, True),
+        (1200, 1500, True),
+        (1200, 1199, False),
+        (1200, 0, False),
+    ],
+)
+def test_incremental_partitions_never_shrink_on_a_re_run(existing, row_count, expected):
+    # Signal vectors are read back out of a table with a 3-month TTL, so a late re-run of an old
+    # partition returns fewer rows than it first captured — and those rows no longer exist anywhere
+    # else. Overwriting is unrecoverable data loss, so a shrink must fail rather than proceed.
+    assert common.partition_write_allowed(existing, row_count) is expected
+
+
+def _emission(signal_id: str, inserted_at: datetime.datetime, embedding: list[float] | None):
+    return {"team_id": 2, "signal_id": signal_id, "embedding_inserted_at": inserted_at, "embedding_small": embedding}
+
+
+_EMISSION_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("team_id", pa.int64()),
+    ("signal_id", pa.string()),
+    ("embedding_inserted_at", pa.timestamp("us", tz="UTC")),
+    ("embedding_small", pa.list_(pa.float32())),
+]
+_EMISSION_SCHEMA = pa.schema(_EMISSION_FIELDS)
+
+
+def test_re_running_a_partition_keeps_rows_the_source_no_longer_returns():
+    # The source drops rows a partition already archived (a ReplacingMergeTree merge collapses a
+    # retracted signal onto its live row, or the TTL expires it), and those rows exist nowhere else.
+    # A re-run that wrote only its own scan would delete them permanently. Row counts alone cannot
+    # police it: here the scan loses signal a and gains signal c, so the total never changes.
+    existing = pa.Table.from_pylist([_emission("a", T1, [0.25]), _emission("b", T1, [0.5])], schema=_EMISSION_SCHEMA)
+    fresh = pa.Table.from_pylist([_emission("b", T1, [0.5]), _emission("c", T2, [0.75])], schema=_EMISSION_SCHEMA)
+
+    merged = common.merge_emission_rows(existing, fresh, ("team_id", "signal_id", "embedding_inserted_at"))
+
+    assert merged.column("signal_id").to_pylist() == ["a", "b", "c"]
+    # The archived vector survives intact, and b is carried once rather than duplicated.
+    assert merged.column("embedding_small").to_pylist() == [[0.25], [0.5], [0.75]]
+
+
+def test_a_re_emitted_signal_keeps_both_versions():
+    # Versions of one signal are separate emissions, so a later vector must not displace the earlier
+    # one the partition archived — that is the history this table exists to hold.
+    existing = pa.Table.from_pylist([_emission("a", T1, [0.25])], schema=_EMISSION_SCHEMA)
+    fresh = pa.Table.from_pylist([_emission("a", T2, [0.5])], schema=_EMISSION_SCHEMA)
+
+    merged = common.merge_emission_rows(existing, fresh, ("team_id", "signal_id", "embedding_inserted_at"))
+
+    assert merged.column("embedding_inserted_at").to_pylist() == [T1, T2]
+
+
 def test_snapshot_bounds_cover_the_partition_day():
     start, end = common.snapshot_bounds("2026-07-29")
     assert start == datetime.datetime(2026, 7, 29, tzinfo=datetime.UTC)
@@ -97,7 +159,12 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     stream_rows: dict[str, list[tuple[Any, ...]]] = {
         "impressions": [(UUID_A, T1.replace(tzinfo=None), 5, 2, 3, 1, ["error_tracking"])],
         "opens": [(UUID_A.upper(), T2, 4, 2), (UUID_B, T2, 1, 1)],
-        "actions": [("bogus-id", 1, T1, 1, T1, 1, 1)],
+        "actions": [
+            ("bogus-id", 1, T1, 1, T1, 1, 1, 1, T1, 1, T1),
+            # Distinct values per column, so a shifted or swapped ACTIONS_SQL/ACTIONS_COLUMNS
+            # position lands a wrong value in some asserted field below.
+            (UUID_B, 5, T1, 0, None, 0, 0, 2, T1, 3, T2),
+        ],
         "status_changes": [],
         "pr_events": [],
     }
@@ -117,6 +184,11 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     assert r2["impression_unit_count"] == 0
     assert r2["first_impressed_at"] is None
     assert r2["pr_created_count"] == 0
+    assert r2["ui_dismiss_count"] == 5
+    assert r2["reviewer_add_count"] == 2
+    assert r2["first_reviewer_added_at"] == T1
+    assert r2["reviewer_remove_count"] == 3
+    assert r2["first_reviewer_removed_at"] == T2
 
 
 @pytest.mark.parametrize("alias_first", [True, False])
@@ -277,3 +349,76 @@ class TestSpineInclusion(BaseTest):
         assert in_spine == {promoted, born_visible}
         assert promoted_after_cutoff not in in_spine
         assert created_after_cutoff not in in_spine
+
+
+class TestStatusStream(ClickhouseTestMixin, BaseTest):
+    def _transition(
+        self,
+        when: datetime.datetime,
+        previous: str,
+        status: str,
+        reason: str | None = None,
+        *,
+        team_id: int | None = None,
+    ) -> None:
+        _create_event(
+            team=self.team,
+            event="signal_report_status_changed",
+            distinct_id="team-2",
+            timestamp=when,
+            properties={
+                "report_id": UUID_A,
+                "previous_status": previous,
+                "status": status,
+                "dismissal_reason": reason,
+                "team_id": str(team_id or self.team.id),
+            },
+        )
+
+    def _status_row(self) -> dict[str, Any]:
+        rows = hogql_rows(STATUS_SQL, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
+        assert len(rows) == 1
+        return dict(zip(STATUS_COLUMNS, rows[0][1:], strict=True))
+
+    @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
+    def test_wrong_dismissal_count_survives_a_restore_and_a_later_reason(self, gap):
+        # dismissed as wrong, restored, then dismissed again as already_fixed: the latest-wins reason
+        # forgets the wrong dismissal, the cumulative count must not, even when all three land in one
+        # ten-minute dedupe bucket.
+        self._transition(T1, "ready", "suppressed", "analysis_wrong")
+        self._transition(T1 + gap, "suppressed", "ready")
+        self._transition(T1 + 2 * gap, "ready", "suppressed", "already_fixed")
+
+        row = self._status_row()
+        assert row["dismissal_reason"] == "already_fixed"
+        assert row["wrong_dismissal_count"] == 1
+        assert row["first_dismissed_server_at"] == T1
+
+    @parameterized.expand(
+        [
+            ("later_bucket", T2, "ready", "resolved", None),
+            ("same_bucket", T1 + datetime.timedelta(minutes=1), "ready", "suppressed", "already_fixed"),
+        ]
+    )
+    def test_wrong_dismissal_count_ignores_events_from_another_tenant(self, _name, when, previous, status, reason):
+        # A forged wrong dismissal naming another team, followed by a genuine transition, must not
+        # make the report a dismiss_wrong positive through the cumulative count. The same-bucket
+        # case lands both in one ten-minute dedupe bucket, where the bucket's wrong flag and the
+        # bucket's tenant would otherwise come from different events.
+        self._transition(T1, "ready", "suppressed", "analysis_wrong", team_id=999)
+        self._transition(when, previous, status, reason)
+
+        row = self._status_row()
+        assert row["status_event_team_id"] == self.team.id
+        assert row["dismissal_reason"] == reason
+        assert row["wrong_dismissal_count"] == 0
+
+    def test_tied_tenants_count_and_report_the_same_team(self):
+        # Two tenants' buckets with the same last timestamp: whichever wins the tie, the count and
+        # the team the provenance check reads must come from the same selection, or a forged wrong
+        # dismissal could be counted while the genuine tenant passes provenance.
+        self._transition(T1, "ready", "suppressed", "analysis_wrong", team_id=999)
+        self._transition(T1, "ready", "suppressed", "already_fixed")
+
+        row = self._status_row()
+        assert row["wrong_dismissal_count"] == (0 if row["status_event_team_id"] == self.team.id else 1)

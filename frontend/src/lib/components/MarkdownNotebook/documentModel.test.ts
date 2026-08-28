@@ -1,7 +1,49 @@
-import { rekeyNotebookNodes } from './documentModel'
+import { getMarkdownNotebookVisualGroups, rekeyNotebookNodes } from './documentModel'
+import { parseMarkdownNotebook } from './markdown'
 import { NotebookBlockNode } from './types'
 
 describe('documentModel', () => {
+    describe('getMarkdownNotebookVisualGroups', () => {
+        it('keeps a table written between paragraphs inside the surrounding text group', () => {
+            const document = parseMarkdownNotebook(
+                [
+                    'Signup completion improved after the onboarding changes.',
+                    '',
+                    '| Step | Completion |',
+                    '| --- | ---: |',
+                    '| Signup form | 82% |',
+                    '',
+                    'Workspace setup is the step to watch next.',
+                ].join('\n')
+            )
+
+            const groups = getMarkdownNotebookVisualGroups(document.nodes)
+
+            expect(groups).toHaveLength(1)
+            expect(groups[0].type === 'text' ? groups[0].items.map((item) => item.node.type) : []).toEqual([
+                'paragraph',
+                'table',
+                'paragraph',
+            ])
+        })
+
+        it('keeps a table inserted as its own node standing alone', () => {
+            const document = parseMarkdownNotebook(
+                [
+                    'Signup completion improved after the onboarding changes.',
+                    '',
+                    '',
+                    '| Step | Completion |',
+                    '| --- | ---: |',
+                ].join('\n')
+            )
+
+            const groups = getMarkdownNotebookVisualGroups(document.nodes)
+
+            expect(groups.map((group) => group.type)).toEqual(['text', 'block'])
+        })
+    })
+
     describe('rekeyNotebookNodes', () => {
         it('gives a pasted component node a fresh nodeId so it no longer shares logic with the original', () => {
             // A trend chart carrying a persisted nodeId, as it exists once saved and copied.

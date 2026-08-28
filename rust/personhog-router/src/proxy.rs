@@ -35,9 +35,10 @@ pub const KNOWN_METHODS: &[&str] = &[
     "DeleteGroupTypeMappingsBatchForTeam",
     "DeleteGroupsBatchForTeam",
     "DeleteHashKeyOverridesByTeams",
-    "DeletePersonlessDistinctIdsBatchForTeam",
     "DeletePersons",
     "DeletePersonsBatchForTeam",
+    "FencePerson",
+    "FoldPersonDocument",
     "GetDistinctIdsForPerson",
     "GetDistinctIdsForPersons",
     "GetGroup",
@@ -59,6 +60,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "InsertCohortMembers",
     "ListCohortMemberIds",
     "ListGroups",
+    "ReleaseFence",
     "SetPersonDistinctIdVersionFloor",
     "SetPersonVersionFloor",
     "SplitPerson",
@@ -159,6 +161,22 @@ impl RawProxyInner {
                 let (resp, call_ms) = self
                     .raw_proxy_to_leader(req, "UpdatePersonProperties")
                     .await;
+                (resp, "leader", call_ms)
+            }
+            // Lifecycle fence RPCs: person writes, so they route to the
+            // owning leader and share the handoff stash discipline.
+            "FencePerson" => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "FencePerson").await;
+                (resp, "leader", call_ms)
+            }
+            "ReleaseFence" => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "ReleaseFence").await;
+                (resp, "leader", call_ms)
+            }
+            // The merge saga's document write: leader-routed like every
+            // person write.
+            "FoldPersonDocument" => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "FoldPersonDocument").await;
                 (resp, "leader", call_ms)
             }
             "GetPerson" => {

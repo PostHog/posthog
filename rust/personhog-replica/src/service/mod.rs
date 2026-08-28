@@ -19,16 +19,15 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
     DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
     DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonlessDistinctIdsBatchForTeamRequest,
-    DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
-    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
-    DistinctIdWithVersion, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
-    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
-    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
-    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
-    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
-    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
-    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, DistinctIdWithVersion, GetDistinctIdsForPersonRequest,
+    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
+    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
+    GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
+    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
+    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
+    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
+    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingCount,
@@ -408,31 +407,6 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "delete_persons"))?;
 
         Ok(Response::new(DeletePersonsResponse { deleted_count }))
-    }
-
-    async fn delete_personless_distinct_ids_batch_for_team(
-        &self,
-        request: Request<DeletePersonlessDistinctIdsBatchForTeamRequest>,
-    ) -> Result<Response<DeletePersonlessDistinctIdsBatchForTeamResponse>, Status> {
-        let req = request.into_inner();
-
-        if req.batch_size <= 0 || req.batch_size > MAX_BATCH_DELETE_SIZE {
-            return Err(Status::invalid_argument(format!(
-                "batch_size must be between 1 and {MAX_BATCH_DELETE_SIZE}"
-            )));
-        }
-
-        let deleted_count = self
-            .storage
-            .delete_personless_distinct_ids_batch_for_team(req.team_id, req.batch_size)
-            .await
-            .map_err(|e| {
-                log_and_convert_error(e, "delete_personless_distinct_ids_batch_for_team")
-            })?;
-
-        Ok(Response::new(
-            DeletePersonlessDistinctIdsBatchForTeamResponse { deleted_count },
-        ))
     }
 
     async fn delete_persons_batch_for_team(
@@ -1174,6 +1148,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             "name_plural",
             "detail_dashboard_id",
             "default_columns",
+            "created_at",
         ];
         for field in &req.update_mask {
             if !valid_fields.contains(&field.as_str()) {
@@ -1191,6 +1166,13 @@ impl PersonHogReplica for PersonHogReplicaService {
             None
         };
 
+        let created_at = match req.created_at {
+            Some(ts) => Some(chrono::DateTime::from_timestamp_millis(ts).ok_or_else(|| {
+                Status::invalid_argument(format!("Invalid created_at timestamp: {ts}"))
+            })?),
+            None => None,
+        };
+
         let mapping = self
             .storage
             .update_group_type_mapping(
@@ -1201,6 +1183,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                 req.name_plural.as_deref(),
                 req.detail_dashboard_id,
                 default_columns.as_deref(),
+                created_at,
             )
             .await
             .map_err(|e| log_and_convert_error(e, "update_group_type_mapping"))?;

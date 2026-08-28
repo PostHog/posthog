@@ -1,0 +1,14 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this vision action run.",
+            "type": "string"
+        },
+        "vision_action_id": {
+            "type": "string"
+        }
+    },
+    "required": ["id", "vision_action_id"],
+    "type": "object"
+}

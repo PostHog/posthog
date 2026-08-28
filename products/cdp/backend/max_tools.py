@@ -53,7 +53,7 @@ class HogFunctionFiltersOutput(BaseModel):
 
 class CreateHogTransformationFunctionTool(MaxTool):
     name: str = "create_hog_transformation_function"  # Must match a value in AssistantTool enum
-    description: str = "Write or edit the hog code to create your desired function and apply it to the current editor"
+    description: str = "Write or edit the Hog code for the data pipeline transformation function currently open in the editor, and apply the result to the editor"
     args_schema: type[BaseModel] = CreateHogTransformationFunctionArgs
     context_prompt_template: str = (
         HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT

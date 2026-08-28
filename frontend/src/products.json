@@ -161,6 +161,7 @@
             "type": null,
             "intents": ["marketing_analytics"]
         },
+        { "path": "Inbox", "category": "Tools", "iconType": null, "type": null, "intents": [] },
         { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["links"] },
         {
             "path": "Live Debugger",
@@ -312,6 +313,13 @@
             "intents": []
         },
         { "path": "Core events", "category": "Schema", "iconType": null, "type": null, "intents": [] },
+        {
+            "path": "Warehouse properties",
+            "category": "Schema",
+            "iconType": "data_warehouse",
+            "type": null,
+            "intents": []
+        },
         {
             "path": "Sources",
             "category": "Pipeline",

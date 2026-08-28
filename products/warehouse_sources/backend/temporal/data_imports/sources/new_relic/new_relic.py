@@ -196,7 +196,13 @@ def _execute_graphql(
     if errors:
         messages = "; ".join(str(error.get("message", error)) for error in errors)
         # NerdGraph reports server-side timeouts/deadlines inside `errors` on an HTTP 200.
-        if any(term in messages.lower() for term in ("timeout", "deadline", "too many requests")):
+        # "An error occurred resolving this field" is NerdGraph's generic resolver-failure
+        # message; it's known to fire intermittently on otherwise-valid queries and clear on
+        # retry (e.g. the New Relic Terraform provider retries the same message).
+        if any(
+            term in messages.lower()
+            for term in ("timeout", "deadline", "too many requests", "an error occurred resolving this field")
+        ):
             raise NewRelicRetryableError(f"New Relic GraphQL error (retryable): {messages}")
         raise NewRelicGraphQLError(f"New Relic GraphQL error: {messages}")
 

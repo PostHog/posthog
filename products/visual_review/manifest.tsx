@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductItemCategory } from '../../frontend/src/queries/schema/schema-general'
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'VisualReview',
@@ -52,6 +52,12 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/VisualReviewSnapshotOverviewScene'),
             iconType: 'visual_review',
         },
+        VisualReviewFlakiness: {
+            name: 'Flakiness',
+            projectBased: true,
+            import: () => import('./frontend/scenes/VisualReviewFlakinessScene'),
+            iconType: 'visual_review',
+        },
     },
     routes: {
         '/visual_review': ['VisualReviewIndex', 'visualReviewIndex'],
@@ -59,6 +65,7 @@ export const manifest: ProductManifest = {
         '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
         '/visual_review/repos/:repoId/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
         '/visual_review/repos/:repoId/snapshots': ['VisualReviewSnapshotOverview', 'visualReviewSnapshotOverview'],
+        '/visual_review/repos/:repoId/flakiness': ['VisualReviewFlakiness', 'visualReviewFlakiness'],
         '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
             'VisualReviewSnapshotHistory',
             'visualReviewSnapshotHistory',
@@ -73,6 +80,7 @@ export const manifest: ProductManifest = {
         visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
         visualReviewRepoRuns: (repoId: string): string => `/visual_review/repos/${repoId}/runs`,
         visualReviewSnapshotOverview: (repoId: string): string => `/visual_review/repos/${repoId}/snapshots`,
+        visualReviewFlakiness: (repoId: string): string => `/visual_review/repos/${repoId}/flakiness`,
         visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
             `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     },
@@ -85,6 +93,10 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.UNRELEASED,
             href: urls.visualReviewRuns(),
             iconType: 'visual_review' as FileSystemIconType,
+            iconColor: [
+                'var(--color-product-visual-review-light)',
+                'var(--color-product-visual-review-dark)',
+            ] as FileSystemIconColor,
             flag: FEATURE_FLAGS.VISUAL_REVIEW,
             tags: ['alpha'],
             sceneKey: 'VisualReviewIndex',

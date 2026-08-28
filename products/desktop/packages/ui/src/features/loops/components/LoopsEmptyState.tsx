@@ -1,3 +1,4 @@
+import { channelDisplayReference } from "@posthog/core/canvas/channelName";
 import { loopHog } from "@posthog/ui/assets/hedgehogs";
 import { Flex, Text } from "@radix-ui/themes";
 
@@ -23,11 +24,11 @@ export function LoopsEmptyState({ contextName }: { contextName?: string }) {
           className="min-w-0 flex-1"
         >
           <Flex direction="column" gap="1">
-            <Text className="font-semibold text-[16px] text-gray-12">
+            <p className="font-semibold text-[16px] text-gray-12">
               {contextName
-                ? `Create a loop for #${contextName}`
+                ? `Create a loop for ${channelDisplayReference(contextName)}`
                 : "Create your first loop"}
-            </Text>
+            </p>
             <Text className="text-[13px] text-gray-11 leading-relaxed">
               Set it up once and it keeps running on its own, even with your
               laptop closed.

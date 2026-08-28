@@ -1,7 +1,8 @@
 {
     "name": "@posthog/products-product-analytics",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
         "@posthog/quill-charts": "workspace:*",
@@ -12,7 +13,8 @@
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
-        "@testing-library/react": "*"
+        "@testing-library/react": "*",
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "catalog:",

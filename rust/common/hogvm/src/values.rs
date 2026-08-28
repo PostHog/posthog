@@ -402,23 +402,51 @@ impl HogLiteral {
     }
 }
 
-/// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, three concerns in order:
+/// Epoch seconds for both operands when this is a *temporal* comparison, else `None`.
+///
+/// Two cases count as temporal, and they must stay together: both operands temporal, or exactly one
+/// temporal with the other a date-like String. The second case is what a bare-field SQL comparison
+/// like `timestamp > toDateTime(...)` produces — only the right-hand side goes through `toDateTime`,
+/// so the left stays the filter globals' plain ISO string. The string is parsed by the shared
+/// date-like grammar ([`crate::stl::parse_datetime_to_seconds`]); an unparseable one yields `None`
+/// so the caller falls back to its ordinary (non-temporal) handling.
+///
+/// Shared by [`compare_values`] (ordering) and the VM's `eq_op` (equality) so the two cannot drift —
+/// the Python/TS reference VMs route all six of `Eq`/`NotEq`/`Gt`/`GtEq`/`Lt`/`LtEq` through one
+/// coercion function, and Rust has to agree on the same set.
+pub(crate) fn temporal_seconds_pair(
+    a: &HogLiteral,
+    b: &HogLiteral,
+    heap: &VmHeap,
+) -> Option<(f64, f64)> {
+    let a_secs = a.as_temporal_seconds(heap);
+    let b_secs = b.as_temporal_seconds(heap);
+    match (a_secs, b_secs) {
+        (Some(a_secs), Some(b_secs)) => Some((a_secs, b_secs)),
+        (Some(a_secs), None) => match b {
+            HogLiteral::String(s) => Some((a_secs, parse_datetime_to_seconds(s, None).ok()?)),
+            _ => None,
+        },
+        (None, Some(b_secs)) => match a {
+            HogLiteral::String(s) => Some((parse_datetime_to_seconds(s, None).ok()?, b_secs)),
+            _ => None,
+        },
+        (None, None) => None,
+    }
+}
+
+/// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, two concerns in order:
 ///
 /// OPT-IN ONLY: this is reached exclusively from the coercing `compare_op` path, which the VM takes
 /// only when the context sets [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons)
 /// — today just the realtime-cohort evaluator. Every other shared-crate consumer (e.g. `cymbal`)
-/// keeps the legacy path where a non-number operand errors, so this coercion does NOT change their
-/// behavior. The semantics here match the Python/TS reference VMs (and ClickHouse for temporals).
+/// keeps the strict path where operands other than numbers and numeric arrays error, so this coercion
+/// does NOT change their behavior. The semantics here match the Python/TS reference VMs (and
+/// ClickHouse for temporals).
 ///
-/// 1. If *both* operands are temporal ([`HogLiteral::as_temporal_seconds`]) they are ordered by
-///    epoch seconds to match ClickHouse and the Python/TS reference VMs; see the [`crate::stl`]
-///    module note.
-/// 2. If exactly one operand is temporal and the other is a String, the String is parsed the same
-///    way `toDateTime` would ([`crate::stl::parse_datetime_to_seconds`]) and compared as epoch
-///    seconds — this covers a bare-field SQL comparison like `timestamp > toDateTime(...)`, where the
-///    left side never went through `toDateTime` itself. An unparseable string falls through to the
-///    generic branches below.
-/// 3. Otherwise coerce like Python `unify_comparison_types` / TS `unifyComparisonTypes`: a String
+/// 1. A temporal comparison ([`temporal_seconds_pair`]) orders by epoch seconds to match ClickHouse
+///    and the Python/TS reference VMs; see the [`crate::stl`] module note.
+/// 2. Otherwise coerce like Python `unify_comparison_types` / TS `unifyComparisonTypes`: a String
 ///    coerces to a Number only when the *other* operand is a Number, Bool↔Number maps to `1`/`0`,
 ///    and both-strings compare lexicographically. This is deliberately *not* routed through
 ///    [`HogLiteral::coerce_types`] (the `Eq` contract, which remaps both-strings and must stay put).
@@ -428,27 +456,8 @@ pub fn compare_values(
     b: &HogLiteral,
     heap: &VmHeap,
 ) -> Result<HogLiteral, VmError> {
-    let a_secs = a.as_temporal_seconds(heap);
-    let b_secs = b.as_temporal_seconds(heap);
-    if let (Some(a_secs), Some(b_secs)) = (a_secs, b_secs) {
+    if let Some((a_secs, b_secs)) = temporal_seconds_pair(a, b, heap) {
         return Num::binary_op(op, &Num::Float(a_secs), &Num::Float(b_secs));
-    }
-    // A bare-field SQL comparison like `timestamp > toDateTime(...)` puts a plain date-like string
-    // against a HogDateTime/HogDate object. Parse the string the same way `toDateTime` would rather
-    // than falling through to the generic branches below, where it would be `CannotCoerce`d.
-    if let Some(a_secs) = a_secs {
-        if let HogLiteral::String(s) = b {
-            if let Ok(b_secs) = parse_datetime_to_seconds(s, None) {
-                return Num::binary_op(op, &Num::Float(a_secs), &Num::Float(b_secs));
-            }
-        }
-    }
-    if let Some(b_secs) = b_secs {
-        if let HogLiteral::String(s) = a {
-            if let Ok(a_secs) = parse_datetime_to_seconds(s, None) {
-                return Num::binary_op(op, &Num::Float(a_secs), &Num::Float(b_secs));
-            }
-        }
     }
 
     use HogLiteral::{Boolean, Null, Number, String as HString};

@@ -13,7 +13,7 @@ const BASE_CLICK_INDICATOR_DURATION_S = 1 / 3
 
 export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
-    const { player, sessionRecordingId, maskingWindow, speed } = useValues(sessionRecordingPlayerLogic)
+    const { player, sessionRecordingId, maskingWindow, speed, resolution } = useValues(sessionRecordingPlayerLogic)
     const { setScale, setRootFrame } = useActions(sessionRecordingPlayerLogic)
 
     const frameRef = useRef<HTMLDivElement | null>(null)
@@ -23,33 +23,36 @@ export const PlayerFrame = (): JSX.Element => {
     // Define callbacks before they're used in effects
     const updatePlayerDimensions = useCallback(
         (replayDimensions: viewportResizeDimension | undefined): void => {
-            if (
-                !replayDimensions ||
-                !frameRef?.current?.parentElement ||
-                !player?.replayer ||
-                !player?.replayer.wrapper
-            ) {
+            // The rrweb replayer only reports dimensions through its `resize` event, which
+            // never fires for a recording whose first full snapshot arrived late. Fall back
+            // to the recording's known resolution so the frame still scales to its container.
+            const dimensions = replayDimensions ?? resolution ?? undefined
+
+            if (!dimensions || !frameRef?.current?.parentElement || !player?.replayer || !player?.replayer.wrapper) {
                 return
             }
 
-            replayDimensionRef.current = replayDimensions
+            replayDimensionRef.current = dimensions
 
             const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
 
-            // Cap at 0.999 instead of 1 to avoid a Chrome GPU compositing bug where
-            // an identity transform (scale(1)) causes the iframe layer to paint outside
-            // its clipping bounds, overlapping the rest of the UI.
             const scale = Math.min(
-                parentDimensions.width / replayDimensions.width,
-                parentDimensions.height / replayDimensions.height,
-                0.999
+                parentDimensions.width / dimensions.width,
+                parentDimensions.height / dimensions.height,
+                1
             )
 
-            player.replayer.wrapper.style.transform = `scale(${scale})`
+            // Scale with `zoom` instead of `transform: scale()`. A decimal transform scale
+            // promotes the large replay iframe to a composited layer, which WebKit
+            // re-rasterizes at pinch-zoom scale and crashes the tab on iOS (FB13816677).
+            // `zoom` scales through layout, so no oversized layer exists. This also avoids
+            // the Chrome GPU bug where an identity transform painted the iframe layer
+            // outside its clipping bounds, which previously forced a 0.999 scale cap.
+            player.replayer.wrapper.style.setProperty('zoom', String(scale))
 
             setScale(scale)
         },
-        [player, setScale]
+        [player, setScale, resolution]
     )
 
     const windowResize = useCallback((): void => {

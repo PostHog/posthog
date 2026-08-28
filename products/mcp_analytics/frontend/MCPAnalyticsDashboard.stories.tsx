@@ -179,6 +179,16 @@ const DAILY_STATS = [
 
 const CATEGORY_LIST = [['Data exploration'], ['Insights'], ['Dashboards'], ['Cohorts']]
 
+// One category per tool in the clustering fixture. Deliberately selective: `SQL` and
+// `Insights` each cover two of the three clusters, so picking one visibly narrows the list
+// rather than leaving it whole.
+const TOOL_CATEGORY_MAP = [
+    ['execute-sql', 'SQL'],
+    ['insight-create', 'Insights'],
+    ['query-trends', 'Product analytics'],
+    ['read-data-schema', 'Data schema'],
+]
+
 const CATEGORY_COUNTS = [
     ['Data exploration', 2240],
     ['Insights', 950],
@@ -310,6 +320,107 @@ const CLUSTER_SNAPSHOT = {
                 'List all custom events captured in the last 30 days.',
             ],
             journey: null,
+            // Only this cluster carries recovery data, so the story covers both the section
+            // rendering and the other clusters, which stand in for snapshots predating it.
+            switches: [
+                { from_tool: 'query-trends', to_tool: 'execute-sql', count: 6 },
+                { from_tool: 'insight-create', to_tool: 'query-trends', count: 2 },
+            ],
+            self_retries: [{ tool: 'read-data-schema', count: 4 }],
+        },
+    ],
+    tools: [
+        {
+            tool: 'execute-sql',
+            call_count: 1720,
+            error_count: 94,
+            session_count: 61,
+            contested_score: 0.31,
+            advertised_sessions: 74,
+            called_when_advertised: 66,
+            discovery_rate_pct: 89.2,
+            description: 'Run a ClickHouse SQL query against events, persons, and warehouse tables.',
+            n_clusters_served: 3,
+            clusters: [
+                {
+                    cluster_id: 1,
+                    calls: 1480,
+                    capture_pct: 81.3,
+                    rank: 1,
+                    description_fit: 0.71,
+                    top_competitor: { tool: 'read-data-schema', pct: 14.3 },
+                },
+                {
+                    cluster_id: 3,
+                    calls: 120,
+                    capture_pct: 29.3,
+                    rank: 2,
+                    description_fit: 0.44,
+                    top_competitor: { tool: 'read-data-schema', pct: 36.6 },
+                },
+            ],
+        },
+        {
+            // Well described but rarely picked when advertised: the scatter's lower right.
+            tool: 'read-data-schema',
+            call_count: 540,
+            error_count: 5,
+            session_count: 58,
+            contested_score: 0.66,
+            advertised_sessions: 74,
+            called_when_advertised: 18,
+            discovery_rate_pct: 24.3,
+            description: 'List the events, properties, and property values available in the project.',
+            n_clusters_served: 3,
+            clusters: [
+                {
+                    cluster_id: 3,
+                    calls: 150,
+                    capture_pct: 36.6,
+                    rank: 1,
+                    description_fit: 0.78,
+                    top_competitor: { tool: 'execute-sql', pct: 29.3 },
+                },
+            ],
+        },
+        {
+            // No description and too few advertised sessions, so fit and discovery are unmeasurable.
+            tool: 'insight-create',
+            call_count: 370,
+            error_count: 8,
+            session_count: 30,
+            contested_score: 0.52,
+            advertised_sessions: 3,
+            called_when_advertised: 2,
+            discovery_rate_pct: null,
+            description: null,
+            n_clusters_served: 2,
+            clusters: [
+                {
+                    cluster_id: 2,
+                    calls: 320,
+                    capture_pct: 46.4,
+                    rank: 1,
+                    description_fit: null,
+                    top_competitor: { tool: 'query-trends', pct: 34.8 },
+                },
+            ],
+        },
+    ],
+    tool_overlaps: [
+        {
+            tool_a: 'execute-sql',
+            tool_b: 'read-data-schema',
+            contested_calls: 270,
+            sessions_with_both: 41,
+            sessions_with_either: 78,
+        },
+        {
+            tool_a: 'insight-create',
+            tool_b: 'query-trends',
+            contested_calls: 140,
+            sessions_with_both: 9,
+            sessions_with_either: 44,
         },
     ],
 }
@@ -544,6 +655,9 @@ const meta: Meta = {
                     }
                     if (body?.query?.kind === 'MCPToolCategoriesQuery') {
                         return [200, { results: CATEGORY_LIST.map((r) => ({ category: r[0] })) }]
+                    }
+                    if (body?.query?.kind === 'MCPToolCategoryMapQuery') {
+                        return [200, { results: TOOL_CATEGORY_MAP.map((r) => ({ tool: r[0], category: r[1] })) }]
                     }
                     if (body?.query?.kind === 'MCPToolCategoryCountsQuery') {
                         return [200, { results: CATEGORY_COUNTS.map((r) => ({ category: r[0], calls: r[1] })) }]

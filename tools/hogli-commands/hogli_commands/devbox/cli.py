@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from hogli import telemetry
 from hogli.manifest import get_manifest
 
 from . import mutagen
@@ -28,6 +29,7 @@ from .coder import (
     DEFAULT_REGION,
     DEFAULT_TEMPLATE,
     DOTFILES_URI_PARAMETER,
+    EXPECTED_TAILNET,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     GIT_SIGNING_KEY_SECRET,
@@ -85,7 +87,7 @@ from .coder import (
     ssh_replace,
     start_workspace,
     stop_workspace,
-    tailscale_connected,
+    tailscale_state,
     unshare_workspace,
     update_workspace,
     update_workspace_parameters,
@@ -112,7 +114,9 @@ _POSTHOG_COMMIT_SIGNING_HANDBOOK_URL = "https://posthog.com/handbook/engineering
 # fails at the reachability check.
 _TAILNET_POLICY_URL = "https://github.com/PostHog/posthog-cloud-infra/blob/main/tailnet-policy.hujson"
 _TAILNET_ACCESS_PREREQ = (
-    "Devbox access needs your email in `group:engineering` in "
+    f"Devbox access needs you on the `{EXPECTED_TAILNET}` tailnet (not dev / "
+    "prod-us / prod-eu / internal — those are for CI runners and subnet "
+    "routers), with your email in `group:engineering` in "
     "posthog-cloud-infra/tailnet-policy.hujson.\n"
     f"    Not granted yet? Add yourself via PR: {_TAILNET_POLICY_URL}"
 )
@@ -733,13 +737,22 @@ def devbox_doctor() -> None:
     click.echo(f"  Coder URL: {get_coder_url()}")
     click.echo()
 
-    _doctor_check("Tailscale connected", tailscale_connected())
+    connected, tailnet = tailscale_state()
+    _doctor_check("Tailscale connected", connected)
+
+    # Being on a per-environment tailnet looks identical to "connected" but
+    # routes nowhere near a devbox, and nothing prompts you about it after the
+    # first sign-in — so name the active tailnet on its own line.
+    _doctor_check(f"Tailnet: {tailnet or 'unknown'} (need {EXPECTED_TAILNET})", tailnet == EXPECTED_TAILNET)
 
     reachable = coder_reachable()
     _doctor_check("Coder control plane reachable", reachable)
 
     if not reachable:
         diagnosis = _diagnose_unreachable_coder()
+        # doctor exits 0 while reporting a broken tailnet, so a failure count
+        # off this property has to filter on command or exit_code.
+        telemetry.add_command_properties(devbox_failure_cause=diagnosis.code)
         click.echo()
         click.echo(click.style(f"  Cause: {diagnosis.cause}", fg="yellow"))
         click.echo(f"  Next:  {diagnosis.next_step}")

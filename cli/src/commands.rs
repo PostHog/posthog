@@ -15,6 +15,7 @@ use crate::{
         set_telemetry_env_id_from_environment, INVOCATION_CONTEXT,
     },
     proguard::ProguardSubcommand,
+    release::ReleaseSubcommand,
     sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
 };
 
@@ -51,11 +52,11 @@ pub struct Cli {
     )]
     env_file: Option<PathBuf>,
 
-    /// Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard) without contacting
-    /// PostHog or requiring credentials. Intended for CI gates that bundle to catch regressions but
-    /// must not (or cannot) upload. Not for release builds. Pass it before the subcommand
-    /// (`posthog-cli --dry-run hermes upload ...`) or set `POSTHOG_CLI_DRY_RUN`. This is distinct
-    /// from the `exp endpoints` `--dry-run`, which previews endpoint changes.
+    /// Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard, release) without
+    /// contacting PostHog or requiring credentials. Intended for CI gates that bundle to catch
+    /// regressions but must not (or cannot) upload. Not for release builds. Pass it before the
+    /// subcommand (`posthog-cli --dry-run hermes upload ...`) or set `POSTHOG_CLI_DRY_RUN`. This is
+    /// distinct from the `exp endpoints` `--dry-run`, which previews endpoint changes.
     #[arg(
         long,
         env = "POSTHOG_CLI_DRY_RUN",
@@ -71,8 +72,9 @@ pub struct Cli {
     command: Commands,
 }
 
-/// Commands that `--dry-run` turns into a no-op. Returns the artifact kind, for logging, or `None`
-/// for commands that don't upload anything (login, queries, schema sync, symbol-set downloads).
+/// Commands that `--dry-run` turns into a no-op. Returns what gets skipped, for logging, or `None`
+/// for commands that don't write anything to PostHog (login, queries, schema sync, symbol-set
+/// downloads).
 fn dry_run_skipped_command(command: &Commands) -> Option<&'static str> {
     match command {
         Commands::Sourcemap { .. } => Some("sourcemap"),
@@ -82,6 +84,9 @@ fn dry_run_skipped_command(command: &Commands) -> Option<&'static str> {
         } => Some("native debug symbols"),
         Commands::Hermes { .. } => Some("hermes sourcemap"),
         Commands::Proguard { .. } => Some("proguard"),
+        // Resolving a release creates the row when it doesn't exist yet, which a dry run must not
+        // do. The command prints nothing, so a caller injecting the id ships a bundle without one.
+        Commands::Release { .. } => Some("release"),
         Commands::Exp { cmd } => match cmd {
             ExpCommand::Hermes { .. } => Some("hermes sourcemap"),
             ExpCommand::Proguard { .. } => Some("proguard"),
@@ -159,6 +164,12 @@ pub enum Commands {
     SymbolSets {
         #[command(subcommand)]
         cmd: SymbolSetsSubcommand,
+    },
+
+    #[command(about = "Look up the release a build belongs to")]
+    Release {
+        #[command(subcommand)]
+        cmd: ReleaseSubcommand,
     },
 
     #[command(
@@ -279,6 +290,9 @@ impl Commands {
                 SymbolSetsSubcommand::Download(_) => "symbolset_download",
                 SymbolSetsSubcommand::Extract(_) => "symbolset_extract",
             },
+            Commands::Release { cmd } => match cmd {
+                ReleaseSubcommand::Resolve(_) => "release_resolve",
+            },
             Commands::Api { .. } => "api",
         }
     }
@@ -345,8 +359,8 @@ impl Cli {
             Err(e) => {
                 if no_fail {
                     match &e.exception_id {
-                        Some(id) => eprintln!("Oops! {} (ID: {})", e.inner, id),
-                        None => eprintln!("Oops! {:?}", e.inner),
+                        Some(id) => crate::safe_eprintln!("Oops! {} (ID: {})", e.inner, id),
+                        None => crate::safe_eprintln!("Oops! {:?}", e.inner),
                     };
                     Ok(None)
                 } else {
@@ -360,7 +374,7 @@ impl Cli {
         if self.dry_run {
             if let Some(kind) = dry_run_skipped_command(&self.command) {
                 warn!(
-                    "Dry run enabled (--dry-run / POSTHOG_CLI_DRY_RUN): skipping {kind} upload. \
+                    "Dry run enabled (--dry-run / POSTHOG_CLI_DRY_RUN): skipping the {kind} step. \
                      Nothing was sent to PostHog and no credentials were used. \
                      Do not use --dry-run for release builds."
                 );
@@ -441,6 +455,11 @@ impl Cli {
                 }
                 SymbolSetsSubcommand::Extract(args) => {
                     crate::download::extract(&args)?;
+                }
+            },
+            Commands::Release { cmd } => match cmd {
+                ReleaseSubcommand::Resolve(args) => {
+                    crate::release::resolve(&args)?;
                 }
             },
             Commands::Api { args } => {
@@ -593,6 +612,8 @@ mod tests {
                 &["proguard", "upload", "--path", "p", "--map-id", "m"],
                 Some("proguard"),
             ),
+            // resolving a release creates the row, so a dry run must not reach it
+            (&["release", "resolve"], Some("release")),
             // hidden `exp` aliases must skip too
             (&["exp", "dsym", "upload", "--directory", "d"], Some("dSYM")),
             (

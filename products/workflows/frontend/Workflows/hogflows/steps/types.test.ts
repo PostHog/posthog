@@ -66,26 +66,56 @@ describe('HogFlowActionSchema', () => {
         ['10m', true],
         ['1m', true],
         ['1h', true],
+        ['30s', true],
+        ['1.5h', true],
+        ['0.5h', true],
+        ['.5d', true],
+        ['0.1m', true],
         ['d', false],
         ['h', false],
         ['m', false],
+        ['s', false],
         ['', false],
         ['NaNd', false],
         ['3', false],
+        ['3w', false],
         ['0m', false],
         ['0d', false],
-        ['1.5h', false],
-        ['0.5h', false],
-        ['.5d', false],
-        ['0.1m', false],
+        ['0.0h', false],
     ])('delay_duration %p → valid=%p', (duration, valid) => {
         expect(HogFlowActionSchema.safeParse(delayAction(duration)).success).toBe(valid)
+    })
+
+    // The API takes exactly one of the two delay modes. A config the editor calls valid but the API
+    // rejects saves as a draft and then fails to activate, pointing at nothing visible on screen.
+    const delayConfigAction = (config: Record<string, unknown>): Record<string, unknown> => ({
+        id: 'delay_node',
+        name: 'Delay',
+        type: 'delay',
+        description: '',
+        config,
+    })
+
+    it.each([
+        ['a duration alone', { delay_duration: '1d' }, true],
+        ['a date alone', { delay_until: { expression: 'person.properties.expires_at' } }, true],
+        ['a date with an offset', { delay_until: { expression: 'person.properties.x', offset: '-1d' } }, true],
+        ['a date with a cap', { delay_until: { expression: 'person.properties.x' }, max_delay_duration: '7d' }, true],
+        ['both modes', { delay_duration: '1d', delay_until: { expression: 'person.properties.x' } }, false],
+        ['neither mode', {}, false],
+        ['a date with no expression', { delay_until: { expression: '' } }, false],
+        ['an offset in an unsupported unit', { delay_until: { expression: 'x', offset: '1w' } }, false],
+        ['a cap that is not a duration', { delay_until: { expression: 'x' }, max_delay_duration: '7' }, false],
+    ])('delay config with %s → valid=%p', (_label, config, valid) => {
+        expect(HogFlowActionSchema.safeParse(delayConfigAction(config)).success).toBe(valid)
     })
 
     it.each([
         ['5m', true],
         ['2h', true],
         ['1d', true],
+        ['30s', true],
+        ['1.5h', true],
         ['d', false],
         ['h', false],
         ['m', false],
@@ -93,8 +123,6 @@ describe('HogFlowActionSchema', () => {
         ['NaNd', false],
         ['0m', false],
         ['0d', false],
-        ['1.5h', false],
-        ['0.5h', false],
     ])('max_wait_duration %p → valid=%p', (duration, valid) => {
         expect(HogFlowActionSchema.safeParse(waitAction(duration)).success).toBe(valid)
     })
@@ -105,9 +133,9 @@ describe('HogFlowActionSchema', () => {
     it.each([
         ['', 'Please enter a duration'],
         ['m', 'Please enter a duration'],
-        ['3', 'Duration must be a whole number followed by d, h, or m'],
-        ['1.5h', 'Duration must be a whole number followed by d, h, or m'],
-        ['0m', 'Duration must be at least 1'],
+        ['3', 'Duration must be a number followed by s, m, h, or d'],
+        ['3w', 'Duration must be a number followed by s, m, h, or d'],
+        ['0m', 'Duration must be greater than 0'],
     ])('delay_duration %p → message %p', (duration, message) => {
         const result = HogFlowActionSchema.safeParse(delayAction(duration))
         expect(result.success).toBe(false)

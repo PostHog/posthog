@@ -60,7 +60,6 @@ export interface findingsLogicValues {
         complete: boolean
         runs: SignalScoutRunSummary[]
     } // scoutFleetLogic
-    runsWindowComplete: boolean // scoutFleetLogic
     runsWindowLoadedOnce: boolean // scoutFleetLogic
     authoredReportCount: number
     availableScouts: {
@@ -307,7 +306,7 @@ export const findingsLogic = kea<findingsLogicType>([
     path(['scenes', 'inbox', 'logics', 'findingsLogic']),
 
     connect(() => ({
-        values: [scoutFleetLogic, ['runsWindow', 'runsWindowLoadedOnce', 'runsWindowComplete']],
+        values: [scoutFleetLogic, ['runsWindow', 'runsWindowLoadedOnce']],
     })),
 
     actions({
@@ -872,9 +871,12 @@ export const findingsLogic = kea<findingsLogicType>([
             // the report-link retry listener a poll to ride. It lives on this logic's own disposables
             // under its own key, so it never disposes the section's `runsPoll` — when both are mounted
             // the overlap just costs one extra capped request, since `loadRunsWindow` is idempotent.
-            scoutFleetLogic.actions.loadRunsWindow()
+            scoutFleetLogic.findMounted()?.actions.loadRunsWindow()
             cache.disposables.add(() => {
-                const interval = setInterval(() => scoutFleetLogic.actions.loadRunsWindow(), RUNS_REFETCH_INTERVAL_MS)
+                const interval = setInterval(
+                    () => scoutFleetLogic.findMounted()?.actions.loadRunsWindow(),
+                    RUNS_REFETCH_INTERVAL_MS
+                )
                 return () => clearInterval(interval)
             }, 'findingsRunsPoll')
         },

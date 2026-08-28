@@ -5,8 +5,8 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { SCOUT_AUTHOR_PROMPT } from '../../../utils/scoutRunsWindow'
 import { ScoutCreateButton } from './ScoutCreateButton'
+import { ScoutsRosterActions } from './ScoutsRosterActions'
 import { ScoutSuggestButton } from './ScoutSuggestButton'
 
 jest.mock('lib/utils/accessControlUtils', () => ({
@@ -28,10 +28,10 @@ const mockGetAccessControlDisabledReason = getAccessControlDisabledReason as jes
 >
 
 describe('scout creation buttons', () => {
-    let createdTaskDescriptions: string[]
+    let startedChatTypes: string[]
 
     beforeEach(() => {
-        createdTaskDescriptions = []
+        startedChatTypes = []
         mockGetAccessControlDisabledReason.mockReturnValue(null)
         useMocks({
             get: {
@@ -46,15 +46,13 @@ describe('scout creation buttons', () => {
                         runs_remaining_today: null,
                     },
                 },
-                '/api/projects/:team/tasks/repositories/': { repositories: [] },
             },
             post: {
-                '/api/projects/:team/tasks/': async ({ request }) => {
-                    const body = (await request.json()) as { description: string }
-                    createdTaskDescriptions.push(body.description)
-                    return [201, { id: 'task-1' }]
+                '/api/projects/:team/signals/scout/chat_tasks/': async ({ request }) => {
+                    const body = (await request.json()) as { chat_type: string }
+                    startedChatTypes.push(body.chat_type)
+                    return [201, { task_id: 'task-1' }]
                 },
-                '/api/projects/:team/tasks/:id/run/': { id: 'task-1' },
             },
         })
         initKeaTests()
@@ -71,7 +69,7 @@ describe('scout creation buttons', () => {
 
         expect(await findByText('Manual scout form')).toBeTruthy()
         expect(await findByText('signals-scout-daily-digest')).toBeTruthy()
-        expect(createdTaskDescriptions).toEqual([])
+        expect(startedChatTypes).toEqual([])
     })
 
     it('starts the authoring task from the suggest button', async () => {
@@ -79,8 +77,19 @@ describe('scout creation buttons', () => {
 
         fireEvent.click(getByText('Suggest a scout'))
 
-        await waitFor(() => expect(createdTaskDescriptions).toEqual([SCOUT_AUTHOR_PROMPT]))
+        await waitFor(() => expect(startedChatTypes).toEqual(['author_scout']))
         expect(queryByText('Manual scout form')).toBeNull()
+    })
+
+    it('spins only the button that started the task', async () => {
+        const { getByText } = render(<ScoutsRosterActions />)
+
+        fireEvent.click(getByText('Suggest a scout'))
+
+        // Both assertions read the same render, before the task resolves and clears the state.
+        expect(getByText('Suggest a scout').closest('button')?.querySelector('.Spinner')).toBeTruthy()
+        expect(getByText('Ask').closest('button')?.querySelector('.Spinner')).toBeNull()
+        await waitFor(() => expect(startedChatTypes).toEqual(['author_scout']))
     })
 
     it.each([
@@ -94,6 +103,6 @@ describe('scout creation buttons', () => {
 
         expect(button?.getAttribute('aria-disabled')).toBe('true')
         fireEvent.click(button!)
-        expect(createdTaskDescriptions).toEqual([])
+        expect(startedChatTypes).toEqual([])
     })
 })

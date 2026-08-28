@@ -84,7 +84,8 @@ export function DirectQuerySchemasTab({ id }: DirectQuerySchemasTabProps): JSX.E
     const logic = sourceSettingsLogic({ id })
     const { source, sourceLoading, filteredSchemas, showEnabledSchemasOnly, schemaNameFilter, refreshingSchemas } =
         useValues(logic)
-    const { setShowEnabledSchemasOnly, setSchemaNameFilter, refreshSchemas, updateSchema } = useActions(logic)
+    const { setShowEnabledSchemasOnly, setSchemaNameFilter, refreshSchemas, updateSchema, updateSchemas } =
+        useActions(logic)
 
     const [columnModalSchema, setColumnModalSchema] = useState<ExternalDataSourceSchema | null>(null)
 
@@ -127,6 +128,7 @@ export function DirectQuerySchemasTab({ id }: DirectQuerySchemasTabProps): JSX.E
                 groupedSchemas={groupedSchemas}
                 isLoading={sourceLoading}
                 updateSchema={updateSchema}
+                updateSchemas={updateSchemas}
                 onConfigureColumns={setColumnModalSchema}
             />
             <ColumnSelectionModal
@@ -149,12 +151,14 @@ function DirectQuerySchemaGroups({
     groupedSchemas,
     isLoading,
     updateSchema,
+    updateSchemas,
     onConfigureColumns,
 }: {
     source: ExternalDataSource | null
     groupedSchemas: { schemaName: string; schemas: ExternalDataSourceSchema[] }[]
     isLoading: boolean
     updateSchema: (schema: ExternalDataSourceSchema) => void
+    updateSchemas: (schemas: ExternalDataSourceSchema[]) => void
     onConfigureColumns?: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     const [initialLoad, setInitialLoad] = useState(true)
@@ -201,16 +205,17 @@ function DirectQuerySchemaGroups({
     const toggleDirectQuerySchemaGroup = useCallback(
         (schemaName: string, shouldSync: boolean) => {
             const schemaGroup = groupedSchemas.find((group) => group.schemaName === schemaName)
-            for (const schema of schemaGroup?.schemas ?? []) {
-                setDirectQuerySchemaEnabled(schema, shouldSync)
-            }
+            const updatedSchemas = (schemaGroup?.schemas ?? [])
+                .filter((schema) => schema.should_sync !== shouldSync)
+                .map((schema) => ({ ...schema, should_sync: shouldSync }))
+            updateSchemas(updatedSchemas)
             setExpandedSchemaKeys((currentKeys) =>
                 shouldSync
                     ? Array.from(new Set([...currentKeys, schemaName]))
                     : currentKeys.filter((key) => key !== schemaName)
             )
         },
-        [groupedSchemas, setDirectQuerySchemaEnabled]
+        [groupedSchemas, updateSchemas]
     )
 
     if (initialLoad) {

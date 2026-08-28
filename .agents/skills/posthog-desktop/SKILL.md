@@ -7,7 +7,7 @@ description: >
   apps/mobile, packages/core, packages/ui, packages/workspace-server, @posthog/api-client,
   @posthog/agent, or the agent framework. Pins the working directory to products/desktop, swaps
   in that tree's toolchain and conventions in place of the monorepo's, and defines the few paths
-  outside the tree that may be touched (Django APIs the app calls, desktop-* CI, resync config).
+  outside the tree that may be touched (Django APIs the app calls, desktop-* CI at the root).
 ---
 
 # Working in products/desktop
@@ -32,10 +32,9 @@ Step outside only when one of these is true:
 1. **The user explicitly tells you to.**
 2. **A backend API the app calls needs to change.** The client is
    `packages/api-client/`; the endpoints it hits live in the Django monorepo (see below).
-3. **Desktop CI / config that lives at the root by design.** The list is fixed — see
-   `products/desktop/MIGRATION.md` "Root-repo changes (outside products/desktop/)":
+3. **Desktop CI / config that lives at the root by design.** The list is fixed:
    `.github/workflows/desktop-*.yml`, `.github/actions/desktop-*/`,
-   `.github/scripts/products/desktop/`, and the exclusion entries in `pnpm-workspace.yaml`,
+   `.github/scripts/desktop/`, and the exclusion entries in `pnpm-workspace.yaml`,
    `pyproject.toml`, `pytest.ini`, `package.json` (`lint:css`), `frontend/jest.config.ts`,
    `.dockerignore`, `.oxlintrc.json`, `.oxfmtrc.json`, `.config/.markdownlint-cli2.jsonc`,
    `.github/workflows/ci-{frontend,storybook,backend}.yml` (+ `.depot/workflows/ci-backend.yml`).
@@ -63,17 +62,6 @@ Commands (from `products/desktop/`): `pnpm install`, `pnpm dev`, `pnpm build`, `
 Never run root-level `pnpm install` expecting it to cover desktop, and never let a desktop
 dependency change alter the root lockfile — the root install must stay byte-identical.
 
-## What still applies from the root
-
-- Conventional commits and PR titles; `scope` of `desktop` (e.g. `fix(desktop/$feature): ...`).
-- `.github/pull_request_template.md` structure, including the Agent context section.
-- Public-repo copy safety: no customer names, internal incidents, or Slack quotes.
-- Merging: `gh pr merge <number> --squash` into `master`. **`AGENTS.md` "Merging PRs" and
-  `products/desktop/.claude/skills/merging-prs/` are stale** — they describe the PostHog/code
-  Trunk queue against `main`, which does not exist here. `products/desktop/POST-MIGRATION.md`
-  has the correct flow.
-- `hogli ci:preflight` on push (pre-push hook) still runs repo-wide.
-
 ## Cross-boundary: the Django API
 
 `packages/api-client/` calls monorepo endpoints — tasks (`/api/projects/:id/tasks/...`),
@@ -87,20 +75,18 @@ the backend:
 - Wiring the app at a local Django instance (OAuth app, RSA keys, flags) is
   `products/desktop/docs/LOCAL-DEVELOPMENT.md`.
 
-## Resync hazard
+## Provenance
 
-The tree is a verbatim copy of PostHog/code at a pinned SHA. A resync replaces it wholesale, so
-**edits to imported files are lost unless they are upstreamed or listed as intentional drift.**
-Before changing a file, consider whether the fix belongs upstream in PostHog/code. The drift
-list, the local security patches that must be reapplied, and the monorepo-only files
-(`MIGRATION.md`, `POST-MIGRATION.md`, `product.yaml`, `docs/plan.md`) are in
-`products/desktop/MIGRATION.md`. Do not delete or "clean up" monorepo-only files.
+The tree was imported from the standalone PostHog/code repo, which is now archived. There is
+no resync process: the monorepo copy is the only maintained one, and fixes land here like any
+other monorepo change. `product.yaml` declares ownership (`team-posthog-code`) for reviewer
+auto-assignment and Slack routing; do not delete it.
 
 ## Desktop-local skills
 
 `products/desktop/.claude/skills/` ships its own: `test-electron-app` (drive the running app
-over CDP `:9222`), `quill-code`, `storybook-stories`, `canvas-templates`, `merging-prs` (stale,
-see above). Prefer these over monorepo equivalents while in this tree.
+over CDP `:9222`), `quill-code`, `storybook-stories`, `onboarding-videos`.
+Prefer these over monorepo equivalents while in this tree.
 
 ## Before reporting done
 

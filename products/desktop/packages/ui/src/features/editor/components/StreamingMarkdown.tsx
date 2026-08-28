@@ -2,10 +2,17 @@ import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
 import { memo, useMemo } from "react";
 import type { Components } from "react-markdown";
 import { MarkdownRenderer } from "./MarkdownRenderer";
-import { parseOpenFence, splitMarkdownBlocks } from "./splitMarkdownBlocks";
+import {
+  maskOpenLinkDestination,
+  parseOpenFence,
+  splitMarkdownBlocks,
+} from "./splitMarkdownBlocks";
 
 interface StreamingMarkdownProps {
   content: string;
+  /** See {@link MarkdownRenderer}: only trusted agent-authored surfaces may
+   *  enable object tags, because they execute authenticated queries. */
+  renderObjectTags?: boolean;
   componentsOverride?: Partial<Components>;
 }
 
@@ -24,6 +31,7 @@ interface StreamingMarkdownProps {
  */
 export const StreamingMarkdown = memo(function StreamingMarkdown({
   content,
+  renderObjectTags,
   componentsOverride,
 }: StreamingMarkdownProps) {
   const blocks = useMemo(() => splitMarkdownBlocks(content), [content]);
@@ -40,6 +48,7 @@ export const StreamingMarkdown = memo(function StreamingMarkdown({
               {openFence.before.trim() ? (
                 <MarkdownRenderer
                   content={openFence.before}
+                  renderObjectTags={renderObjectTags}
                   componentsOverride={componentsOverride}
                 />
               ) : null}
@@ -52,7 +61,10 @@ export const StreamingMarkdown = memo(function StreamingMarkdown({
         return (
           <MarkdownRenderer
             key={key}
-            content={block}
+            content={
+              index === lastIndex ? maskOpenLinkDestination(block) : block
+            }
+            renderObjectTags={renderObjectTags}
             componentsOverride={componentsOverride}
           />
         );

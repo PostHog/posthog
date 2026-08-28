@@ -15,7 +15,7 @@ Before a user has set a product up, its scene should show a setup empty state: t
 2. The gate mounts the product's **detection logic**, which pushes a normalized status into `productSetupStatusLogic({ productKey })` — the app-wide single read point for "is product X set up?".
 3. The gate renders the setup empty state for `needs-setup` / `waiting-for-data`, and the scene untouched for `has-data`. While `loading` it shows the standard scene-level spinner — the one shared loading treatment. **Never add a product-specific loading fallback.**
 4. Statuses are **preloaded at app boot**: `productSetupPreloadLogic` (mounted in `App.tsx`) answers every manifest-declared probe (each product's `setupProbe`, aggregated into `productSetupProbes`) with one combined event-count query on idle, so by the time a user opens the scene the status is usually already known and the spinner never shows. The product's in-scene detection stays the fresher source of truth.
-5. Users can always **skip**. Skip is local-only (localStorage, keyed team + product, never backend-persisted); detection keeps polling, and a slim "Set up" banner stays visible until data lands.
+5. Users can **skip** by default. Skip is local-only (localStorage, keyed team + product, never backend-persisted); detection keeps polling, and a slim "Set up" banner stays visible until data lands. Creation-first products whose gated scene is just an empty list can set `skippable: false` on the config to drop the escape hatch — the primary action is the only next step anyway.
 
 ## Adoption steps
 
@@ -49,7 +49,8 @@ Statuses: `loading` (not yet known - the gate holds a spinner, never flashes the
 `products/<product>/frontend/emptyState/<product>EmptyState.tsx` exports a `SceneProductEmptyState` (see `lib/components/ProductEmptyState/types.ts` for every field). Reference: `products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState.tsx`. Notes:
 
 - **Accent**: use the product's `--color-product-<name>-light`/`-dark` token (`frontend/src/styles/base.scss`). If your product has none, add one there (get the color from design) rather than hardcoding a hex.
-- **Wizard vs primary action**: SDK-installed products set `wizard: { slug }` (the slug must exist in `@posthog/wizard`); creation-first products (flags, surveys) set `primaryAction` instead. Self-hosted degrades automatically: no cloud → the terminal hides and the manual path is promoted.
+- **Wizard vs primary action**: SDK-installed products set `wizard: { slug }` (the slug must exist in `@posthog/wizard`); creation-first products (flags, surveys) set `primaryAction` instead. Self-hosted degrades automatically: no cloud → the terminal hides and the manual path is promoted. If the create action needs hooks (e.g. it opens PostHog AI via `useMaxTool`, like user research's "New topic"), provide a `PrimaryAction` component instead of `primaryAction` - it renders in the same slot and takes precedence.
+- **Permissions and selectors on the primary action**: set `primaryAction.accessControl` to the same resource type and level the gated scene's own create button uses. Without it a viewer gets an enabled button and only learns they can't create when the form fails to save. Set `primaryAction.dataAttr` to the attr that scene button carries, so an end-to-end spec keeps one selector whether it lands on the scene or the empty state. A `PrimaryAction` component wraps its own `AccessControlAction`.
 - **`featureFlag`**: set it when the scene is already flag-gated (so the scene's own gate keeps handling flag-off) or to roll the empty state out gradually.
 - **Hedgehog**: a `pngHoggie(...)`-wrapped module — import only inside the product chunk (eager-graph guard: `frontend/bin/check-eager-graph.mjs`). Never hardcode image URLs (e.g. Cloudinary) — `@posthog/brand` assets only.
 - **`text` is keyed by mode**: provide the `needs-setup` base; add a `waiting-for-data` entry only if your product has that middle state (missing fields fall back to the base). Sentence case, benefit-first, no AI tells (see "User-facing copy" in `CLAUDE.md`).
@@ -57,9 +58,18 @@ Statuses: `loading` (not yet known - the gate holds a spinner, never flashes the
 
 ### 3. Build the signature preview
 
-`Preview` is the right-hand widget: the product's most recognizable UI, populated with **static, realistic fake data** (label it "example data"). Reference: `products/mcp_analytics/frontend/emptyState/MCPToolCallPreview.tsx`.
+`Preview` is the right-hand widget: the product's most recognizable UI, populated with **static, realistic fake data** (label it "example data"). References: `products/mcp_analytics/frontend/emptyState/MCPToolCallPreview.tsx`, `products/feature_flags/frontend/emptyState/FeatureFlagPreview.tsx`, `products/experiments/frontend/emptyState/ExperimentPreview.tsx`.
 
-- The shared layout renders it vertically centered on a darker full-height panel — the preview itself must **never scroll or loop**; a handful of static rows is the whole job. Style with tailwind; any motion is CSS only (no `setInterval`, no computed timestamps) with `motion-reduce:` variants for reduced motion.
+This is not a flat mock - the bar is "fun and involved", and the references set it:
+
+- **Layer 2-3 small cards** that tell one story together (a list + the mini app it drives + a stat card with a chart), not a single panel of rows.
+- **One real interaction with a visible payoff.** Drive it with a hidden checkbox/radio and `:checked ~` styles - clicking a flag row flips a mini app's UI and steps a conversion chart up at a "Released" marker; picking a variant highlights its interval and re-skins the app. No React state, no JS timers (`setInterval` is banned; CSS keyframes only).
+- **Ambient motion so it feels alive at rest:** a trace segment cycling along a sparkline, a pulsing "Running" dot - subtle and continuous. Do **not** auto-toggle the interactive state on a loop - a UI that flips itself reads as broken, not alive; the user flips it, ambient motion does the rest.
+- **No layout shift on state change:** stack on/off variants in one grid cell and crossfade opacity; never swap `display` or animate heights for state text.
+- **Never paint text in the raw product accent.** Those tokens are sidebar icon tints; on the light surface most land under the 4.5:1 AA floor as text. Use `@include preview-accent-text(var(--<x>-preview-accent))` for every `color:` declaration and keep the raw accent for fills, borders, and strokes.
+- **Crossfade with the `preview-swap-hidden` / `preview-swap-visible` mixins** (`lib/components/ProductEmptyState/_previewMixins.scss`), never bare `opacity`. Opacity alone leaves the hidden half in the accessibility tree and the tab order, so a screen reader announces both states at once and a keyboard user can land on an invisible button. The mixins add `visibility` on a delay, which keeps the fade and costs no layout shift.
+- The hidden input stays keyboard-focusable, so the row it labels needs a `:focus-visible` outline (WCAG 2.4.7).
+- The preview must **never scroll**; guard all animation with `prefers-reduced-motion` and an `inStorybook()`-driven static class so visual-regression snapshots stay stable.
 - Honor the `mode` prop: `waiting-for-data` should read as "listening" (e.g. a pinned spinner row).
 
 ### 4. Declare it on the scene

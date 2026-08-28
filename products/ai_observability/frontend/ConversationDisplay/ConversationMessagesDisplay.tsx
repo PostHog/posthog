@@ -16,6 +16,7 @@ import { aiBlobRenderHandlers, resolveAiBlobUrl, resolveDataUri } from '../aiBlo
 import { getJsonContainerForDisplay, JSONValueDisplay } from '../components/JSONValueDisplay'
 import { MessageSentimentBar } from '../components/SentimentTag'
 import { LLMInputOutput } from '../LLMInputOutput'
+import { isRenderableMediaSource, redactedMediaKind } from '../mediaSource'
 import { SearchHighlight } from '../SearchHighlight'
 import { containsSearchQuery } from '../searchUtils'
 import type { GenerationSentiment } from '../sentimentResults'
@@ -37,6 +38,7 @@ import {
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { HighlightedXMLViewer } from './HighlightedXMLViewer'
 import { MessageActionsMenu } from './MessageActionsMenu'
+import { RedactedMediaPlaceholder } from './RedactedMediaPlaceholder'
 import { XMLViewer } from './XMLViewer'
 
 export type ConversationDisplayOption =
@@ -386,8 +388,13 @@ export const ImageMessageDisplay = ({ message }: { message: ImageDisplayMessage 
     if (typeof content === 'string') {
         return <span>{content}</span>
     } else if (content?.image) {
+        if (!isRenderableMediaSource(content.image)) {
+            return <RedactedMediaPlaceholder kind="image" />
+        }
         const src = resolveAiBlobUrl(content.image, currentTeamId)
-        return <img src={src} alt="User sent image" {...aiBlobRenderHandlers(src, 'image')} />
+        return (
+            <img src={src} alt="User sent image" data-attr="ai-message-image" {...aiBlobRenderHandlers(src, 'image')} />
+        )
     }
 
     return <span>{String(content ?? '')}</span>
@@ -404,6 +411,13 @@ function renderContentItem(
         ) : (
             <span className="whitespace-pre-wrap">{item}</span>
         )
+    }
+
+    // File and audio parts carry a filename or transcript alongside the payload, so those kinds are
+    // replaced inside their own branch to keep that content. An image part is only the image.
+    const redacted = redactedMediaKind(item)
+    if (redacted === 'image') {
+        return <RedactedMediaPlaceholder kind="image" />
     }
 
     if (!item || typeof item !== 'object' || !('type' in item)) {
@@ -437,6 +451,7 @@ function renderContentItem(
                 src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
+                data-attr="ai-message-image"
                 {...aiBlobRenderHandlers(src, 'image')}
             />
         )
@@ -449,6 +464,7 @@ function renderContentItem(
                 src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
+                data-attr="ai-message-image"
                 {...aiBlobRenderHandlers(src, 'image')}
             />
         )
@@ -465,12 +481,16 @@ function renderContentItem(
                 src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
+                data-attr="ai-message-image"
                 {...aiBlobRenderHandlers(src, 'image')}
             />
         )
     }
 
     if (isOpenAIFileMessage(item)) {
+        if (redacted === 'file') {
+            return <RedactedMediaPlaceholder kind="file" filename={item.file.filename} />
+        }
         const resolved = resolveAiBlobUrl(item.file.file_data, currentTeamId)
         if (resolved === item.file.file_data && !item.file.file_data.startsWith('data:')) {
             return <span className="text-muted">{item.file.filename}</span>
@@ -484,6 +504,9 @@ function renderContentItem(
     }
 
     if (isAnthropicDocumentMessage(item)) {
+        if (redacted === 'file') {
+            return <RedactedMediaPlaceholder kind="file" />
+        }
         const href = resolveDataUri(item.source.data, item.source.media_type, currentTeamId)
         const fileName = `document.${item.source.media_type.split('/')[1] || 'bin'}`
         return (
@@ -495,6 +518,9 @@ function renderContentItem(
     }
 
     if (isGeminiDocumentMessage(item)) {
+        if (redacted === 'file') {
+            return <RedactedMediaPlaceholder kind="file" />
+        }
         const inlineData = getGeminiInlineData(item)
         if (!inlineData) {
             return null
@@ -516,7 +542,11 @@ function renderContentItem(
 
         return (
             <div className="space-y-2">
-                <audio controls className="w-[500px]" src={src} {...aiBlobRenderHandlers(src, 'audio')} />
+                {redacted === 'audio' ? (
+                    <RedactedMediaPlaceholder kind="audio" />
+                ) : (
+                    <audio controls className="w-[500px]" src={src} {...aiBlobRenderHandlers(src, 'audio')} />
+                )}
                 {transcript && typeof transcript === 'string' && (
                     <div className="text-xs text-muted p-2 bg-bg-light rounded border">
                         <div className="font-semibold mb-1">Transcript:</div>

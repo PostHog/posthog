@@ -14,6 +14,7 @@ from posthog.models import Organization, Team
 from products.managed_warehouse.backend.facade.cp_teams import clear_team_membership_cache
 from products.managed_warehouse.backend.models import DuckgresServer
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 
 @pytest.fixture(autouse=True)
@@ -67,9 +68,15 @@ def test_reset_password_reports_local_persistence_failure(
 
 @patch("products.data_warehouse.backend.facade.api.schedule_soft_delete_managed_warehouse_sources")
 @patch("products.managed_warehouse.backend.facade.connection.soft_delete_managed_warehouse_sources")
+@patch("products.managed_warehouse.backend.presentation.views._deactivate_managed_source_lifecycle", return_value=7)
+@patch("products.managed_warehouse.backend.presentation.views._active_managed_source_generation", return_value=6)
 @patch("products.managed_warehouse.backend.presentation.views._request")
 def test_deprovision_schedules_cleanup_retry_when_inline_cleanup_fails(
-    mock_request: MagicMock, mock_soft_delete: MagicMock, mock_schedule: MagicMock
+    mock_request: MagicMock,
+    _mock_active_generation: MagicMock,
+    _mock_deactivate: MagicMock,
+    mock_soft_delete: MagicMock,
+    mock_schedule: MagicMock,
 ) -> None:
     # Deprovision is not re-POSTable (Duckgres 409s once the org leaves a deprovisionable state),
     # so a failed local cleanup must converge on its own instead of asking the operator to retry.
@@ -80,14 +87,21 @@ def test_deprovision_schedules_cleanup_retry_when_inline_cleanup_fails(
     response = managed_warehouse.deprovision(organization_id)
 
     assert response.status_code == 202
-    mock_schedule.assert_called_once_with(organization_id=organization_id)
+    mock_soft_delete.assert_called_once_with(organization_id=organization_id, expected_generation=7)
+    mock_schedule.assert_called_once_with(organization_id=organization_id, expected_generation=7)
 
 
 @patch("products.data_warehouse.backend.facade.api.schedule_soft_delete_managed_warehouse_sources")
 @patch("products.managed_warehouse.backend.facade.connection.soft_delete_managed_warehouse_sources")
+@patch("products.managed_warehouse.backend.presentation.views._deactivate_managed_source_lifecycle", return_value=7)
+@patch("products.managed_warehouse.backend.presentation.views._active_managed_source_generation", return_value=6)
 @patch("products.managed_warehouse.backend.presentation.views._request")
 def test_deprovision_reports_when_cleanup_and_its_retry_cannot_be_scheduled(
-    mock_request: MagicMock, mock_soft_delete: MagicMock, mock_schedule: MagicMock
+    mock_request: MagicMock,
+    _mock_active_generation: MagicMock,
+    _mock_deactivate: MagicMock,
+    mock_soft_delete: MagicMock,
+    mock_schedule: MagicMock,
 ) -> None:
     mock_request.return_value = Response({"status": "deprovisioning started"}, status=202)
     mock_soft_delete.side_effect = RuntimeError("database unavailable")
@@ -99,6 +113,111 @@ def test_deprovision_reports_when_cleanup_and_its_retry_cannot_be_scheduled(
     assert response.data == {
         "error": "The warehouse was deprovisioned but its SQL connections could not be removed or scheduled for removal. They must be cleaned up manually."
     }
+
+
+@patch("products.managed_warehouse.backend.presentation.views._remove_direct_connection_sources")
+@patch("products.managed_warehouse.backend.presentation.views._deactivate_managed_source_lifecycle", return_value=7)
+@patch("products.managed_warehouse.backend.presentation.views._active_managed_source_generation", return_value=6)
+@patch("products.managed_warehouse.backend.presentation.views._request")
+def test_deprovision_converges_locally_when_an_accepted_request_times_out(
+    mock_request: MagicMock,
+    _mock_active_generation: MagicMock,
+    mock_deactivate: MagicMock,
+    mock_remove_sources: MagicMock,
+) -> None:
+    organization_id = uuid4()
+    mock_request.side_effect = [
+        Response({"error": "timed out"}, status=504),
+        Response({"state": "deleting"}, status=200),
+    ]
+
+    response = managed_warehouse.deprovision(organization_id)
+
+    assert response.status_code == 202
+    mock_deactivate.assert_called_once_with(organization_id, expected_generation=6)
+    mock_remove_sources.assert_called_once_with(organization_id, 7)
+
+
+@patch("products.managed_warehouse.backend.presentation.views._remove_direct_connection_sources")
+@patch("products.managed_warehouse.backend.presentation.views._deactivate_managed_source_lifecycle", return_value=7)
+@patch("products.managed_warehouse.backend.presentation.views._active_managed_source_generation", return_value=6)
+@patch("products.managed_warehouse.backend.presentation.views._request")
+def test_deprovision_converges_locally_when_the_control_plane_reports_the_warehouse_absent(
+    mock_request: MagicMock,
+    _mock_active_generation: MagicMock,
+    mock_deactivate: MagicMock,
+    mock_remove_sources: MagicMock,
+) -> None:
+    organization_id = uuid4()
+    mock_request.return_value = Response({"error": "not found"}, status=404)
+
+    response = managed_warehouse.deprovision(organization_id)
+
+    assert response.status_code == 202
+    assert response.data == {"status": "deprovisioning started"}
+    mock_request.assert_called_once_with("POST", organization_id, "/deprovision", require_enabled=True)
+    mock_deactivate.assert_called_once_with(organization_id, expected_generation=6)
+    mock_remove_sources.assert_called_once_with(organization_id, 7)
+
+
+@patch("products.managed_warehouse.backend.presentation.views._remove_direct_connection_sources")
+@patch("products.managed_warehouse.backend.presentation.views._deactivate_managed_source_lifecycle")
+@patch("products.managed_warehouse.backend.presentation.views._active_managed_source_generation", return_value=6)
+@patch("products.managed_warehouse.backend.presentation.views._request")
+def test_deprovision_does_not_clean_up_on_a_genuine_conflict(
+    mock_request: MagicMock,
+    _mock_active_generation: MagicMock,
+    mock_deactivate: MagicMock,
+    mock_remove_sources: MagicMock,
+) -> None:
+    mock_request.side_effect = [
+        Response({"error": "conflict"}, status=409),
+        Response({"state": "ready"}, status=200),
+    ]
+
+    response = managed_warehouse.deprovision(uuid4())
+
+    assert response.status_code == 409
+    mock_deactivate.assert_not_called()
+    mock_remove_sources.assert_not_called()
+
+
+def test_deprovision_retry_after_local_cleanup_failure_converges_from_control_plane_status() -> None:
+    organization_id = uuid4()
+    with (
+        patch.object(
+            managed_warehouse,
+            "_request",
+            side_effect=[
+                Response({"status": "deprovisioning started"}, status=202),
+                Response({"error": "already deleting"}, status=409),
+                Response({"state": "deleting"}, status=200),
+            ],
+        ),
+        patch.object(managed_warehouse, "_active_managed_source_generation", side_effect=[6, None]),
+        patch.object(managed_warehouse, "_managed_source_generation", return_value=7),
+        patch.object(managed_warehouse, "_deactivate_managed_source_lifecycle", return_value=7) as deactivate,
+        patch.object(
+            managed_warehouse,
+            "_remove_direct_connection_sources",
+            side_effect=[RuntimeError("database unavailable"), None],
+        ) as remove_sources,
+        patch.object(
+            managed_warehouse,
+            "_schedule_remove_direct_connection_sources",
+            side_effect=RuntimeError("broker unavailable"),
+        ),
+    ):
+        first = managed_warehouse.deprovision(organization_id)
+        second = managed_warehouse.deprovision(organization_id)
+
+    assert first.status_code == 500
+    assert second.status_code == 202
+    deactivate.assert_called_once_with(organization_id, expected_generation=6)
+    assert remove_sources.call_args_list == [
+        ((organization_id, 7),),
+        ((organization_id, 7),),
+    ]
 
 
 @pytest.mark.django_db
@@ -128,9 +247,52 @@ def test_provision_persists_duckgres_server_on_success(mock_request: MagicMock) 
 
 
 @pytest.mark.django_db
+def test_provision_captures_generation_before_request_and_skips_local_writes_if_activation_loses(
+    _onboarding_side_effects,
+) -> None:
+    org = Organization.objects.create(name="Org")
+    team = Team.objects.create(organization=org)
+    call_order: list[object] = []
+
+    def capture_generation(_organization_id) -> int:
+        call_order.append("capture")
+        return 7
+
+    def request(*_args, **_kwargs) -> Response:
+        call_order.append("request")
+        return Response(
+            {"status": "provisioning started", "org": str(org.id), "username": "root", "password": "secret"},
+            status=202,
+        )
+
+    def lose_activation(_organization_id, expected_generation: int) -> None:
+        call_order.append(("activate", expected_generation))
+        return None
+
+    with (
+        patch.object(managed_warehouse, "_managed_source_generation", side_effect=capture_generation),
+        patch.object(managed_warehouse, "_request", side_effect=request),
+        patch.object(managed_warehouse, "_activate_managed_source_lifecycle", side_effect=lose_activation),
+        patch.object(managed_warehouse, "_persist_duckgres_server") as persist,
+        patch.object(managed_warehouse, "_register_provisioning_team") as register,
+    ):
+        response = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+
+    assert response.status_code == 202
+    assert call_order == ["capture", "request", ("activate", 7)]
+    persist.assert_not_called()
+    register.assert_not_called()
+    _onboarding_side_effects.ensure.assert_not_called()
+    assert not DuckgresServer.objects.filter(organization_id=org.id).exists()
+    assert not ExternalDataSource._base_manager.filter(team_id=team.id).exists()
+
+
+@pytest.mark.django_db
 @override_settings(CLOUD_DEPLOYMENT="US", DUCKGRES_PG_PORT=5432)
 @patch("products.managed_warehouse.backend.presentation.views._request")
-def test_provision_sends_team_id_and_schema_name_to_control_plane(mock_request: MagicMock) -> None:
+def test_provision_sends_team_id_and_schema_name_to_control_plane(
+    mock_request: MagicMock, _onboarding_side_effects
+) -> None:
     # The provisioning team becomes the warehouse's first team via the org-teams API:
     # the outbound body carries team_id + schema_name and never default_team_id (dropped
     # along with duckgres's whole default/billing-team concept).
@@ -160,6 +322,11 @@ def test_provision_sends_team_id_and_schema_name_to_control_plane(mock_request: 
         "persons_table_name": "persons_prod_events",
         "schema_data_imports_name": "posthog_data_imports_prod_events",
     }
+    _onboarding_side_effects.ensure.assert_called_once_with(
+        team_id=team.id,
+        organization_id=org.id,
+        expected_generation=1,
+    )
 
 
 @pytest.mark.django_db
@@ -180,6 +347,35 @@ def test_provision_succeeds_even_when_the_team_row_completion_fails(mock_request
     resp = managed_warehouse.provision(org.id, "my-warehouse", team.id, "prod_events")
 
     assert resp.status_code == 202
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.facade.api.schedule_managed_warehouse_direct_source_ensure")
+@patch("products.managed_warehouse.backend.presentation.views._request")
+def test_provision_schedules_generation_fenced_source_recovery_when_inline_ensure_fails(
+    mock_request: MagicMock,
+    mock_schedule_ensure: MagicMock,
+    _onboarding_side_effects,
+) -> None:
+    org = Organization.objects.create(name="Org")
+    team = Team.objects.create(organization=org)
+    mock_request.side_effect = [
+        Response(
+            {"status": "provisioning started", "org": str(org.id), "username": "root", "password": "secret"},
+            status=202,
+        ),
+        Response({"team_id": team.id, "schema_name": "events"}, status=200),
+    ]
+    _onboarding_side_effects.ensure.side_effect = RuntimeError("database unavailable")
+
+    response = managed_warehouse.provision(org.id, "my-warehouse", team.id, "events")
+
+    assert response.status_code == 202
+    mock_schedule_ensure.assert_called_once_with(
+        team_id=team.id,
+        organization_id=org.id,
+        expected_generation=1,
+    )
 
 
 @parameterized.expand(
@@ -236,7 +432,11 @@ def test_provision_registers_calling_team_only(mock_request: MagicMock, _onboard
 
     # The control plane creates the provisioning team's row from the provision request itself;
     # locally only that team gets its query connection and earliest-date sync kicked off.
-    _onboarding_side_effects.ensure.assert_called_once_with(team_id=team.id, organization_id=org.id)
+    _onboarding_side_effects.ensure.assert_called_once_with(
+        team_id=team.id,
+        organization_id=org.id,
+        expected_generation=1,
+    )
     _onboarding_side_effects.task.delay.assert_called_once_with(team.id)
 
 
@@ -539,8 +739,39 @@ def test_onboard_team_creates_duckgres_row_with_legacy_names(
         "schema_data_imports_name": "posthog_data_imports_my_events",
     }
     # Onboarding's tail: the query connection and the earliest-date sync.
-    _onboarding_side_effects.ensure.assert_called_once_with(team_id=team.id, organization_id=org.id)
+    _onboarding_side_effects.ensure.assert_called_once_with(
+        team_id=team.id,
+        organization_id=org.id,
+        expected_generation=0,
+    )
     _onboarding_side_effects.task.delay.assert_called_once_with(team.id)
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.facade.api.schedule_managed_warehouse_direct_source_ensure")
+@patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
+@patch("products.managed_warehouse.backend.presentation.views._request")
+def test_onboard_team_schedules_generation_fenced_source_recovery_when_inline_ensure_fails(
+    mock_request: MagicMock,
+    _mock_enabled: MagicMock,
+    mock_schedule_ensure: MagicMock,
+    _onboarding_side_effects,
+) -> None:
+    org, team, _ = _provisioned_org()
+    mock_request.side_effect = [
+        Response({"teams": []}, status=200),
+        Response({"team_id": team.id, "schema_name": "my_events"}, status=200),
+    ]
+    _onboarding_side_effects.ensure.side_effect = RuntimeError("database unavailable")
+
+    response = managed_warehouse.onboard_team(org.id, team.id, "my_events")
+
+    assert response.status_code == 200
+    mock_schedule_ensure.assert_called_once_with(
+        team_id=team.id,
+        organization_id=org.id,
+        expected_generation=0,
+    )
 
 
 @pytest.mark.django_db
@@ -617,7 +848,11 @@ def test_onboard_team_same_name_is_idempotent(
     assert resp.status_code == 200
     assert resp.data == {"onboarded": True, "schema_name": "first"}
     assert [c.args[0] for c in mock_request.call_args_list] == ["GET"]
-    _onboarding_side_effects.ensure.assert_called_once_with(team_id=team.id, organization_id=org.id)
+    _onboarding_side_effects.ensure.assert_called_once_with(
+        team_id=team.id,
+        organization_id=org.id,
+        expected_generation=0,
+    )
 
 
 @pytest.mark.django_db
@@ -933,7 +1168,6 @@ def test_deprovision_for_org_deletion_deprovisions_the_orgs_warehouse(mock_depro
 @parameterized.expand(
     [
         ("unknown_to_duckgres", 404),
-        ("teardown_already_started", 409),
         ("provisioning_api_not_configured", 501),
     ]
 )
@@ -942,8 +1176,7 @@ def test_deprovision_for_org_deletion_deprovisions_the_orgs_warehouse(mock_depro
 def test_deprovision_for_org_deletion_treats_converged_states_as_done(
     _name: str, cp_status: int, mock_deprovision: MagicMock
 ) -> None:
-    # 404 (no warehouse in duckgres), 409 (teardown already started/finished — deprovision is not
-    # re-POSTable), and 501 (no provisioning API configured) all mean there is nothing to start.
+    # 404 (no warehouse in duckgres) and 501 (no provisioning API configured) mean there is nothing to start.
     org, _team, _server = _provisioned_org()
     mock_deprovision.return_value = Response({"error": "nope"}, status=cp_status)
 

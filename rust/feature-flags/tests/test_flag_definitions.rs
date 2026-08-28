@@ -1123,13 +1123,13 @@ async fn test_cache_miss_returns_503() {
             body["detail"]
                 .as_str()
                 .unwrap()
-                .contains("Required data not found in cache"),
+                .contains("A service dependency is temporarily unavailable"),
             "Error message should mention cache miss"
         );
     } else {
         // If not JSON, verify the error message mentions cache
         assert!(
-            body_text.contains("Required data not found in cache"),
+            body_text.contains("A service dependency is temporarily unavailable"),
             "Body should mention cache miss. Got: {body_text}"
         );
     }
@@ -2605,8 +2605,8 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
     let server = common::ServerHandle::for_config(config).await;
     let http = reqwest::Client::new();
 
-    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
-    let bucket_field = current_bucket().to_string();
+    // Bracket the request: the record lands in whichever 2-minute bucket it crosses.
+    let bucket_before = current_bucket();
 
     let response = http
         .get(format!(
@@ -2623,18 +2623,27 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
         "Response body: {}",
         response.text().await.unwrap()
     );
+    let bucket_after = current_bucket();
 
     if skip_writes {
         // Sleep ~5 flush windows so even a slow CI scheduler couldn't hide
         // an erroneous `record()` behind a delayed first tick.
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        let counter = redis.hget(billing_key, bucket_field).await;
-        assert!(
-            counter.is_err(),
-            "FlagDefinitions billing counter should NOT be incremented when skip_writes=true, got {counter:?}"
-        );
+        for bucket in bucket_before..=bucket_after {
+            let counter = redis.hget(billing_key.clone(), bucket.to_string()).await;
+            assert!(
+                counter.is_err(),
+                "FlagDefinitions billing counter should NOT be incremented when skip_writes=true, got {counter:?}"
+            );
+        }
     } else {
-        let counter = common::poll_for_billing_counter(&redis, &billing_key, &bucket_field).await;
+        let counter = common::poll_for_billing_counter_across_buckets(
+            &redis,
+            &billing_key,
+            bucket_before,
+            bucket_after,
+        )
+        .await;
         assert_eq!(
             counter, "1",
             "FlagDefinitions billing counter should be incremented once"

@@ -55,6 +55,11 @@ class SourceBatch(UUIDModel):
     latest_attempt = models.SmallIntegerField(default=0, db_default=0)
     # NULL means "never dual-written" — the backfill command's target marker.
     state_changed_at = models.DateTimeField(null=True, blank=True)
+    # Denormalized from the failed status row's error payload ({"superseded": true},
+    # written only by supersede_other_runs). Lets the reconcile sweep judge
+    # candidacy from this table alone instead of a per-batch status lateral,
+    # whose cost melted down under failure storms.
+    superseded = models.BooleanField(default=False, db_default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -66,6 +71,10 @@ class SourceBatch(UUIDModel):
             models.Index(fields=["team_id", "schema_id"], name="sb_team_schema_idx"),
             models.Index(fields=["run_uuid"], name="sb_run_uuid_idx"),
             models.Index(fields=["run_uuid", "batch_index"], name="sb_run_uuid_bi_idx"),
+            # Serves the job-scoped scans (supersede_other_runs on every fresh run's
+            # first batch, lock-takeover activity summary, orphan reconcile counts),
+            # which otherwise seq-scan every retained partition per call.
+            models.Index(fields=["job_id"], name="sb_job_id_idx"),
             models.Index(
                 fields=["team_id", "created_at", "batch_index"],
                 name="sb_claimable_idx",
@@ -80,6 +89,11 @@ class SourceBatch(UUIDModel):
                 fields=["team_id", "schema_id"],
                 name="sb_schema_busy_idx",
                 condition=models.Q(latest_state="executing"),
+            ),
+            models.Index(
+                fields=["state_changed_at"],
+                name="sb_failed_changed_idx",
+                condition=models.Q(latest_state="failed"),
             ),
         ]
 

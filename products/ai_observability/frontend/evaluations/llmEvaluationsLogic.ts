@@ -65,6 +65,7 @@ export interface llmEvaluationsLogicValues {
     evaluationDirectoriesLoading: boolean
     evaluations: EvaluationConfig[]
     evaluationsFilter: string
+    evaluationsLoadFailed: boolean
     evaluationsLoading: boolean
     filteredEvaluations: EvaluationConfig[]
     movingEvaluationId: string | null
@@ -116,6 +117,9 @@ export interface llmEvaluationsLogicActions {
         payload?: any
     }
     loadEvaluations: () => {
+        value: true
+    }
+    loadEvaluationsFailure: () => {
         value: true
     }
     loadEvaluationsSuccess: (evaluations: EvaluationConfig[]) => {
@@ -247,6 +251,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         loadEvaluations: true,
+        loadEvaluationsFailure: true,
         loadEvaluationsSuccess: (evaluations: EvaluationConfig[]) => ({ evaluations }),
         deleteEvaluation: (id: string) => ({ id }),
         deleteEvaluationSuccess: (id: string) => ({ id }),
@@ -320,6 +325,15 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             false,
             {
                 loadEvaluations: () => true,
+                loadEvaluationsFailure: () => false,
+                loadEvaluationsSuccess: () => false,
+            },
+        ],
+        evaluationsLoadFailed: [
+            false,
+            {
+                loadEvaluations: () => false,
+                loadEvaluationsFailure: () => true,
                 loadEvaluationsSuccess: () => false,
             },
         ],
@@ -408,7 +422,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 actions.loadEvaluationsSuccess(await listAllEvaluations(teamId.toString()))
             } catch (error) {
                 console.error('Failed to load evaluations:', error)
-                actions.loadEvaluationsSuccess([])
+                actions.loadEvaluationsFailure()
             }
         },
 

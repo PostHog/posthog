@@ -1,8 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ContentBlock } from "@agentclientprotocol/sdk";
+import { LRUCache } from "lru-cache";
+import { isNotification, POSTHOG_NOTIFICATIONS } from "../../../acp-extensions";
 import { DEFAULT_GATEWAY_MODEL } from "../../../gateway-models";
 import type { PostHogAPIClient } from "../../../posthog-api";
 import type { StoredEntry } from "../../../types";
@@ -115,13 +117,22 @@ export function getSessionJsonlPath(sessionId: string, cwd: string): string {
 export function rebuildConversation(
   entries: StoredEntry[],
 ): ConversationTurn[] {
-  const turns: ConversationTurn[] = [];
+  let turns: ConversationTurn[] = [];
   let currentAssistantContent: ContentBlock[] = [];
   let currentToolCalls: ToolCallInfo[] = [];
 
   for (const entry of entries) {
     const method = entry.notification?.method;
     const params = entry.notification?.params as Record<string, unknown>;
+
+    // /clear starts an empty conversation: everything before the marker is
+    // gone from the model's context and must not be rehydrated.
+    if (isNotification(method, POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED)) {
+      turns = [];
+      currentAssistantContent = [];
+      currentToolCalls = [];
+      continue;
+    }
 
     if (method === "session/update" && params?.update) {
       const update = params.update as SessionUpdate;
@@ -357,64 +368,10 @@ function generateMessageId(): string {
   return id;
 }
 
-const ADJECTIVES = [
-  "bright",
-  "calm",
-  "daring",
-  "eager",
-  "fair",
-  "gentle",
-  "happy",
-  "keen",
-  "lively",
-  "merry",
-  "noble",
-  "polite",
-  "quick",
-  "sharp",
-  "warm",
-  "witty",
-];
-const VERBS = [
-  "blazing",
-  "crafting",
-  "dashing",
-  "flowing",
-  "gliding",
-  "humming",
-  "jumping",
-  "linking",
-  "melting",
-  "nesting",
-  "pacing",
-  "roaming",
-  "sailing",
-  "turning",
-  "waving",
-  "zoning",
-];
-const NOUNS = [
-  "aurora",
-  "breeze",
-  "cedar",
-  "delta",
-  "ember",
-  "frost",
-  "grove",
-  "haven",
-  "inlet",
-  "jewel",
-  "knoll",
-  "lotus",
-  "maple",
-  "nexus",
-  "oasis",
-  "prism",
-];
+function sessionSlug(sessionId: string): string {
+  const digest = createHash("sha256").update(sessionId).digest("hex");
 
-function generateSlug(): string {
-  const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
-  return `${pick(ADJECTIVES)}-${pick(VERBS)}-${pick(NOUNS)}`;
+  return `session-${digest.slice(0, 12)}`;
 }
 
 export function conversationTurnsToJsonlEntries(
@@ -426,7 +383,7 @@ export function conversationTurnsToJsonlEntries(
   const model = config.model ?? DEFAULT_GATEWAY_MODEL;
   const version = config.version ?? "2.1.63";
   const gitBranch = config.gitBranch ?? "";
-  const slug = config.slug ?? generateSlug();
+  const slug = config.slug ?? sessionSlug(config.sessionId);
   const permissionMode = config.permissionMode ?? "default";
   const baseTime = Date.now() - turns.length * 3000;
   let turnIndex = 0;
@@ -601,6 +558,24 @@ interface HydrationLog {
   warn: (msg: string, data?: unknown) => void;
 }
 
+// Every reconnect re-runs sanitize, and the read + per-line parse of a large
+// transcript costs seconds. Files whose stat matches the last clean pass are
+// skipped; the SDK only ever appends, which changes size and mtime.
+const sanitizedFileStats = new LRUCache<
+  string,
+  { mtimeMs: number; size: number }
+>({ max: 256 });
+
+function recordSanitized(
+  jsonlPath: string,
+  stat: { mtimeMs: number; size: number },
+): void {
+  sanitizedFileStats.set(jsonlPath, {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+  });
+}
+
 // Heals a persisted transcript that would otherwise 400 on every resume:
 // empty content blocks, missing tool_use.input, and images the API can't
 // process (unsupported type or over the per-image byte limit). The image case
@@ -613,6 +588,14 @@ export async function sanitizeSessionJsonl(
   let statBefore: { mtimeMs: number; size: number };
   try {
     statBefore = await fs.stat(jsonlPath);
+    const lastClean = sanitizedFileStats.get(jsonlPath);
+    if (
+      lastClean &&
+      lastClean.mtimeMs === statBefore.mtimeMs &&
+      lastClean.size === statBefore.size
+    ) {
+      return false;
+    }
     raw = await fs.readFile(jsonlPath, "utf8");
   } catch {
     return false;
@@ -651,12 +634,19 @@ export async function sanitizeSessionJsonl(
     return JSON.stringify(parsed);
   });
 
-  if (!changed) return false;
+  if (!changed) {
+    recordSanitized(jsonlPath, statBefore);
+    return false;
+  }
 
   const tmpPath = `${jsonlPath}.tmp.${Date.now()}`;
   let renamed = false;
   try {
     await fs.writeFile(tmpPath, sanitized.join("\n"));
+    // Memoize the tmp file's stat: rename preserves it, so recording it after
+    // the rename leaves no window where bytes appended by a concurrent writer
+    // could be certified clean (they would already mismatch this stat).
+    const statTmp = await fs.stat(tmpPath);
     // A concurrent writer may still own the file; abort rather than clobber
     // lines appended since the read. The next resume retries.
     const statNow = await fs.stat(jsonlPath);
@@ -668,6 +658,7 @@ export async function sanitizeSessionJsonl(
     }
     await fs.rename(tmpPath, jsonlPath);
     renamed = true;
+    recordSanitized(jsonlPath, statTmp);
     return true;
   } finally {
     if (!renamed) {

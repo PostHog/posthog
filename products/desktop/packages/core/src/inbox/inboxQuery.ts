@@ -20,6 +20,8 @@ export const inboxReportKeys = {
     [...inboxReportKeys.all, reportId, "detail"] as const,
   artefacts: (reportId: string) =>
     [...inboxReportKeys.all, reportId, "artefacts"] as const,
+  chartData: (reportId: string, chartId: string) =>
+    [...inboxReportKeys.all, reportId, "chart-data", chartId] as const,
   signals: (reportId: string) =>
     [...inboxReportKeys.all, reportId, "signals"] as const,
   availableSuggestedReviewers: (authIdentity: string | null) =>
@@ -30,6 +32,10 @@ export const inboxReportKeys = {
     ] as const,
   signalProcessingState: ["inbox", "signal-processing-state"] as const,
 };
+
+// Long enough for hover/focus intent to survive a pause before navigation,
+// while keeping status-sensitive report data reasonably fresh.
+export const INBOX_REPORT_DETAIL_STALE_TIME_MS = 10 * 60_000;
 
 /** Shared keys for the per-team / per-user Self-driving config queries. */
 export const signalsConfigKeys = {
@@ -86,13 +92,6 @@ export function findReportInInboxListCache(
   return undefined;
 }
 
-export function seedInboxReportDetailCache(
-  queryClient: QueryClient,
-  report: SignalReport,
-): void {
-  queryClient.setQueryData(inboxReportDetailQueryKey(report.id), report);
-}
-
 export function resolveInboxReportDetailCache(
   queryClient: QueryClient,
   reportId: string,
@@ -102,4 +101,11 @@ export function resolveInboxReportDetailCache(
   );
   if (seeded) return seeded;
   return findReportInInboxListCache(queryClient, reportId);
+}
+
+export function resolveInboxReportForRender(
+  report: SignalReport | null | undefined,
+  cachedReport: SignalReport | null,
+): SignalReport | null {
+  return report === undefined ? cachedReport : report;
 }

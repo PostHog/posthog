@@ -144,7 +144,7 @@ export function ensureIsPercent(value: string | number | undefined): number {
 
 export function percentageDistribution(variantCount: number): number[] {
     const basePercentage = Math.floor(100 / variantCount)
-    const percentages = new Array(variantCount).fill(basePercentage)
+    const percentages = Array.from<number>({ length: variantCount }).fill(basePercentage)
     let remaining = 100 - basePercentage * variantCount
     for (let i = 0; remaining > 0; i++, remaining--) {
         // try to equally distribute `remaining` across variants
@@ -241,6 +241,13 @@ function variantPropertyFilter(propertyKey: string, variantKeys: string[]): AnyP
     }
 }
 
+function resolveVariantKeys(experiment: Experiment, variantKey?: string | string[]): string[] {
+    if (variantKey === undefined) {
+        return getExperimentVariants(experiment).map((variant) => variant.key)
+    }
+    return Array.isArray(variantKey) ? variantKey : [variantKey]
+}
+
 function createExposureFilter(
     exposureConfig: ExperimentExposureConfig,
     featureFlagKey: string,
@@ -259,17 +266,16 @@ function createExposureFilter(
 }
 
 /**
- * Exposure filter for an experiment's recordings: one variant, or every enrolled session (variant
- * property IN the experiment's variants) when `variantKey` is omitted. Exposure-only — metric
- * steps are never added, so a metric event captured without a `$session_id` can't zero out the
- * result.
+ * Exposure filter for an experiment's recordings: one variant (or a subset, when given an array),
+ * or every enrolled session (variant property IN the experiment's variants) when `variantKey` is
+ * omitted. Exposure-only — metric steps are never added, so a metric event captured without a
+ * `$session_id` can't zero out the result.
  */
 export function getViewRecordingFiltersForVariant(
     experiment: Experiment,
-    variantKey?: string
+    variantKey?: string | string[]
 ): UniversalFiltersGroupValue[] {
-    const variantKeys =
-        variantKey !== undefined ? [variantKey] : getExperimentVariants(experiment).map((variant) => variant.key)
+    const variantKeys = resolveVariantKeys(experiment, variantKey)
     const exposureConfig = experiment.exposure_criteria?.exposure_config
     if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
         return [createExposureFilter(exposureConfig, experiment.feature_flag_key, variantKeys)]
@@ -306,14 +312,13 @@ export function getViewRecordingFiltersForVariant(
  */
 export function getExposureFallbackFilter(
     experiment: Experiment,
-    variantKey?: string
+    variantKey?: string | string[]
 ): UniversalFiltersGroupValue | null {
     const exposureConfig = experiment.exposure_criteria?.exposure_config
     if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
         return null
     }
-    const variantKeys =
-        variantKey !== undefined ? [variantKey] : getExperimentVariants(experiment).map((variant) => variant.key)
+    const variantKeys = resolveVariantKeys(experiment, variantKey)
     const propertyKey = featureFlagVariantProperty(experiment.feature_flag_key)
     // Typed as an event property, not PropertyFilterType.Feature: the recordings query backend
     // only routes event-typed filters through its events subquery (see `is_event_property` in
@@ -1193,10 +1198,22 @@ export function getOrderedMetricsWithResults(
             name: sharedMetric.name,
             sharedMetricId: sharedMetric.saved_metric,
             isSharedMetric: true,
-            // Merge breakdowns from metadata into breakdownFilter
+            /**
+             * Merge per-experiment breakdown attribution from metadata into the query
+             */
+            ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
+                breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
+                breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
+            }),
+            /**
+             * Merge breakdowns from metadata into breakdownFilter
+             */
             breakdownFilter: {
                 ...sharedMetric.query?.breakdownFilter,
                 breakdowns: sharedMetric.metadata?.breakdowns || [],
+                ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
+                    breakdown_limit: sharedMetric.metadata.breakdown_limit,
+                }),
             },
         })) as ExperimentMetric[]
 
@@ -1400,9 +1417,22 @@ export const metricResults =
                 name: sharedMetric.name,
                 sharedMetricId: sharedMetric.saved_metric,
                 isSharedMetric: true,
+                /**
+                 * Merge per-experiment breakdown attribution from metadata into the query
+                 */
+                ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
+                    breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
+                    breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
+                }),
+                /**
+                 * Merge breakdowns from metadata into breakdownFilter
+                 */
                 breakdownFilter: {
                     ...sharedMetric.query?.breakdownFilter,
                     breakdowns: sharedMetric.metadata?.breakdowns || [],
+                    ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
+                        breakdown_limit: sharedMetric.metadata.breakdown_limit,
+                    }),
                 },
             })) as ExperimentMetric[]
 

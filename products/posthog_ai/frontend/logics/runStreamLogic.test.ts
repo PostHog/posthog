@@ -262,6 +262,19 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems.some((item) => item.type === 'turn_separator')).toEqual(true)
         })
 
+        it('follows the latest run_started conversationClear advertisement', async () => {
+            // A run served by a capable agent followed by one whose agent does not advertise
+            // the capability (an agent rollback): the gate must drop, or the client records a
+            // clear boundary the current agent ignores on resume.
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/run_started', { conversationClear: true }))
+            }).toMatchValues({ conversationClearSupported: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            }).toMatchValues({ conversationClearSupported: false })
+        })
+
         it('sets currentMode on a current_mode_update frame', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
@@ -2513,6 +2526,39 @@ describe('runStreamLogic', () => {
             const items = logic.values.threadItems
             expect(items.some((i) => i.type === 'status')).toBe(false)
             expect(items.some((i) => i.type === 'compact_boundary')).toBe(true)
+        })
+    })
+
+    describe('/clear inline items', () => {
+        it('replaces the in-progress clearing spinner with the conversation_cleared divider', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/status', { status: 'clearing' }))
+                logic.actions.ingestAcpFrame(notification('_posthog/conversation_cleared', { sessionId: 'sess_new' }))
+                logic.actions.ingestAcpFrame(notification('_posthog/status', { status: 'clearing', isComplete: true }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([expect.objectContaining({ type: 'conversation_cleared' })])
+        })
+
+        it('reports a failed clear in place of the spinner, since no boundary follows it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/status', { status: 'clearing' }))
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/status', {
+                        status: 'clearing_failed',
+                        error: 'Conversation clear timed out after 30000ms',
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([
+                expect.objectContaining({
+                    type: 'status',
+                    status: 'clearing_failed',
+                    isComplete: true,
+                    errorMessage: 'Conversation clear timed out after 30000ms',
+                }),
+            ])
         })
     })
 

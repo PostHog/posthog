@@ -8,9 +8,11 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FloatArrayDatabaseField
+from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import find_hogql_function
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_prepared_ast
+from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
 from posthog.hogql.type_diagnostics import (
@@ -169,6 +171,43 @@ class TestHogQLTypeSystem:
         assert least_common_supertype([ast.UnknownType(), ast.UnknownType(unanalyzable=True)]) == ast.UnknownType(
             unanalyzable=True
         )
+
+    def test_resolver_raises_on_incompatible_branch_types(self) -> None:
+        for query, function_name in (
+            ("SELECT if(1, false, toDate('2024-01-01'))", "if"),
+            ("SELECT ifNull(false, toDate('2024-01-01'))", "ifNull"),
+            ("SELECT multiIf(1, false, 2, true, toDate('2024-01-01'))", "multiIf"),
+            ("SELECT coalesce(false, toDate('2024-01-01'))", "coalesce"),
+        ):
+            with pytest.raises(QueryError) as exc_info:
+                resolve_types(parse_select(query), self.context, dialect="clickhouse")
+            assert function_name in str(exc_info.value), query
+            assert "Boolean" in str(exc_info.value), query
+            assert "Date" in str(exc_info.value), query
+            # The error carries a source span so the editor can underline the offending branches.
+            assert exc_info.value.start is not None, query
+            assert exc_info.value.end is not None, query
+
+    def test_resolver_allows_boolean_branches_beside_property_accesses(self) -> None:
+        # A property access reads as the parent JSON column's type whenever no property-definition
+        # metadata is loaded, so treating that as a real conflict rejects queries ClickHouse runs.
+        for query in (
+            "SELECT coalesce(properties.blocked, false) FROM events",
+            "SELECT ifNull(properties.blocked, false) FROM events",
+            "SELECT if(1, false, properties.blocked) FROM events",
+            "SELECT multiIf(1, false, 2, true, properties.blocked) FROM events",
+            "SELECT coalesce(properties.blocked, properties.plan = 'paid') FROM events",
+            "SELECT coalesce(person.properties.blocked, false) FROM events",
+        ):
+            node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context, dialect="clickhouse"))
+            column_type = node.select[0].type
+            assert column_type is not None
+            assert column_type.resolve_constant_type(self.context) == ast.UnknownType(), query
+
+        # A loaded property definition types the property confidently enough to conflict with the
+        # boolean branch, so only the property-access check keeps this query from being rejected.
+        self.context.property_metadata = PropertyMetadata(event_properties={"signup": {"type": "DateTime"}})
+        self._assert_first_column_type("SELECT coalesce(properties.signup, false) FROM events", ast.UnknownType())
 
     def test_resolver_poisons_only_unanalyzable_branches(self) -> None:
         # An unmapped function (throwIf) infers as unanalyzable, poisoning the unifying call's type...

@@ -1,4 +1,4 @@
-import { ReplayScanner } from './types'
+import { ScannerFormValues } from './types'
 
 const DRAFT_STORAGE_KEY = 'replay-vision.new-scanner-draft'
 const DRAFT_VERSION = 1
@@ -8,19 +8,31 @@ interface StoredScannerDraft {
     version: number
     teamId: number
     savedAt: number
-    scanner: ReplayScanner
+    scanner: ScannerFormValues
 }
 
-export function writeScannerDraft(teamId: number, scanner: ReplayScanner): void {
-    const draft: StoredScannerDraft = { version: DRAFT_VERSION, teamId, savedAt: Date.now(), scanner }
+export interface ScannerDraft {
+    scanner: ScannerFormValues
+    savedAt: number
+}
+
+export function writeScannerDraft(teamId: number, scanner: ScannerFormValues): number | null {
+    const savedAt = Date.now()
+    const draft: StoredScannerDraft = {
+        version: DRAFT_VERSION,
+        teamId,
+        savedAt,
+        scanner,
+    }
     try {
         localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
+        return savedAt
     } catch {
-        // Storage unavailable or full: losing the draft only means the wizard starts fresh.
+        return null
     }
 }
 
-export function readScannerDraft(teamId: number): ReplayScanner | null {
+export function readScannerDraft(teamId: number): ScannerDraft | null {
     try {
         const raw = localStorage.getItem(DRAFT_STORAGE_KEY)
         if (!raw) {
@@ -36,7 +48,7 @@ export function readScannerDraft(teamId: number): ReplayScanner | null {
         ) {
             return null
         }
-        return draft.scanner
+        return { scanner: draft.scanner, savedAt: draft.savedAt }
     } catch {
         return null
     }

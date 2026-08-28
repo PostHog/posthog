@@ -6,9 +6,19 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { ReviewHogReviewsListScope } from 'products/review_hog/frontend/generated/api.schemas'
+import {
+    ReviewHogReviewsListScope,
+    ReviewTriggerRequestRunModeEnumApi,
+} from 'products/review_hog/frontend/generated/api.schemas'
 
-import { MAX_REVIEWS_LIMIT, REVIEWS_PAGE_SIZE, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
+import {
+    MAX_REVIEWS_LIMIT,
+    REVIEW_SKILL_PREFIX_BY_KIND,
+    REVIEWS_PAGE_SIZE,
+    defaultAdoptSlug,
+    reviewHogSettingsLogic,
+    validateAdoptSlug,
+} from './reviewHogSettingsLogic'
 
 /** A minimal review detail: only the fields the drawer selectors read. */
 function reviewDetail(id: string, runUrgencyThreshold: string | null): Record<string, any> {
@@ -51,11 +61,17 @@ describe('reviewHogSettingsLogic', () => {
                 ],
                 '/api/projects/:team_id/review_hog/settings/': () => [
                     200,
-                    { review_inbox_prs: false, review_labeled_prs: true, urgency_threshold: 'should_fix' },
+                    {
+                        review_inbox_prs: false,
+                        review_labeled_prs: true,
+                        resolve_comments: true,
+                        urgency_threshold: 'should_fix',
+                    },
                 ],
                 '/api/projects/:team_id/review_hog/perspectives/': () => [200, []],
                 '/api/projects/:team_id/review_hog/blind_spots/': () => [200, []],
                 '/api/projects/:team_id/review_hog/validators/': () => [200, []],
+                '/api/projects/:team_id/review_hog/resolution/': () => [200, []],
             },
             post: {
                 '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
@@ -140,6 +156,36 @@ describe('reviewHogSettingsLogic', () => {
         expect(triggerCalls).toBe(1)
     })
 
+    it('a resolve-only run sends its mode and does not arm the review watch', async () => {
+        // Resolve-only runs never create the report row the watch polls for — arming it would poll
+        // idle for two minutes; and dropping run_mode from the POST would silently degrade the
+        // split button's side actions into plain reviews.
+        let requestBody: Record<string, unknown> | null = null
+        useMocks({
+            post: {
+                '/api/projects/:team_id/review_hog/reviews/trigger/': async ({ request }) => {
+                    requestBody = (await request.json()) as Record<string, unknown>
+                    return [202, { workflow_id: 'wf-resolve-1', status: 'started' }]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
+
+        await expectLogic(logic, () =>
+            logic.actions.submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ResolveOnly)
+        )
+            .toDispatchActions(['submitTriggerReview', 'loadRecentReviews', 'submitTriggerReviewFinished'])
+            .toNotHaveDispatchedActions(['startTriggeredReviewWatch'])
+            .toMatchValues({ triggeringReview: false, triggerPrUrl: '', awaitingTriggeredReview: false })
+        expect(requestBody).toMatchObject({ run_mode: 'resolve_only' })
+    })
+
     it('an already-reviewed PR informs without arming the watch', async () => {
         useMocks({
             post: {
@@ -169,7 +215,7 @@ describe('reviewHogSettingsLogic', () => {
             post: {
                 '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
                     403,
-                    { error: "ReviewHog reviews can't be started from this project yet" },
+                    { error: "PostHog Review can't start reviews from this project yet" },
                 ],
             },
         })
@@ -377,5 +423,322 @@ describe('reviewHogSettingsLogic', () => {
         // More rows exist server-side, but the ceiling is reached — the button goes away rather
         // than offering a request the server rejects.
         expect(logic.values.moreReviewsAvailable).toBe(false)
+    })
+
+    it('keeps a slower baseline poll running when nothing is in progress', async () => {
+        // Reviews started outside this page (the GitHub label, inbox auto-reviews, a teammate)
+        // only ever appear via the baseline poll — reverting to dispose-on-idle makes the page
+        // permanently stale until a manual refresh.
+        jest.useFakeTimers()
+        try {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions([
+                'loadRecentReviewsSuccess',
+                'applyDefaultReviewsScope',
+                'loadRecentReviewsSuccess',
+            ])
+
+            await expectLogic(logic, () => {
+                jest.advanceTimersByTime(30_000)
+            }).toDispatchActions(['loadRecentReviews', 'loadRecentReviewsSuccess'])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('refreshes the stats and an open drawer when a watched run finishes', async () => {
+        // A poll response is the only place a completion becomes visible: without the fan-out the
+        // proof/effectiveness cards and an open drawer keep pre-completion numbers until reload.
+        let finished = false
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/reviews/': () => [
+                    200,
+                    {
+                        results: [{ id: 'r-live', in_progress: !finished, run_count: finished ? 1 : 0 }],
+                        has_more: false,
+                    },
+                ],
+                '/api/projects/:team_id/review_hog/reviews/r-live/': () => [200, reviewDetail('r-live', null)],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadRecentReviewsSuccess']).toFinishAllListeners()
+
+        logic.actions.openReviewDetailById('r-live')
+        await expectLogic(logic).toDispatchActions(['loadReviewDetailSuccess'])
+
+        finished = true
+        await expectLogic(logic, () => logic.actions.loadRecentReviews()).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'loadPerspectiveStats',
+            'loadReviewDetail',
+        ])
+    })
+
+    it('keeps the failure banner off for a background refresh blip', async () => {
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        useMocks({ get: { '/api/projects/:team_id/review_hog/reviews/': () => [500, {}] } })
+
+        // The poll retries on its next tick and the prior rows stay on screen — flashing the
+        // page-level banner over one blip would cry wolf every time a request hiccups.
+        await expectLogic(logic, () => logic.actions.loadRecentReviews())
+            .toDispatchActions(['loadRecentReviewsFailure'])
+            .toNotHaveDispatchedActions(['markInitialLoadFailed'])
+        expect(logic.values.initialLoadFailed).toBe(false)
+    })
+
+    it('flags a reviews failure with nothing loaded yet as an initial-load failure', async () => {
+        // Without this the section sits on skeletons forever with no retry path offered.
+        useMocks({ get: { '/api/projects/:team_id/review_hog/reviews/': () => [500, {}] } })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadRecentReviewsFailure', 'markInitialLoadFailed'])
+        expect(logic.values.initialLoadFailed).toBe(true)
+    })
+
+    it('checks the list immediately when the tab becomes visible again', async () => {
+        // The poll interval is paused while hidden and resumes with a full interval still to wait,
+        // which reads as stale exactly when the user comes back to look.
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+
+        await expectLogic(logic, () => {
+            document.dispatchEvent(new Event('visibilitychange'))
+        }).toDispatchActions(['loadRecentReviews'])
+    })
+
+    test.each([
+        // Cross-kind adoption must strip the source's own prefix, or the copy gets a double-prefixed name.
+        ['review-hog-validation-strict', 'resolution' as const, 'strict'],
+        ['api-design-guidelines', 'perspective' as const, 'api-design-guidelines'],
+        // Truncation to the 64-char cap must not leave a trailing hyphen, which the server rejects.
+        ['a'.repeat(40) + '-' + 'b'.repeat(23), 'perspective' as const, 'a'.repeat(40)],
+    ])('prefills the adopt slug from %s for kind %s', (sourceName, kind, expected) => {
+        expect(defaultAdoptSlug(sourceName, kind)).toBe(expected)
+    })
+
+    test.each([
+        ['', 'Enter a name for the copy'],
+        ['Has-Uppercase', 'Use lowercase letters, numbers, and single hyphens between words'],
+        ['double--hyphen', 'Use lowercase letters, numbers, and single hyphens between words'],
+        ['trailing-', 'Use lowercase letters, numbers, and single hyphens between words'],
+        ['a'.repeat(60), 'The full name must be 64 characters or fewer'],
+        ['taken', 'A skill with this name already exists'],
+        ['fine-name', null],
+    ])('validates the adopt slug %s', (slug, expectedError) => {
+        const taken = new Set(['review-hog-perspective-taken'])
+        expect(validateAdoptSlug(slug, 'perspective', taken)).toBe(expectedError)
+    })
+
+    it('groups adoptable skills into teammates-of-the-kind and the rest of the store', async () => {
+        // Guards the picker's filters: the user's own cards must not reappear as adoptable, a
+        // teammate's same-kind custom must surface (it is invisible in the cards by design), and
+        // other-kind review skills stay offered as plain store skills.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/perspectives/': () => [
+                    200,
+                    [
+                        {
+                            skill_name: 'review-hog-perspective-logic-correctness',
+                            enabled: true,
+                            description: '',
+                            body: '',
+                        },
+                    ],
+                ],
+                '/api/projects/:team_id/llm_skills/': () => [
+                    200,
+                    {
+                        count: 4,
+                        results: [
+                            { name: 'review-hog-perspective-security-focus', description: 'A teammate lens' },
+                            { name: 'review-hog-perspective-logic-correctness', description: 'Already a card' },
+                            { name: 'review-hog-validation-strict', description: 'Another kind' },
+                            { name: 'api-design-guidelines', description: 'Plain store skill' },
+                        ],
+                    },
+                ],
+            },
+        })
+        logic.mount()
+        // Sequenced (perspectives settle before the modal opens) because the history pointer only
+        // moves forward: racing the two fetches makes their success order nondeterministic.
+        await expectLogic(logic).toDispatchActions(['loadPerspectivesSuccess'])
+        logic.actions.openAdoptSkillModal('perspective')
+        await expectLogic(logic).toDispatchActions(['loadAdoptableSkillsSuccess'])
+
+        expect(logic.values.adoptSkillGroups).toEqual([
+            {
+                key: 'teammates',
+                label: 'Perspectives from your teammates',
+                skills: [{ name: 'review-hog-perspective-security-focus', description: 'A teammate lens' }],
+            },
+            {
+                key: 'store',
+                label: 'All team skills',
+                skills: [
+                    { name: 'review-hog-validation-strict', description: 'Another kind' },
+                    { name: 'api-design-guidelines', description: 'Plain store skill' },
+                ],
+            },
+        ])
+    })
+
+    test.each([
+        ['perspective' as const, '/review_hog/perspectives/', { enabled: true }],
+        ['validator' as const, '/review_hog/validators/', { active: true }],
+    ])('adopting a skill as %s copies it under the prefix and switches it on', async (kind, patchPath, patchBody) => {
+        // Guards the kind→endpoint mapping end to end: the duplicate must target the picked source
+        // with the prefixed name, and the follow-up activation must hit the right kind's endpoint
+        // with its cardinality's body (multi-toggle enabled vs single-active active).
+        const duplicated: { source: string; body: Record<string, unknown> }[] = []
+        const patched: { url: string; body: Record<string, unknown> }[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/llm_skills/': () => [
+                    200,
+                    { count: 1, results: [{ name: 'api-design-guidelines', description: '' }] },
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/llm_skills/name/:skill_name/duplicate/': async ({ request, params }) => {
+                    duplicated.push({
+                        source: String(params.skill_name),
+                        body: (await request.json()) as Record<string, unknown>,
+                    })
+                    return [201, { name: 'created' }]
+                },
+            },
+            patch: {
+                '/api/projects/:team_id/review_hog/perspectives/:skill_name/': async ({ request }) => {
+                    patched.push({ url: request.url, body: (await request.json()) as Record<string, unknown> })
+                    return [200, {}]
+                },
+                '/api/projects/:team_id/review_hog/validators/:skill_name/': async ({ request }) => {
+                    patched.push({ url: request.url, body: (await request.json()) as Record<string, unknown> })
+                    return [200, {}]
+                },
+            },
+        })
+        logic.mount()
+        logic.actions.openAdoptSkillModal(kind)
+        await expectLogic(logic).toDispatchActions(['loadAdoptableSkillsSuccess'])
+        logic.actions.chooseAdoptSource({ name: 'api-design-guidelines', description: '' })
+
+        const expectedName = `${REVIEW_SKILL_PREFIX_BY_KIND[kind]}api-design-guidelines`
+        await expectLogic(logic, () => logic.actions.submitAdoptSkill())
+            .toDispatchActions(['submitAdoptSkillStarted', 'submitAdoptSkillFinished', 'closeAdoptSkillModal'])
+            .toMatchValues({ adoptingSkill: false, adoptSkillKind: null })
+        expect(duplicated).toEqual([{ source: 'api-design-guidelines', body: { new_name: expectedName } }])
+        expect(patched).toHaveLength(1)
+        expect(patched[0].url).toContain(`${patchPath}${expectedName}/`)
+        expect(patched[0].body).toEqual(patchBody)
+    })
+
+    it('a failed copy keeps the adopt modal open for a fix', async () => {
+        // A name conflict must be correctable in place — closing the modal would throw away the
+        // picked source, and firing the activation PATCH would target a skill that never got created.
+        let patchCalls = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/llm_skills/': () => [
+                    200,
+                    { count: 1, results: [{ name: 'api-design-guidelines', description: '' }] },
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/llm_skills/name/:skill_name/duplicate/': () => [
+                    400,
+                    { attr: 'new_name', detail: 'A skill with this name already exists.' },
+                ],
+            },
+            patch: {
+                '/api/projects/:team_id/review_hog/perspectives/:skill_name/': () => {
+                    patchCalls++
+                    return [200, {}]
+                },
+            },
+        })
+        logic.mount()
+        logic.actions.openAdoptSkillModal('perspective')
+        await expectLogic(logic).toDispatchActions(['loadAdoptableSkillsSuccess'])
+        logic.actions.chooseAdoptSource({ name: 'api-design-guidelines', description: '' })
+
+        await expectLogic(logic, () => logic.actions.submitAdoptSkill())
+            .toDispatchActions(['submitAdoptSkillStarted', 'submitAdoptSkillFinished'])
+            .toNotHaveDispatchedActions(['closeAdoptSkillModal'])
+            .toMatchValues({ adoptingSkill: false, adoptSkillKind: 'perspective' })
+        expect(logic.values.adoptSource).toEqual({ name: 'api-design-guidelines', description: '' })
+        expect(patchCalls).toBe(0)
+    })
+
+    it('a copy that cannot be switched on still surfaces its card', async () => {
+        // The copy exists on the server even when activation fails, so the flow must reload the
+        // kind's list (the card appears, off) and close, not strand the modal as if nothing happened.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/llm_skills/': () => [
+                    200,
+                    { count: 1, results: [{ name: 'api-design-guidelines', description: '' }] },
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/llm_skills/name/:skill_name/duplicate/': () => [201, { name: 'created' }],
+            },
+            patch: {
+                '/api/projects/:team_id/review_hog/perspectives/:skill_name/': () => [500, {}],
+            },
+        })
+        logic.mount()
+        logic.actions.openAdoptSkillModal('perspective')
+        await expectLogic(logic).toDispatchActions(['loadAdoptableSkillsSuccess'])
+        logic.actions.chooseAdoptSource({ name: 'api-design-guidelines', description: '' })
+
+        await expectLogic(logic, () => logic.actions.submitAdoptSkill()).toDispatchActions([
+            'submitAdoptSkillStarted',
+            'loadPerspectives',
+            'submitAdoptSkillFinished',
+            'closeAdoptSkillModal',
+        ])
+    })
+
+    it('loads every skills page so skills beyond the first stay adoptable', async () => {
+        // The picker's search, grouping, and name-collision checks assume the complete store — a
+        // loader that stops at one page would silently hide older skills and miss name conflicts.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/llm_skills/': ({ request }) => {
+                    const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+                    const pages: Record<number, { name: string; description: string }[]> = {
+                        0: [{ name: 'newest-skill', description: '' }],
+                        1: [{ name: 'older-skill', description: '' }],
+                    }
+                    return [
+                        200,
+                        {
+                            count: 2,
+                            results: pages[offset] ?? [],
+                            next: offset === 0 ? '/api/projects/997/llm_skills/?offset=1' : null,
+                        },
+                    ]
+                },
+            },
+        })
+        logic.mount()
+        logic.actions.openAdoptSkillModal('perspective')
+
+        await expectLogic(logic).toDispatchActions(['loadAdoptableSkillsSuccess'])
+        expect(logic.values.adoptableSkills?.map((skill) => skill.name)).toEqual(['newest-skill', 'older-skill'])
     })
 })

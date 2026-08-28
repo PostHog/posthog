@@ -176,6 +176,22 @@ class SourceConfigGenerator:
     ) -> tuple[list[str], list[str]]:
         has_option_fields = any(option.fields for option in field.options if option.fields)
 
+        if field.multiple:
+            if field.converter:
+                raise ValueError(f"Select field '{field.name}' cannot combine `multiple` with a converter")
+            if has_option_fields:
+                raise ValueError(f"Select field '{field.name}' cannot combine `multiple` with per-option fields")
+
+            python_field_name, should_alias = self._make_python_identifier(field.name)
+            # Always optional on the dataclass, even when the form field is required: configs
+            # stored before the field existed must keep parsing. "At least one value" is the
+            # source's job (validate_credentials / effective_* helpers).
+            field_parts = ["converter=config.str_to_optional_list"]
+            if should_alias:
+                field_parts.append(f'alias="{field.name}"')
+            field_parts.append("default_factory=lambda: None")
+            return [f"    {python_field_name}: list[str] | None = config.value({', '.join(field_parts)})"], []
+
         field_parts = []
 
         if not field.required and not field.defaultValue:

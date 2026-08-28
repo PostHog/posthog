@@ -7,6 +7,8 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree import (
     BRAINTREE_VERSION_2019_01_01,
     BRAINTREE_VERSION_2026_07_14,
+    BRAINTREE_VERSION_2026_08_04,
+    BRAINTREE_VERSION_2026_08_13,
     MAX_PAGE_SIZE,
     BraintreeGraphQLError,
     BraintreeResumeConfig,
@@ -194,7 +196,15 @@ class TestGetRows:
         with pytest.raises(BraintreeGraphQLError):
             list(get_rows("production", "pub", "priv", "transactions", _VERSION, mock.MagicMock(), manager))
 
-    @pytest.mark.parametrize("api_version", [BRAINTREE_VERSION_2019_01_01, BRAINTREE_VERSION_2026_07_14])
+    @pytest.mark.parametrize(
+        "api_version",
+        [
+            BRAINTREE_VERSION_2019_01_01,
+            BRAINTREE_VERSION_2026_07_14,
+            BRAINTREE_VERSION_2026_08_04,
+            BRAINTREE_VERSION_2026_08_13,
+        ],
+    )
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_session_uses_basic_auth_and_version_header(self, mock_session, api_version):
         mock_session.return_value.post.return_value = _search_response("transactions", [])

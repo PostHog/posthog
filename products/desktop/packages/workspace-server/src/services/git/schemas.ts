@@ -315,6 +315,7 @@ export const getPrDetailsByUrlOutput = z.object({
   draft: z.boolean(),
   headRefName: z.string().nullable(),
   title: z.string().nullable(),
+  author: z.string().nullable(),
 });
 
 export type PrDetailsByUrlOutput = z.infer<typeof getPrDetailsByUrlOutput>;
@@ -347,6 +348,11 @@ export const getPrDiffStatsBatchOutput = z.record(
 export const getBranchChangedFilesInput = z.object({
   repo: z.string(),
   branch: z.string(),
+});
+
+export const getCommitChangedFilesInput = z.object({
+  repo: z.string(),
+  sha: z.string(),
 });
 
 export const getLocalBranchChangedFilesInput = z.object({
@@ -527,31 +533,6 @@ export const getGithubIssueOutput = githubRefSchema.nullable();
 
 export const getGithubPullRequestInput = getGithubIssueInput;
 export const getGithubPullRequestOutput = getGithubIssueOutput;
-
-export const handoffLocalGitStateSchema = z.object({
-  head: z.string().nullable(),
-  branch: z.string().nullable(),
-  upstreamHead: z.string().nullable(),
-  upstreamRemote: z.string().nullable(),
-  upstreamMergeRef: z.string().nullable(),
-});
-
-export type HandoffLocalGitState = z.infer<typeof handoffLocalGitStateSchema>;
-
-export const readHandoffLocalGitStateInput = z.object({
-  directoryPath: z.string(),
-});
-export const readHandoffLocalGitStateOutput = handoffLocalGitStateSchema;
-
-export const cleanupAfterCloudHandoffInput = z.object({
-  directoryPath: z.string(),
-  branchName: z.string().nullable(),
-});
-export const cleanupAfterCloudHandoffOutput = z.object({
-  stashed: z.boolean(),
-  switched: z.boolean(),
-  defaultBranch: z.string().nullable(),
-});
 
 export const gitStatusOutput = z.object({
   installed: z.boolean(),

@@ -142,6 +142,7 @@ export const NO_ITEM_SELECTED = -1
 const DATA_WAREHOUSE_GROUP_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.DataWarehouse,
     TaxonomicFilterGroupType.DataWarehouseSourceTables,
+    TaxonomicFilterGroupType.DataWarehouseMaterializedViews,
 ]
 
 export function getInitialPinnedRowIndex({
@@ -2301,24 +2302,31 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             cache.disposables.dispose('abortController')
 
             // Add new abort controller
-            cache.disposables.add(() => {
-                const abortController = new AbortController()
-                // Store reference in cache for the fetch operation to use
-                cache.abortController = abortController
-                // Some of these list endpoints have no server-side statement timeout, so a query
-                // that wedges only fails when the gateway gives up two minutes later. Giving up
-                // first bounds how long the list can sit in its loading state. The failure is
-                // recorded here rather than in the loader's catch, because the catch cannot tell
-                // this abort apart from the one a newer query triggers.
-                const timeoutId = window.setTimeout(() => {
-                    actions.remoteItemsFetchFailedForQuery(values.searchQuery)
-                    abortController.abort()
-                }, REMOTE_ITEMS_REQUEST_TIMEOUT_MS)
-                return () => {
-                    window.clearTimeout(timeoutId)
-                    abortController.abort()
-                }
-            }, 'abortController')
+            cache.disposables.add(
+                () => {
+                    const abortController = new AbortController()
+                    // Store reference in cache for the fetch operation to use
+                    cache.abortController = abortController
+                    // Some of these list endpoints have no server-side statement timeout, so a query
+                    // that wedges only fails when the gateway gives up two minutes later. Giving up
+                    // first bounds how long the list can sit in its loading state. The failure is
+                    // recorded here rather than in the loader's catch, because the catch cannot tell
+                    // this abort apart from the one a newer query triggers.
+                    const timeoutId = window.setTimeout(() => {
+                        actions.remoteItemsFetchFailedForQuery(values.searchQuery)
+                        abortController.abort()
+                    }, REMOTE_ITEMS_REQUEST_TIMEOUT_MS)
+                    return () => {
+                        window.clearTimeout(timeoutId)
+                        abortController.abort()
+                    }
+                },
+                'abortController',
+                // This disposable bounds one specific request, so pausing it on hide would abort a
+                // live fetch and re-running setup on show would arm a fresh 30s watchdog against a
+                // request that no longer exists, failing the list 30s after the user comes back.
+                { pauseOnPageHidden: false }
+            )
         },
         retryRemoteItems: () => {
             actions.loadRemoteItems({ offset: 0, limit: values.limit })

@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use cymbal_proto::cymbal::resolution::v1::ResolveItem;
 use futures::future::join_all;
 use tokio::sync::Semaphore;
+use uuid::Uuid;
 
 use crate::{
     error::UnhandledError,
@@ -134,6 +135,9 @@ struct RemoteEventSlot {
     evt: ExceptionEvent<Parsed>,
     resolved: Vec<Option<Exception>>,
     legacy_resolved: Option<Vec<Option<Exception>>>,
+    /// Releases the resolver bound to this event's exceptions, one per canonical item that had
+    /// one. The legacy-order snapshot resolves the same frames, so its ids are redundant.
+    release_ids: Vec<Uuid>,
 }
 
 #[derive(Clone, Copy)]
@@ -167,6 +171,7 @@ struct ResolvedRemoteItem {
     exception_slot: usize,
     target: ResolutionTarget,
     exception: Exception,
+    release_id: Option<Uuid>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -201,6 +206,11 @@ async fn resolve_remote_events(
                 item.event_slot
             )));
         };
+        if let (ResolutionTarget::Canonical, Some(release_id)) = (item.target, item.release_id) {
+            if !event_slot.release_ids.contains(&release_id) {
+                event_slot.release_ids.push(release_id);
+            }
+        }
         let slots = match item.target {
             ResolutionTarget::Canonical => &mut event_slot.resolved,
             ResolutionTarget::Legacy => event_slot.legacy_resolved.as_mut().ok_or_else(|| {
@@ -243,6 +253,7 @@ async fn resolve_remote_events(
             event
                 .evt
                 .replace_exception_list(ExceptionList::from(exceptions));
+            event.evt.set_symbol_set_release_ids(event.release_ids);
             if let Some(legacy) = event.legacy_resolved {
                 let legacy = legacy
                     .into_iter()
@@ -341,6 +352,7 @@ fn build_work_items(
         event_slots.push(RemoteEventSlot {
             batch_index: event.batch_index,
             evt: event.evt,
+            release_ids: Vec::new(),
             resolved: (0..item_count).map(|_| None).collect(),
             legacy_resolved: event
                 .legacy_exception_jsons

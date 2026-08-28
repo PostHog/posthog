@@ -35,7 +35,7 @@ from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
-from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
+from posthog.hogql.restricted_properties import RESTRICTABLE_JSON_BLOB_COLUMNS, restricted_property_keys_for_table_type
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
@@ -583,10 +583,17 @@ class ClickHousePrinter(BasePrinter):
         # would incorrectly skip JSONDropKeys wrapping for the aliased ``properties`` column.
         # ``person_properties`` is the underlying DB column for ``EventsPersonSubTable.properties``
         # (PoE mode); it is also a JSON blob that must be stripped of restricted person-property keys.
-        if resolved_field.name not in ("properties", "person_properties"):
+        if resolved_field.name not in RESTRICTABLE_JSON_BLOB_COLUMNS:
             return field_sql
 
-        keys_to_drop = restricted_property_keys_for_table_type(type.table_type, self.context)
+        group_type_index = None
+        group_column_match = re.fullmatch(r"group(\d+)_properties", resolved_field.name)
+        if group_column_match:
+            group_type_index = int(group_column_match.group(1))
+
+        keys_to_drop = restricted_property_keys_for_table_type(
+            type.table_type, self.context, group_type_index=group_type_index
+        )
         if not keys_to_drop:
             return field_sql
 
@@ -749,9 +756,13 @@ class ClickHousePrinter(BasePrinter):
                 return f"ifNull({op}, 1)"
             return op
         elif node.op == ast.CompareOperationOp.GlobalIn:
-            pass
+            return op
         elif node.op == ast.CompareOperationOp.GlobalNotIn:
-            pass
+            # Mirror NotIn above: GLOBAL only changes where the set is built, never the
+            # null semantics, so a nullable left keeps rows on NULL exactly like NOT IN.
+            if nullable_left and not not_nullable and not in_join_constraint and not in_index_hint:
+                return f"ifNull({op}, 1)"
+            return op
         elif node.op == ast.CompareOperationOp.Regex:
             value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotRegex:
@@ -1001,6 +1012,32 @@ class ClickHousePrinter(BasePrinter):
             node.next_join or node.join_type == "JOIN" or (node.join_type and node.join_type.startswith("GLOBAL "))
         ):
             sql = f"(SELECT * FROM {sql})"
+
+        # ClickHouse doesn't push the outer team_id guard through joins into a postgresql()
+        # read, so a joined federated table gets COPY'd out of Postgres in full. Repeat the
+        # filter adjacent to the table function, where it does get pushed down; the outer
+        # guard stays and column pruning still applies through the SELECT *. Skip tables
+        # that declare predicates: those print in the enclosing select, and the wrap would
+        # block them from being pushed into the federated read alongside the team guard.
+        from posthog.hogql.database.postgres_table import (
+            PostgresTable,  # noqa: PLC0415 (keeps persons-DB deps off the printer import path)
+        )
+
+        if (
+            isinstance(table, PostgresTable)
+            # mypy proves this intersection impossible from signatures, but subclasses of
+            # both exist at runtime (customer_analytics _AccountScopedPostgresTable).
+            and not isinstance(table, DANGEROUS_NoTeamIdCheckTable)  # type: ignore[unreachable]
+            and "team_id" in table.fields
+            and not table.get_predicates()
+            and self.context.team_id is not None
+        ):
+            # The HogQL `team_id` field may map to a differently named DB column (e.g.
+            # system.teams exposes it as an alias of `id`), so filter the real column, not
+            # the HogQL name. Skip the wrap when the field isn't a plain column.
+            team_id_column = getattr(table.fields["team_id"], "name", None)
+            if team_id_column:
+                sql = f"(SELECT * FROM {sql} WHERE {team_id_column} = {int(self.context.team_id)})"
 
         return sql
 

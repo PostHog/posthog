@@ -176,6 +176,12 @@ class TestBuildQuery:
         _, params = _build_query("DB", "PUBLIC", "t", True, "created_at", IncrementalFieldType.DateTime, None)
         assert params[1] is not None
 
+    def test_incremental_field_with_space_is_quoted_not_rejected(self):
+        # Real Snowflake column names can contain spaces (e.g. "Date Established").
+        sql, _ = _build_query("DB", "PUBLIC", "t", True, "Date Established", IncrementalFieldType.DateTime, None)
+        assert 'WHERE "Date Established"' in sql
+        assert 'ORDER BY "Date Established" ASC' in sql
+
 
 class TestBuildQueryRowFilters:
     def _filter(self, column, operator, value, category=ColumnTypeCategory.INTEGER):
@@ -895,11 +901,22 @@ class TestSnowflakeSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Encrypted-key passphrase error should be non-retryable: {error_msg}"
 
+    def test_unencrypted_key_with_passphrase_is_non_retryable(self, source):
+        # A passphrase supplied for an unencrypted key (cryptography TypeError) — the inverse of the
+        # encrypted-key cases above. Fails to parse before reaching Snowflake, so retrying can't help.
+        error_msg = "Password was given but private key is not encrypted."
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unencrypted-key-with-passphrase error should be non-retryable: {error_msg}"
+
     @pytest.mark.parametrize(
         "error_msg",
         [
             "250003 (08001): Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. Connection timed out",
             "Operation timed out while waiting for the warehouse to resume",
+            # 502 proxy failure exhausting the connector's internal retry budget — transient, not a
+            # user config error; the retry count varies so only the stable prefix is matched.
+            "250001: 250001: Could not connect to Snowflake backend after 11 attempt(s).Aborting",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -940,6 +957,14 @@ class TestSnowflakeSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Snowflake login internal-error should be classified retryable: {error_msg}"
+
+    def test_backend_connection_failure_after_retries_is_retryable(self, source):
+        # The real shape from production: the connector exhausted its 11-attempt login retry budget
+        # after a proxy returned 502 Bad Gateway. The attempt count is volatile; the stable prefix is matched.
+        error_msg = "250001: 250001: Could not connect to Snowflake backend after 11 attempt(s).Aborting"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Proxy-502 backend-connection failure should be classified retryable: {error_msg}"
 
 
 class TestSnowflakeValidateCredentials:
@@ -984,6 +1009,22 @@ class TestSnowflakeValidateCredentials:
 
         assert ok is False
         assert message is not None and "passphrase" in message
+        mock_capture.assert_not_called()
+
+    def test_unencrypted_key_with_passphrase_returns_friendly_message_without_capture(self, source):
+        # A passphrase supplied for an unencrypted key — a TypeError raised while parsing, so it's a
+        # user config error that should surface an actionable message, not be captured.
+        error = TypeError("Password was given but private key is not encrypted.")
+        with (
+            patch.object(source, "get_schemas", side_effect=error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("keypair"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "not encrypted" in message
         mock_capture.assert_not_called()
 
     def test_mfa_enrollment_required_returns_friendly_message_without_capture(self, source):

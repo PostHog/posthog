@@ -52,7 +52,7 @@ class Command(BaseCommand):
             "--at",
             type=str,
             default=None,
-            help="UTC time to anchor to, HH:MM (e.g. 00:00). Monthly-cadence nodes keep their hash-picked day of month",
+            help="UTC time to anchor to, HH:MM (e.g. 00:00). Monthly-cadence nodes run every 30 days at this time, on the same 30-day grid their sources sync on",
         )
         parser.add_argument(
             "--on",

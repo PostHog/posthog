@@ -1,8 +1,9 @@
 """Shared taxonomy for evaluation execution errors.
 
-The split between user-actionable and PostHog-owned errors is load-bearing:
-user errors disable the evaluation without failing the Temporal activity, while
-PostHog-owned errors still raise so Temporal/Grafana stays useful.
+The split between user-actionable and PostHog-owned errors is load-bearing: most user errors
+disable the evaluation without failing the Temporal activity, while PostHog-owned errors still
+raise so Temporal/Grafana stays useful. `hog_input_error` is the one user error that disables
+nothing — it describes a single unit, not the evaluation.
 """
 
 from dataclasses import dataclass
@@ -47,7 +48,7 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
     "key_invalid": EvaluationErrorSpec(
         error_type="key_invalid",
         owner="user",
-        safe_message="The provider API key is disabled. Re-validate or replace the key.",
+        safe_message="The provider API key cannot be used. Re-validate or replace the key.",
         status_reason=EvaluationStatusReason.PROVIDER_KEY_INVALID,
         disables_evaluation=True,
     ),
@@ -103,6 +104,16 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
         safe_message="The Hog evaluation code failed. Fix the code before re-enabling this evaluation.",
         status_reason=EvaluationStatusReason.HOG_ERROR,
         disables_evaluation=True,
+    ),
+    # The one user-actionable spec that neither disables the evaluation nor sets a status reason:
+    # a single unit carried data the Hog source could not handle, which says nothing about whether
+    # the evaluation works on the next one. What keeps the workflow off `disable_evaluation_activity`
+    # is the result omitting `terminal_user_error` (see `is_terminal_user_error_result`); the unset
+    # `status_reason` is a second guard behind that.
+    "hog_input_error": EvaluationErrorSpec(
+        error_type="hog_input_error",
+        owner="user",
+        safe_message="The evaluation code could not handle the data for this run, so it was skipped.",
     ),
 }
 
@@ -222,13 +233,19 @@ def terminal_user_error_result_from_application_error(
     )
 
 
-def status_reason_detail_for_terminal_user_error(spec: EvaluationErrorSpec, message: str | None) -> str | None:
-    if spec.error_type != "hog_error" or not message:
+def truncate_error_detail(message: str | None) -> str | None:
+    """Bound a raw execution error before it reaches a status reason or a user-visible result."""
+    if not message:
         return None
-
     if len(message) <= MAX_STATUS_REASON_DETAIL_LENGTH:
         return message
     return f"{message[: MAX_STATUS_REASON_DETAIL_LENGTH - 3]}..."
+
+
+def status_reason_detail_for_terminal_user_error(spec: EvaluationErrorSpec, message: str | None) -> str | None:
+    if spec.error_type != "hog_error":
+        return None
+    return truncate_error_detail(message)
 
 
 def is_terminal_user_error_result(result: EvaluationActivityResult) -> bool:

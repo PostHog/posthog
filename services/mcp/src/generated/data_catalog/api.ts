@@ -94,7 +94,9 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(dataCatalogMetricsCreateBodyNameMax)
         .regex(dataCatalogMetricsCreateBodyNameRegExp)
-        .describe('Identifier-safe run handle, unique per team and reserved forever. Write-once.'),
+        .describe(
+            "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving."
+        ),
     display_name: zod
         .string()
         .max(dataCatalogMetricsCreateBodyDisplayNameMax)
@@ -137,7 +139,7 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const DataCatalogMetricsPartialUpdateParams = /* @__PURE__ */ zod.object({
     name: zod.string(),
@@ -170,7 +172,9 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyNameMax)
         .regex(dataCatalogMetricsPartialUpdateBodyNameRegExp)
         .optional()
-        .describe('Identifier-safe run handle, unique per team and reserved forever. Write-once.'),
+        .describe(
+            "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving."
+        ),
     display_name: zod
         .string()
         .max(dataCatalogMetricsPartialUpdateBodyDisplayNameMax)

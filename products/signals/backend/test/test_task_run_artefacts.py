@@ -29,7 +29,7 @@ from products.signals.backend.task_run_artefacts import (
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Task/TaskRun ORM models needed to build cross-product fixtures; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Task, TaskRun  # tach-ignore
+from products.tasks.backend.models import Task, TaskRun
 
 
 class TestTaskRunArtefacts(BaseTest):
@@ -228,6 +228,20 @@ class TestTaskRunArtefacts(BaseTest):
         for artefact in SignalReportArtefact.objects.filter(report=report):
             assert artefact.task_id is None
             assert artefact.created_by_id is None
+
+    def test_custom_agent_report_is_stamped_first_visible_at_creation(self):
+        # Born READY without passing through transition_to, so creation must stamp first_visible_at
+        # or the daily report limit would never count custom-agent reports.
+        persisted = create_custom_agent_ready_report(
+            team_id=self.team.id,
+            final_report=self._final_report(),
+            repo_selection=RepoSelectionResult(repository="acme/repo", reason="r"),
+            task_id=None,
+            agent_identifier=("billing", "anomaly_scan"),
+        )
+
+        report = SignalReport.objects.get(id=persisted.report_id)
+        assert report.first_visible_at is not None
 
 
 class TestAssociatedTaskRunsFilter(BaseTest):

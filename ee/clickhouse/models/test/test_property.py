@@ -1922,6 +1922,7 @@ def test_combine_group_properties():
     }
 
 
+@pytest.mark.django_db
 def test_session_property_validation():
     # Property key not valid for type session
     with pytest.raises(ValidationError):

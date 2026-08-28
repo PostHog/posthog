@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -6,6 +7,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use tonic::{Status, Streaming};
 use tracing::{debug, warn};
+use uuid::Uuid;
 
 use crate::error::UnhandledError;
 use crate::langs::native::DebugImage;
@@ -152,7 +154,11 @@ async fn process_item(
         match tokio::time::timeout(deadline, resolve_item(&stage, &item)).await {
             Ok(Ok(resolved)) => (
                 resolve_outcome::Result::Done(Done {
-                    resolved_exception_json: resolved,
+                    resolved_exception_json: resolved.exception_json,
+                    release_id: resolved
+                        .release_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_default(),
                 }),
                 "done",
                 "ok",
@@ -230,26 +236,60 @@ enum ItemFailure {
     Unhandled(String),
 }
 
+struct ResolvedItem {
+    exception_json: Vec<u8>,
+    release_id: Option<Uuid>,
+}
+
 async fn resolve_item(
     stage: &LocalResolutionContext,
     item: &ResolveItem,
-) -> Result<Vec<u8>, ItemFailure> {
+) -> Result<ResolvedItem, ItemFailure> {
     let exception: Exception = serde_json::from_slice(&item.exception_json)
         .map_err(|e| ItemFailure::InvalidPayload(format!("invalid exception_json: {e}")))?;
 
     let debug_images = debug_images_from_metadata(&item.metadata)?;
 
-    let resolved = resolve_one_exception(stage.clone(), item.team_id, exception, debug_images)
-        .await
-        .map_err(|e| match e {
-            ResolveOneError::Overloaded => {
-                ItemFailure::Overloaded("symbol-resolution limiter unavailable".to_string())
-            }
-            ResolveOneError::Unhandled(err) => ItemFailure::Unhandled(err),
-        })?;
+    // The refs come off the raw frames, so the release lookup is independent of symbolication and
+    // runs alongside it rather than after.
+    let symbol_set_refs = symbol_set_refs(&exception, &debug_images);
+    let release_fut = async {
+        stage
+            .symbol_resolver
+            .latest_release_id(item.team_id, &symbol_set_refs)
+            .await
+            .map_err(|err| ItemFailure::Unhandled(err.to_string()))
+    };
+    let resolve_fut = async {
+        resolve_one_exception(stage.clone(), item.team_id, exception, debug_images)
+            .await
+            .map_err(|e| match e {
+                ResolveOneError::Overloaded => {
+                    ItemFailure::Overloaded("symbol-resolution limiter unavailable".to_string())
+                }
+                ResolveOneError::Unhandled(err) => ItemFailure::Unhandled(err),
+            })
+    };
+    let (resolved, release_id) = tokio::try_join!(resolve_fut, release_fut)?;
 
-    serde_json::to_vec(&resolved)
-        .map_err(|e| ItemFailure::Unhandled(format!("serialize resolved exception: {e}")))
+    Ok(ResolvedItem {
+        exception_json: serde_json::to_vec(&resolved)
+            .map_err(|e| ItemFailure::Unhandled(format!("serialize resolved exception: {e}")))?,
+        release_id,
+    })
+}
+
+/// Distinct symbol sets this exception's frames resolve against, in first-seen order. A frame
+/// without a ref (an interpreted language, or a native frame no debug image covers) contributes
+/// nothing, so an exception with no refs at all skips the release lookup entirely.
+fn symbol_set_refs(exception: &Exception, debug_images: &[DebugImage]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    exception
+        .get_raw_frame()
+        .iter()
+        .filter_map(|frame| frame.symbol_set_ref(debug_images))
+        .filter(|set_ref| seen.insert(set_ref.clone()))
+        .collect()
 }
 
 fn debug_images_from_metadata(metadata: &[u8]) -> Result<Vec<DebugImage>, ItemFailure> {

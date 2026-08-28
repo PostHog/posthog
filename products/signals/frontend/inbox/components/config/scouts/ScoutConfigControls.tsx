@@ -23,6 +23,7 @@ import {
     SCOUT_DAILY_AT_SCHEDULE_MODE,
     timeToDailyCron,
 } from '../../../utils/scoutRunsWindow'
+import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutTagsEditor } from './ScoutTagsEditor'
 
@@ -81,6 +82,25 @@ export function ScoutConfigForm({
 
     return (
         <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Write signals to the inbox</span>
+                    <span className="text-[11.5px] text-muted">
+                        Turn this off for a dry run. The scout still runs on its schedule, and its signals stay out of
+                        the inbox.
+                    </span>
+                </div>
+                <LemonSwitch
+                    size="small"
+                    checked={config.emit}
+                    // Editable while the scout is disabled, like network access: a newly enabled
+                    // scout with no prior run is immediately due, so the dry-run posture must be
+                    // settable BEFORE the enable or the first run reaches the inbox anyway.
+                    disabledReason={updating ? 'Saving scout settings' : undefined}
+                    onChange={(checked) => onUpdate(config.id, { emit: checked })}
+                    aria-label={`${config.skill_name} write signals to the inbox`}
+                />
+            </div>
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Schedule</span>
@@ -222,6 +242,14 @@ export function ScoutConfigForm({
                 destination={config.output_destinations?.slack}
                 onChange={(outputDestinations) => onUpdate(config.id, { output_destinations: outputDestinations })}
                 disabledReason={controlsDisabledReason}
+            />
+            <ScoutMcpServersPicker
+                compact
+                selectedServerIds={[...(config.mcp_gateway_server_ids ?? [])]}
+                onChange={(serverIds) => onUpdate(config.id, { mcp_gateway_server_ids: serverIds })}
+                // Editable while the scout is disabled, like network access: the selection must be
+                // settable BEFORE the enable or the first run races out with the wrong toolset.
+                disabledReason={updating ? 'Saving scout settings' : undefined}
             />
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after
                 deletion (and couldn't be re-added from the UI), so its terminal action stays disable. */}

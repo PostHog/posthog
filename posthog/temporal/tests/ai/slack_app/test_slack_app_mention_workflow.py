@@ -56,17 +56,28 @@ class _Recorder:
         self.processing_marked: list[str] = []
         # ts per forwarded followup, in execution order.
         self.forwarded: list[str] = []
+        # ts -> model override the forward call actually received.
+        self.forwarded_with_override: dict[str, SlackAppModelOverride | None] = {}
         # ts per internal-error notice posted back to the thread, in execution order.
         self.internal_errors: list[str] = []
         # ts -> forward result; missing means False (no existing task, fall through to new-task path).
         self.forward_results: dict[str, bool] = {}
+        # ts -> thread snapshot; missing means a one-message thread. An empty list is what
+        # a deleted trigger message reads as.
+        self.thread_messages: dict[str, list[dict[str, str]]] = {}
         # ts -> cascade mode; missing means "auto" with a fixed repository.
-        self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed", "needs_user_github"]] = {}
+        self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed"]] = {}
+        # ts per personal-GitHub gate call, in execution order.
+        self.github_gate_calls: list[str] = []
+        # event text per needs-repo classifier call, in execution order.
+        self.needs_repo_calls: list[str] = []
         # ts -> gate the create-task fake blocks on, to hold a message mid-processing.
         self.create_gates: dict[str, asyncio.Event] = {}
         self.create_reached: dict[str, asyncio.Event] = {}
         self.picker_posted = asyncio.Event()
         self.picker_workflow_id: str | None = None
+        # True holds untagged replies back on the thread creator's `ask` mode.
+        self.awaiting_confirmation = False
 
 
 def _fake_activities(rec: _Recorder) -> list:
@@ -86,6 +97,15 @@ def _fake_activities(rec: _Recorder) -> list:
     ) -> bool:
         return True
 
+    @activity.defn(name="request_untagged_followup_confirmation_activity")
+    async def request_confirmation(
+        inputs: PostHogCodeSlackMentionWorkflowInputs,
+        channel: str,
+        thread_ts: str,
+        slack_user_id: str,
+    ) -> bool:
+        return rec.awaiting_confirmation
+
     @activity.defn(name="forward_posthog_code_followup_activity")
     async def forward(
         inputs: PostHogCodeSlackMentionWorkflowInputs,
@@ -94,8 +114,10 @@ def _fake_activities(rec: _Recorder) -> list:
         slack_user_id: str,
         event_text: str,
         user_message_ts: str | None,
+        model_override: SlackAppModelOverride | None = None,
     ) -> bool:
         ts = inputs.event["ts"]
+        rec.forwarded_with_override[ts] = model_override
         if rec.forward_results.get(ts, False):
             rec.forwarded.append(ts)
             return True
@@ -105,11 +127,16 @@ def _fake_activities(rec: _Recorder) -> list:
     async def collect(
         inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
     ) -> list[dict[str, str]]:
-        return [{"user": "U1", "text": inputs.event["text"]}]
+        ts = inputs.event["ts"]
+        return rec.thread_messages.get(ts, [{"user": "U1", "text": inputs.event["text"]}])
 
     @activity.defn(name="cascade_posthog_code_repository_activity")
     async def cascade(
-        inputs: PostHogCodeSlackMentionWorkflowInputs, event_text: str, user_id: int | None = None
+        inputs: PostHogCodeSlackMentionWorkflowInputs,
+        event_text: str,
+        user_id: int | None = None,
+        thread_messages: list[dict[str, str]] | None = None,
+        mention_ts: str | None = None,
     ) -> PostHogCodeRepoCascadeOutcome:
         mode = rec.cascade_modes.get(inputs.event["ts"], "auto")
         repository = "org/auto-repo" if mode == "auto" else None
@@ -117,6 +144,7 @@ def _fake_activities(rec: _Recorder) -> list:
 
     @activity.defn(name="classify_posthog_code_task_needs_repo_activity")
     async def needs_repo(event_text: str, thread_messages: list[dict[str, str]]) -> bool:
+        rec.needs_repo_calls.append(event_text)
         return True
 
     @activity.defn(name="discover_posthog_code_repository_via_agent_activity")
@@ -144,27 +172,17 @@ def _fake_activities(rec: _Recorder) -> list:
         rec.picker_workflow_id = workflow_id
         rec.picker_posted.set()
 
-    @activity.defn(name="resolve_posthog_code_authorship_activity")
-    async def resolve_authorship(
-        inputs: PostHogCodeSlackMentionWorkflowInputs,
-        channel: str,
-        thread_ts: str,
-        slack_user_id: str,
-        user_id: int,
-        workflow_id: str,
-        repository: str,
-    ) -> str:
-        return "proceed"
-
     @activity.defn(name="block_posthog_code_task_if_no_personal_github_activity")
     async def block_github(
         inputs: PostHogCodeSlackMentionWorkflowInputs,
         channel: str,
         thread_ts: str,
         user_id: int,
-        allow_bot_prs: bool = False,
     ) -> bool:
-        return False
+        rec.github_gate_calls.append(inputs.event["ts"])
+        # Blocks whenever it is reached, so a test that expects a task can only pass
+        # by not reaching it.
+        return True
 
     @activity.defn(name="classify_slack_app_model_override_activity")
     async def classify_model_override(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
@@ -198,19 +216,9 @@ def _fake_activities(rec: _Recorder) -> list:
     async def picker_timeout(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
         return None
 
-    @activity.defn(name="post_posthog_code_authorship_timeout_activity")
-    async def authorship_timeout(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
-        return None
-
     @activity.defn(name="post_posthog_code_internal_error_activity")
     async def internal_error(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
         rec.internal_errors.append(inputs.event["ts"])
-
-    @activity.defn(name="resolve_posthog_code_slack_user_activity")
-    async def resolve_user(
-        inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, slack_user_id: str
-    ) -> int | None:
-        return 42
 
     @activity.defn(name="mark_slack_app_message_processing_activity")
     async def mark_processing(input: SlackAppMessageReactionInput) -> None:
@@ -225,20 +233,18 @@ def _fake_activities(rec: _Recorder) -> list:
         mark_queued,
         quota,
         classify_followup,
+        request_confirmation,
         forward,
         collect,
         cascade,
         needs_repo,
         discover,
         post_picker,
-        resolve_authorship,
         block_github,
         classify_model_override,
         create_task,
         picker_timeout,
-        authorship_timeout,
         internal_error,
-        resolve_user,
     ]
 
 
@@ -349,6 +355,25 @@ async def test_model_override_reaches_task_creation():
 
 
 @pytest.mark.asyncio
+async def test_model_override_reaches_a_followup_without_creating_a_task():
+    """The classifier runs above the follow-up/new-task split, so a reply naming a model
+    steers the run it lands on instead of being read as prose."""
+    rec = _Recorder()
+    override = SlackAppModelOverride(model="claude-fable-5", reasoning_effort="high")
+    rec.model_overrides["actually run this on fable"] = override
+    rec.forward_results["1.1"] = True
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(
+            h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1", text="actually run this on fable")
+        )
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.forwarded_with_override == {"1.1": override}
+    assert rec.created == []
+
+
+@pytest.mark.asyncio
 async def test_signal_with_start_on_running_workflow_signals_same_run():
     rec = _Recorder()
     first, second = _message("1.1"), _message("1.2")
@@ -381,6 +406,20 @@ async def test_duplicate_slack_event_id_is_processed_once():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/auto-repo")]
+
+
+@pytest.mark.asyncio
+async def test_mention_resolving_no_repo_creates_a_task_without_the_github_gate():
+    rec = _Recorder()
+    rec.cascade_modes["1.1"] = "no_repo"
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.created == [("1.1", None)]
+    assert rec.github_gate_calls == []
+    assert rec.needs_repo_calls == []
 
 
 @pytest.mark.asyncio
@@ -492,3 +531,19 @@ async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/auto-repo")]
+
+
+@pytest.mark.asyncio
+async def test_deleted_trigger_message_creates_no_task_and_says_nothing():
+    # A prompt deleted right after posting reads back as an empty thread. Slack posts a
+    # reply with an unresolvable thread_ts at channel root, so anything we say here —
+    # including an "internal error" notice — lands in front of the whole channel.
+    rec = _Recorder()
+    rec.thread_messages["1.1"] = []
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.created == []
+    assert rec.internal_errors == []

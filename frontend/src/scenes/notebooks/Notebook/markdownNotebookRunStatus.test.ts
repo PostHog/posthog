@@ -2,7 +2,7 @@ import type { NotebookComponentRunStatus } from 'lib/components/MarkdownNotebook
 import type { NotebookComponentBlockNode, NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
 
 import { resolveNotebookComponentRunStatus } from './markdownNotebookRunStatus'
-import type { NotebookNodeRunTerminalStatus } from './notebookNodeStalenessLogic'
+import type { NotebookNodeRunTerminalStatus, NotebookStaleReason } from './notebookNodeStalenessLogic'
 
 describe('markdownNotebookRunStatus', () => {
     const sqlCell = (props: NotebookComponentProps = {}, tagName = 'SQLV2'): NotebookComponentBlockNode => ({
@@ -15,7 +15,7 @@ describe('markdownNotebookRunStatus', () => {
     const cases: {
         label: string
         node: NotebookComponentBlockNode
-        staleNodeIds?: Record<string, true>
+        staleNodeIds?: Record<string, NotebookStaleReason>
         nodeRunStatuses?: Record<string, NotebookNodeRunTerminalStatus>
         expected: NotebookComponentRunStatus
     }[] = [
@@ -42,7 +42,7 @@ describe('markdownNotebookRunStatus', () => {
         {
             label: 'a cell an upstream re-run outdated',
             node: sqlCell({ nodeId: 'node-1' }),
-            staleNodeIds: { 'node-1': true },
+            staleNodeIds: { 'node-1': 'upstream' },
             nodeRunStatuses: { 'node-1': 'done' },
             expected: 'stale',
         },
@@ -50,7 +50,7 @@ describe('markdownNotebookRunStatus', () => {
             // The failure, not the staleness, is what the user has to act on.
             label: 'a stale cell whose last run failed',
             node: sqlCell({ nodeId: 'node-1' }),
-            staleNodeIds: { 'node-1': true },
+            staleNodeIds: { 'node-1': 'upstream' },
             nodeRunStatuses: { 'node-1': 'failed' },
             expected: 'error',
         },

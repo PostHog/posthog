@@ -28,13 +28,17 @@ DEFAULT_BATCH_SIZE = 5000
 # Truth per batch: its latest status row, or 'pending' when none exists. For
 # never-claimed rows state_changed_at is set to the batch's own created_at so
 # the NULL "never visited" marker clears and retry-backoff math stays sane.
+# superseded mirrors the failed status payload's flag; get_failed_runs refuses
+# to reconcile until this backfill has cleared pre-flag failed rows.
 _TRUTH_SELECT = f"""
     SELECT
         b.id,
         b.created_at,
         COALESCE(s.job_state, 'pending') AS expected_state,
         COALESCE(s.attempt, 0)::smallint AS expected_attempt,
-        COALESCE(s.created_at, b.created_at) AS expected_changed_at
+        COALESCE(s.created_at, b.created_at) AS expected_changed_at,
+        (COALESCE(s.job_state, 'pending') = 'failed'
+         AND COALESCE((s.error_response->>'superseded')::boolean, false)) AS expected_superseded
     FROM {BATCH_TABLE} b
     {latest_status_lateral("b", "s")}
     WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
@@ -49,7 +53,8 @@ FILL_MISSING_SQL = f"""
     UPDATE {BATCH_TABLE} b
     SET latest_state = t.expected_state,
         latest_attempt = t.expected_attempt,
-        state_changed_at = t.expected_changed_at
+        state_changed_at = t.expected_changed_at,
+        superseded = t.expected_superseded
     FROM truth t
     WHERE b.id = t.id
       AND b.created_at = t.created_at
@@ -59,18 +64,25 @@ FILL_MISSING_SQL = f"""
 RECONCILE_SQL = f"""
     WITH truth AS (
         {_TRUTH_SELECT}
-          AND (b.latest_state, b.latest_attempt)
-              IS DISTINCT FROM (COALESCE(s.job_state, 'pending'), COALESCE(s.attempt, 0))
+          AND (b.latest_state, b.latest_attempt, b.superseded)
+              IS DISTINCT FROM (
+                  COALESCE(s.job_state, 'pending'),
+                  COALESCE(s.attempt, 0),
+                  COALESCE(s.job_state, 'pending') = 'failed'
+                      AND COALESCE((s.error_response->>'superseded')::boolean, false)
+              )
         LIMIT %(batch_size)s
     )
     UPDATE {BATCH_TABLE} b
     SET latest_state = t.expected_state,
         latest_attempt = t.expected_attempt,
-        state_changed_at = t.expected_changed_at
+        state_changed_at = t.expected_changed_at,
+        superseded = t.expected_superseded
     FROM truth t
     WHERE b.id = t.id
       AND b.created_at = t.created_at
-      AND (b.latest_state, b.latest_attempt) IS DISTINCT FROM (t.expected_state, t.expected_attempt)
+      AND (b.latest_state, b.latest_attempt, b.superseded)
+          IS DISTINCT FROM (t.expected_state, t.expected_attempt, t.expected_superseded)
       AND (b.state_changed_at IS NULL OR b.state_changed_at <= t.expected_changed_at)
 """
 
@@ -82,8 +94,13 @@ AUDIT_SQL = f"""
     FROM {BATCH_TABLE} b
     {latest_status_lateral("b", "s")}
     WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-      AND (b.latest_state, b.latest_attempt)
-          IS DISTINCT FROM (COALESCE(s.job_state, 'pending'), COALESCE(s.attempt, 0))
+      AND (b.latest_state, b.latest_attempt, b.superseded)
+          IS DISTINCT FROM (
+              COALESCE(s.job_state, 'pending'),
+              COALESCE(s.attempt, 0),
+              COALESCE(s.job_state, 'pending') = 'failed'
+                  AND COALESCE((s.error_response->>'superseded')::boolean, false)
+          )
     GROUP BY 1, 2
     ORDER BY 3 DESC
 """

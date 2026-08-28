@@ -1,14 +1,17 @@
-# Objects skipped when introspecting a live OPS/LOGS node for the convergence
-# gate (verify-live.sh). A name matching any glob (filepath.Match syntax) is
-# dropped before its DDL is parsed, so it neither lands in the introspected HCL
-# nor is compared against the golden. Patterns match both the bare name
-# ("events_main") and the db-qualified form ("posthog.events_main").
+# Objects the convergence gate skips on a live node. Both gate steps read this
+# one file: dump-live.sh passes it to `hclexp introspect -exclude` (a match is
+# dropped before its DDL is parsed, so it never lands in the dump) and
+# check-live.sh to `hclexp diff -exclude` (a match is dropped from both sides
+# before diffing, so a golden-only match is not drift either). Patterns are
+# filepath.Match globs against both the bare name ("events_main") and the
+# db-qualified form ("posthog.events_main"); object_types drops a whole kind.
 #
-# Two classes live here:
-#   1. Transient objects (atomic-replace temporaries, migration/backfill scratch,
+# Three classes live here:
+#   1. Whole object kinds the goldens never model (object_types).
+#   2. Transient objects (atomic-replace temporaries, migration/backfill scratch,
 #      backups) — never part of the managed schema.
-#   2. Cross-cluster proxies present on the node but intentionally NOT authored in
-#      the OPS/LOGS golden — they belong to another role's managed set (e.g. the
+#   3. Cross-cluster proxies present on the node but intentionally NOT authored in
+#      that role's golden — they belong to another role's managed set (e.g. the
 #      events_* distributed proxies the OPS node carries so it can query the main
 #      cluster). These are the same names check.sh lists in its validate SKIP.
 #
@@ -16,6 +19,9 @@
 # node has that the golden intentionally omits goes here, with a one-line reason.
 
 exclude {
+  # Secret Kafka broker/credential config; never modeled in the goldens.
+  object_types = ["named_collection"]
+
   patterns = [
     # --- transient (ClickHouse atomic CREATE-OR-REPLACE / EXCHANGE) ---
     "_tmp_replace_*",
@@ -32,7 +38,7 @@ exclude {
     "*_backfill",
 
     # --- cross-cluster proxies carried by the node but owned elsewhere ---
-    # Distributed proxies into the main event cluster; not part of OPS/LOGS.
+    # Distributed proxies into the main event cluster; owned by the data role.
     "events_main",
     "events_recent",
 

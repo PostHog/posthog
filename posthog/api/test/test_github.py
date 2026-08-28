@@ -312,7 +312,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         self.assertIn("Github-Public-Key-Identifier", str(data))
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_personal_api_key_exposed")
+    @patch("posthog.api.secret_revocation.send_personal_api_key_exposed")
     def test_secret_alert_finds_and_rolls_existing_personal_api_key(self, mock_send_email, mock_verify):
         """Test that an existing personal API key is found, rolled, and email is sent."""
         mock_verify.return_value = None
@@ -390,7 +390,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         self.assertEqual(data[0]["label"], "false_positive")
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_personal_api_key_exposed")
+    @patch("posthog.api.secret_revocation.send_personal_api_key_exposed")
     def test_secret_alert_finds_key_with_legacy_pbkdf2_hash(self, mock_send_email, mock_verify):
         """Test that keys stored with legacy PBKDF2 hash are still found."""
         mock_verify.return_value = None
@@ -987,7 +987,7 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         )
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_oauth_token_exposed")
+    @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
     def test_oauth_access_token_found_and_revoked(self, mock_send_email, mock_verify):
         mock_verify.return_value = None
 
@@ -1032,7 +1032,59 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         self.assertEqual(call_args[0][1], "access")
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_oauth_token_exposed")
+    @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
+    def test_expired_oauth_access_token_report_still_revokes_and_notifies(self, mock_send_email, mock_verify):
+        # An already-expired access token can't authenticate on its own, but revoking
+        # still matters if the same exposure also affects the longer-lived paired
+        # refresh token - and GitHub's scan-to-report latency for historical commits
+        # routinely exceeds the access token's own lifetime, so a report for an
+        # already-expired token is the common case here, not an edge case.
+        mock_verify.return_value = None
+
+        oauth_app = self._create_oauth_app()
+        token = "pha_expired_access_token_github_alert"
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token=token,
+            expires=timezone.now() - timedelta(hours=1),
+            scope="openid profile",
+        )
+        access_token_id = access_token.id
+        refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="phr_live_session_for_expired_access",
+            access_token=access_token,
+        )
+
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN,
+                        "url": "https://github.com/test/repo/blob/main/secrets.txt",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[0]["label"], "true_positive")
+
+        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token_id).exists())
+        refresh_token.refresh_from_db()
+        self.assertIsNotNone(refresh_token.revoked)
+        mock_send_email.assert_called_once()
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
     def test_oauth_refresh_token_found_and_revoked(self, mock_send_email, mock_verify):
         mock_verify.return_value = None
 
@@ -1125,8 +1177,8 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         self.assertEqual(data[0]["label"], "false_positive")
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_oauth_token_exposed")
-    def test_oauth_access_token_revocation_also_revokes_related_artifacts(self, mock_send_email, mock_verify):
+    @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
+    def test_oauth_access_token_revocation_revokes_paired_refresh_token_not_grant(self, mock_send_email, mock_verify):
         mock_verify.return_value = None
 
         oauth_app = self._create_oauth_app()
@@ -1184,11 +1236,14 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         refresh_token.refresh_from_db()
         self.assertIsNotNone(refresh_token.revoked)
 
-        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+        # A leaked-token report is evidence about this one token, not the user's other
+        # sessions or in-flight authorizations - revoke_oauth_token_session only revokes
+        # the paired access/refresh token, not other grants for the same user+app.
+        self.assertTrue(OAuthGrant.objects.filter(id=grant_id).exists())
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_oauth_token_exposed")
-    def test_oauth_refresh_token_revocation_also_revokes_related_artifacts(self, mock_send_email, mock_verify):
+    @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
+    def test_oauth_refresh_token_revocation_revokes_paired_access_token_not_grant(self, mock_send_email, mock_verify):
         mock_verify.return_value = None
 
         oauth_app = self._create_oauth_app()
@@ -1246,7 +1301,9 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
 
         self.assertFalse(OAuthAccessToken.objects.filter(id=access_token_id).exists())
 
-        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+        # See the access-token variant above: the narrow revocation doesn't sweep other
+        # grants for the same user+app.
+        self.assertTrue(OAuthGrant.objects.filter(id=grant_id).exists())
 
     @patch("posthog.api.github.verify_github_signature")
     def test_revoked_oauth_refresh_token_returns_false_positive(self, mock_verify):
@@ -1283,7 +1340,7 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         self.assertEqual(data[0]["label"], "false_positive")
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_oauth_token_exposed")
+    @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
     def test_initial_access_token_revokes_paired_refresh_token(self, mock_send_email, mock_verify):
         """Initial access token (no source_refresh_token) should still revoke paired refresh token."""
         mock_verify.return_value = None
@@ -1350,11 +1407,12 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         refresh_token.refresh_from_db()
         self.assertIsNotNone(refresh_token.revoked)
 
-        # Grant should be deleted
-        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+        # Grant is untouched - it's not part of this token's session (see
+        # revoke_oauth_token_session's docstring)
+        self.assertTrue(OAuthGrant.objects.filter(id=grant_id).exists())
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_oauth_token_exposed")
+    @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
     def test_initial_refresh_token_revokes_paired_access_token(self, mock_send_email, mock_verify):
         """Initial refresh token should still revoke paired access token."""
         mock_verify.return_value = None
@@ -1421,5 +1479,5 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         refresh_token.refresh_from_db()
         self.assertIsNotNone(refresh_token.revoked)
 
-        # Grant should be deleted
-        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+        # Grant is untouched - see the access-token variant above.
+        self.assertTrue(OAuthGrant.objects.filter(id=grant_id).exists())

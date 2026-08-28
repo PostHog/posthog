@@ -27,15 +27,11 @@ This document compares the `/i/v0/ai` endpoint with the `/i/v0/e` (events) endpo
 
 | Feature | Description | Notes |
 |---------|-------------|-------|
-| Multipart form-data parsing | Parse and validate multipart requests with events + blobs | AI-specific |
+| Multipart form-data parsing | Parse and validate multipart requests with an event part and an optional properties part | AI-specific |
 | Authorization header requirement | Require `Bearer <token>` in Authorization header | AI-specific |
 | AI event type validation | Validate against 6 allowed AI event types: `$ai_generation`, `$ai_trace`, `$ai_span`, `$ai_embedding`, `$ai_metric`, `$ai_feedback` | AI-specific |
 | `$ai_model` property validation | Ensure `$ai_model` is present and non-empty | AI-specific |
-| Blob part handling | Handle blob parts and generate S3 placeholders | AI-specific |
-| Byte range calculation | Calculate byte ranges for blob parts in concatenated format | AI-specific |
-| Content-Type validation per part | Validate Content-Type for each multipart part | AI-specific |
-| Strict size limits per part type | 32KB event, 960KB properties + event, configurable total | AI-specific |
-| Duplicate property name detection | Prevent duplicate property names across parts | AI-specific |
+| Strict size limits per part type | 32KB event, 960KB properties + event | AI-specific |
 
 ### Features Present in Both
 
@@ -73,16 +69,14 @@ This document compares the `/i/v0/ai` endpoint with the `/i/v0/e` (events) endpo
 
 ### 2. Token Dropper Filtering ✅ DONE
 
-**Implementation:** The AI endpoint now checks the token dropper before processing blob parts.
+**Implementation:** The AI endpoint now checks the token dropper before parsing the remaining multipart parts.
 
 **How it works:**
 
 1. After parsing just the event metadata (via `retrieve_event_metadata()`), checks `state.token_dropper.should_drop(token, distinct_id)`
 2. If dropped, returns HTTP 429 (Too Many Requests) with "billing limit reached" error
 3. Metrics reported via `report_dropped_events("token_dropper", 1)`
-4. Early return avoids parsing potentially large blob parts for dropped events
-
-**Optimization:** The token dropper check happens before parsing blob parts, saving processing time when events are dropped.
+4. Early return avoids parsing the remaining parts for dropped events
 
 ### 3. Historical Rerouting - Not Needed
 
@@ -107,7 +101,7 @@ flag.
 
 ## Notes
 
-- The AI endpoint's unique features (multipart parsing, blob handling, etc.) are intentional and should be preserved
+- The AI endpoint's unique features (multipart parsing, AI event validation, etc.) are intentional and should be preserved
 - Some differences are by design rather than gaps:
   - **Event type filtering**: `/e` uses denylist (blocks `$performance_event`), AI uses allowlist (only accepts 6 `$ai_*` events)
   - **Single event vs batch**: AI processes single events, `/e` supports batches
