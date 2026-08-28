@@ -25,6 +25,9 @@ const MAX_PREVIEW_FILE_BYTES = 256 * 1024;
 const ARCHIVE_CACHE_TTL_MS = 5 * 60_000;
 const ARCHIVE_CACHE_MAX_ENTRIES = 4;
 const SEARCH_TIMEOUT_MS = 10_000;
+const POPULAR_SEED_QUERIES = ["code", "git", "review", "test", "docs", "web"];
+const POPULAR_LIMIT = 40;
+const POPULAR_CACHE_TTL_MS = 30 * 60_000;
 const ARCHIVE_DOWNLOAD_TIMEOUT_MS = 60_000;
 
 interface InstalledSkillsFile {
@@ -110,6 +113,39 @@ export function collectSkillFiles(
 @injectable()
 export class SkillsMarketplaceService {
   private archives = new Map<string, CachedArchive>();
+  private popularCache: {
+    fetchedAt: number;
+    output: MarketplaceSearchOutput;
+  } | null = null;
+
+  async popular(): Promise<MarketplaceSearchOutput> {
+    const cached = this.popularCache;
+    if (cached && Date.now() - cached.fetchedAt < POPULAR_CACHE_TTL_MS) {
+      return cached.output;
+    }
+
+    const batches = await Promise.allSettled(
+      POPULAR_SEED_QUERIES.map((query) => this.search(query)),
+    );
+    const byId = new Map<string, MarketplaceSearchOutput["results"][number]>();
+    for (const batch of batches) {
+      if (batch.status !== "fulfilled") continue;
+      for (const result of batch.value.results) {
+        byId.set(result.id, result);
+      }
+    }
+    if (byId.size === 0) {
+      throw new Error("skills.sh search failed for every seed query");
+    }
+
+    const output = {
+      results: [...byId.values()]
+        .sort((a, b) => b.installs - a.installs)
+        .slice(0, POPULAR_LIMIT),
+    };
+    this.popularCache = { fetchedAt: Date.now(), output };
+    return output;
+  }
 
   async search(query: string): Promise<MarketplaceSearchOutput> {
     const trimmed = query.trim();
