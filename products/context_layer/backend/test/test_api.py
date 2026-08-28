@@ -715,6 +715,67 @@ class TestContextLayerAPI(APIBaseTest):
         assert body["head_sha"] == head
         assert body["url"].startswith("http")
 
+    def _land_dream(self, path: str, content: str, branch: str) -> None:
+        bundle_bytes = self._bundle_with_edit(path, content, branch=branch)
+        response = self.client.post(
+            f"{self.base_url}/commits/",
+            {
+                "bundle": SimpleUploadedFile("out.bundle", bundle_bytes),
+                "branch": branch,
+                "summary": f"# Context dream — {branch.removeprefix('dream/')}\n\nDid things.",
+            },
+            format="multipart",
+        )
+        assert response.status_code == 200, response.content
+
+    def test_dreams_lists_landed_dream_runs_newest_first(self, _flag) -> None:
+        self._enable()
+        # An ordinary (linear) landing between two dreams must not appear: only
+        # `dream: <date>` merge commits are runs.
+        response = self.client.put(
+            f"{self.base_url}/pages/",
+            {"path": "areas/interactive.md", "content": _page("Interactive")},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        self._land_dream("areas/dreamt-one.md", _page("Dreamt one"), "dream/2026-08-17")
+        self._land_dream("areas/dreamt-two.md", _page("Dreamt two"), "dream/2026-08-18")
+
+        response = self.client.get(f"{self.base_url}/dreams/")
+        assert response.status_code == 200, response.content
+        dreams = response.json()["dreams"]
+        assert [dream["date"] for dream in dreams] == ["2026-08-18", "2026-08-17"]
+        assert dreams[0]["pages_added"] == 1
+        assert dreams[0]["pages_modified"] == 0
+        assert dreams[0]["pages_deleted"] == 0
+        assert "Did things." in dreams[0]["summary"]
+        assert dreams[0]["sha"]
+
+    def test_dreams_404_before_enablement(self, _flag) -> None:
+        assert self.client.get(f"{self.base_url}/dreams/").status_code == 404
+
+    def test_dream_returns_the_runs_per_file_patches(self, _flag) -> None:
+        self._enable()
+        self._land_dream("areas/dreamt.md", _page("Dreamt"), "dream/2026-08-18")
+        dreams = self.client.get(f"{self.base_url}/dreams/").json()["dreams"]
+
+        response = self.client.get(f"{self.base_url}/dreams/{dreams[0]['sha']}/")
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert body["run"]["sha"] == dreams[0]["sha"]
+        assert body["run"]["date"] == "2026-08-18"
+        files = {file["path"]: file for file in body["files"]}
+        assert files["areas/dreamt.md"]["status"] == "added"
+        assert "+# Dreamt" in files["areas/dreamt.md"]["patch"]
+        assert files["areas/dreamt.md"]["truncated"] is False
+
+    def test_dream_rejects_a_sha_that_is_not_a_dream_merge(self, _flag) -> None:
+        # The detail read diffs the sha it is given, so it must refuse arbitrary
+        # commits rather than leak history that is not a dream run.
+        head = self._enable()
+        assert self.client.get(f"{self.base_url}/dreams/{head}/").status_code == 404
+        assert self.client.get(f"{self.base_url}/dreams/{'0' * 40}/").status_code == 404
+
     def _bundle_with_edit(self, path: str, content: str, branch: str = "main") -> bytes:
         """Clone the wiki the way a sandbox does, commit one edit, pack it as a thin bundle."""
         with store.checkout_repo(self.organization.id) as checkout:

@@ -29020,6 +29020,77 @@ export namespace Schemas {
     }
 
     /**
+     * * `added` - added
+     * * `modified` - modified
+     * * `deleted` - deleted
+     */
+    export type DreamFileDiffStatusEnum = typeof DreamFileDiffStatusEnum[keyof typeof DreamFileDiffStatusEnum];
+
+
+    export const DreamFileDiffStatusEnum = {
+      Added: 'added',
+      Modified: 'modified',
+      Deleted: 'deleted',
+    } as const;
+
+    /**
+     * One file a dream run changed, with its unified patch.
+     */
+    export interface DreamFileDiff {
+      /** Repo-relative path of the changed page. */
+      path: string;
+      /** How the run changed the page.
+       *
+       * * `added` - added
+       * * `modified` - modified
+       * * `deleted` - deleted */
+      status: DreamFileDiffStatusEnum;
+      /** Unified git patch for this file. */
+      patch: string;
+      /** Whether the patch was cut off for size. */
+      truncated: boolean;
+    }
+
+    /**
+     * One dreaming run: the merge commit it landed as, plus what it changed.
+     */
+    export interface DreamRun {
+      /** Merge commit sha the run landed as; pass back as `sha` on the detail read. */
+      sha: string;
+      /** The run's date, `YYYY-MM-DD`. */
+      date: string;
+      /** When the run landed. */
+      committed_at: string;
+      /** The run summary the dreaming agent wrote. */
+      summary: string;
+      /** Pages the run created. */
+      pages_added: number;
+      /** Pages the run edited. */
+      pages_modified: number;
+      /** Pages the run removed. */
+      pages_deleted: number;
+    }
+
+    /**
+     * Response shape for one dream run: the run plus the diff it landed.
+     */
+    export interface DreamRunDetail {
+      run: DreamRun;
+      /** Per-file patches, in diff order. */
+      files: DreamFileDiff[];
+    }
+
+    /**
+     * Response shape for the wiki's dream run listing.
+     */
+    export interface DreamRunList {
+      /** Commit sha of the wiki's current head. */
+      head_sha: string;
+      /** Every landed dream run, newest first. */
+      dreams: DreamRun[];
+    }
+
+    /**
      * * `Up` - Up
      * * `Down` - Down
      */

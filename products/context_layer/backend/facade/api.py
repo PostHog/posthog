@@ -16,6 +16,15 @@ from posthog.dataclasses import frozen
 from posthog.permissions import posthog_feature_flag_enabled
 
 from products.context_layer.backend import store
+from products.context_layer.backend.dreams import (
+    DreamFileDiff,
+    DreamNotFoundError,
+    DreamRun,
+    DreamRunDetail,
+    DreamRunList,
+    get_dream_run,
+    list_dream_runs,
+)
 from products.context_layer.backend.enablement import enable_context_layer
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.pages import (
@@ -73,6 +82,11 @@ __all__ = [
     "ContextLayerMount",
     "ContextLayerStoreError",
     "DependencyUnavailableError",
+    "DreamFileDiff",
+    "DreamNotFoundError",
+    "DreamRun",
+    "DreamRunDetail",
+    "DreamRunList",
     "HeadConflictError",
     "InvalidPagePathError",
     "LintFailedError",
@@ -86,6 +100,7 @@ __all__ = [
     "enable_context_layer",
     "get_bundle_export",
     "get_config",
+    "get_dream_run",
     "get_page",
     "get_health_report",
     "get_sandbox_mount",
@@ -93,6 +108,7 @@ __all__ = [
     "is_context_layer_enabled",
     "land_commit_bundle",
     "land_dream_branch",
+    "list_dream_runs",
     "page_frontmatter_channel_id",
     "proposed_channel_page_path",
     "resolve_channel_page",

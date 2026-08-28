@@ -9,6 +9,10 @@ import {
   EmptyMedia,
   EmptyTitle,
   Spinner,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
 } from "@posthog/quill";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { FileExplorer } from "@posthog/ui/primitives/FileExplorer";
@@ -25,6 +29,7 @@ import {
   useEnableContextWiki,
 } from "../hooks/useContextWiki";
 import { buildWikiTree } from "../wikiTree";
+import { ContextWikiDreamsPane } from "./ContextWikiDreamsPane";
 import { ContextWikiPagePane, type WikiDraft } from "./ContextWikiPagePane";
 
 /**
@@ -55,6 +60,26 @@ export function ContextWikiView({ initialPath }: { initialPath?: string }) {
         <ContextWikiBody initialPath={initialPath} />
       </div>
     </div>
+  );
+}
+
+// Page-level sections: the wiki explorer itself, and the dreaming history.
+function ContextWikiTabs({ explorer }: { explorer: React.ReactNode }) {
+  return (
+    <Tabs defaultValue="pages" className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-(--gray-5) border-b px-4">
+        <TabsList variant="line">
+          <TabsTrigger value="pages">Pages</TabsTrigger>
+          <TabsTrigger value="dreams">Dreams</TabsTrigger>
+        </TabsList>
+      </div>
+      <TabsContent value="pages" className="min-h-0 flex-1">
+        {explorer}
+      </TabsContent>
+      <TabsContent value="dreams" className="min-h-0 flex-1">
+        <ContextWikiDreamsPane />
+      </TabsContent>
+    </Tabs>
   );
 }
 
@@ -179,28 +204,32 @@ function ContextWikiBody({ initialPath }: { initialPath?: string }) {
   }
 
   return (
-    <FileExplorer
-      tree={wikiRoot}
-      selectedPath={effectivePath}
-      onSelectPath={setSelectedPath}
-      emptyMessage="The wiki has no pages yet."
-      storageKey="context-wiki-explorer"
-    >
-      {effectivePath ? (
-        // Keyed by path so view state never leaks across pages; the draft is
-        // held above this so the remount does not take it with it.
-        <ContextWikiPagePane
-          key={effectivePath}
-          path={effectivePath}
-          draft={drafts[effectivePath]}
-          onDraftChange={setDraft}
-          onDraftDiscard={discardDraft}
-        />
-      ) : (
-        <div className="flex flex-1 items-center justify-center text-[13px] text-gray-10">
-          The wiki has no pages yet.
-        </div>
-      )}
-    </FileExplorer>
+    <ContextWikiTabs
+      explorer={
+        <FileExplorer
+          tree={wikiRoot}
+          selectedPath={effectivePath}
+          onSelectPath={setSelectedPath}
+          emptyMessage="The wiki has no pages yet."
+          storageKey="context-wiki-explorer"
+        >
+          {effectivePath ? (
+            // Keyed by path so view state never leaks across pages; the draft is
+            // held above this so the remount does not take it with it.
+            <ContextWikiPagePane
+              key={effectivePath}
+              path={effectivePath}
+              draft={drafts[effectivePath]}
+              onDraftChange={setDraft}
+              onDraftDiscard={discardDraft}
+            />
+          ) : (
+            <div className="flex flex-1 items-center justify-center text-[13px] text-gray-10">
+              The wiki has no pages yet.
+            </div>
+          )}
+        </FileExplorer>
+      }
+    />
   );
 }
