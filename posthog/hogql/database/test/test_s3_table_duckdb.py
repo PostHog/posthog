@@ -8,6 +8,7 @@ import duckdb
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import DecimalDatabaseField, StringDatabaseField
 from posthog.hogql.database.s3_table import (
     DuckDBAzureSource,
     DuckDBS3Source,
@@ -336,6 +337,41 @@ class TestS3TableDuckDBPrinting:
 
         assert actual_columns == expected_columns
         assert rows == [(1, 12.5)]
+
+    @parameterized.expand(
+        [
+            ("csv_with_headers", "CSVWithNames", 'order_id,amount\n"12345","12.5"\n'),
+            ("csv_without_headers", "CSV", '"12345","12.5"\n'),
+        ]
+    )
+    def test_csv_reader_keeps_saved_column_types(self, _name: str, table_format: str, contents: str) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_path = Path(temp_dir) / "orders"
+            source_path.write_text(contents)
+            context = HogQLContext(team_id=1)
+            table = S3Table(
+                name="orders",
+                url="s3://bucket/orders",
+                format=table_format,
+                access_key="access-key",
+                access_secret="access-secret",
+                column_names=("order_id", "amount"),
+                fields={
+                    "order_id": StringDatabaseField(name="order_id"),
+                    # Decimals have no exact DuckDB counterpart, so this column stays sniffed
+                    "amount": DecimalDatabaseField(name="amount"),
+                },
+            )
+
+            sql = table.to_printed_duckdb(context)
+            positional_sql = re.sub(r"%\([^)]+\)s", "?", sql)
+            values = list(context.values.values())
+            values[0] = str(source_path)
+
+            with duckdb.connect() as connection:
+                rows = connection.execute(f"SELECT * FROM {positional_sql}", values).fetchall()
+
+        assert rows == [("12345", 12.5)]
 
     def test_azure_uses_native_reader(self) -> None:
         context = HogQLContext(team_id=1)

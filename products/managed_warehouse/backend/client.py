@@ -226,6 +226,10 @@ def _configure_object_storage_secrets(
             )
             try:
                 cur.execute(statement, values)
+                # DuckDB keeps secrets in the transaction that created them, so hold each one
+                # on its own: sharing a transaction would let the rollback below discard every
+                # secret installed before the rejected one.
+                conn.commit()
             except Exception:
                 # A secret duckgres rejects only breaks the table it belongs to, so keep going
                 # and let the query fail on that table instead of on every other one too.

@@ -7,9 +7,18 @@ from urllib.parse import urlparse, urlunparse
 from django.conf import settings
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import FunctionCallTable
+from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    DatabaseField,
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    FloatDatabaseField,
+    FunctionCallTable,
+    IntegerDatabaseField,
+    StringDatabaseField,
+)
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.escape_sql import escape_duckdb_identifier, escape_hogql_identifier
 
 from posthog.clickhouse.client.escape import substitute_params
 
@@ -28,6 +37,19 @@ _AZURE_ACCOUNT_KEY_RE = re.compile(r"[A-Za-z0-9+/]+={0,2}")
 DUCKDB_SELF_MANAGED_SUPPORTED_FORMATS: frozenset[str] = frozenset(
     {"CSV", "CSVWithNames", "Delta", "JSONEachRow", "Parquet"}
 )
+# CSV carries no types, so DuckDB guesses them per file while HogQL resolves the same columns
+# against the saved schema. Only the types that translate exactly are pinned; anything else
+# (decimals, JSON, arrays, structs, UUIDs) keeps DuckDB's guess, because a wrong pin turns a
+# readable file into a failed read. Parquet, Delta, and newline-delimited JSON carry their own
+# types and need no pinning.
+_DUCKDB_CSV_TYPES_BY_FIELD: dict[type[DatabaseField], str] = {
+    StringDatabaseField: "VARCHAR",
+    IntegerDatabaseField: "BIGINT",
+    FloatDatabaseField: "DOUBLE",
+    BooleanDatabaseField: "BOOLEAN",
+    DateDatabaseField: "DATE",
+    DateTimeDatabaseField: "TIMESTAMP",
+}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -361,6 +383,27 @@ class S3Table(FunctionCallTable):
             table_size_mib=self.table_size_mib,
         )
 
+    def _duckdb_csv_types(self) -> str:
+        """The ``types`` argument that holds a CSV read to the column types HogQL resolves against.
+
+        The ClickHouse reader pins them through ``structure``; without the same pinning here a
+        quoted ``"12345"`` saved as a string comes back as a number, so the same table answers
+        differently under DuckLake and fails to bind the string operations HogQL allows on it.
+        Pinning is keyed by name, so it needs the saved column names, and a name DuckDB can't
+        find in the file fails the read. Column names go through the DuckDB identifier escape,
+        and ``%`` names are left alone because psycopg reads one as a parameter placeholder.
+        """
+        pinned = []
+        for name in self.column_names:
+            field = self.fields.get(name)
+            if not isinstance(field, DatabaseField) or "%" in name:
+                continue
+            duckdb_type = _DUCKDB_CSV_TYPES_BY_FIELD.get(type(field))
+            if duckdb_type is None:
+                continue
+            pinned.append(f"{escape_duckdb_identifier(name)} := '{duckdb_type}'")
+        return f", types = struct_pack({', '.join(pinned)})" if pinned else ""
+
     def to_printed_duckdb(self, context: HogQLContext) -> str:
         if self.format not in DUCKDB_SELF_MANAGED_SUPPORTED_FORMATS:
             raise ExposedHogQLError(
@@ -393,13 +436,13 @@ class S3Table(FunctionCallTable):
         if self.format == "Parquet":
             return f"read_parquet({uri}, hive_partitioning = false)"
         if self.format == "CSVWithNames":
-            return f"read_csv({uri}, header = true, hive_partitioning = false)"
+            return f"read_csv({uri}, header = true{self._duckdb_csv_types()}, hive_partitioning = false)"
         if self.format == "CSV":
             names = ""
             if self.column_names:
                 column_names = ", ".join(context.add_value(name) for name in self.column_names)
                 names = f", names = [{column_names}]"
-            return f"read_csv({uri}, header = false{names}, hive_partitioning = false)"
+            return f"read_csv({uri}, header = false{names}{self._duckdb_csv_types()}, hive_partitioning = false)"
         if self.format == "JSONEachRow":
             return f"read_json({uri}, format = 'newline_delimited', hive_partitioning = false)"
         return f"delta_scan({uri})"
