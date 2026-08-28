@@ -11,6 +11,8 @@
 #
 # Running the tool isolated sidesteps both and keeps the version pinned in one place.
 # Everything else (profile, indent, ignored rules) lives in [tool.djlint] in pyproject.toml.
+#
+# hogli calls this through `bash`, so it does not depend on the executable bit.
 
 set -uo pipefail
 

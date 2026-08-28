@@ -19,6 +19,9 @@ config:
         # regenerating a stub entry on every hogli run.
         - phrocs
         - start-local-ngrok
+        # Helper behind format:html / lint:html, called as `bash ./bin/djlint.sh` rather
+        # than run directly, so it is not a command of its own.
+        - djlint.sh
     env:
         files:
             - .env.development
@@ -838,13 +841,13 @@ quality:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues
     format:html:
-        cmd: ./bin/djlint.sh --reformat "$@"
+        cmd: bash ./bin/djlint.sh --reformat "$@"
         description: Format Django templates
     format:html:check:
-        cmd: ./bin/djlint.sh --check "$@"
+        cmd: bash ./bin/djlint.sh --check "$@"
         description: Check Django template formatting without writing
     lint:html:
-        cmd: ./bin/djlint.sh --lint "$@"
+        cmd: bash ./bin/djlint.sh --lint "$@"
         description: Lint Django templates
     format:markdown:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
@@ -956,9 +959,6 @@ tools:
     tool:hoge:
         bin_script: hoge
         description: Compile HogQL source to bytecode or JavaScript
-    tool:djlint:
-        bin_script: djlint.sh
-        description: Django template formatter and linter, run isolated through uv
     tool:ruff:
         bin_script: ruff.sh
         description: Python linter and formatter with virtualenv auto-activation
