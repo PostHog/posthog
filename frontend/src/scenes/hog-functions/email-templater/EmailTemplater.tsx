@@ -51,7 +51,7 @@ const DEFAULT_CUSTOM_FONTS: EmailEditorCustomFont[] = [
     {
         label: 'Ubuntu',
         value: "'Ubuntu',Tahoma,Verdana,Segoe,sans-serif",
-        url: 'https://fonts.googleapis.com/css?family=Ubuntu:300,400,500,700',
+        url: 'https://fonts.googleapis.com/css?family=Ubuntu:300,400,500,700&display=swap',
         weights: [
             { label: 'Light', value: 300 },
             { label: 'Regular', value: 400 },
@@ -62,7 +62,7 @@ const DEFAULT_CUSTOM_FONTS: EmailEditorCustomFont[] = [
     {
         label: 'Inter',
         value: "'Inter',Tahoma,Verdana,Segoe,sans-serif",
-        url: 'https://fonts.googleapis.com/css?family=Inter:300,400,500,700',
+        url: 'https://fonts.googleapis.com/css?family=Inter:300,400,500,700&display=swap',
         weights: [
             { label: 'Light', value: 300 },
             { label: 'Regular', value: 400 },
@@ -73,7 +73,7 @@ const DEFAULT_CUSTOM_FONTS: EmailEditorCustomFont[] = [
     {
         label: 'Roboto',
         value: "'Roboto',Tahoma,Verdana,Segoe,sans-serif",
-        url: 'https://fonts.googleapis.com/css?family=Roboto:300,400,500,700',
+        url: 'https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap',
         weights: [
             { label: 'Light', value: 300 },
             { label: 'Regular', value: 400 },
@@ -84,7 +84,7 @@ const DEFAULT_CUSTOM_FONTS: EmailEditorCustomFont[] = [
     {
         label: 'Open Sans',
         value: "'Open Sans',Tahoma,Verdana,Segoe,sans-serif",
-        url: 'https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700',
+        url: 'https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700&display=swap',
         weights: [
             { label: 'Light', value: 300 },
             { label: 'Regular', value: 400 },
@@ -95,7 +95,7 @@ const DEFAULT_CUSTOM_FONTS: EmailEditorCustomFont[] = [
     {
         label: 'Lato',
         value: "'Lato',Tahoma,Verdana,Segoe,sans-serif",
-        url: 'https://fonts.googleapis.com/css?family=Lato:300,400,700',
+        url: 'https://fonts.googleapis.com/css?family=Lato:300,400,700&display=swap',
         weights: [
             { label: 'Light', value: 300 },
             { label: 'Regular', value: 400 },
@@ -105,7 +105,7 @@ const DEFAULT_CUSTOM_FONTS: EmailEditorCustomFont[] = [
     {
         label: 'Montserrat',
         value: "'Montserrat',Tahoma,Verdana,Segoe,sans-serif",
-        url: 'https://fonts.googleapis.com/css?family=Montserrat:300,400,500,700',
+        url: 'https://fonts.googleapis.com/css?family=Montserrat:300,400,500,700&display=swap',
         weights: [
             { label: 'Light', value: 300 },
             { label: 'Regular', value: 400 },
