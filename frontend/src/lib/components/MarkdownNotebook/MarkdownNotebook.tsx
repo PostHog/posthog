@@ -280,6 +280,10 @@ export type MarkdownNotebookProps = {
      * resolve against the viewer's project rather than the author's. */
     hideResourceLinks?: boolean
     placeholder?: string
+    /** Content pinned above the canvas, laid out on the canvas's own column so it lines up with
+     * the blocks below it at any width. For a caller whose panel belongs to the notebook rather
+     * than to the document, e.g. its variables. */
+    canvasHeader?: ReactNode
     className?: string
     autoFocus?: boolean
     showDebug?: boolean
@@ -602,6 +606,7 @@ function MarkdownNotebookEditor({
     allowViewModeFilters = false,
     hideResourceLinks = false,
     placeholder = 'Start writing...',
+    canvasHeader,
     className,
     autoFocus = false,
     showDebug = false,
@@ -5429,14 +5434,8 @@ function MarkdownNotebookEditor({
             conversationId,
             query:
                 source === 'selection' && selectedMarkdown
-                    ? getAskAISelectionQuery(
-                          selectedMarkdown,
-                          query,
-                          responseMarker,
-                          selectedRefId,
-                          markdownWithResponse
-                      )
-                    : getAskAIInlineNotebookQuery(query, responseMarker, markdownWithResponse),
+                    ? getAskAISelectionQuery(selectedMarkdown, query, responseMarker, selectedRefId)
+                    : getAskAIInlineNotebookQuery(query, responseMarker),
             source,
             responseNodeId: nodeId,
             responseNodeIndex,
@@ -6022,6 +6021,7 @@ function MarkdownNotebookEditor({
                             ))}
                         </div>
                     ) : null}
+                    {canvasHeader ? <div className="MarkdownNotebook__canvas-header">{canvasHeader}</div> : null}
                     <div
                         className="MarkdownNotebook__canvas"
                         ref={canvasRef}

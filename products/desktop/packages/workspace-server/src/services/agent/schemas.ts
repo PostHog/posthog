@@ -42,6 +42,11 @@ export const sessionConfigSchema = z.object({
 
 export type SessionConfig = z.infer<typeof sessionConfigSchema>;
 
+export const codexModelAccessSchema = z.enum([
+  "posthog-gateway",
+  "own-subscription",
+]);
+
 // Sized for personalization synced from an AGENTS.md/CLAUDE.md file, which
 // can be far larger than the 2000-char hand-typed settings field. Kept equal
 // to OsService's truncation length (USER_AGENT_INSTRUCTIONS_MAX_LENGTH) or a
@@ -64,6 +69,7 @@ export const startSessionInput = z.object({
   autoProgress: z.boolean().optional(),
   runMode: z.enum(["local", "cloud"]).optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
+  codexModelAccess: codexModelAccessSchema.optional(),
   additionalDirectories: z.array(z.string()).optional(),
   customInstructions: customInstructionsField,
   /**
@@ -254,6 +260,7 @@ export const reconnectSessionInput = z.object({
   logUrl: z.string().optional(),
   sessionId: z.string().optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
+  codexModelAccess: codexModelAccessSchema.optional(),
   /** Additional directories Claude can access beyond cwd (for worktree support) */
   additionalDirectories: z.array(z.string()).optional(),
   permissionMode: z.string().optional(),
@@ -280,6 +287,18 @@ export const rtkStatusOutput = z.object({
 });
 
 export type RtkStatus = z.infer<typeof rtkStatusOutput>;
+
+export const codexSubscriptionStatusOutput = z.object({
+  appLoggedIn: z.boolean(),
+});
+
+export type CodexSubscriptionStatus = z.infer<
+  typeof codexSubscriptionStatusOutput
+>;
+
+export const codexSubscriptionLoginOutput = z.object({
+  authUrl: z.string(),
+});
 
 // Set config option input (for Codex reasoning level, etc.)
 export const setConfigOptionInput = z.object({

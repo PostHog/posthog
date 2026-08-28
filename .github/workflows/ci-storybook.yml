@@ -4,7 +4,10 @@ on:
         # PRs outside the merge queue run a narrowed visual-regression matrix when the
         # Storybook module graph can safely identify affected stories. Merge-queue runs
         # use the full matrix. To force the full matrix earlier, add the `run-ci-frontend`
-        # label. The `no-ci` label does the opposite: it silences
+        # label. Force it also to give a story back a baseline entry it lost: the narrowed
+        # matrix renders only the stories the diff affects, so a story the diff does not
+        # touch is never captured, and a reviewer has nothing to approve into
+        # `frontend/snapshots.yml`. The `no-ci` label does the opposite: it silences
         # this workflow on a draft entirely (prototypes).
         # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
         # so every unrelated label re-ran the full chromium matrix against a commit CI
