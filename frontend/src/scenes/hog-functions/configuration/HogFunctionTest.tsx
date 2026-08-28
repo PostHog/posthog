@@ -361,6 +361,7 @@ export function HogFunctionTest(): JSX.Element {
                         {testResult ? (
                             <div className="deprecated-space-y-2" data-attr="test-results">
                                 <LemonBanner
+                                    className="whitespace-pre-line"
                                     type={
                                         testResult.status === 'success'
                                             ? 'success'
@@ -375,7 +376,9 @@ export function HogFunctionTest(): JSX.Element {
                                           ? `${
                                                 type.charAt(0).toUpperCase() + type.slice(1)
                                             } was skipped because the event did not match the filter criteria`
-                                          : 'Error'}
+                                          : testResult.errors?.length
+                                            ? testResult.errors.join('\n')
+                                            : 'Error'}
                                 </LemonBanner>
 
                                 {(type === 'transformation' || type === 'transformation_log') &&
