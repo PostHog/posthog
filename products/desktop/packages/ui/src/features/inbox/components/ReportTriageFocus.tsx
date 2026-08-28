@@ -20,6 +20,7 @@ import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/Repor
 import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/components/utils/SignalReportSummaryMarkdown";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
+import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { navigateToInboxReportDetail } from "@posthog/ui/router/navigationBridge";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -85,6 +86,21 @@ export function ReportTriageFocus({
     () => splitReportSummary(report?.summary),
     [report?.summary],
   );
+  const { prefetch } = useInboxReportDetailPrefetch(
+    report
+      ? {
+          to: "/inbox/reports/$reportId",
+          params: { reportId: report.id },
+        }
+      : null,
+  );
+
+  // Triage is intentionally sequential, so the next destination is known as
+  // soon as the card renders. Warm it before Enter/Review is pressed instead
+  // of making the detail route begin its work after navigation.
+  useEffect(() => {
+    prefetch();
+  }, [prefetch]);
 
   const bulkActions = useInboxBulkActions(
     allReports,

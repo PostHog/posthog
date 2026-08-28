@@ -1641,9 +1641,16 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_snooze_for_delays_repromotion(self):
+    @parameterized.expand(
+        [
+            ("ready", SignalReport.Status.READY),
+            ("pending_input", SignalReport.Status.PENDING_INPUT),
+            ("failed", SignalReport.Status.FAILED),
+        ]
+    )
+    def test_snooze_for_delays_repromotion(self, _name, initial_status):
         report = SignalReport.objects.create(
-            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=5
+            team=self.team, status=initial_status, title="t", summary="s", signal_count=5
         )
         response = self.client.post(
             self._state_url(str(report.id)),

@@ -205,7 +205,6 @@ export class TemplateTester {
                 sesEndpoint: config.SES_ENDPOINT,
                 sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
-                sesTenantAttributionEnabled: false,
             },
             undefined as any,
             undefined as any,

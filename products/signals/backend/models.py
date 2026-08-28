@@ -368,8 +368,8 @@ class SignalReport(UUIDModel):
                 self.error = error
                 updated_fields.update(["title", "summary", "error"])
 
-            # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze on a ready report)
-            case (S.IN_PROGRESS | S.SUPPRESSED | S.READY | S.RESOLVED, S.POTENTIAL):
+            # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze)
+            case (S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.RESOLVED | S.FAILED, S.POTENTIAL):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
                 if self.status == S.SUPPRESSED:

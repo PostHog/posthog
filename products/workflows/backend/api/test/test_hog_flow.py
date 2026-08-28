@@ -181,11 +181,10 @@ class TestHogFlowAPI(APIBaseTest):
     def test_email_sending_rate_limit_round_trip(self):
         flow_id = self._create_simple_flow()
 
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-                {"email_sending_rate_limit": {"count": 250, "period": "hour"}},
-            )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"email_sending_rate_limit": {"count": 250, "period": "hour"}},
+        )
         assert response.status_code == 200, response.json()
         assert response.json()["email_sending_rate_limit"] == {"count": 250, "period": "hour"}
         assert HogFlow.objects.get(id=flow_id).email_sending_rate_limit == {"count": 250, "period": "hour"}
@@ -207,35 +206,11 @@ class TestHogFlowAPI(APIBaseTest):
     def test_email_sending_rate_limit_rejects_invalid_values(self, _name, value):
         flow_id = self._create_simple_flow()
 
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-                {"email_sending_rate_limit": value},
-            )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"email_sending_rate_limit": value},
+        )
         assert response.status_code == 400, response.json()
-
-    def test_email_sending_rate_limit_gated_on_feature_flag(self):
-        # The UI hides the control behind the flag, but API callers hit the serializer directly —
-        # without the server-side gate any team could adopt the feature before its rollout.
-        flow_id = self._create_simple_flow()
-        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
-        value = {"email_sending_rate_limit": {"count": 100, "period": "minute"}}
-
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False) as mock_gate:
-            response = self.client.patch(url, value)
-        assert response.status_code == 400, response.json()
-        assert mock_gate.call_args.args[0] == "workflows-email-rate-limit"
-
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
-            response = self.client.patch(url, value)
-        assert response.status_code == 200, response.json()
-
-        # A flag dial-down must not brick saves that resubmit the stored value, nor block clearing.
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
-            response = self.client.patch(url, value)
-            assert response.status_code == 200, response.json()
-            response = self.client.patch(url, {"email_sending_rate_limit": None})
-            assert response.status_code == 200, response.json()
 
     @parameterized.expand(
         [

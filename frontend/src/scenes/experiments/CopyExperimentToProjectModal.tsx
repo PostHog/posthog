@@ -7,13 +7,14 @@ import api from 'lib/api'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { toParams } from 'lib/utils/url'
-import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { slugifyFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsFilters } from 'scenes/feature-flags/featureFlagsLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Experiment, FeatureFlagType } from '~/types'
+
+import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
 
 import { ExperimentFlagKeyInput } from './ExperimentFlagKeyInput'
 

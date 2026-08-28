@@ -25,6 +25,7 @@ import logging
 from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from django.conf import settings
 
@@ -359,7 +360,7 @@ class HoglandSandbox(AgentServerLaunchMixin):
         events = self._box.exec_stream(["bash", "-c", command], timeout_seconds=timeout_seconds)
         return _HogboxExecutionStream(events)
 
-    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+    def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
         if not self.is_running():
             raise SandboxNotRunningError(
                 "Sandbox not in running state.",
@@ -392,6 +393,9 @@ class HoglandSandbox(AgentServerLaunchMixin):
         self._sandbox_url = self._box.proxy_url(AGENT_SERVER_PORT).rstrip("/")
         logger.info(f"Got connect credentials for sandbox {self.id}: {self._sandbox_url}")
         return AgentServerResult(url=self._sandbox_url, token=None)
+
+    def create_preview_connect_credentials(self, port: int, user_metadata: dict[str, Any]) -> AgentServerResult:
+        raise NotImplementedError("Hogland sandboxes do not support preview connect tokens")
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: repository setup is handled by agent-server."""

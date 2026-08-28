@@ -45,7 +45,8 @@ use ingestion_worker_proto::ingestion::worker::v1::{
     ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
     KafkaMessage, StreamHello, SubBatch, SubBatchStatus,
 };
-use metrics::{counter, gauge};
+use metrics::{counter, gauge, histogram};
+use prost::Message;
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{error, info, warn};
@@ -305,6 +306,8 @@ struct LedgerEntry {
     /// watchdog fences on the oldest entry's deadline, so a stuck sub-batch
     /// times out even while its siblings keep acking.
     deadline: tokio::time::Instant,
+    /// When the sub-batch went on the wire, for the send-to-ack latency histogram.
+    sent_at: std::time::Instant,
     /// The worker's accepted count once acked. The entry stays in the ledger
     /// until every earlier entry is acked too, so a fence still reaches it.
     acked: Option<u32>,
@@ -392,8 +395,7 @@ impl WorkerStreamRunner {
         };
 
         let mut next_seq = 1u64;
-        gauge!("ingestion_consumer_worker_stream_ledger_depth", "worker" => self.worker_url.clone())
-            .set(0.0);
+        self.record_ledger_depth(0);
 
         loop {
             if let Err(end) = self.fill_ledger(
@@ -534,21 +536,37 @@ impl WorkerStreamRunner {
                     assignment_epoch: self.assignment_epoch.load(Ordering::Relaxed),
                 })),
             };
+            // tonic gzips the frame after this point, so only the raw size is observable here.
+            counter!("ingestion_consumer_transport_body_bytes_total", "encoding" => "protobuf")
+                .increment(request.encoded_len() as u64);
             let deadline = tokio::time::Instant::now() + self.ack_timeout;
             let sent = out_tx.send(request).is_ok();
             ledger.push_back(LedgerEntry {
                 seq,
                 item,
                 deadline,
+                sent_at: std::time::Instant::now(),
                 acked: None,
             });
             if !sent {
                 return Err(self.fence(None, ledger, queue, "stream closed mid-send"));
             }
-            gauge!("ingestion_consumer_worker_stream_ledger_depth", "worker" => self.worker_url.clone())
-                .set(ledger.len() as f64);
+            self.record_ledger_depth(ledger.len());
         }
         Ok(())
+    }
+
+    /// Un-acked sub-batches on the stream, also published as the per-worker in-flight gauge.
+    fn record_ledger_depth(&self, depth: usize) {
+        gauge!("ingestion_consumer_worker_stream_ledger_depth", "worker" => self.worker_url.clone())
+            .set(depth as f64);
+        gauge!("ingestion_consumer_transport_concurrent_batches", "worker" => self.worker_url.clone())
+            .set(depth as f64);
+    }
+
+    fn record_send_duration(&self, entry: &LedgerEntry) {
+        histogram!("ingestion_consumer_transport_duration_seconds", "worker" => self.worker_url.clone())
+            .record(entry.sent_at.elapsed().as_secs_f64());
     }
 
     /// Wait for an ack, or for new work when the ledger has room. `Ok(None)`
@@ -651,6 +669,7 @@ impl WorkerStreamRunner {
             );
             return Err(self.fence_with(true, None, ledger, queue, "worker busy"));
         }
+        let was_full = ledger.len() >= self.max_unacked;
         let Some(entry) = ledger
             .iter_mut()
             .find(|e| e.seq == response.seq && e.acked.is_none())
@@ -659,6 +678,7 @@ impl WorkerStreamRunner {
             return Err(self.fence(None, ledger, queue, "unknown ack seq"));
         };
         entry.acked = Some(response.accepted);
+        self.record_send_duration(entry);
         counter!(
             "ingestion_consumer_transport_requests_total",
             "worker" => self.worker_url.clone(),
@@ -676,8 +696,14 @@ impl WorkerStreamRunner {
             } = entry.item;
             let _ = reply.send(Ok(Accepted { accepted, messages }));
         }
-        gauge!("ingestion_consumer_worker_stream_ledger_depth", "worker" => self.worker_url.clone())
-            .set(ledger.len() as f64);
+        if was_full && ledger.len() < self.max_unacked && !queue.is_empty() {
+            counter!(
+                "ingestion_consumer_transport_backpressure_waits_total",
+                "worker" => self.worker_url.clone()
+            )
+            .increment(1);
+        }
+        self.record_ledger_depth(ledger.len());
         Ok(())
     }
 
@@ -711,6 +737,9 @@ impl WorkerStreamRunner {
     ) -> StreamEnd {
         let mut fence = Fence::new(retriable, reason);
         for entry in ledger.drain(..) {
+            if entry.acked.is_none() {
+                self.record_send_duration(&entry);
+            }
             fence.fail(entry.item);
         }
         if let Some(item) = pending_first {
@@ -725,8 +754,7 @@ impl WorkerStreamRunner {
             "status" => if retriable { "busy" } else { "error" }
         )
         .increment(1);
-        gauge!("ingestion_consumer_worker_stream_ledger_depth", "worker" => self.worker_url.clone())
-            .set(0.0);
+        self.record_ledger_depth(0);
         StreamEnd::Failed(fence)
     }
 }

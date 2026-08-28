@@ -129,6 +129,27 @@ class TestContextLayerAPI(APIBaseTest):
         assert resolved.status_code == 200
         assert resolved.json() == {"path": path, "exists": True}
 
+    def test_enable_sanitizes_malformed_wikilinks_in_legacy_context(self, _flag) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="research", star=False)
+            assert channel is not None
+            tasks_facade.publish_channel_instructions(
+                channel.id,
+                self.team.id,
+                self.user.id,
+                content="Keep [[areas/insights]] current. Ignore [[../secrets]] and review [[unfinished notes.",
+                base_version=0,
+            )
+
+        self._enable()
+
+        path = f"projects/{self.team.id}/spaces/research.md"
+        page = self.client.get(f"{self.base_url}/pages/", {"path": path}).json()
+        assert "[[areas/insights]]" in page["content"]
+        assert "&#91;&#91;../secrets&#93;&#93;" in page["content"]
+        assert "&#91;&#91;unfinished notes." in page["content"]
+        assert "Some wiki-link brackets in this imported context were encoded" in page["content"]
+
     def test_enable_scaffolds_space_page_without_legacy_context(self, _flag) -> None:
         with team_scope(self.team.id):
             channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="empty-space", star=False)

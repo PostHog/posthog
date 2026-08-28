@@ -375,7 +375,22 @@ inbox_ranking_training_job = dagster.define_asset_job(
     name="inbox_ranking_training_job",
     selection=[EXAMPLES_TABLE, "inbox_ranking_model_candidate", "inbox_ranking_model_champion"],
     partitions_def=partition_def,
-    tags={**owner_tags, "dagster/max_runtime": str(2 * 60 * 60)},
+    tags={
+        **owner_tags,
+        "dagster/max_runtime": str(2 * 60 * 60),
+        # The examples asset holds every snapshot of the lookback window in pandas at once (state
+        # plus labels per day) before the per-head builders run, so the peak grows with the
+        # lookback and the inventory. Sized like the dataset job rather than left at the 8Gi
+        # default so growth surfaces as a slow run, not an OOMKilled pod.
+        "dagster-k8s/config": {
+            "container_config": {
+                "resources": {
+                    "requests": {"memory": "8Gi"},
+                    "limits": {"memory": "16Gi"},
+                }
+            }
+        },
+    },
 )
 
 

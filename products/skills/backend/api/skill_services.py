@@ -27,9 +27,20 @@ MAX_SKILL_FILE_COUNT = 200
 # importing the serializers that import it.
 RESERVED_SKILL_NAMES = {"new", "scouts", "review-hog", "community"}
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+MAX_SKILL_NAME_LENGTH = 64
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}
+
+
+def skill_name_is_well_formed(value: str) -> bool:
+    """The shape half of the skill-name contract, without the reserved-name rule.
+
+    ``fullmatch`` rather than ``match``: ``$`` matches before a trailing newline, so ``match`` would
+    accept ``"safe\n"``. Archive writers use this to skip legacy rows that predate the validator,
+    where a name is a directory and a reserved route name is harmless.
+    """
+    return len(value) <= MAX_SKILL_NAME_LENGTH and SKILL_NAME_PATTERN.fullmatch(value) is not None and "--" not in value
 
 
 def normalize_skill_file_path(value: str) -> str:

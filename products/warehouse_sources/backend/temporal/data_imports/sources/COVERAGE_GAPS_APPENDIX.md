@@ -1784,7 +1784,7 @@ Note: docs.coinapi.io is behind a Cloudflare interstitial and returns 403 to cur
 
 ## CoinGecko — gaps
 
-Today (7): `asset_platforms`, `coins_categories`, `coins_categories_list`, `coins_list`, `coins_markets`, `exchanges`, `exchanges_list`
+Today (8): `asset_platforms`, `coins_categories`, `coins_categories_list`, `coins_list`, `coins_markets`, `exchanges`, `exchanges_list`, `insights`
 
 Diffed against: <https://docs.coingecko.com/llms.txt>
 
@@ -1800,6 +1800,7 @@ Diffed against: <https://docs.coingecko.com/llms.txt>
 - [ ] `/exchange_rates` — BTC-to-currency rates, the standard normaliser for cross-currency reporting (medium)
 - [ ] `/derivatives/exchanges and /derivatives/tickers` — derivatives venues and open interest, entirely absent from current coverage (medium)
 - [ ] `/nfts/markets` — NFT collections with floor price, market cap and volume - a whole product surface with no table today (medium)
+- [ ] `/coins/{id}/supply_breakdown` — per-coin circulating/non-circulating supply split with non-circulating wallet detail (Pro, Analyst plan and above); needs per-coin fan-out over the full coin universe, which this top-level-only source has no plumbing for (medium)
 
 Note: docs.coingecko.com/reference/\* pages are client-rendered and unparseable by curl, but llms.txt enumerates every reference page (Demo and Pro) with descriptions, and any single page can be fetched by appending .md. The onchain/GeckoTerminal family (networks, dexes, pools, token holders, pool trades) is a further ~35 endpoints with zero coverage; treated as a separate product rather than listed individually here.
 
@@ -2621,6 +2622,16 @@ Diffed against: <https://raw.githubusercontent.com/e2b-dev/infra/main/spec/opena
 
 Note: E2B's public API is genuinely small (~20 GET-able paths, most of them template build plumbing or admin/api-key management). The source is static: E2B_ENDPOINTS in settings.py hardcodes /v2/sandboxes, /v2/templates and /snapshots with no dynamic discovery, and correctly uses the v2 sandbox listing (all states) rather than the running-only v1.
 
+## Easybill — gaps
+
+Today (7): `Customers`, `CustomerGroups`, `DocumentPayments`, `Documents`, `IncomingDocuments`, `Positions`, `Projects`
+
+Diffed against: <https://api.easybill.de/rest/v1/swagger.json>
+
+- [x] `incoming-documents (GET /rest/v1/incoming-documents)` — received supplier invoices and credit notes with extracted amounts, supplier, status and payments; the accounts-payable side of the accounting data (medium)
+
+Note: `/incoming-documents` is read-only and its only list filter is `created_at`, so it syncs full-refresh like `/customers` (a `created_at` cursor would miss later edits). The sub-resources `/incoming-documents/{id}/files` and `.../download` are file-download plumbing (binary/URLs), not warehouse-table material, so they were excluded rather than reported as gaps.
+
 ## Easypost — gaps
 
 Today (9): `addresses`, `batches`, `events`, `insurances`, `pickups`, `refunds`, `scan_forms`, `shipments`, `trackers`
@@ -3120,19 +3131,19 @@ Note: The Flexmail public API is contact-management only - it exposes no campaig
 
 ## FloatApp — gaps
 
-Today (18): `accounts`, `clients`, `deleted_logged_time`, `deleted_tasks`, `deleted_timeoffs`, `departments`, `holidays`, `logged_time`, `milestones`, `people`, `phases`, `project_tasks`, `projects`, `roles`, `status`, `tasks`, `timeoff_types`, `timeoffs`
+Today (20): `accounts`, `clients`, `currencies`, `deleted_logged_time`, `deleted_tasks`, `deleted_timeoffs`, `departments`, `holidays`, `logged_time`, `milestones`, `people`, `phases`, `project_tasks`, `projects`, `rate_cards`, `roles`, `status`, `tasks`, `timeoff_types`, `timeoffs`
 
 Diffed against: <https://developer.float.com/swagger-api-v3.yaml>
 
 - [ ] `/project-stages` — lookup table resolving the stage IDs carried on the projects we already sync (high)
-- [ ] `/rate-cards` — lookup for the rate card IDs on people/projects; required to turn logged hours into billable value (high)
+- [x] `/rate-cards` — lookup for the rate card IDs on people/projects; required to turn logged hours into billable value (high)
 - [ ] `/reports/people` — Float's headline utilization/capacity report per person, pre-aggregated (high)
 - [ ] `/reports/projects` — per-project scheduled vs logged vs billable breakdown (medium)
 - [ ] `/project-expenses` — non-labor project cost, needed for true project margin alongside logged_time (medium)
 - [ ] `/public-holidays` — region public holidays; distinct from the team /holidays table already synced, needed for correct capacity math (medium)
-- [ ] `/currencies` — lookup for currency codes on rate cards and project budgets (low)
+- [x] `/currencies` — lookup for currency codes on rate cards and project budgets (low)
 
-Note: Machine-readable OpenAPI at /swagger-api-v3.yaml enumerates 26 resources; PostHog covers 18. /project-templates was excluded as config.
+Note: Machine-readable OpenAPI at /swagger-api-v3.yaml enumerates 26 resources; PostHog covers 20. /project-templates was excluded as config.
 
 ## Flowlu — **thin**
 
@@ -3181,6 +3192,16 @@ Diffed against: <https://formbricks.com/docs/api-reference/openapi.json>
 - [ ] `/api/v2/roles` — lookup resolving membership role values on org users (low)
 
 Note: The v1 management API spec (openapi.json, 23 paths) is fully covered - every GET-listable v1 resource is already synced. The remaining gaps come from the v2 organizations API, enumerated from https://formbricks.com/docs/llms.txt (api-v2-reference/organizations-api--\* and api-v2-reference/roles/get-roles). Displays and storage have no list endpoint.
+
+## Fourthwall — adequate
+
+Today (9): `collections`, `donations`, `mailing_list_entries`, `members`, `membership_tiers`, `orders`, `product_templates`, `products`, `promotions`
+
+Diffed against: <https://docs.fourthwall.com/api-reference/platform>
+
+- [x] `product-templates (GET /product-templates/page/{page})` — the catalog of base product templates a shop builds products from, added as a full-refresh table
+
+Note: The product-templates list pages by a 1-based path segment and returns only `{results, total}` (no `totalPages`), so it walks the path until a page is empty; rows are keyed by `productId` and carry no timestamps, so the table is full-refresh only.
 
 ## Freshcaller — gaps
 
@@ -3896,10 +3917,11 @@ Note: learn.hex.tech renders the reference client-side from Docusaurus; the oper
 
 ## HiBob — **thin**
 
-Today (2): `employees`, `tasks`
+Today (3): `employees`, `tasks`, `time_off_calendars`
 
 Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 
+- [x] `POST /timeoff/calendars/employees/search` — the holiday calendar resolved per employee (employment override or site default); fans out over employee ids, full refresh (medium)
 - [ ] `GET /bulk/people/lifecycle` — employee lifecycle state transitions (hire, promotion, termination) — the core HR history table (high)
 - [ ] `GET /bulk/people/employment` — employment history rows per employee (contract, manager, site changes) rather than only current state (high)
 - [ ] `GET /bulk/people/salaries` — compensation history, the headline HR analytics dataset (high)
@@ -4594,6 +4616,16 @@ Diffed against: <https://pub.klausapp.com/public-export-api.swagger.json>
 - [ ] `/api/export/quizzes/leaderboard` — agent ranking dimension across quizzes (medium)
 
 Note: Now branded Zendesk QA. pub.klausapp.com hosts two Swagger 2.0 specs; the relevant one is public-export-api.swagger.json (18 paths) — the sibling public-import-api.swagger.json is write-only ingestion and irrelevant here. PostHog's 10 tables map 1:1 onto the workspace-scoped export endpoints; the only genuine holes are the quiz sub-resources and the POST-based conversation search (which needs a request body, so it is more work than the plain GET exports).
+
+## Klaviyo — adequate
+
+Today (33): `accounts`, `campaign_values_reports`, `catalog_categories`, `catalog_items`, `catalog_variants`, `coupon_codes`, `coupons`, `custom_metrics`, `custom_object_records`, `data_sources`, `email_campaigns`, `events`, `flow_actions`, `flow_messages`, `flow_values_reports`, `flows`, `forms`, `images`, `list_profiles`, `lists`, `metrics`, `object_types`, `profiles`, `push_tokens`, `reviews`, `segment_profiles`, `segments`, `sms_campaigns`, `tag_groups`, `tags`, `templates`, `web_feeds`, `webhooks`
+
+Diffed against: <https://developers.klaviyo.com/en/reference/custom_objects_api_overview>
+
+- [x] `custom-object-records (GET /api/object-types/{id}/object-records)` — the actual records of each custom object type, fanned out over the `object_types` we already sync; the only Custom Objects data table, GA in the 2026-07-15 revision (high)
+
+Note: The Custom Objects API is GA at revision 2026-07-15, which the source already pins. `object-records` has no timestamp filter or sort, so it is full refresh only; its parent `/object-types` exposes no page[size] param, so the fan-out pages it by cursor links alone. The remaining write/admin paths in the Custom Objects API (create object type, source mappings, bulk create/delete jobs, schema relationships) are ingestion and management, not warehouse tables.
 
 ## Knock — gaps
 
@@ -6387,7 +6419,7 @@ Note: Persona's own repo note (products/warehouse_sources/backend/temporal/data_
 
 ## Personio — **thin**
 
-Today (3): `absence_periods`, `attendance_periods`, `persons`
+Today (5): `absence_periods`, `attendance_periods`, `cost_centers`, `persons`, `salary_bands`
 
 Diffed against: <https://developer.personio.de/llms.txt>
 
@@ -6395,7 +6427,8 @@ Diffed against: <https://developer.personio.de/llms.txt>
 - [ ] `GET /v2/absence-types` — lookup resolving the absence type on every absence period already synced (high)
 - [ ] `GET /v2/compensations` — salary, hourly, bonus and recurring compensation - the payroll dataset (high)
 - [ ] `GET /v2/org-units` — department/team hierarchy lookup for grouping persons, absences and attendance (high)
-- [ ] `GET /v2/cost-centers` — cost center lookup for allocating attendance and compensation to finance dimensions (medium)
+- [x] `GET /v2/cost-centers` — cost center lookup for allocating attendance and compensation to finance dimensions (medium)
+- [x] `GET /v2/salary-bands` — salary band ranges (min/max/mid, currency) and the workplaces they apply to (medium)
 - [ ] `GET /v2/legal-entities` — legal entity lookup for multi-entity headcount and payroll splits (medium)
 - [ ] `GET /v2/jobs` — job/position catalog referenced from employments (medium)
 - [ ] `GET /v2/compensations/types` — lookup resolving compensation type IDs on compensation rows (medium)
@@ -6404,7 +6437,7 @@ Diffed against: <https://developer.personio.de/llms.txt>
 - [ ] `GET /v2/recruiting/applications/{id}/stage-transitions` — stage transition history - exactly the state-change data needed for time-in-stage metrics (medium)
 - [ ] `GET /v2/recruiting/candidates` — candidate records joined to applications above (medium)
 
-Note: PERSONIO_ENDPOINTS in products/warehouse_sources/backend/temporal/data_imports/sources/personio/settings.py is a static 3-entry dict (/v2/persons, /v2/absence-periods, /v2/attendance-periods) - no dynamic discovery. The v2 API exposes roughly 20 listable resources, so this is a small fraction, and notably every organizational lookup that would let you group the synced persons and time data (org units, cost centers, legal entities, jobs) is missing. Exact paths confirmed from the individual reference .md pages. Recruiting endpoints are flagged beta by the vendor.
+Note: PERSONIO_ENDPOINTS in products/warehouse_sources/backend/temporal/data_imports/sources/personio/settings.py is a static 5-entry dict (/v2/persons, /v2/absence-periods, /v2/attendance-periods, /v2/salary-bands, /v2/cost-centers) - no dynamic discovery. The v2 API exposes roughly 20 listable resources, so this is still a small fraction, and other organizational lookups that would let you group the synced persons and time data (org units, legal entities, jobs) are still missing. Salary bands and cost centers are dimension lookups with no updated_at/created_at field, so they sync full-refresh only. Exact paths confirmed from the individual reference .md pages. Recruiting endpoints are flagged beta by the vendor.
 
 ## Pexels — gaps
 
@@ -7179,10 +7212,14 @@ Note: Per-version download counts are already included in the synced `versions` 
 
 ## Ruddr — **thin**
 
-Today (5): `clients`, `members`, `project_tasks`, `projects`, `time_entries`
+Today (9): `clients`, `members`, `pipeline_activities`, `project_prepayments`, `project_tasks`, `projects`, `task_categories`, `time_entries`, `timesheet_attestations`
 
 Diffed against: <https://docs.ruddr.io/llms.txt>
 
+- [x] `project-prepayments` — prepayments recorded against projects to offset future fees
+- [x] `timesheet-attestations` — statements members sign when submitting timesheets
+- [x] `task-categories` — lookup classifying project tasks
+- [x] `pipeline-activities` — sales-pipeline activity log tied to opportunities, companies, and contacts
 - [ ] `invoices` — billing and revenue, entirely absent from the current 5 tables (high)
 - [ ] `invoice-items` — line-item revenue tied back to projects and time entries (high)
 - [ ] `allocations` — planned resource allocation to compare against logged time entries (high)
@@ -7196,7 +7233,7 @@ Diffed against: <https://docs.ruddr.io/llms.txt>
 - [ ] `project-health-reports` — periodic project status history, a natural trend series (medium)
 - [ ] `practices` — lookup resolving the practice/org-unit IDs on members and projects (medium)
 
-Note: Ruddr documents roughly 78 list endpoints; the connector exposes 5. Beyond the twelve listed, whole domains are unsynced: project budget items (service/product/other/expense, plus monthly variants), revenue recognition entries, revenue adjustments, credit notes, tax rates, cost periods, exchange rate periods, utilization target periods, contacts, companies, expense reports, holidays, skills, disciplines, job titles and member levels. Static endpoint catalog, no dynamic discovery.
+Note: Ruddr documents roughly 78 list endpoints; the connector exposes 9. Beyond those listed, whole domains are unsynced: project budget items (service/product/other/expense, plus monthly variants), revenue recognition entries, revenue adjustments, credit notes, tax rates, cost periods, exchange rate periods, utilization target periods, contacts, companies, expense reports, holidays, skills, disciplines, job titles and member levels. Static endpoint catalog, no dynamic discovery.
 
 ## RunPod — adequate
 
@@ -7569,6 +7606,14 @@ Diffed against: <https://api-reference.shutterstock.com/>
 
 Note: Coverage is solid for the images and videos verticals (categories, collections, licenses, updated feeds) but the audio, SFX, and editorial verticals are entirely absent, and collection membership is never resolved.
 
+## SigmaComputing — gaps
+
+Today (10): `Connections`, `DataModels`, `Members`, `Reports`, `Teams`, `WorkbookElements`, `WorkbookPages`, `WorkbookQueries`, `Workbooks`, `Workspaces`
+
+Diffed against: <https://help.sigmacomputing.com/reference/get-started-sigma-api>
+
+- [x] `reports (GET /v2/reports)` — org-level catalog of saved reports, the same top-level content shape as workbooks and data models, added here
+
 ## SigNoz — gaps
 
 Today (5): `alert_rules`, `dashboards`, `logs`, `notification_channels`, `traces`
@@ -7684,10 +7729,12 @@ Note: The public smartreach.io/api_docs page only documents campaigns + prospect
 
 ## Smartsheet — **thin**
 
-Today (6): `contacts`, `reports`, `sheets`, `templates`, `users`, `workspaces`
+Today (8): `contacts`, `report_columns`, `report_scope`, `reports`, `sheets`, `templates`, `users`, `workspaces`
 
 Diffed against: <https://developers.smartsheet.com/sitemap.xml>
 
+- [x] `GET /reports/{reportId}/columns` — the columns of every report (title, type, index), fanned out across all reports (announced Jul-09-2026)
+- [x] `GET /reports/{reportId}/scope` — each report's source sheets and workspaces, fanned out across all reports (announced Jul-09-2026)
 - [ ] `GET /sheets/{sheetId} (rows + cells)` — the actual row/cell data inside every sheet - today only sheet metadata is synced, so no sheet content is queryable (high)
 - [ ] `GET /sheets/{sheetId}/columns` — lookup resolving the column ids that every cell references, including picklist options (high)
 - [ ] `GET /events (list-events, list-filtered-events)` — the org-wide activity event stream - who changed what and when (high)

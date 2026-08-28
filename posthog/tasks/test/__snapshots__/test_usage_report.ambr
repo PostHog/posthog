@@ -940,7 +940,7 @@
      WHERE min_first_timestamp >= '2022-01-10 00:00:00'
        AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
-     HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'web'
+     HAVING (ifNull(argMinMerge(snapshot_source), 'web') == 'mobile') == 0
      AND max(is_deleted) = 0)
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
@@ -987,7 +987,7 @@
      WHERE min_first_timestamp >= '2022-01-10 00:00:00'
        AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
-     HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'web'
+     HAVING (ifNull(argMinMerge(snapshot_source), 'web') == 'mobile') == 0
      AND max(is_deleted) = 0)
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
@@ -1045,7 +1045,7 @@
      WHERE min_first_timestamp >= '2022-01-10 00:00:00'
        AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
-     HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'mobile'
+     HAVING (ifNull(argMinMerge(snapshot_source), 'web') == 'mobile') == 1
      AND max(is_deleted) = 0)
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
@@ -1069,7 +1069,7 @@
      WHERE min_first_timestamp >= '2022-01-10 00:00:00'
        AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
-     HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'mobile'
+     HAVING (ifNull(argMinMerge(snapshot_source), 'web') == 'mobile') == 1
      AND max(is_deleted) = 0)
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
@@ -1092,11 +1092,7 @@
      WHERE min_first_timestamp >= '2022-01-10 00:00:00'
        AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
-     HAVING (ifNull(argMinMerge(snapshot_source), '') == 'mobile'
-             AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios',
-                                                               'posthog-android',
-                                                               'posthog-react-native',
-                                                               'posthog-flutter'))
+     HAVING (ifNull(argMinMerge(snapshot_source), 'web') == 'mobile') == 1
      AND max(is_deleted) = 0)
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id

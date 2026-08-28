@@ -133,7 +133,7 @@ describe("ReportVerdictBanner", () => {
     );
   });
 
-  it("starts a discussion and hides the non-selectable actions after creation", async () => {
+  it("starts a discussion with optional direction and hides the actions after creation", async () => {
     const user = userEvent.setup();
     render(<ReportVerdictBanner report={report} initialEngagementOnly />);
 
@@ -141,8 +141,15 @@ describe("ReportVerdictBanner", () => {
     expect(askButton.closest(".select-none")).not.toBeNull();
 
     await user.click(askButton);
+    await user.type(
+      screen.getByLabelText("Optional question for the agent"),
+      "Focus on whether this affects new projects",
+    );
+    await user.click(screen.getByText("Start chat"));
 
-    expect(discussReport).toHaveBeenCalledWith();
+    expect(discussReport).toHaveBeenCalledWith(
+      "Focus on whether this affects new projects",
+    );
     expect(screen.getByText("Ask about it")).toBeInTheDocument();
 
     act(() => onDiscussionCreated?.(discussionTask.task));

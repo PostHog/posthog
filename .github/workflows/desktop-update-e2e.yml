@@ -268,6 +268,7 @@ jobs:
                   path: |
                       products/desktop/apps/code/out/PostHog-Desktop-1.0.0-arm64-mac.zip
                       products/desktop/apps/code/out/PostHog-Desktop-1.0.0-arm64-mac.zip.blockmap
+                  compression-level: 0
                   if-no-files-found: warn
                   retention-days: 7
 
@@ -277,6 +278,7 @@ jobs:
               with:
                   name: update-new-build-2.0.0
                   path: products/desktop/apps/code/out/dev-update-feed/
+                  compression-level: 0
                   if-no-files-found: warn
                   retention-days: 7
 
@@ -309,5 +311,6 @@ jobs:
               with:
                   name: update-old-forge-build-1.0.0
                   path: products/desktop/apps/code/out/PostHog-Code-forge-1.0.0-arm64-mac.zip
+                  compression-level: 0
                   if-no-files-found: warn
                   retention-days: 7

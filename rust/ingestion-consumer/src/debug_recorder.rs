@@ -25,7 +25,7 @@ use tokio::sync::broadcast;
 pub struct SubBatchInfo {
     pub worker: String,
     pub messages: usize,
-    pub distinct_ids: usize,
+    pub routing_keys: usize,
 }
 
 /// A topic-partition and the batch's max offset there, with observed lag.
@@ -54,10 +54,10 @@ pub enum DebugEventKind {
         messages: usize,
         partitions: Vec<PartitionOffset>,
     },
-    /// The dispatcher grouped a batch by routing key and assigned sub-batches.
+    /// The dispatcher grouped a batch by Kafka key and assigned sub-batches.
     BatchAssigned {
         batch_id: String,
-        distinct_ids: usize,
+        routing_keys: usize,
         sub_batches: Vec<SubBatchInfo>,
         deferred_groups: u64,
         unroutable_groups: u64,
@@ -66,7 +66,7 @@ pub enum DebugEventKind {
     SubBatchResolved {
         worker: String,
         messages: usize,
-        distinct_ids: usize,
+        routing_keys: usize,
         cleared_deferral: bool,
     },
     /// Messages were stashed rather than sent

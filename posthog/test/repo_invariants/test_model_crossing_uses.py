@@ -6,7 +6,13 @@ frozen here, so the count can fall but never rise.
 
 `apps.get_model` is frozen the same way, for every product model rather than only the listed ones:
 it resolves through the Django app registry, so no import linter can see the edge. Test modules stay
-out of scope, which keeps the pattern available to core test fixtures.
+out of scope on that channel.
+
+`drives(...)` lines read tests only: a test outside a product that executes a query runner in the
+product's wiring location `backend/hogql_queries/`. `drives(<Kind>)` is a query kind the test builds
+and runs; `drives(<Name>)` is a name it imports from there. `hogli product:lint` keeps that location
+in the product's contract-check inputs while a line stands, so the isolated tests stay sound. A new
+line is a new outside test that drives product code, and that test belongs in the product.
 
 The check is strict equality, not "no worse than": a line that disappears must be deleted from the
 file in the same change, so the file can never go stale behind the code.
@@ -36,8 +42,9 @@ def test_disallowed_crossing_uses_match_the_baseline() -> None:
         "change the caller: move the query, serializer or write into the model's own product and "
         "call a facade function instead. A 'get_model' line is an apps.get_model reference from "
         "outside the owning product; it is a coupling the import linters cannot see, and it belongs "
-        "behind a facade function too. Only a doctrine amendment in products/architecture.md "
-        "§ Wiring couplings can add a line.\n"
+        "behind a facade function too. A 'drives(...)' line is a test outside the product that executes "
+        "one of its query runners; move that test into the product. Only a doctrine amendment in "
+        "products/architecture.md § Wiring couplings can add a line.\n"
         f"A '-' line means a use went away — good, but the file must record that too. Run: {REGENERATE}\n"
         f"{report}"
     )
