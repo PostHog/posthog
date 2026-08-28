@@ -122,11 +122,10 @@ tools:
             (1–100 report ids) and a `state` ('resolved' when the requested work is done, 'suppressed' to dismiss,
             'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report
             tool, including `wrong_repo`), `dismissal_note`, `corrected_repository` (only with `wrong_repo`), and
-            `snooze_for` apply to every id. Each id is processed independently, so the
-            whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and
-            the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose
-            transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the
-            rest still go through.
+            `snooze_for` apply to every id. Each id is processed independently, so the whole call returns 200 even on
+            partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` /
+            `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its
+            current status comes back as `skipped` (the single-report 409) while the rest still go through.
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true
@@ -239,12 +238,12 @@ tools:
             `already_fixed`+snooze — reserve `already_fixed` with state='potential' for "fixed by something else / might
             recur" cases, so the report reappears if the issue comes back. Use `wrong_repo` when the agent picked the
             wrong repository for this report, and pass `corrected_repository` (an 'owner/repo' string, only allowed with
-            `wrong_repo`) to name the one it should have used — the correction is recorded and fed into future repository
-            selection for this project. Use `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for
-            anything that doesn't fit a code. Both are persisted as a DISMISSAL artefact on the report so the rationale
-            survives later transitions. Returns 409 if the transition is not
-            allowed from the report's current status. To transition several reports at once, use
-            `inbox-reports-bulk-set-state` instead of calling this per report.
+            `wrong_repo`) to name the one it should have used — the correction is recorded and fed into future
+            repository selection for this project. Use `other` plus a `dismissal_note` (free-form text, up to 4000
+            chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL artefact on the report so the
+            rationale survives later transitions. Returns 409 if the transition is not allowed from the report's current
+            status. To transition several reports at once, use `inbox-reports-bulk-set-state` instead of calling this
+            per report.
     inbox-reports-update:
         operation: signals_reports_partial_update
         enabled: true
