@@ -96,6 +96,7 @@ describe('errorTrackingInsightsLogic', () => {
         expect(JSON.stringify(insights.values.exceptionVolumeQuery)).not.toContain(
             PropertyFilterType.ErrorTrackingIssue
         )
+        expect(JSON.stringify(insights.values.issuesCreatedQuery)).not.toContain(PropertyFilterType.ErrorTrackingIssue)
 
         const lastSummaryStatsQuery = jest.mocked(api.query).mock.calls.at(-1)?.[0] as any
         expect(lastSummaryStatsQuery.filters.properties).toEqual(inner.values)
