@@ -57,6 +57,28 @@
  * rather than by the deadline. `ingestion_batch_budget_overrun_seconds`
  * measures that tail.
  *
+ * ## The timeout barrier
+ *
+ * Cutting an element is not always the cheaper choice. Once a step has written
+ * something a redelivery would have to repeat or reconcile — a person merge, a
+ * group write, an emitted event — finishing costs less than cutting.
+ * `.timeoutBarrier()` marks that line:
+ *
+ * ```ts
+ * builder.pipe(prepareStep).timeoutBarrier().pipe(writeStep).pipe(emitStep)
+ * ```
+ *
+ * It is the last checkpoint. An element that reaches it with time left carries
+ * an unlimited budget onward, so every later checkpoint is a no-op and that
+ * element is guaranteed to finish its chain; an element that reaches it with
+ * its budget already spent is cut there, with
+ * `timeout('budget exceeded before timeoutBarrier')`.
+ *
+ * Put the barrier before the first step whose side effects make finishing
+ * cheaper than redelivering. The trade is a longer tail past the deadline: a
+ * batch that runs out of time still finishes every element already past the
+ * barrier.
+ *
  * ## The result a budget produces
  *
  * `TIMEOUT` is the only unacked result: the message is not acked, so its
@@ -209,6 +231,60 @@ describe('Batch Time Budgets', () => {
         expect(resultKinds(spentBatch!.elements)).toEqual(['timeout'])
         expect(timeoutReasons(spentBatch!.elements)).toEqual(['budget exceeded before writeChunk'])
         expect(resultKinds(freshBatch!.elements)).toEqual(['ok'])
+    })
+
+    /**
+     * The timeout barrier. An element that crosses it while the batch still
+     * has time finishes its remaining chain whatever the clock does next —
+     * here the write itself outlasts the allowance, and the emit that follows
+     * still runs. Elements that had not reached the barrier are cut at the
+     * ordinary checkpoint, so the budget still governs everything in front of
+     * it.
+     */
+    it('runs an element past the barrier to completion after the budget expires', async () => {
+        const ran: string[] = []
+
+        const pipeline = newBatchingPipeline<Event, Event, NoCtx>(
+            (builder) =>
+                builder.pipe(function passThroughBefore(input) {
+                    return Promise.resolve(ok({ elements: input.elements, batchContext: input.batchContext }))
+                }),
+            (builder) =>
+                builder.sequentially((steps) =>
+                    steps
+                        .pipe(function prepareEvent(event: Event) {
+                            ran.push(`prepare-${event.seq}`)
+                            return Promise.resolve(ok(event))
+                        })
+                        .timeoutBarrier()
+                        .pipe(function writePerson(event: Event) {
+                            ran.push(`write-${event.seq}`)
+                            // Stands in for the write outlasting what the batch had left.
+                            jest.advanceTimersByTime(1000)
+                            return Promise.resolve(ok(event))
+                        })
+                        .pipe(function emitEvent(event: Event) {
+                            ran.push(`emit-${event.seq}`)
+                            return Promise.resolve(ok(event))
+                        })
+                ),
+            (builder) =>
+                builder.pipe(function passThroughAfter(input) {
+                    return Promise.resolve(ok(input))
+                }),
+            { concurrentBatches: 1 }
+        )
+
+        await pipeline.feed(
+            [1, 2].map((seq) => createOkContext<Event, NoCtx>({ key: 'a', seq }, {})),
+            {},
+            BatchBudget.softDeadline(Date.now() + 1000)
+        )
+        const batch = await pipeline.next()
+
+        expect(ran).toEqual(['prepare-1', 'write-1', 'emit-1'])
+        expect(resultKinds(batch!.elements)).toEqual(['ok', 'timeout'])
+        expect(timeoutReasons(batch!.elements)).toEqual([null, 'budget exceeded before prepareEvent'])
     })
 
     /**
