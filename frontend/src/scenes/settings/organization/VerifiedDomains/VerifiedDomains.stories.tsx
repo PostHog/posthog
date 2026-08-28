@@ -7,6 +7,7 @@ import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
+import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { AvailableFeature, BillingFeatureType, OrganizationDomainType } from '~/types'
@@ -208,4 +209,50 @@ export const EnterpriseMixed: Story = {
 export const EnterpriseRedesigned: Story = {
     ...EnterpriseMixed,
     parameters: { featureFlags: STORYBOOK_FEATURE_FLAGS },
+}
+
+export const EnterpriseRedesignedPartiallyConfigured: Story = {
+    parameters: { featureFlags: STORYBOOK_FEATURE_FLAGS },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/users/@me': () => [200, mockUserWithFeatures(...ALL_FEATURES)],
+                '/api/organizations/:id/domains': domainsResponse([VERIFIED_DOMAIN_NO_SAML_SCIM]),
+                '/api/organizations/:id/identity_provider_configs': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'partial-saml-config',
+                            config_scope: ConfigScopeEnumApi.Saml,
+                            organization_domain_ids: ['2'],
+                            has_saml: false,
+                            saml_entity_id: 'https://idp.example.com',
+                            has_scim: false,
+                            has_id_jag: false,
+                        },
+                    ],
+                },
+            },
+        }),
+    ],
+}
+
+export const EnterpriseRedesignedNotConfigured: Story = {
+    parameters: { featureFlags: STORYBOOK_FEATURE_FLAGS },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/users/@me': () => [200, mockUserWithFeatures(...ALL_FEATURES)],
+                '/api/organizations/:id/domains': domainsResponse([VERIFIED_DOMAIN_NO_SAML_SCIM]),
+                '/api/organizations/:id/identity_provider_configs': {
+                    count: 0,
+                    next: null,
+                    previous: null,
+                    results: [],
+                },
+            },
+        }),
+    ],
 }

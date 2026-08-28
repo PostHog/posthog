@@ -42,6 +42,7 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
         identityProviderConfigLoading,
         identityProviderConfigLoadFailed,
         identityProviderConfigForm,
+        identityProviderConfigFormChanged,
         isIdentityProviderConfigFormSubmitting,
         isConfigScopeValid,
         isRedesignEnabled,
@@ -160,7 +161,10 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
                                     type="primary"
                                     htmlType="submit"
                                     loading={isIdentityProviderConfigFormSubmitting}
-                                    disabledReason={restrictionReason}
+                                    disabledReason={
+                                        restrictionReason ||
+                                        (!identityProviderConfigFormChanged ? 'No changes to save' : undefined)
+                                    }
                                     data-attr={`save-${configScope}-identity-provider`}
                                 >
                                     Save configuration

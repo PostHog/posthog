@@ -35,7 +35,6 @@ import {
 } from '~/generated/core/api.schemas'
 import type { Breadcrumb } from '~/types'
 
-import { identityProviderConfigsLogic } from './identityProviderConfigsLogic'
 import { IDENTITY_PROVIDER_FEATURES } from './identityProviderConfigUtils'
 
 export interface IdentityProviderConfigLogicProps {
@@ -441,7 +440,7 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
     }),
     listeners(({ actions, props, values }) => ({
         loadIdentityProviderConfigSuccess: ({ identityProviderConfig }) => {
-            actions.setIdentityProviderConfigFormValues(formValuesFromConfig(identityProviderConfig))
+            actions.resetIdentityProviderConfigForm(formValuesFromConfig(identityProviderConfig))
         },
         submitIdentityProviderConfigFormSuccess: () => {
             const config = values.identityProviderConfig
@@ -449,7 +448,7 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
                 return
             }
 
-            identityProviderConfigsLogic.actions.loadIdentityProviderConfigs()
+            actions.resetIdentityProviderConfigForm(values.identityProviderConfigForm)
             if (props.configId === NEW_CONFIG_ID) {
                 router.actions.replace(urls.identityProviderConfig(props.configScope, config.id))
             }

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconCircleDashed, IconWarning } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -16,26 +17,34 @@ import {
     IDENTITY_PROVIDER_FEATURES,
     getIdentityProviderConfigForScope,
     getIdentityProviderConfigStatus,
+    getIdentityProviderConfigStatusDescription,
 } from './identityProviderConfigUtils'
 
 const STATUS_DISPLAY = {
-    configured: { label: 'Configured', type: 'success' as const },
-    partially_configured: { label: 'Partially configured', type: 'warning' as const },
-    not_configured: { label: 'Not configured', type: 'muted' as const },
+    configured: { label: 'Configured', icon: <IconCheckCircle className="size-6 text-success" /> },
+    partially_configured: { label: 'Partially configured', icon: <IconWarning className="size-6 text-warning" /> },
+    not_configured: { label: 'Not configured', icon: <IconCircleDashed className="size-6 text-muted" /> },
 }
 
 export function IdentityProviderFeatureSection({ configScope }: { configScope: ConfigScopeEnumApi }): JSX.Element {
     const { identityProviderConfigs, identityProviderConfigsLoading, identityProviderConfigsLoadFailed } =
         useValues(identityProviderConfigsLogic)
     const { loadIdentityProviderConfigs } = useActions(identityProviderConfigsLogic)
-    const { scimLogsLoading } = useValues(verifiedDomainsLogic)
+    const { scimLogsLoading, verifiedDomains } = useValues(verifiedDomainsLogic)
     const { setScimConfigLogsModalId } = useActions(verifiedDomainsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const feature = IDENTITY_PROVIDER_FEATURES[configScope]
     const config = identityProviderConfigs
         ? getIdentityProviderConfigForScope(identityProviderConfigs, configScope)
         : undefined
-    const status = STATUS_DISPLAY[getIdentityProviderConfigStatus(config, configScope)]
+    const configStatus = getIdentityProviderConfigStatus(config, configScope)
+    const status = STATUS_DISPLAY[configStatus]
+    const statusDescription = getIdentityProviderConfigStatusDescription(
+        config,
+        configScope,
+        configStatus,
+        verifiedDomains
+    )
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
@@ -65,10 +74,17 @@ export function IdentityProviderFeatureSection({ configScope }: { configScope: C
 
     return (
         <>
-            <LemonCard hoverEffect={false} className="flex flex-wrap items-center justify-between gap-3 p-4">
-                <div className="flex items-center gap-2">
-                    <span className="font-medium">Status</span>
-                    <LemonTag type={status.type}>{status.label}</LemonTag>
+            <LemonCard hoverEffect={false} className="flex flex-wrap items-center justify-between gap-4 p-4">
+                <div className="flex min-w-0 items-start gap-2">
+                    <span className="mt-0.5 shrink-0">{status.icon}</span>
+                    <div className="min-w-0">
+                        <div className="text-base font-medium">{status.label}</div>
+                        <p className="mb-0 text-sm text-tertiary">
+                            {statusDescription.text}
+                            {statusDescription.emphasizedText && <strong>{statusDescription.emphasizedText}</strong>}
+                            {statusDescription.trailingText}
+                        </p>
+                    </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                     {configScope === ConfigScopeEnumApi.Scim && (

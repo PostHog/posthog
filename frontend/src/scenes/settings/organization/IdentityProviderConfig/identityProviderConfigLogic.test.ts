@@ -50,15 +50,20 @@ describe('identityProviderConfigLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.identityProviderConfigForm.domain_scope).toBe(DomainScopeEnumApi.All)
+        expect(logic.values.identityProviderConfigFormChanged).toBe(false)
 
+        const failureSpy = jest.spyOn(logic.actions, 'submitIdentityProviderConfigFormFailure')
         logic.actions.setIdentityProviderConfigFormValues({
             saml_entity_id: 'entity-id',
             saml_acs_url: 'https://idp.example.com/sso',
             saml_x509_cert: 'certificate',
         })
+        expect(logic.values.identityProviderConfigFormChanged).toBe(true)
         logic.actions.submitIdentityProviderConfigForm()
         await expectLogic(logic).toFinishAllListeners()
 
+        expect(failureSpy).not.toHaveBeenCalled()
+        expect(logic.values.identityProviderConfigFormChanged).toBe(false)
         expect(requestBody).toMatchObject({
             config_scope: ConfigScopeEnumApi.Saml,
             domain_scope: DomainScopeEnumApi.All,

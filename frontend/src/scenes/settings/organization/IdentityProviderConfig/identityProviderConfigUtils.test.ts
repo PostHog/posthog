@@ -1,6 +1,10 @@
-import { ConfigScopeEnumApi, IdentityProviderConfigApi } from '~/generated/core/api.schemas'
+import { ConfigScopeEnumApi, DomainScopeEnumApi, IdentityProviderConfigApi } from '~/generated/core/api.schemas'
 
-import { getIdentityProviderConfigForScope, getIdentityProviderConfigStatus } from './identityProviderConfigUtils'
+import {
+    getIdentityProviderConfigForScope,
+    getIdentityProviderConfigStatus,
+    getIdentityProviderConfigStatusDescription,
+} from './identityProviderConfigUtils'
 
 const makeConfig = (overrides: Partial<IdentityProviderConfigApi> = {}): IdentityProviderConfigApi => ({
     id: 'config-id',
@@ -25,6 +29,59 @@ describe('identityProviderConfigUtils', () => {
         )
         expect(getIdentityProviderConfigForScope([unscopedConfig, samlConfig], ConfigScopeEnumApi.Scim)?.id).toBe(
             'unscoped'
+        )
+    })
+
+    it.each([
+        [
+            'an incomplete SAML configuration',
+            undefined,
+            ConfigScopeEnumApi.Saml,
+            'not_configured',
+            [],
+            { text: 'Add your identity provider details to enable SAML single sign-on.' },
+        ],
+        [
+            'a partial SAML configuration',
+            makeConfig({ saml_entity_id: 'entity-id' }),
+            ConfigScopeEnumApi.Saml,
+            'partially_configured',
+            [],
+            {
+                text: 'Add ',
+                emphasizedText: 'SAML ACS URL and SAML X.509 certificate',
+                trailingText: ' to finish the configuration.',
+            },
+        ],
+        [
+            'an all-domain configuration',
+            makeConfig({ domain_scope: DomainScopeEnumApi.All }),
+            ConfigScopeEnumApi.Scim,
+            'configured',
+            [
+                { id: 'first', domain: 'example.com', is_verified: true },
+                { id: 'second', domain: 'example.org', is_verified: true },
+            ],
+            {
+                text: 'Enabled for all verified domains: ',
+                emphasizedText: 'example.com and example.org',
+                trailingText: '.',
+            },
+        ],
+        [
+            'a selected-domain configuration',
+            makeConfig({ organization_domain_ids: ['second'] }),
+            ConfigScopeEnumApi.Xaa,
+            'configured',
+            [
+                { id: 'first', domain: 'example.com', is_verified: true },
+                { id: 'second', domain: 'example.org', is_verified: true },
+            ],
+            { text: 'Enabled for ', emphasizedText: 'example.org', trailingText: '.' },
+        ],
+    ] as const)('describes %s', (_, config, configScope, status, domains, expectedDescription) => {
+        expect(getIdentityProviderConfigStatusDescription(config, configScope, status, [...domains])).toEqual(
+            expectedDescription
         )
     })
 
