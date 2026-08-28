@@ -1,3 +1,4 @@
+import json
 from collections.abc import Awaitable, Callable
 
 import pytest
@@ -11,14 +12,9 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import AgentRuntime
-from products.signals.backend.artefact_schemas import (
-    MAX_CODE_REFERENCE_LINES,
-    FeatureLifecycle,
-    FeatureStage,
-    Priority,
-    QuestionArtefact,
-)
+from products.signals.backend.artefact_schemas import FeatureLifecycle, FeatureStage, Priority, QuestionArtefact
 from products.signals.backend.features.discovery import (
+    MAX_DISCOVERY_CODE_REFERENCE_LINES,
     DiscoveredFeatureCodeReference,
     DiscoveredFeatureDocument,
     DiscoveredFeatureOwner,
@@ -131,7 +127,7 @@ def test_feature_document_rejects_reactive_report_summaries(summary: str, expect
 
 def test_feature_document_normalizes_oversized_code_reference() -> None:
     document = _feature().model_dump()
-    source_lines = [f"line {index}" for index in range(MAX_CODE_REFERENCE_LINES + 5)]
+    source_lines = [f"line {index}" for index in range(MAX_DISCOVERY_CODE_REFERENCE_LINES + 5)]
     document["code_references"][0].update(
         start_line=40,
         end_line=40 + len(source_lines) - 1,
@@ -141,9 +137,9 @@ def test_feature_document_normalizes_oversized_code_reference() -> None:
     parsed = DiscoveredFeatureDocument.model_validate(document)
     reference = parsed.code_references[0]
 
-    assert reference.contents == "\n".join(source_lines[:MAX_CODE_REFERENCE_LINES])
+    assert reference.contents == "\n".join(source_lines[:MAX_DISCOVERY_CODE_REFERENCE_LINES])
     assert reference.start_line == 40
-    assert reference.end_line == 40 + MAX_CODE_REFERENCE_LINES - 1
+    assert reference.end_line == 40 + MAX_DISCOVERY_CODE_REFERENCE_LINES - 1
 
 
 @pytest.mark.asyncio
@@ -177,8 +173,14 @@ async def test_feature_discovery_stops_when_agent_says_there_are_no_more_feature
     assert "## Current status" in feature_prompt
     assert "open_questions" in feature_prompt
     assert "Do not guess about intended behavior" in feature_prompt
-    assert "Target 5 to 12 contiguous lines" in feature_prompt
+    assert "Aim for 1,500 to 2,500 characters total" in feature_prompt
+    assert "target 4 to 8 contiguous lines and never exceed 10" in feature_prompt
     assert "end_line = start_line + line_count - 1" in feature_prompt
+    prompt_schema = json.loads(feature_prompt.split("<jsonschema>\n", 1)[1].split("\n</jsonschema>", 1)[0])
+    assert "title" in prompt_schema["properties"]
+    assert "title" not in prompt_schema
+    continuation_prompt = session.send_followup.await_args_list[1].args[0]
+    assert "name only the next strongest candidate" in continuation_prompt
     session.end.assert_awaited_once_with()
 
 
