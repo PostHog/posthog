@@ -95,7 +95,9 @@ export function applyVisualizationType(
     // An empty yAxis records that the user deleted every series, so only absent axes are seeded.
     if (chartSettings.xAxis === undefined && chartSettings.yAxis === undefined) {
         const seeded = deriveDefaultAxes(columns)
-        chartSettings.yAxis = seeded.yAxis.map((column) => ({ column, settings: defaultAxisSettings() }))
+        if (seeded.yAxis.length > 0) {
+            chartSettings.yAxis = seeded.yAxis.map((column) => ({ column, settings: defaultAxisSettings() }))
+        }
         if (seeded.xAxis) {
             chartSettings.xAxis = { column: seeded.xAxis }
         }
@@ -145,7 +147,9 @@ export function applyVisualizationType(
     }
 
     // Preserve the distinction between cleared series and axes that have never been initialized.
-    chartSettings.yAxis = yAxis
+    if (chartSettings.yAxis !== undefined) {
+        chartSettings.yAxis = yAxis
+    }
 
     return { ...query, display: visualizationType, chartSettings }
 }
