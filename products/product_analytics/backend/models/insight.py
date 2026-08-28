@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
@@ -37,16 +37,12 @@ _ANALYTICS_INSIGHT_QUERY_KINDS = frozenset(
 )
 
 
-def _find_behavioral_filters(value: object) -> list[dict[str, object]]:
+def _count_behavioral_filters(value: object) -> int:
     if isinstance(value, list):
-        return [match for item in value for match in _find_behavioral_filters(item)]
+        return sum(_count_behavioral_filters(item) for item in value)
     if not isinstance(value, dict):
-        return []
-
-    record = cast(dict[str, object], value)
-    return ([record] if record.get("type") == "behavioral" else []) + [
-        match for item in record.values() for match in _find_behavioral_filters(item)
-    ]
+        return 0
+    return int(value.get("type") == "behavioral") + sum(_count_behavioral_filters(item) for item in value.values())
 
 
 if TYPE_CHECKING:
@@ -230,24 +226,8 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
             metadata["data_warehouse_entity_count"] = sum(
                 1 for s in series if isinstance(s, dict) and s.get("kind") == "DataWarehouseNode"
             )
-        behavioral_filters = _find_behavioral_filters(source)
         metadata["has_properties"] = bool(source.get("properties"))
-        metadata["behavioral_filter_count"] = len(behavioral_filters)
-        metadata["has_negated_behavioral_filter"] = any(
-            behavioral_filter.get("negation") is True for behavioral_filter in behavioral_filters
-        )
-        metadata["has_custom_behavioral_filter_count"] = any(
-            behavioral_filter.get("value") == "performed_event_multiple" for behavioral_filter in behavioral_filters
-        )
-        metadata["has_custom_behavioral_filter_time"] = any(
-            behavioral_filter.get("explicit_datetime") is not None
-            or behavioral_filter.get("time_value") not in (None, 30)
-            or behavioral_filter.get("time_interval") not in (None, "day")
-            for behavioral_filter in behavioral_filters
-        )
-        metadata["has_action_behavioral_filter"] = any(
-            behavioral_filter.get("event_type") == "actions" for behavioral_filter in behavioral_filters
-        )
+        metadata["behavioral_filter_count"] = _count_behavioral_filters(source)
         if "filterTestAccounts" in source:
             metadata["filter_test_accounts"] = source.get("filterTestAccounts")
         breakdown_filter = source.get("breakdownFilter")

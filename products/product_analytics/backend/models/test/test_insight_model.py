@@ -328,12 +328,8 @@ class TestInsightModel(BaseTest):
                                 {
                                     "type": "behavioral",
                                     "key": "signed up",
-                                    "value": "performed_event_multiple",
-                                    "event_type": "actions",
-                                    "operator": "gte",
-                                    "operator_value": 3,
-                                    "time_value": 7,
-                                    "time_interval": "week",
+                                    "value": "performed_event",
+                                    "event_type": "events",
                                 }
                             ],
                         },
@@ -350,7 +346,6 @@ class TestInsightModel(BaseTest):
                                         "key": "completed onboarding",
                                         "value": "performed_event",
                                         "event_type": "events",
-                                        "negation": True,
                                     }
                                 ],
                             }
@@ -370,10 +365,6 @@ class TestInsightModel(BaseTest):
             "data_warehouse_entity_count": 0,
             "has_properties": True,
             "behavioral_filter_count": 2,
-            "has_negated_behavioral_filter": True,
-            "has_custom_behavioral_filter_count": True,
-            "has_custom_behavioral_filter_time": True,
-            "has_action_behavioral_filter": True,
             "filter_test_accounts": True,
             "breakdown_type": "event",
             "has_formula": True,
