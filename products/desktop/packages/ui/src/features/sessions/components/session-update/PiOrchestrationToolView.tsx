@@ -1,4 +1,5 @@
 import { ListChecks, Robot } from "@phosphor-icons/react";
+import { Text } from "@posthog/quill";
 import {
   type PiSubagentToolDetails,
   type PiWorkflowToolDetails,
@@ -6,7 +7,6 @@ import {
   piWorkflowToolDetailsSchema,
 } from "@posthog/shared";
 import { type Step, StepList } from "@posthog/ui/primitives/StepList";
-import { Text } from "@radix-ui/themes";
 import { type ReactElement, useEffect, useState } from "react";
 import { ToolRow } from "./ToolRow";
 import type { ToolViewProps } from "./toolCallUtils";

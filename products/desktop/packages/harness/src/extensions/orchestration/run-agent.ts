@@ -1,3 +1,5 @@
+import { realpathSync } from "node:fs";
+import { isAbsolute, relative, sep } from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
 import {
   type AgentSession,
@@ -31,6 +33,28 @@ import {
 import { applyModelScope, SubagentPolicyError } from "./policy";
 import { applyAgentOverrides, loadSubagentSettings } from "./settings";
 import { removeAgentRun, upsertAgentRun } from "./ui/status-registry";
+
+function inheritsParentProjectTrust(
+  ctx: ExtensionContext,
+  workingDirectory: string,
+): boolean {
+  if (!ctx.isProjectTrusted()) {
+    return false;
+  }
+
+  try {
+    const parentDirectory = realpathSync(ctx.cwd);
+    const childDirectory = realpathSync(workingDirectory);
+    const relativePath = relative(parentDirectory, childDirectory);
+    const outsideParent =
+      relativePath === ".." ||
+      relativePath.startsWith(`..${sep}`) ||
+      isAbsolute(relativePath);
+    return !outsideParent;
+  } catch {
+    return false;
+  }
+}
 
 export interface UsageStats {
   input: number;
@@ -196,7 +220,9 @@ export async function runAgent(
   };
 
   try {
-    const settings = loadSubagentSettings(ctx.cwd, ctx.isProjectTrusted());
+    const workingDirectory = cwd ?? ctx.cwd;
+    const projectTrusted = inheritsParentProjectTrust(ctx, workingDirectory);
+    const settings = loadSubagentSettings(workingDirectory, projectTrusted);
     const effectiveAgent = applyAgentOverrides(agent, settings);
 
     const modelAuth = await resolveModelAuthWithFallback(
@@ -229,8 +255,9 @@ export async function runAgent(
     }
 
     const { model, modelRuntime } = await createSubagentModelRuntime(modelAuth);
-    const workingDirectory = cwd ?? ctx.cwd;
-    const settingsManager = SettingsManager.inMemory();
+    const settingsManager = SettingsManager.inMemory(undefined, {
+      projectTrusted,
+    });
     const wantsWebAccess =
       options.includeWebAccess ??
       effectiveAgent.tools?.some(

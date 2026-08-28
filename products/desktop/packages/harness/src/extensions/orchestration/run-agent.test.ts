@@ -2,7 +2,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Api, Message, Model } from "@earendil-works/pi-ai";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+  type ExtensionContext,
+  SettingsManager,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { createAgentSessionMock } = vi.hoisted(() => ({
@@ -77,12 +80,12 @@ function makeModel(): Model<Api> {
   } as Model<Api>;
 }
 
-function makeCtx(cwd: string): ExtensionContext {
+function makeCtx(cwd: string, projectTrusted = false): ExtensionContext {
   const model = makeModel();
   return {
     cwd,
     model,
-    isProjectTrusted: () => false,
+    isProjectTrusted: () => projectTrusted,
     sessionManager: { getBranch: () => [] },
     modelRegistry: {
       find: () => model,
@@ -116,8 +119,55 @@ describe("runAgent lifecycle persistence", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     process.env.HOME = originalHome;
     fs.rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  it("blocks project resources when cwd leaves the trusted project", async () => {
+    const trustedDirectory = path.join(tmpHome, "trusted");
+    const externalDirectory = path.join(tmpHome, "external");
+    fs.mkdirSync(path.join(externalDirectory, ".pi"), { recursive: true });
+    fs.mkdirSync(trustedDirectory, { recursive: true });
+    fs.writeFileSync(
+      path.join(externalDirectory, ".pi", "settings.json"),
+      JSON.stringify({
+        subagents: { agentOverrides: { scout: { tools: "write" } } },
+      }),
+    );
+    const settingsManagerSpy = vi.spyOn(SettingsManager, "inMemory");
+
+    await runAgent({
+      ctx: makeCtx(trustedDirectory, true),
+      agent,
+      task: "find it",
+      cwd: externalDirectory,
+    });
+
+    expect(settingsManagerSpy).toHaveBeenCalledWith(undefined, {
+      projectTrusted: false,
+    });
+    expect(createAgentSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ tools: undefined }),
+    );
+  });
+
+  it("inherits project trust in a child directory", async () => {
+    const trustedDirectory = path.join(tmpHome, "trusted");
+    const childDirectory = path.join(trustedDirectory, "package");
+    fs.mkdirSync(childDirectory, { recursive: true });
+    const settingsManagerSpy = vi.spyOn(SettingsManager, "inMemory");
+
+    await runAgent({
+      ctx: makeCtx(trustedDirectory, true),
+      agent,
+      task: "find it",
+      cwd: childDirectory,
+    });
+
+    expect(settingsManagerSpy).toHaveBeenCalledWith(undefined, {
+      projectTrusted: true,
+    });
   });
 
   it("writes completed status and a transcript for a successful run", async () => {

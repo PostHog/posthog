@@ -24,6 +24,8 @@ export function createOrchestrationExtension(): ExtensionFactory {
     let footerInstalled = false;
     let spinnerFrame = 0;
     let currentContext: ExtensionContext | undefined;
+    let unsubscribe: (() => void) | undefined;
+    let spinnerTimer: ReturnType<typeof setInterval> | undefined;
 
     const footerFactory = (
       tui: TUI,
@@ -53,18 +55,32 @@ export function createOrchestrationExtension(): ExtensionFactory {
       activeTui?.requestRender();
       syncFooter();
     };
-    const unsubscribe = subscribeToOrchestration(refreshStatus);
-    const spinnerTimer = setInterval(() => {
-      if (!hasActiveAgentRuns() && !hasActiveWorkflows()) {
-        return;
+
+    const startStatusUpdates = () => {
+      unsubscribe ??= subscribeToOrchestration(refreshStatus);
+      spinnerTimer ??= setInterval(() => {
+        if (!hasActiveAgentRuns() && !hasActiveWorkflows()) {
+          return;
+        }
+        spinnerFrame++;
+        activeTui?.requestRender();
+      }, 150);
+    };
+
+    const stopStatusUpdates = () => {
+      if (spinnerTimer) {
+        clearInterval(spinnerTimer);
+        spinnerTimer = undefined;
       }
-      spinnerFrame++;
-      activeTui?.requestRender();
-    }, 150);
+      unsubscribe?.();
+      unsubscribe = undefined;
+      activeTui = undefined;
+    };
 
     pi.on("session_start", (_event, context) => {
       currentContext = context;
       footerInstalled = false;
+      startStatusUpdates();
       syncFooter();
 
       context.ui.setEditorComponent(
@@ -85,9 +101,9 @@ export function createOrchestrationExtension(): ExtensionFactory {
     });
 
     pi.on("session_shutdown", () => {
-      clearInterval(spinnerTimer);
-      unsubscribe();
+      stopStatusUpdates();
       currentContext = undefined;
+      footerInstalled = false;
     });
 
     pi.on("resources_discover", () => ({
