@@ -1752,6 +1752,10 @@ snapshots:
         hash: v1.k794b7964.a3e65d5201b873423bb6d077e88fcad12715ee293bdedcf5a2dc78efbc2d0cda.VSPF0yHLd7eCx-17S2ASvg21MoomuY6VOjuxq3oPQmI
     components-playerinspector-itemsessionchange--session-previous--light:
         hash: v1.k794b7964.33ce327f146d06d1412d431080ac84ae39558411b2073fe18a2ed98d834a2681.FDbDlC4-qfrH2RR1F_KpijnZNM9Ss_4s-p19Ee8fGtY
+    components-product-empty-state--actions-needs-setup--dark:
+        hash: v1.k794b7964.10ab8bd219c3110809c99653076caeaf5088284a876c9ab1aadb8a06d881b210.EucMhcIMbn1Z41tBACbSV89kJkEYWgjTkwl7THDWL0c
+    components-product-empty-state--actions-needs-setup--light:
+        hash: v1.k794b7964.6c495049afd9798382f53acd004c500608181045e9c2bef81c66ab9feb535a6b.TbUx7yVN6P2hiijY7RK9j5a0vrRDkN1WQAKcOPhfUZk
     components-product-empty-state--ai-observability-needs-setup--dark:
         hash: v1.k794b7964.f10735d00b8b7484f071fdcaebec654ef0042bf7894e374cbe077acb88d1de1f.DVP2UF6lwJvd5PyN12NBZIhS9EOv5z-N0T-aYKrAONw
     components-product-empty-state--ai-observability-needs-setup--light:
@@ -6201,9 +6205,9 @@ snapshots:
     scenes-app-data-management-actions--action--light:
         hash: v1.k794b7964.beb09296b4cd231bcc6b8067b8976e50e541095f18ec43f4523349ca0efc89a4.dEJitejN7lJT0FU6gQAaF5ydaZd_RGES2jbQNI4WuDw
     scenes-app-data-management-actions--actions-list--dark:
-        hash: v1.k794b7964.9f9b23bfb4431c3c1a5f881b171b8a25023f2dc0ef9e691e082984463a3c90f9.zRTh4Nciph_51htqF6G-W7dWAKfhZJieNI7gz5RnopI
+        hash: v1.k794b7964.bd5168e579fa746d3f0fe22cd50e94e879f638b594e39b93ed3cbf329d797045.t0zAJGmPzUfxAEBp7io3QgPwzbXoekfensWiOF3PmVo
     scenes-app-data-management-actions--actions-list--light:
-        hash: v1.k794b7964.4d0504ac873c3c206bbe5b25826e799db95d6d5135bdd0cadc2e90569978c7d3.E87ZnWHKbQXbovA8jqN1cp7GTqLVNZB74m6M2h-zxtU
+        hash: v1.k794b7964.cbca06140c5a7e89a6a42b316248dc0bfd96a9081da2ec658f5e2c7d508b8309.8CEchtwyS8jC91RTRJkZHXqoKwGQCTQNNpamYIuRZPU
     scenes-app-data-management-actions--new-action--dark:
         hash: v1.k794b7964.ba971e6b4e8a8e72c512b1edc53fc699eff7142f207aed6e1d22e4cc79d18c9c.WK1mMQL1L81fqQ7rDdXG0tr5I9kdtzLDkznyHOd7bN8
     scenes-app-data-management-actions--new-action--light:
