@@ -392,9 +392,6 @@ describe('logsViewerDataLogic', () => {
         })
 
         it('an automatic query run does not bump the facet refresh', async () => {
-            // Filter, order, and column changes reach runQuery too. Bumping the nonce here would
-            // refetch every facet, including the one just clicked, whose own selection the backend
-            // already strips from its own query.
             await expectLogic(logic, () => {
                 logic.actions.runQuery()
             }).toNotHaveDispatchedActions([filtersLogic.actionCreators.bumpFacetRefresh()])

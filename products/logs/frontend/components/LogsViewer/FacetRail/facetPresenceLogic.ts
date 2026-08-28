@@ -122,8 +122,6 @@ export const facetPresenceLogic = kea<facetPresenceLogicType>([
     }),
 
     listeners(({ actions }) => ({
-        // A manual re-run re-probes which attributes the tenant emits, so a facet that only started
-        // getting data after the page loaded appears without a reload.
         bumpFacetRefresh: () => actions.loadPresentResourceKeys(),
     })),
 

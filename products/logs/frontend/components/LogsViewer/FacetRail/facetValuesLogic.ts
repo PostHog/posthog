@@ -205,8 +205,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
             (s) => [s.collapsedFacets, (_, p) => p.facet],
             (collapsedFacets: string[], facet: FacetConfig): boolean => collapsedFacets.includes(facet.key),
         ],
-        // Everything that can change this facet's values, minus its own selection. The refresh nonce
-        // is appended so a manual re-run on an unchanged relative range still invalidates the cache.
+        // Everything that can change this facet's values, minus its own selection.
         scopeSignature: [
             (s) => [
                 s.filters,

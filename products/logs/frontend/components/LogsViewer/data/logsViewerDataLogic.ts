@@ -1100,9 +1100,6 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             actions.fetchSparkline()
             actions.cancelInProgressLiveTail(null)
         },
-        // Only a manual refresh re-probes the facet rail. runQuery also fires on filter, order, and
-        // column changes, and bumping the nonce there would refetch every facet, including the one
-        // just clicked, whose own selection the backend strips from its own query anyway.
         refreshQuery: () => {
             actions.runQuery()
             actions.bumpFacetRefresh()

@@ -134,8 +134,6 @@ describe('facetValuesLogic', () => {
     })
 
     it('a manual refresh refetches an expanded facet even when the scope is unchanged', async () => {
-        // A relative range keeps a byte-identical scope signature across a re-run, so without the
-        // refresh nonce the facet would serve its cached counts against a moved time window.
         const logic = mountFacet(SERVICE)
         await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
         mockFacetValues.mockClear()

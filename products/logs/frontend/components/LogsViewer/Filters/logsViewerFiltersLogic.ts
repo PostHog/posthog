@@ -259,9 +259,6 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
 
         zoomDateRange: (multiplier: number) => ({ multiplier }),
 
-        // Re-run of the query with the scope unchanged (the refresh button, or a re-run on a relative
-        // range). A relative range like "last 15 minutes" keeps a byte-identical scope signature, so
-        // the facet rail needs this explicit nonce to know its counts are now stale.
         bumpFacetRefresh: true,
 
         addFilter: (
@@ -278,7 +275,6 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
     }),
 
     reducers({
-        // Monotonic nonce the facet rail folds into its scope signature (see bumpFacetRefresh).
         facetRefreshCounter: [
             0,
             {
