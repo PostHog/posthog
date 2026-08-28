@@ -1065,7 +1065,15 @@ jobs:
                   - name: Check operator parity
                     run: python .github/scripts/check-operator-parity.py
                   - name: Check module boundaries (tach)
-                    run: tach check --dependencies --interfaces
+                    # Two passes: tests are in the interface graph but not the dependency graph.
+                    # A branch that predates the command still excludes tests in tach.toml, so
+                    # the old single pass is the right check there.
+                    run: |
+                        if ./bin/hogli lint:tach --help >/dev/null 2>&1; then
+                            ./bin/hogli lint:tach
+                        else
+                            tach check --dependencies --interfaces
+                        fi
                   - name: Check product facade enforcement (import-linter)
                     run: lint-imports
                   # These guards take the whole repo as input (import graph after
