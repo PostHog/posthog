@@ -231,6 +231,41 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert "> ! **Heads** and *note*" in markdown
         assert "[https://app.posthog.com/cohorts/37958](https://app.posthog.com/cohorts/37958)" in markdown
 
+    def test_serializes_nested_lists_and_falls_back_for_unknown_nodes(self) -> None:
+        content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "bulletList",
+                    "content": [
+                        {
+                            "type": "listItem",
+                            "content": [
+                                {"type": "paragraph", "content": [{"type": "text", "text": "outer"}]},
+                                {
+                                    "type": "orderedList",
+                                    "content": [
+                                        {
+                                            "type": "listItem",
+                                            "content": [
+                                                {"type": "paragraph", "content": [{"type": "text", "text": "inner"}]}
+                                            ],
+                                        }
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                {"type": "mystery-widget", "attrs": {"foo": "bar"}},
+            ],
+        }
+
+        markdown = convert_notebook_content_to_markdown(content)
+
+        assert "- outer\n  1. inner" in markdown
+        assert '<UnknownNode nodeType="mystery-widget" foo="bar" />' in markdown
+
     def test_splits_embedded_cards_and_headings_out_of_blockquotes_and_callouts(self) -> None:
         content = {
             "type": "doc",
