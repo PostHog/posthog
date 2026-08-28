@@ -48,6 +48,9 @@ exclude {
     #     metrics1 diverges per env (codecs), so it is not yet in an all-env layer. ---
     "metrics1",
     "metrics",
+    "metric_attributes",
+    "metrics1_to_metric_attributes",
+    "metrics1_to_resource_attributes",
     "metrics_kafka_metrics",
     "kafka_metrics_avro",
     "kafka_metrics_avro_mv",
