@@ -21,7 +21,9 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-06-01',
         pageUrl: urls.experiment(PAUSED_EXPERIMENT.id),
-        testOptions: { waitForSelector: '[data-attr="experiment-warning-resume-experiment"]' },
+        // :visible because LemonBanner renders the action twice (inline + stacked, same data-attr)
+        // and Playwright's non-strict wait only checks the first match, which CSS may be hiding.
+        testOptions: { waitForSelector: '[data-attr="experiment-warning-resume-experiment"]:visible' },
     },
     decorators: [
         mswDecorator({
@@ -49,8 +51,8 @@ export const ExperimentPausedWarning: Story = { play: makeDelay(700) }
 // (LemonBanner's @container breakpoint swaps the inline button for the stacked one).
 export const ExperimentPausedWarningMobile: Story = {
     parameters: {
+        // waitForSelector is inherited from the meta parameters via Storybook's deep merge.
         testOptions: {
-            waitForSelector: '[data-attr="experiment-warning-resume-experiment"]',
             viewport: { width: 390, height: 844 },
         },
     },
