@@ -87,7 +87,15 @@ export class DiskCacheNamespace {
     } catch (error) {
       if (!isNotFound(error)) {
         log.warn("Dropping unreadable cache entry", { key, error });
-        await this.delete(key);
+        // Cleanup is best effort. A locked file or bad permissions must not
+        // reject get(), or the caller loses its network fallback and the
+        // image request hard-fails.
+        await this.delete(key).catch((deleteError) => {
+          log.warn("Could not delete unreadable cache entry", {
+            key,
+            error: deleteError,
+          });
+        });
       }
       return null;
     }
