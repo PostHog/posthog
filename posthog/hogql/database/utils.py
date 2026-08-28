@@ -20,11 +20,18 @@ def _extract_join_key_field(expr: ast.Expr) -> Optional[ast.Field]:
     return None
 
 
-def get_join_field_chain(key: str) -> Optional[list[str | int]]:
-    expr = parse_expr(key)
+def field_chain_from_expr(expr: ast.Expr) -> Optional[list[str | int]]:
     field = _extract_join_key_field(expr)
     if field is not None:
         return field.chain
+    return None
+
+
+def get_join_field_chain(key: str) -> Optional[list[str | int]]:
+    expr = parse_expr(key)
+    chain = field_chain_from_expr(expr)
+    if chain is not None:
+        return chain
 
     capture_exception(Exception(f"Data Warehouse Join HogQL expression should be a Field or Call node: {key}"))
     return None

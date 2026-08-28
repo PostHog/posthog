@@ -10,9 +10,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE
 from posthog.hogql.database.models import LazyJoin
-from posthog.hogql.database.utils import get_join_field_chain
+from posthog.hogql.database.utils import field_chain_from_expr, get_join_field_chain
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
-from posthog.hogql.errors import QueryError, SyntaxError
+from posthog.hogql.errors import ExposedHogQLError, QueryError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -90,12 +90,21 @@ class ViewLinkValidationMixin:
             raise serializers.ValidationError({"non_field_errors": [f"Invalid table: {table_name}"]})
 
         try:
-            parse_expr(join_key)
+            join_key_expr = parse_expr(join_key)
         except SyntaxError as e:
             raise serializers.ValidationError({"non_field_errors": [str(e)]})
 
-        if get_join_field_chain(join_key) is None:
+        # Reuse the already-parsed expression and skip the capturing extractor: a non-field
+        # key here is normal invalid user input answered by the 400 below, not a backend signal.
+        if field_chain_from_expr(join_key_expr) is None:
             raise serializers.ValidationError({"non_field_errors": [f"Join key {join_key} must be a table field"]})
+
+        # Compile the key so an unsupported function or other bad expression fails here, where the
+        # user can fix it, instead of much later when the schema builds and the join silently drops.
+        try:
+            join_key_expr.to_hogql()
+        except ExposedHogQLError as e:
+            raise serializers.ValidationError({"non_field_errors": [str(e)]})
 
         return
 
@@ -159,6 +168,33 @@ class ViewLinkSerializer(serializers.ModelSerializer, ViewLinkValidationMixin):
         view_link = DataWarehouseJoin.objects.create(**validated_data)
 
         return view_link
+
+    def update(self, instance, validated_data):
+        team_id = self.context["team_id"]
+
+        if "source_table_key" in validated_data or "source_table_name" in validated_data:
+            self._validate_join_key(
+                validated_data.get("source_table_key", instance.source_table_key),
+                validated_data.get("source_table_name", instance.source_table_name),
+                team_id,
+            )
+        if "joining_table_key" in validated_data or "joining_table_name" in validated_data:
+            self._validate_join_key(
+                validated_data.get("joining_table_key", instance.joining_table_key),
+                validated_data.get("joining_table_name", instance.joining_table_name),
+                team_id,
+            )
+
+        if "field_name" in validated_data or "source_table_name" in validated_data:
+            new_field_name = validated_data.get("field_name", instance.field_name)
+            new_source_table = validated_data.get("source_table_name", instance.source_table_name)
+            # Only enforce when the field moves or is renamed. The built database already carries
+            # this join's own field, so re-validating an unchanged (field_name, source table) pair
+            # would collide it with itself.
+            if new_field_name != instance.field_name or new_source_table != instance.source_table_name:
+                self._validate_key_uniqueness(new_field_name, new_source_table, team_id)
+
+        return super().update(instance, validated_data)
 
 
 class ViewLinkValidationSerializer(serializers.Serializer, ViewLinkValidationMixin):
