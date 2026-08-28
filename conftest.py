@@ -181,13 +181,10 @@ def _cache_url_resolution() -> None:
 
 
 def _cache_fixture_parent_nodeids() -> None:
-    # FixtureManager._matchfactories rebuilds the set of a node's parent nodeids on every
-    # fixture-name lookup, and collection resolves tens of fixture names per item. A
-    # full-tree Core collection calls it 1.28M times over ~35k distinct nodes, walking the
-    # same short parent chains again and again (8.3M iter_parents steps). A node's parents,
-    # and their nodeids, are fixed once it is constructed, so the set is a pure function of
-    # the node. Node uses __slots__, so key by id() and keep a strong ref to the node, which
-    # both stops id() reuse and matches the node's own session lifetime.
+    # FixtureManager._matchfactories rebuilds a node's parent-nodeid set for every fixture-name
+    # lookup, and collection resolves many fixture names per item. A node's parents are fixed at
+    # construction, so the set can be reused. Node uses __slots__, so key by id() and keep a strong
+    # reference to prevent id() reuse for the node's session lifetime.
     from _pytest import fixtures, nodes  # noqa: PLC0415 — deferred until pytest_configure
 
     orig_matchfactories = fixtures.FixtureManager._matchfactories
