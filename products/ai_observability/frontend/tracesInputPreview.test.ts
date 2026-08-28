@@ -35,6 +35,11 @@ describe('pickLastInputMessage', () => {
         expect(pickLastInputMessage(conversation)).toEqual({ role: 'assistant', content: 'tool result' })
     })
 
+    it('wraps a single bare message object from the Vercel AI OTel path', () => {
+        const message = { role: 'user', content: 'what is the weather?' }
+        expect(pickLastInputMessage(message, { strict: true })).toEqual(message)
+    })
+
     it('rejects unknown state-wrapper shapes in strict mode', () => {
         expect(pickLastInputMessage({ current_step: 3 }, { strict: true })).toBeNull()
     })
