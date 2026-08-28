@@ -1,3 +1,4 @@
+import { render } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -135,6 +136,30 @@ describe('funnelPersonsModalLogic', () => {
                     query: expect.objectContaining({ kind: 'FunnelsActorsQuery', funnelStep: 1 }),
                 })
             )
+        })
+
+        test('openPersonsModalForStep titles the modal with the step custom name', async () => {
+            logic.actions.openPersonsModalForStep({
+                step: makeStep({ name: '$pageview', custom_name: 'Signed up' }),
+                converted: true,
+            })
+
+            const { container } = render((openPersonsModal as jest.Mock).mock.calls[0][0].title)
+            expect(container.textContent).toContain('Signed up')
+            // The raw event humanizes to "Pageview", so its absence proves the rename won.
+            expect(container.textContent).not.toContain('Pageview')
+        })
+
+        test('openPersonsModalForSeries titles the modal with the step custom name', async () => {
+            logic.actions.openPersonsModalForSeries({
+                series: makeSeries(),
+                step: makeStep({ name: '$pageview', custom_name: 'Signed up' }),
+                converted: true,
+            })
+
+            const { container } = render((openPersonsModal as jest.Mock).mock.calls[0][0].title)
+            expect(container.textContent).toContain('Signed up')
+            expect(container.textContent).not.toContain('Pageview')
         })
 
         test('openPersonsModalForSeries forwards the previous-period compare label', async () => {
