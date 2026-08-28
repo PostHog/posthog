@@ -39,6 +39,14 @@ const IDENTITY_PROVIDER_CONFIG = {
     id_jag_allowed_clients: ['example-client'],
 }
 
+const USER_WITHOUT_IDENTITY_PROVIDER_FEATURES = {
+    ...MOCK_DEFAULT_USER,
+    organization: {
+        ...MOCK_DEFAULT_ORGANIZATION,
+        available_product_features: [],
+    },
+}
+
 const USER_WITH_IDENTITY_PROVIDER_FEATURES = {
     ...MOCK_DEFAULT_USER,
     organization: {
@@ -110,6 +118,14 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
 }
 export default meta
 
+const needsUpgradeDecorator = mswDecorator({
+    get: { '/api/users/@me': USER_WITHOUT_IDENTITY_PROVIDER_FEATURES },
+})
+
 export const SAML: Story = { args: { configScope: ConfigScopeEnumApi.Saml } }
+export const SAMLNeedsUpgrade: Story = {
+    args: { configScope: ConfigScopeEnumApi.Saml },
+    decorators: [needsUpgradeDecorator],
+}
 export const SCIM: Story = { args: { configScope: ConfigScopeEnumApi.Scim } }
 export const XAA: Story = { args: { configScope: ConfigScopeEnumApi.Xaa } }
