@@ -428,7 +428,6 @@ async function startNodeIngestionApiWorker(name: string, port?: number): Promise
 }
 
 async function spawnNodeIngestionApiWorker(name: string, workerPort: number): Promise<NodeWorker> {
-    workerPortsInUse.push(workerPort, workerPort + GRPC_PORT_OFFSET)
     const service = new ServiceProcess(name, 'pnpm', ['exec', 'tsx', 'src/index.ts'], {
         cwd: NODEJS_ROOT,
         env: {
@@ -450,6 +449,9 @@ async function spawnNodeIngestionApiWorker(name: string, workerPort: number): Pr
 
     const url = `http://127.0.0.1:${workerPort}`
     await service.waitForHttpOk(`${url}/_ready`)
+    // Only a worker that actually bound its ports owns them; a failed attempt's pair
+    // belongs to whatever foreign socket caused the collision.
+    workerPortsInUse.push(workerPort, workerPort + GRPC_PORT_OFFSET)
     return { service, url }
 }
 
