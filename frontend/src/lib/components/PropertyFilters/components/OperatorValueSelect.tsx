@@ -28,6 +28,7 @@ import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
 
 import { PropValue } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode } from '~/queries/schema/schema-general'
+import { isActorsQuery } from '~/queries/utils'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     GroupTypeIndex,
@@ -53,9 +54,17 @@ const STARTS_ENDS_WITH_OPERATORS = [
 export const HOGQL_EXPRESSION_OPTION = '__hogql_expression__'
 type OperatorSelectValue = PropertyOperator | typeof HOGQL_EXPRESSION_OPTION
 
-const HOGQL_EXPRESSION_PLACEHOLDER =
+// The examples must match the scope the expression is parsed in. In an actors (persons) query,
+// `properties.*` reads person properties, so both sides can use it. In an event-scoped query,
+// `properties.*` reads event properties and person properties need the `person.properties.*`
+// prefix, so a person property shown as `properties.*` would silently resolve to NULL.
+const HOGQL_EXPRESSION_PLACEHOLDER_ACTORS =
     'Compare properties with a SQL expression, such as:\n' +
     '- properties.$browser = properties.$initial_browser\n' +
+    '- properties.total_spend > properties.credit_limit'
+const HOGQL_EXPRESSION_PLACEHOLDER_EVENTS =
+    'Compare properties with a SQL expression, such as:\n' +
+    '- properties.$browser = person.properties.$initial_browser\n' +
     '- properties.total_spend > properties.credit_limit'
 
 // OTel span.kind enum (https://opentelemetry.io/docs/specs/otel/trace/api/#spankind).
@@ -262,6 +271,10 @@ export function OperatorValueSelect({
 
     // Escape hatch into a raw SQL expression, offered only when `onHogQLExpressionChange` is wired.
     const hogQLExpressionAvailable = !!onHogQLExpressionChange
+    const hogQLExpressionPlaceholder =
+        metadataSource && isActorsQuery(metadataSource)
+            ? HOGQL_EXPRESSION_PLACEHOLDER_ACTORS
+            : HOGQL_EXPRESSION_PLACEHOLDER_EVENTS
     const [sqlMode, setSqlMode] = useState(false)
     useEffect(() => {
         setSqlMode(false)
@@ -448,7 +461,7 @@ export function OperatorValueSelect({
                         onChange={(expression) => onHogQLExpressionChange?.(expression)}
                         metadataSource={metadataSource}
                         globals={hogQLGlobals}
-                        placeholder={HOGQL_EXPRESSION_PLACEHOLDER}
+                        placeholder={hogQLExpressionPlaceholder}
                         submitText="Add SQL expression"
                     />
                 </div>
