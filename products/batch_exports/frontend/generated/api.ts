@@ -23,6 +23,8 @@ import type {
     FileDownloadBatchExportOnDemandApi,
     FileDownloadBatchExportsListParams,
     FileDownloadBatchExportsLogsRetrieveParams,
+    FileDownloadCountRowsRequestApi,
+    FileDownloadCountRowsResponseApi,
     PaginatedBatchExportBackfillListApi,
     PaginatedBatchExportListApi,
     PaginatedBatchExportRunListApi,
@@ -652,5 +654,25 @@ export const fileDownloadBatchExportsLogsRetrieve = async (
     return apiMutator<void>(getFileDownloadBatchExportsLogsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getFileDownloadBatchExportsCountRowsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/file_download_batch_exports/count_rows/`
+}
+
+/**
+ * Count the rows a file download batch export would produce if started now.
+ */
+export const fileDownloadBatchExportsCountRowsCreate = async (
+    projectId: string,
+    fileDownloadCountRowsRequestApi: FileDownloadCountRowsRequestApi,
+    options?: RequestInit
+): Promise<FileDownloadCountRowsResponseApi> => {
+    return apiMutator<FileDownloadCountRowsResponseApi>(getFileDownloadBatchExportsCountRowsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(fileDownloadCountRowsRequestApi),
     })
 }

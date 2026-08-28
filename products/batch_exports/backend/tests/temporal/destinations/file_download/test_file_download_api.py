@@ -875,3 +875,108 @@ class TestFileDownloadHogQL:
         exported_rows = sorted((row["event"], row["distinct_id"], row["browser"]) for row in table.to_pylist())
         expected_rows = sorted((e["event"], e["distinct_id"], "Chrome") for e in hogql_export_test_events)
         assert exported_rows == expected_rows
+
+    @pytest.mark.parametrize(
+        "hogql_query,expected_count",
+        [
+            pytest.param(
+                "SELECT event AS event, distinct_id AS distinct_id FROM events",
+                10,
+                id="plain-select-scoped-to-team",
+            ),
+            pytest.param(
+                "SELECT count() AS event_count FROM events",
+                1,
+                id="aggregate-counts-result-rows-not-scanned-rows",
+            ),
+            pytest.param(
+                "SELECT event AS event FROM events UNION ALL SELECT event AS event FROM events",
+                20,
+                id="union-all",
+            ),
+            pytest.param(
+                "SELECT event AS event FROM events LIMIT 4",
+                4,
+                id="user-limit-caps-the-count",
+            ),
+        ],
+    )
+    @pytest.mark.usefixtures("enable_hogql_flag", "hogql_export_test_events")
+    @pytest.mark.django_db(transaction=True)
+    async def test_count_rows(self, async_client: AsyncClient, team, user, hogql_query, expected_count):
+        await async_client.aforce_login(user)
+
+        response = await async_client.post(
+            f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
+            {"model": "hogql", "hogql_query": hogql_query},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"count": expected_count}
+
+    @pytest.mark.parametrize(
+        "body,expected_error_fragment",
+        [
+            pytest.param(
+                {"model": "hogql"},
+                "This field is required",
+                id="missing-query",
+            ),
+            pytest.param(
+                {"model": "events", "hogql_query": "SELECT event AS event FROM events"},
+                "is not a valid choice",
+                id="unsupported-model",
+            ),
+            pytest.param(
+                {"model": "hogql", "hogql_query": "this is not hogql"},
+                "Failed to parse HogQL query",
+                id="unparseable-query",
+            ),
+            pytest.param(
+                {"model": "hogql", "hogql_query": "SELECT event AS event FROM events WHERE {filters}"},
+                "Placeholders are not supported",
+                id="placeholder-query",
+            ),
+            pytest.param(
+                {"model": "hogql", "hogql_query": "SELECT count() FROM events"},
+                "must be a field or have an alias",
+                id="unaliased-expression-column",
+            ),
+            pytest.param(
+                {"model": "hogql", "hogql_query": "SELECT x AS x FROM no_such_table"},
+                "no_such_table",
+                id="unknown-table",
+            ),
+        ],
+    )
+    @pytest.mark.usefixtures("enable_hogql_flag")
+    @pytest.mark.django_db(transaction=True)
+    async def test_count_rows_rejects_invalid_requests(
+        self, async_client: AsyncClient, team, user, body, expected_error_fragment
+    ):
+        await async_client.aforce_login(user)
+
+        response = await async_client.post(
+            f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
+            body,
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected_error_fragment in response.content.decode()
+        assert await sync_to_async(lambda: BatchExportSource.objects.for_team(team.pk).count())() == 0
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_count_rows_rejected_when_flag_disabled(self, async_client: AsyncClient, team, user):
+        await async_client.aforce_login(user)
+
+        with unittest.mock.patch(self.HOGQL_FLAG_PATCH_TARGET, return_value=False) as mock_flag:
+            response = await async_client.post(
+                f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
+                {"model": "hogql", "hogql_query": "SELECT event AS event FROM events"},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert mock_flag.call_args[0][0] == "hogql-batch-exports"

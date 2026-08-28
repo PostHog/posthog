@@ -14,14 +14,22 @@ import structlog
 import posthoganalytics
 from botocore.client import Config
 from botocore.exceptions import ClientError
-from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema
+from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema
 from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
+from rest_framework.throttling import BaseThrottle
+
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.log_entries import LogEntryMixin
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.errors import ExposedCHQueryError
 from posthog.models import Team
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.hogql_source import (
@@ -40,6 +48,7 @@ from products.batch_exports.backend.service import (
     cancel_running_batch_export_run,
     start_file_download_batch_export,
 )
+from products.batch_exports.backend.temporal.record_batch_model import HogQLQueryRecordBatchModel
 
 SESSION = boto3.Session()
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
@@ -119,6 +128,26 @@ class FileDownloadHogQLRequestSerializer(serializers.Serializer):
     hogql_query = serializers.CharField(help_text=HOGQL_QUERY_HELP_TEXT)
 
 
+class FileDownloadCountRowsRequestSerializer(serializers.Serializer):
+    """Request shape for counting the rows a file download batch export would produce."""
+
+    model = serializers.ChoiceField(
+        choices=["hogql"],
+        help_text="Model to count rows for. Only 'hogql' is supported.",
+    )
+    hogql_query = serializers.CharField(help_text=HOGQL_QUERY_HELP_TEXT)
+
+
+class FileDownloadCountRowsResponseSerializer(serializers.Serializer):
+    """Typed output for view set `count_rows`."""
+
+    count = serializers.IntegerField(
+        min_value=0,
+        help_text="Number of rows the query returns now. A HogQL batch export runs its query as of "
+        "the time the export starts, so a run started now would export this many rows.",
+    )
+
+
 def check_hogql_batch_exports_enabled(team: Team) -> None:
     """Raise if HogQL-powered batch exports are not enabled for the team."""
     if not posthoganalytics.feature_enabled(
@@ -134,6 +163,33 @@ def check_hogql_batch_exports_enabled(team: Team) -> None:
         send_feature_flag_events=False,
     ):
         raise PermissionDenied("HogQL batch exports are not enabled for this team.")
+
+
+def count_rows_for_hogql_batch_export(team: Team, hogql_query: str, timeout: int = 30) -> int:
+    """Count the rows a HogQL batch export would produce if started now.
+
+    Raises:
+        UnsupportedHogQLQueryError: If the query cannot power a batch export.
+    """
+    # Run the same validation as `create`, so the count rejects exactly the queries that
+    # export creation rejects.
+    validate_hogql_query_for_batch_export(hogql_query, team)
+
+    record_batch_model = HogQLQueryRecordBatchModel(team_id=team.pk, hogql_query=hogql_query)
+    # HogQL exports have no data interval: `create` runs them with a now/now interval.
+    now = dt.datetime.now(dt.UTC)
+    # `execute_hogql_query` resolves the query with full team-default modifiers, while the
+    # worker (`create_hogql_context_for_batch_export`) applies team defaults only to the
+    # database it builds and keeps plain default modifiers for printing. Modifier-sensitive
+    # queries can therefore count slightly differently than they export. Acceptable for an
+    # estimate.
+    query_response = execute_hogql_query(
+        query=record_batch_model.get_count_hogql_query(now, now),
+        team=team,
+        query_type="HogQLBatchExportCountRowsQuery",
+        settings=HogQLGlobalSettings(max_execution_time=timeout),
+    )
+    return query_response.results[0][0] if query_response.results else 0
 
 
 class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
@@ -338,6 +394,13 @@ class FileDownloadBatchExportOnDemandViewSet(
             return ListOutputSerializer
 
         return FileDownloadBatchExportOnDemandSerializer
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # `count_rows` runs a ClickHouse query per request, so it needs tighter limits than
+        # the default throttles.
+        if self.action == "count_rows":
+            return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+        return super().get_throttles()
 
     @extend_schema(
         request=PolymorphicProxySerializer(
@@ -545,6 +608,36 @@ class FileDownloadBatchExportOnDemandViewSet(
         batch_export_run.refresh_from_db()
 
         return response.Response({"status": batch_export_run.status})
+
+    @action(
+        methods=["POST"],
+        detail=False,
+        # Write scope even though nothing is persisted: counting runs the user's query on
+        # ClickHouse, so it is gated like `create` rather than like the cheap read actions.
+        required_scopes=["batch_export:write"],
+        request=FileDownloadCountRowsRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=FileDownloadCountRowsResponseSerializer,
+                description="Number of rows the export would produce if started now.",
+            ),
+            400: OpenApiResponse(description="The request or the HogQL query is invalid."),
+            403: OpenApiResponse(description="HogQL batch exports are not enabled for this team."),
+        },
+    )
+    @validated_request(request_serializer=FileDownloadCountRowsRequestSerializer)
+    def count_rows(self, request: ValidatedRequest, *args, **kwargs) -> response.Response:
+        """Count the rows a file download batch export would produce if started now."""
+        check_hogql_batch_exports_enabled(self.team)
+
+        try:
+            count = count_rows_for_hogql_batch_export(self.team, request.validated_data["hogql_query"])
+        except UnsupportedHogQLQueryError as e:
+            raise ValidationError({"hogql_query": str(e)}) from e
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None)) from e
+
+        return response.Response({"count": count})
 
 
 def _generate_s3_pre_signed_url(
