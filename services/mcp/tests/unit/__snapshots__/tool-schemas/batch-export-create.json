@@ -265,7 +265,7 @@
                             "type": "object"
                         },
                         "integration_id": {
-                            "description": "ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.",
+                            "description": "ID of an aws-s3-kind Integration providing AWS credentials. Use the integrations-list MCP tool to find one.",
                             "type": "number"
                         },
                         "type": {
@@ -334,7 +334,7 @@
                             "type": "object"
                         },
                         "integration_id": {
-                            "description": "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.",
+                            "description": "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Use the integrations-list MCP tool to find one.",
                             "type": "number"
                         },
                         "type": {
