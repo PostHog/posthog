@@ -29,7 +29,7 @@ The worker cannot do better today even if it wanted to:
 ## Design overview
 
 Invert who enforces time.
-The worker gets a per-sub-batch **budget**, sized by the consumer and carried on every request — the consumer owns budget policy end to end; the worker enforces what it is sent and has no sizing config of its own.
+The worker gets a per-sub-batch **budget**, sized by the consumer and carried on every request — the consumer owns budget policy end to end; the worker enforces what it is sent and has no budget config of its own.
 The budget carries one deadline, and it is deliberately **soft**.
 At it the framework stops _starting_ work: events the budget cut off complete as a new result type, `TIMEOUT`, in-flight steps are allowed to finish, and the batch returns when they do (§ the soft deadline and the watchdog).
 The ack carries per-message dispositions so the consumer redelivers only the unfinished remainder.
@@ -48,10 +48,9 @@ At the soft deadline it stops dispatching work; work already dispatched finishes
 All checkpoints live in framework code; no existing step changes.
 
 ```text
-server reads SubBatch frame             stamp armedAt + the budget into the feed context
-  feed(batch, ctx)                      pipeline mints the budget from its constructor
-                                        factory, deadline anchored at armedAt — so the
-                                        admission wait counts
+server reads SubBatch frame             stamp armedAt; hand the allowance to the driver
+  feed(batch, ctx, budget)              the driver builds the budget, deadline anchored
+                                        at armedAt — so the admission wait counts
     beforeBatch hooks                   cheap, always run
     per-element chain
       ◆ StepPipeline.process            soft-exhausted? → timeout, skip the step
@@ -94,16 +93,12 @@ A worker-side hard deadline between the rungs was designed, implemented, and dro
 ```ts
 // framework/batch-budget.ts
 export class BatchBudget {
-    static softDeadline(softAt: number, opts?: { enforce?: boolean }): BatchBudget
-    static unlimited(): BatchBudget          // the neutral element: no deadline exists
+    static softDeadline(softAt: number): BatchBudget
+    static unlimited(): BatchBudget          // shared singleton: the neutral element, never exhausts
 
-    readonly signal: AbortSignal             // framework-internal: fires at the soft
-                                             //   deadline or explicit abort()
     readonly softAt: number                  // Infinity when unlimited
-    readonly enforce: boolean                // false = shadow mode: metrics only
-    get remainingMs(): number                // to the soft deadline; Infinity when unlimited
-    get exhausted(): boolean
-    abort(reason?: string): void             // e.g. stream died, stop feeding its work
+    get exhausted(): boolean                 // a field read; an internal timer flips it at softAt
+    settle(): void                           // clears the timer at batch completion
 }
 
 // framework/results.ts
@@ -120,7 +115,8 @@ feed(elements, batchContext: CFeed, budget: BatchBudget = BatchBudget.unlimited(
 ```
 
 The argument defaults to the unlimited budget, so there is no "no budget" state, only the unlimited budget.
-The framework therefore carries no optional-budget branches — every element context always holds a budget; an unlimited one has a signal that never fires and `remainingMs() = Infinity`.
+The framework therefore carries no optional-budget branches — every element context always holds a budget; an unlimited one never exhausts.
+A budget enforces by virtue of existing: there is no worker-side gating flag, and no shadow mode — the consumer decides by sending `soft_budget_ms` or 0.
 Callers with no time policy (tests, the non-gRPC pipelines) pass nothing.
 
 `feedSerialized` stamps the fed budget into each element's context next to `messageId`.
@@ -164,7 +160,7 @@ If N's K-events time out while N+1's K-events process (N+1's budget is younger),
 
 The worker does not defend against this.
 An earlier revision carried a worker-side per-key order gate (a sequence extractor on the grouping stage, gating and clearing per key); it was dropped for interface simplicity, because per-key order is the consumer's guarantee everywhere else in this system and a worker-side gate duplicates it.
-What remains is a **precondition for enforcement**: budgets stay in shadow until the consumer never keeps two in-flight sub-batches carrying the same routing key, or the operator explicitly accepts hot-key reordering.
+What remains is a **precondition for enforcement**: budgets stay unsent (`soft_budget_ms = 0`) until the consumer never keeps two in-flight sub-batches carrying the same routing key, or the operator explicitly accepts hot-key reordering.
 The dispatcher's existing stash-and-cascade machinery is close to what a "hold a key's newer groups while it has unacked messages" rule needs; under the driver-model redesign the key driver's one-release rule provides exactly this by construction, and the precondition dissolves.
 
 ## Wire protocol
@@ -238,23 +234,23 @@ The stash, the cascade rule, and the ordered flush are reused as-is, but everyth
 - Overrun histogram — time from budget expiry to batch completion; this is the tail the checkpoints cannot cut, and the input for choosing which steps need a time policy of their own.
 - Consumer side — partial acks, messages redelivered after partial, budget-exempt escalations.
 
-Shadow mode (`enforce: false`) records all of the above without changing any result, so budgets can run in production before the first cancelled event.
+There is no shadow mode: enforcement follows the wire, and the rollout ramp is consumer-side sizing — a generous budget enforces rarely, and each rare timeout exercises the real partial-ack path at negligible volume.
 
 ## Rollout
 
-1. **Framework** — `TIMEOUT`, `BatchBudget`, the per-feed budget argument, the two checkpoints, metrics, shadow mode, a framework docs chapter, and stall-investigation cases for the count invariant and within-batch prefix property under budgets.
+1. **Framework** — `TIMEOUT`, `BatchBudget`, the per-feed budget argument, the two checkpoints, metrics, a framework docs chapter, and stall-investigation cases for the count invariant and within-batch prefix property under budgets.
    The budget argument defaults to unlimited: zero behavior change, and no optional-budget code path ever exists.
 2. **Consumer per-key serialization** — before enforcement, the consumer must never keep two sub-batches with the same routing key in flight (§ the ordering hazard): a dispatcher hold on keys with unacked messages, or the driver model's one-release rule.
-   Budgets run shadow-only until this holds.
-3. **Wire + worker** — proto fields, `PARTIAL` acks in `WorkerIngestServer`, dispositions in `GrpcStreamIngestDriver`, and the wire-driven budget factory; the worker's only budget knob is the shadow/enforce rollout flag (gating, not sizing).
-   Run shadow in production; read the overrun and would-have-cancelled metrics.
+   Budgets stay unsent (`soft_budget_ms = 0`) until this holds.
+3. **Wire + worker** — proto fields, `PARTIAL` acks in `WorkerIngestServer`, dispositions in `GrpcStreamIngestDriver`, and the budget built at the driver's feed call; the worker has no budget knob at all — enforcement follows the wire.
+   Inert in production until a consumer sends a budget.
 4. **Consumer** — proto regen, budget stamping, the per-message reply shape with chunk index remapping, the mixed resolve path, completed-only watermarks, the escalation ladder, and e2e coverage in `grpc_transport_test.rs` and the integration harness.
    Enable end to end, budget ≈ 0.5 × watchdog.
 5. **Per-step time policy** — for the steps the overrun metrics indict (person merge internals, hog transformer fetches), design separate step-level configuration that derives per-call client deadlines from the batch budget without changing step signatures.
 
 ## Implementation plan (commit by commit)
 
-The rollout stages above are deployment stages; this section is the review story — the sequence of commits, each one concern, each leaving the tree green (typecheck plus the touched area's tests) and the pipeline's behavior unchanged until the enforce flag turns on.
+The rollout stages above are deployment stages; this section is the review story — the sequence of commits, each one concern, each leaving the tree green (typecheck plus the touched area's tests) and the pipeline's behavior unchanged until a consumer sends a budget.
 Commit subjects are fixed; a commit that cannot be built as specified is a finding to report, not a license to restructure silently.
 
 ### Phase A — framework core (commits 1–7)
@@ -266,21 +262,21 @@ Everything here is inert: no code constructs a limited budget until Phase C buil
    Every exhaustive switch over the union updates in the same commit with the no-op semantics: result handling neither produces nor DLQs, and a fan-out parent times out when a sub-result does.
    Reviewable alone as: the union grows one "handled elsewhere, redeliver" member that nothing yet emits.
 2. `feat(ingestion): add BatchBudget with a soft deadline`
-   New `batch-budget.ts` exactly per the framework interface section: `softDeadline()`, `unlimited()`, the framework-internal `signal`, `softAt`, `enforce`, `remainingMs`, `exhausted`, `abort()`.
+   New `batch-budget.ts` exactly per the framework interface section: `softDeadline()`, the `unlimited()` singleton, `softAt`, `exhausted` (flipped once by an internal unref'd timer — no clock call on the hot path), `settle()`.
    Unit tests with fake timers.
    No consumers yet.
 3. `feat(ingestion): feed a budget with each batch`
    `feed()` gains a third argument defaulting to the unlimited budget; `feedSerialized` stamps it into each element's context next to `messageId`; `fanOut` / `filterMap` sub-contexts copy it like `debugContext`.
    Zero behavior change; tests assert the stamp, the copy, and the default.
 4. `feat(ingestion): soft-budget checkpoint in StepPipeline`
-   `StepPipeline.process` checks the element's budget (from its context) before invoking a step on an OK result: exhausted → `timeout('budget exceeded before <step>')` when `enforce`, metric only in shadow.
+   `StepPipeline.process` checks the element's budget (from its context) before invoking a step on an OK result: exhausted → `timeout('budget exceeded before <step>')`.
    The step itself is invoked with one argument and sees nothing.
-   Tests: mid-chain expiry short-circuits all later steps; shadow mode changes nothing.
+   Tests: mid-chain expiry short-circuits all later steps.
 5. `feat(ingestion): soft-budget checkpoint for chunk steps`
    `applyChunkStepToResults` partitions per element — exhausted OK elements become timeout and pass through, the step runs on the remainder — because one chunk can mix elements from batches with different budgets.
    Tests cover the mixed-budget chunk.
 6. `feat(ingestion): budget observability`
-   `ingestion_batch_budget_checkpoint_total`, `ingestion_batch_budget_exhausted_total`, and the overrun histogram (budget expiry → batch completion) land in `metrics.ts`, emitted from the checkpoints and from `BatchingPipeline` at batch completion, each carrying the shadow/enforce mode label.
+   `ingestion_batch_budget_checkpoint_total`, `ingestion_batch_budget_exhausted_total`, and the overrun histogram (budget expiry → batch completion) land in `metrics.ts`, emitted from the checkpoints and from `BatchingPipeline` at batch completion, which also settles the budget's timer.
 7. `chore(ingestion): framework docs chapter and invariant cases for budgets`
    A new executable docs chapter (`18-batch-budgets.test.ts`) in the house style, plus invariant cases: the N-in/N-out count invariant under budget expiry, and the within-batch per-key prefix property.
 
@@ -290,7 +286,7 @@ Everything here is inert: no code constructs a limited budget until Phase C buil
    The proto changes from the wire-protocol section verbatim (`soft_budget_ms = 6`, `SUB_BATCH_STATUS_PARTIAL = 4`, `timed_out = 5`), with regenerated code per `proto/README.md`.
    Nothing reads or writes the new fields yet.
 9. `feat(ingestion): build the wire soft budget at feed`
-   `WorkerIngestServer` stamps `armedAt` at frame read and hands the wire allowance to the driver, which builds the batch's budget at its feed call — `0 → unlimited`, else a soft deadline at `armedAt + budget` via the shared helper — gated by the worker's shadow/enforce flag (default shadow).
+   `WorkerIngestServer` stamps `armedAt` at frame read and hands the wire allowance to the driver, which builds the batch's budget at its feed call — `0 → unlimited`, else a soft deadline at `armedAt + budget` via the shared helper.
 10. `feat(ingestion): time out parked sub-batches at admission`
     The admission wait races the soft deadline via the shared helper; a sub-batch that expires parked acks `PARTIAL` with every message timed out, without being fed.
 11. `feat(ingestion): PARTIAL acks with per-message dispositions`
@@ -300,7 +296,7 @@ Everything here is inert: no code constructs a limited budget until Phase C buil
 ### Phase D — consumer (follow-up PR, commits 12–18)
 
 This branch stays on the Node.js side; the consumer commits land in a follow-up PR.
-The wire compatibility rules make the split safe: an old consumer treats `PARTIAL` as retriable `BUSY`, and the worker ships in shadow mode, where no `PARTIAL` ack is ever produced.
+The wire compatibility rules make the split safe: an old consumer treats `PARTIAL` as retriable `BUSY`, and no consumer sends a budget yet, so the worker's budgets are all unlimited and no `PARTIAL` ack is ever produced.
 
 12. `feat(ingestion-consumer): stamp the sub-batch soft budget from config`
     `INGESTION_WORKER_SUB_BATCH_SOFT_BUDGET_MS` (default 0 — today's semantics), stamped on every `SubBatch`.
@@ -327,6 +323,8 @@ Out of scope for this branch: the consumer (Phase D, a follow-up PR), a per-step
 - **A worker-side hard deadline** — a second deadline at which the framework stops _waiting_: settle the batch where it stands, track stranded continuations in a zombie registry that swallows their late results, cap the zombies for backpressure.
   Designed, implemented, and dropped: production step timings show single-step overruns are vanishingly rare and uncorrelated with lag — lag is many cheap events, not one slow one — so the soft deadline recovers the batch and the watchdog already fences the rare wedged step.
   The zombie bookkeeping and its store-write semantics were real complexity buying a third ladder rung the system does not need.
+- **A worker-side shadow/enforce flag** — a rollout gate that would record what enforcement would have done without changing results.
+  Dropped: shadow could never exercise the `PARTIAL` path it was meant to de-risk, while a generously sized budget enforces rarely and tests the real path at negligible volume — so the consumer's sizing is the better ramp, and the worker keeps zero budget configuration.
 - **A separate `rejected` disposition for elements refused without being attempted** — carried while the order gate existed, dropped with it.
   The consumer treats every unacked message the same way (redeliver), and the escalation ladder counts every `timed_out` — admission-queue expiries included, which is benign.
   A refusal disposition can return as a new ack field when something real produces it.
