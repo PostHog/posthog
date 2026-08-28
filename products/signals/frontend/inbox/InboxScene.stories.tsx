@@ -121,7 +121,10 @@ const LEGACY_FLAGS = {
 }
 
 export const Legacy: Story = {
-    parameters: { featureFlags: LEGACY_FLAGS },
+    parameters: {
+        featureFlags: LEGACY_FLAGS,
+        testOptions: { waitForLoadersToDisappear: true },
+    },
     decorators: [routeTo(urls.inbox('pulls'))],
 }
 

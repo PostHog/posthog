@@ -1316,6 +1316,7 @@ export const productUrls = {
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
+    mcpAnalytics: (): string => '/mcp-analytics',
     mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
     mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
     mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
@@ -1667,6 +1668,11 @@ export const fileSystemTypes = {
 
 /** This const is auto-generated, as is the whole file */
 export const productSetupProbes: ProductSetupProbe[] = [
+    {
+        productKey: ProductKey.AI_OBSERVABILITY,
+        hasDataEvents: ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding'],
+        staleAfterDays: 90,
+    },
     {
         productKey: ProductKey.MCP_ANALYTICS,
         hasDataEvents: ['$mcp_tool_call'],
@@ -2301,7 +2307,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'var(--color-product-mcp-analytics-light)',
             'var(--color-product-mcp-analytics-dark)',
         ] as FileSystemIconColor,
-        href: urls.mcpAnalyticsDashboard(),
+        href: urls.mcpAnalytics(),
         flag: FEATURE_FLAGS.MCP_ANALYTICS,
         tags: ['beta'],
         sceneKey: 'MCPAnalytics',

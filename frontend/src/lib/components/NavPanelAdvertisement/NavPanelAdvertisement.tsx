@@ -9,19 +9,15 @@ import { userLogic } from 'scenes/userLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { CampaignPayload, isCampaignPayload } from './navPanelAdShared'
-import { navPanelAdvertisementRecommendedLogic } from './navPanelAdvertisementRecommendedLogic'
 import { NavPanelCampaignAd } from './NavPanelCampaignAd'
 import { NavPanelCmdKAd } from './NavPanelCmdKAd'
 import { NavPanelProductPushAd } from './NavPanelProductPushAd'
 import { navPanelProductPushLogic } from './navPanelProductPushLogic'
-import { NavPanelRecommendationAd } from './NavPanelRecommendationAd'
 
 /** Give people a few days of real usage before nudging them about search - day-one users have nothing to search for yet. */
 const CMD_K_AD_MIN_DAYS_SINCE_JOINING = 3
 
 export function NavPanelAdvertisement(): JSX.Element | null {
-    const logic = navPanelAdvertisementRecommendedLogic()
-    const { oldestRecommendedProduct } = useValues(logic)
     const { activeCampaign } = useValues(navPanelProductPushLogic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
@@ -54,9 +50,5 @@ export function NavPanelAdvertisement(): JSX.Element | null {
         return <NavPanelProductPushAd campaign={activeCampaign} />
     }
 
-    if (!oldestRecommendedProduct) {
-        return null
-    }
-
-    return <NavPanelRecommendationAd recommendedProduct={oldestRecommendedProduct} />
+    return null
 }

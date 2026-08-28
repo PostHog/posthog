@@ -187,6 +187,17 @@ export const TextOnlyNotebook: Story = {
     },
 }
 
+export const CanvasHeader: Story = {
+    args: {
+        value: textNotebook,
+        canvasHeader: (
+            <div className="mb-2 w-full rounded border border-primary bg-surface-secondary p-2">
+                A panel in the canvas header takes the same left and right edges as the blocks below it.
+            </div>
+        ),
+    },
+}
+
 export const HeadingsAndInlineFormatting: Story = {
     args: {
         value: `# Heading 1
