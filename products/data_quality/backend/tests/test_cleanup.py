@@ -2,12 +2,17 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
     CheckType,
+    SubjectRelation,
     SubjectType,
     SuiteRunStatus,
     SuiteRunTrigger,
@@ -25,6 +30,8 @@ from products.data_quality.backend.temporal.activities.cleanup import (
     SUITE_RUN_RETENTION_DAYS,
     _cleanup,
 )
+
+BATCH_SIZE = "products.data_quality.backend.temporal.activities.cleanup.RETENTION_DELETE_BATCH_SIZE"
 
 
 class TestRetentionSweep(BaseTest):
@@ -106,13 +113,50 @@ class TestRetentionSweep(BaseTest):
         self._run()  # a newer run for the same check, so the aged one ages out
         for _ in range(3):
             DataQualityCheckRunSubject.objects.for_team(self.team.id).create(
-                team=self.team, run=aged, subject_type=SubjectType.VIEW, subject_uuid=uuid4()
+                team=self.team,
+                run=aged,
+                relation=SubjectRelation.REFERENCED,
+                subject_type=SubjectType.VIEW,
+                subject_uuid=uuid4(),
             )
 
         outcome = _cleanup()
 
         assert outcome.check_runs_deleted == 1
         assert not DataQualityCheckRunSubject.objects.unscoped().filter(run_id=aged.id).exists()
+
+    def test_expired_runs_are_deleted_one_batch_at_a_time(self) -> None:
+        recent = self._run()
+        aged = [self._run(age_days=CHECK_RUN_RETENTION_DAYS + 1) for _ in range(3)]
+        for run in aged:
+            DataQualityCheckRunSubject.objects.for_team(self.team.id).create(
+                team=self.team,
+                run=run,
+                relation=SubjectRelation.REFERENCED,
+                subject_type=SubjectType.VIEW,
+                subject_uuid=uuid4(),
+            )
+
+        with patch(BATCH_SIZE, 1), CaptureQueriesContext(connection) as queries:
+            outcome = _cleanup()
+
+        assert outcome.check_runs_deleted == 3
+        assert set(DataQualityCheckRun.objects.unscoped().values_list("id", flat=True)) == {recent.id}
+        assert not DataQualityCheckRunSubject.objects.unscoped().exists()
+        run_delete = f'DELETE FROM "{DataQualityCheckRun._meta.db_table}"'
+        assert sum(run_delete in query["sql"] for query in queries.captured_queries) == 3
+
+    def test_expired_suites_are_deleted_one_batch_at_a_time(self) -> None:
+        for _ in range(3):
+            self._suite(age_days=SUITE_RUN_RETENTION_DAYS + 1)
+
+        with patch(BATCH_SIZE, 1), CaptureQueriesContext(connection) as queries:
+            outcome = _cleanup()
+
+        assert outcome.suite_runs_deleted == 3
+        assert not DataQualitySuiteRun.objects.unscoped().exists()
+        suite_delete = f'DELETE FROM "{DataQualitySuiteRun._meta.db_table}"'
+        assert sum(suite_delete in query["sql"] for query in queries.captured_queries) == 3
 
     def test_an_aged_run_whose_check_is_gone_ages_out_unconditionally(self) -> None:
         orphan = self._run(age_days=CHECK_RUN_RETENTION_DAYS + 1, quality_check=None)

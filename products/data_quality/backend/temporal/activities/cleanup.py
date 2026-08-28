@@ -1,6 +1,8 @@
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from asgiref.sync import sync_to_async
 from temporalio import activity
@@ -18,6 +20,23 @@ CHECK_RUN_RETENTION_DAYS = 365
 SUITE_RUN_RETENTION_DAYS = 90
 STALE_SUITE_HOURS = 24
 STALE_SUITE_ERROR = "The workflow stopped without recording a result."
+RETENTION_DELETE_BATCH_SIZE = 1_000
+
+
+def _delete_in_batches(queryset: "QuerySet[Any]") -> dict[str, int]:
+    """Delete a queryset in id-batches, returning how many rows went per model label.
+
+    One unbounded ``.delete()`` loads every matched row and everything that cascades with it into
+    Django's collector. Each run drags its subject rows in, and each suite its check runs, so capping
+    the parent rows per pass bounds that memory whatever the reverse relations pull along.
+    """
+    model = queryset.model
+    totals: dict[str, int] = defaultdict(int)
+    while ids := list(queryset.values_list("id", flat=True)[:RETENTION_DELETE_BATCH_SIZE]):
+        _, by_model = model.objects.unscoped().filter(id__in=ids).delete()
+        for label, count in by_model.items():
+            totals[label] += count
+    return totals
 
 
 @activity.defn
@@ -37,22 +56,19 @@ def _cleanup() -> CleanupOutcome:
     )
 
     has_newer_run = runs.filter(quality_check_id=OuterRef("quality_check_id"), created_at__gt=OuterRef("created_at"))
-    # .delete() returns the total across every cascaded model. Count only the runs -- the subject
-    # index rows that cascade with each run would otherwise inflate the reported figure.
-    _, deleted_by_model = (
-        runs.filter(created_at__lt=now - timedelta(days=CHECK_RUN_RETENTION_DAYS))
-        .filter(Q(quality_check_id__isnull=True) | Exists(has_newer_run))
-        .delete()
+    expired_runs = runs.filter(created_at__lt=now - timedelta(days=CHECK_RUN_RETENTION_DAYS)).filter(
+        Q(quality_check_id__isnull=True) | Exists(has_newer_run)
     )
-    runs_deleted = deleted_by_model.get(DataQualityCheckRun._meta.label, 0)
+    # Count only the runs -- the subject rows that cascade with each one would otherwise inflate it.
+    runs_deleted = _delete_in_batches(expired_runs).get(DataQualityCheckRun._meta.label, 0)
 
     backs_a_run = DataQualityCheckRun.objects.unscoped().filter(suite_run_id=OuterRef("id"))
-    suites_deleted, _ = (
+    expired_suites = (
         DataQualitySuiteRun.objects.unscoped()
         .filter(created_at__lt=now - timedelta(days=SUITE_RUN_RETENTION_DAYS))
         .filter(~Exists(backs_a_run))
-        .delete()
     )
+    suites_deleted = _delete_in_batches(expired_suites).get(DataQualitySuiteRun._meta.label, 0)
 
     stale_failed = (
         DataQualitySuiteRun.objects.unscoped()
