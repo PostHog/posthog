@@ -362,9 +362,10 @@ def _build_ai_slack_message(
     delivery_id: uuid.UUID,
     integration: Integration | None = None,
     charts: list[dict] | None = None,
+    target_value: str | None = None,
 ) -> SlackMessage:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
-    channel = subscription.target_value.split("|")[0]
+    channel = (target_value if target_value is not None else subscription.target_value).split("|")[0]
     sections = _split_text_into_chunks(_SLACK_CONVERTER.convert(strip_external_links_markdown(markdown)))
     title = subscription.title or "Your PostHog AI report"
     first_section = sections[0] if sections else "_No report content was generated._"
@@ -433,10 +434,16 @@ async def send_slack_ai_subscription_report(
     integration: Integration,
     delivery_id: uuid.UUID,
     charts: list[dict] | None = None,
+    target_value: str | None = None,
 ) -> SlackDeliveryResult:
     def build(with_charts: list[dict] | None) -> SlackMessage:
         return _build_ai_slack_message(
-            subscription, markdown, delivery_id=delivery_id, integration=integration, charts=with_charts
+            subscription,
+            markdown,
+            delivery_id=delivery_id,
+            integration=integration,
+            charts=with_charts,
+            target_value=target_value,
         )
 
     try:

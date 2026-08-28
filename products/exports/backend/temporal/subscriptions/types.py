@@ -106,6 +106,9 @@ AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
 # (exactly gap-free); rows written before this key existed fall back to finished_at.
 AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
 AI_REPORT_CHARTS_KEY = "ai_report_charts"
+# A short-lived ownership lease prevents overlapping Temporal attempts from both paying to
+# generate the same report when an earlier worker outlives its activity timeout.
+AI_REPORT_GENERATION_CLAIM_KEY = "ai_report_generation_claim"
 # Every AI delivery writes this marker to SubscriptionDeliveryContext. Its presence distinguishes
 # relational provenance rows from historical deliveries recorded before that table existed.
 AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND = "ai_report"

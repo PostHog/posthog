@@ -96,7 +96,7 @@ export function SubscriptionContextPicker({
                     !contextEnabled
                         ? 'Report context is not enabled for your account.'
                         : contextCount >= MAX_CONTEXTS
-                          ? `You can add up to ${MAX_CONTEXTS} context items`
+                          ? `Context limit reached (${MAX_CONTEXTS}). Remove a context item to add another.`
                           : undefined
                 }
             />

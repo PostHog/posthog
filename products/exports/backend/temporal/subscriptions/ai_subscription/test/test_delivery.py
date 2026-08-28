@@ -231,6 +231,13 @@ class TestBuildChartImageUrls:
 
 
 class TestChartsOnSlackMessages:
+    def test_delivery_target_overrides_the_current_subscription_target(self) -> None:
+        message = _build_ai_slack_message(
+            _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, target_value="C456|#reports"
+        )
+
+        assert message.channel == "C456"
+
     def test_charts_follow_the_report_text(self) -> None:
         message = _build_ai_slack_message(
             _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART]

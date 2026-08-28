@@ -43,6 +43,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
     AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
     AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_GENERATION_CLAIM_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
     AI_REPORT_WINDOW_END_KEY,
@@ -67,6 +68,7 @@ LOGGER = get_logger(__name__)
 # If the org's AI-credit balance isn't synced yet, reschedule roughly a billing cycle out so a
 # skipped sub still moves forward instead of re-firing every tick.
 _CREDIT_RESET_FALLBACK_DAYS = 31
+_AI_REPORT_GENERATION_CLAIM_LEASE = dt.timedelta(minutes=15)
 _AI_CONTEXT_ACCESS_REVOKED_DISABLE_REASON = DisableReason(
     key="ai_context_access_revoked",
     description="A report context is no longer accessible",
@@ -86,6 +88,72 @@ async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
         return snapshot if isinstance(snapshot, dict) else None
 
     return await _read()
+
+
+async def _load_delivery_target(delivery_id: uuid.UUID) -> tuple[str, str] | None:
+    """Return the destination frozen when this delivery was created."""
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _read() -> tuple[str, str] | None:
+        try:
+            return SubscriptionDelivery.objects.values_list("target_type", "target_value").get(pk=delivery_id)
+        except SubscriptionDelivery.DoesNotExist:
+            return None
+
+    return await _read()
+
+
+async def _claim_ai_report_generation(delivery_id: uuid.UUID) -> str | None:
+    """Claim report generation, or return None when another attempt already owns it."""
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _claim() -> str | None:
+        with transaction.atomic():
+            delivery = SubscriptionDelivery.objects.select_for_update().get(pk=delivery_id)
+            snapshot = delivery.content_snapshot if isinstance(delivery.content_snapshot, dict) else {}
+            if _snapshot_report(snapshot) is not None:
+                return None
+
+            now = tz.now()
+            claim = snapshot.get(AI_REPORT_GENERATION_CLAIM_KEY)
+            if isinstance(claim, dict) and isinstance(claim.get("expires_at"), str):
+                try:
+                    if datetime.fromisoformat(claim["expires_at"]) > now:
+                        return None
+                except ValueError:
+                    pass
+
+            token = str(uuid.uuid4())
+            delivery.content_snapshot = {
+                **snapshot,
+                AI_REPORT_GENERATION_CLAIM_KEY: {
+                    "token": token,
+                    "expires_at": (now + _AI_REPORT_GENERATION_CLAIM_LEASE).isoformat(),
+                },
+            }
+            delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+            return token
+
+    return await _claim()
+
+
+async def _release_ai_report_generation_claim(delivery_id: uuid.UUID, token: str) -> None:
+    """Release this attempt's claim without disturbing a later attempt's replacement lease."""
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _release() -> None:
+        with transaction.atomic():
+            delivery = SubscriptionDelivery.objects.select_for_update().get(pk=delivery_id)
+            snapshot = delivery.content_snapshot if isinstance(delivery.content_snapshot, dict) else {}
+            claim = snapshot.get(AI_REPORT_GENERATION_CLAIM_KEY)
+            if not isinstance(claim, dict) or claim.get("token") != token:
+                return
+            delivery.content_snapshot = {
+                key: value for key, value in snapshot.items() if key != AI_REPORT_GENERATION_CLAIM_KEY
+            }
+            delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+
+    await _release()
 
 
 def _delivery_context_is_accessible(subscription: Subscription, delivery_id: uuid.UUID) -> bool | None:
@@ -163,17 +231,26 @@ async def _persist_ai_report(
     result: AiReportResult,
     prompt: str | None,
     context_references: list[tuple[str, str]] | None = None,
-) -> None:
+    generation_claim_token: str | None = None,
+) -> bool:
     @database_sync_to_async(thread_sensitive=False)
-    def _write() -> None:
+    def _write() -> bool:
         # No DoesNotExist guard: create_delivery_record always writes this row before
         # generation runs, so a missing row is a wiring bug — let it raise loudly.
         with transaction.atomic():
             delivery = SubscriptionDelivery.objects.select_for_update().get(pk=delivery_id)
+            existing_snapshot = delivery.content_snapshot if isinstance(delivery.content_snapshot, dict) else {}
+            claim = existing_snapshot.get(AI_REPORT_GENERATION_CLAIM_KEY)
+            if generation_claim_token is not None and (
+                not isinstance(claim, dict) or claim.get("token") != generation_claim_token
+            ):
+                # A timed-out attempt's lease expired and another attempt now owns generation.
+                # Never let the older worker overwrite the newer attempt's result or provenance.
+                return False
             # LLM output and the user prompt can carry NUL bytes that Postgres text/jsonb reject;
             # scrub them here (payloads are small) as they are the untrusted inputs on this write path.
             delivery.content_snapshot = {
-                **(delivery.content_snapshot or {}),
+                **existing_snapshot,
                 AI_REPORT_SNAPSHOT_KEY: strip_null_bytes(result.markdown),
                 AI_REPORT_DIAGNOSTICS_KEY: strip_null_bytes([dataclasses.asdict(d) for d in result.diagnostics]),
                 AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
@@ -181,6 +258,7 @@ async def _persist_ai_report(
                 # prompt is None for non-AI subs; "" if cleared — omit either.
                 **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
             }
+            delivery.content_snapshot.pop(AI_REPORT_GENERATION_CLAIM_KEY, None)
             delivery.save(update_fields=["content_snapshot", "last_updated_at"])
             if context_references is not None:
                 canonical_team_id = resolve_effective_team_id(delivery.team_id)
@@ -201,8 +279,9 @@ async def _persist_ai_report(
                     ],
                     ignore_conflicts=True,
                 )
+            return True
 
-    await _write()
+    return await _write()
 
 
 async def _replace_delivery_context_references(
@@ -332,7 +411,8 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
 
     # Idempotency on Temporal redispatch: if a prior attempt already produced the report,
     # don't re-bill the LLM — the point of the generate -> deliver split is one LLM run.
-    # One snapshot read serves both the "already generated?" check and the prior failure shape.
+    # The read is only a fast path; `_claim_ai_report_generation` below makes the check-and-claim
+    # atomic for overlapping attempts when a timed-out worker is still running.
     snapshot = await _load_snapshot(inputs.delivery_id)
     if _snapshot_report(snapshot) is not None:
         await LOGGER.ainfo("generate_ai_subscription_report.already_generated", subscription_id=subscription.id)
@@ -345,106 +425,129 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             target_type=subscription.target_type,
         )
 
-    # Consent is gated once here, before any LLM cost — creation-time gates don't catch an
-    # org that revokes AI-data-processing approval later. Auto-disable so it stops re-firing.
-    if not subscription.team.organization.is_ai_data_processing_approved:
-        LOGGER.warning("generate_ai_subscription_report.consent_revoked", subscription_id=subscription.id)
-        aborted = await auto_disable_and_return(subscription, AI_CONSENT_REVOKED_DISABLE_REASON, [])
-        return GenerateAIReportResult(
-            aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
-        )
-
-    # Gate on AI credits before any LLM cost — but only past the idempotency check above, so an
-    # already-generated report (its tokens already spent) still ships. The interactive Max path
-    # enforces this same limit in ee/api/conversation.py; scheduled reports need their own check
-    # or they'd keep spending against an exhausted balance. Fail open: a transient quota-lookup
-    # error shouldn't drop a deliverable report. The check reads Redis (not the DB), so
-    # sync_to_async — but the reschedule below writes the row, so that stays database_sync_to_async.
-    try:
-        over_credit_budget = await sync_to_async(is_team_over_ai_credit_budget, thread_sensitive=False)(
-            subscription.team.api_token
-        )
-    except Exception as exc:
-        over_credit_budget = False
-        LOGGER.warning(
-            "generate_ai_subscription_report.ai_credit_budget_check_failed",
-            subscription_id=subscription.id,
-            error=str(exc),
-            exc_info=True,
-        )
-        # Fail-open is invisible to alerting otherwise — the report ships while billing against a
-        # possibly-exhausted balance, the exact failure mode this gate exists to prevent.
-        await sync_to_async(_capture_ai_credit_event, thread_sensitive=False)(
-            subscription, "ai_subscription_credit_check_failed", {"error": str(exc)}
-        )
-    if over_credit_budget:
-        reset_date = await database_sync_to_async(_skip_ai_delivery_over_credit_limit_sync, thread_sensitive=False)(
-            subscription
-        )
-        LOGGER.warning(
-            "generate_ai_subscription_report.ai_skipped_over_credit_limit",
-            subscription_id=subscription.id,
-            team_id=subscription.team_id,
-            resumes_at=reset_date.isoformat(),
-        )
-        # skipped=True → the workflow records SKIPPED (not FAILED — the sub isn't broken) and skips
-        # delivery; the sub stays enabled and advance_next_delivery_date recomputes from the reset.
-        return GenerateAIReportResult(skipped=True, target_type=subscription.target_type)
+    generation_claim_token = await _claim_ai_report_generation(inputs.delivery_id)
+    if generation_claim_token is None:
+        # Either the report won the race and is now persisted, or another attempt still holds the
+        # lease. Re-read once to distinguish the two without paying for duplicate LLM work.
+        snapshot = await _load_snapshot(inputs.delivery_id)
+        if _snapshot_report(snapshot) is not None:
+            counts = _snapshot_diagnostic_counts(snapshot)
+            return GenerateAIReportResult(
+                aborted=False,
+                failed_step_count=counts.failed_step_count,
+                total_step_count=counts.total_step_count,
+                query_error_types=counts.error_types,
+                target_type=subscription.target_type,
+            )
+        raise ApplicationError("AI report generation is already in progress")
 
     try:
-        context = await resolve_ai_subscription_context(subscription)
-        if context.anchor_unavailable:
-            # A report anchored to a dashboard or insight must not silently broaden to project-wide
-            # scope when that anchor cannot be resolved. Skipping this delivery avoids sending an
-            # ungrounded report and leaves the subscription enabled for its next scheduled run.
-            await LOGGER.awarning(
-                "generate_ai_subscription_report.anchor_context_unavailable",
+        # Consent is gated once here, before any LLM cost — creation-time gates don't catch an
+        # org that revokes AI-data-processing approval later. Auto-disable so it stops re-firing.
+        if not subscription.team.organization.is_ai_data_processing_approved:
+            LOGGER.warning("generate_ai_subscription_report.consent_revoked", subscription_id=subscription.id)
+            aborted = await auto_disable_and_return(subscription, AI_CONSENT_REVOKED_DISABLE_REASON, [])
+            return GenerateAIReportResult(
+                aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
+            )
+
+        # Gate on AI credits before any LLM cost — but only past the idempotency check above, so an
+        # already-generated report (its tokens already spent) still ships. The interactive Max path
+        # enforces this same limit in ee/api/conversation.py; scheduled reports need their own check
+        # or they'd keep spending against an exhausted balance. Fail open: a transient quota-lookup
+        # error shouldn't drop a deliverable report. The check reads Redis (not the DB), so
+        # sync_to_async — but the reschedule below writes the row, so that stays database_sync_to_async.
+        try:
+            over_credit_budget = await sync_to_async(is_team_over_ai_credit_budget, thread_sensitive=False)(
+                subscription.team.api_token
+            )
+        except Exception as exc:
+            over_credit_budget = False
+            LOGGER.warning(
+                "generate_ai_subscription_report.ai_credit_budget_check_failed",
+                subscription_id=subscription.id,
+                error=str(exc),
+                exc_info=True,
+            )
+            # Fail-open is invisible to alerting otherwise — the report ships while billing against a
+            # possibly-exhausted balance, the exact failure mode this gate exists to prevent.
+            await sync_to_async(_capture_ai_credit_event, thread_sensitive=False)(
+                subscription, "ai_subscription_credit_check_failed", {"error": str(exc)}
+            )
+        if over_credit_budget:
+            reset_date = await database_sync_to_async(_skip_ai_delivery_over_credit_limit_sync, thread_sensitive=False)(
+                subscription
+            )
+            LOGGER.warning(
+                "generate_ai_subscription_report.ai_skipped_over_credit_limit",
                 subscription_id=subscription.id,
                 team_id=subscription.team_id,
+                resumes_at=reset_date.isoformat(),
             )
+            # skipped=True → the workflow records SKIPPED (not FAILED — the sub isn't broken) and skips
+            # delivery; the sub stays enabled and advance_next_delivery_date recomputes from the reset.
             return GenerateAIReportResult(skipped=True, target_type=subscription.target_type)
-        context_references = context.anchor.resource_references if context.anchor else []
-        report_result = await build_ai_subscription_report(subscription, context=context)
-    except AnchorContextAccessDenied:
-        aborted = await auto_disable_and_return(subscription, _AI_CONTEXT_ACCESS_REVOKED_DISABLE_REASON, [])
-        return GenerateAIReportResult(
-            aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
-        )
-    except PromptRejectedError as exc:
-        # Structurally permanent: no creator, prompt now fails sanitization, or the
-        # planner returned a malformed plan. Re-firing wastes LLM tokens every cycle.
-        LOGGER.warning(
-            "generate_ai_subscription_report.prompt_rejected",
-            subscription_id=subscription.id,
-            reason=str(exc),
-        )
-        _capture_delivery_failed_event(subscription, exc)
-        # Seed a recipient result with the exception detail first — it carries planner
-        # context that the disable reason (appended next by `auto_disable_and_return`)
-        # doesn't.
-        # PromptRejectedError messages are handcrafted rejections (empty/too long/no creator), safe to show.
-        recipient_results = [
-            RecipientResult(
-                recipient=subscription.target_value,
-                status="failed",
-                error={"message": str(exc), "type": "PromptRejectedError"},
-                human_readable_error=str(exc),
-            )
-        ]
-        aborted = await auto_disable_and_return(subscription, AI_PROMPT_INVALID_DISABLE_REASON, recipient_results)
-        return GenerateAIReportResult(
-            aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
-        )
 
-    await _persist_ai_report(inputs.delivery_id, report_result, subscription.prompt, context_references)
-    counts = _report_diagnostic_counts(report_result)
-    return GenerateAIReportResult(
-        aborted=False,
-        failed_step_count=counts.failed_step_count,
-        total_step_count=counts.total_step_count,
-        query_error_types=counts.error_types,
-        target_type=subscription.target_type,
-    )
+        try:
+            context = await resolve_ai_subscription_context(subscription)
+            if context.anchor_unavailable:
+                # A report anchored to a dashboard or insight must not silently broaden to project-wide
+                # scope when that anchor cannot be resolved. Skipping this delivery avoids sending an
+                # ungrounded report and leaves the subscription enabled for its next scheduled run.
+                await LOGGER.awarning(
+                    "generate_ai_subscription_report.anchor_context_unavailable",
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                )
+                return GenerateAIReportResult(skipped=True, target_type=subscription.target_type)
+            context_references = context.anchor.resource_references if context.anchor else []
+            report_result = await build_ai_subscription_report(subscription, context=context)
+        except AnchorContextAccessDenied:
+            aborted = await auto_disable_and_return(subscription, _AI_CONTEXT_ACCESS_REVOKED_DISABLE_REASON, [])
+            return GenerateAIReportResult(
+                aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
+            )
+        except PromptRejectedError as exc:
+            # Structurally permanent: no creator, prompt now fails sanitization, or the
+            # planner returned a malformed plan. Re-firing wastes LLM tokens every cycle.
+            LOGGER.warning(
+                "generate_ai_subscription_report.prompt_rejected",
+                subscription_id=subscription.id,
+                reason=str(exc),
+            )
+            _capture_delivery_failed_event(subscription, exc)
+            # Seed a recipient result with the exception detail first — it carries planner
+            # context that the disable reason (appended next by `auto_disable_and_return`)
+            # doesn't.
+            # PromptRejectedError messages are handcrafted rejections (empty/too long/no creator), safe to show.
+            recipient_results = [
+                RecipientResult(
+                    recipient=subscription.target_value,
+                    status="failed",
+                    error={"message": str(exc), "type": "PromptRejectedError"},
+                    human_readable_error=str(exc),
+                )
+            ]
+            aborted = await auto_disable_and_return(subscription, AI_PROMPT_INVALID_DISABLE_REASON, recipient_results)
+            return GenerateAIReportResult(
+                aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
+            )
+
+        persisted = await _persist_ai_report(
+            inputs.delivery_id, report_result, subscription.prompt, context_references, generation_claim_token
+        )
+        if not persisted:
+            raise ApplicationError("AI report generation lease was lost")
+        counts = _report_diagnostic_counts(report_result)
+        return GenerateAIReportResult(
+            aborted=False,
+            failed_step_count=counts.failed_step_count,
+            total_step_count=counts.total_step_count,
+            query_error_types=counts.error_types,
+            target_type=subscription.target_type,
+        )
+    finally:
+        await _release_ai_report_generation_claim(inputs.delivery_id, generation_claim_token)
 
 
 async def _deliver_ai_subscription(
@@ -461,6 +564,13 @@ async def _deliver_ai_subscription(
 
     delivery_id = inputs.delivery_id
     snapshot = await _load_snapshot(delivery_id)
+    delivery_target = await _load_delivery_target(delivery_id)
+    if delivery_target is None:
+        raise ApplicationError(
+            f"AI delivery target missing for subscription {subscription.id} (delivery {inputs.delivery_id})",
+            non_retryable=True,
+        )
+    target_type, target_value = delivery_target
     markdown = _snapshot_report(snapshot)
     if markdown is None:
         # Generation persists the report before delivery is scheduled, so a missing report
@@ -488,7 +598,7 @@ async def _deliver_ai_subscription(
         (snapshot or {}).get(AI_REPORT_CHARTS_KEY) or [], team_id=subscription.team_id
     )
 
-    if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
+    if target_type == Subscription.SubscriptionTarget.EMAIL:
         # Dedup key for MessagingRecord: stable across this run's retries, unique per run so a re-test re-sends.
         workflow_run_id = temporalio.activity.info().workflow_run_id
         if workflow_run_id is None:
@@ -504,8 +614,8 @@ async def _deliver_ai_subscription(
                 charts=chart_images,
             )
 
-        return await deliver_email(subscription, inputs, recipient_results, _send_email)
-    if subscription.target_type == Subscription.SubscriptionTarget.SLACK:
+        return await deliver_email(subscription, inputs, recipient_results, _send_email, target_value=target_value)
+    if target_type == Subscription.SubscriptionTarget.SLACK:
         return await deliver_slack(
             subscription,
             recipient_results,
@@ -515,7 +625,9 @@ async def _deliver_ai_subscription(
                 integration=integration,
                 delivery_id=delivery_id,
                 charts=chart_images,
+                target_value=target_value,
             ),
+            target_value=target_value,
         )
     # `validate_subscription_for_delivery` auto-disables unsupported targets up front,
     # so reaching here means an invariant was violated.

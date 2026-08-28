@@ -799,6 +799,24 @@ describe('subscriptionLogic', () => {
         dashboardAiLogic.unmount()
     })
 
+    it('adds page context after flag hydration without remounting or discarding a draft', async () => {
+        const props = { dashboardId: 9, dashboardName: 'Growth', id: 'new' as const, contextEnabled: false }
+        const dashboardAiLogic = subscriptionLogic(props)
+        dashboardAiLogic.mount()
+        router.actions.push('/subscriptions/new')
+        await expectLogic(dashboardAiLogic).toFinishListeners()
+
+        subscriptionLogic({ ...props, contextEnabled: true })
+        expect(dashboardAiLogic.values.subscription).toMatchObject({ context_dashboards: [9] })
+
+        dashboardAiLogic.actions.setSubscriptionValue('title', 'Draft report')
+        subscriptionLogic({ ...props, contextEnabled: false })
+        subscriptionLogic({ ...props, contextEnabled: true })
+
+        expect(dashboardAiLogic.values.subscription.title).toEqual('Draft report')
+        dashboardAiLogic.unmount()
+    })
+
     it('caps combined context at 25 when the picker stays open', async () => {
         const capLogic = subscriptionLogic({ id: 'new' })
         capLogic.mount()

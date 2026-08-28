@@ -252,7 +252,7 @@ function EditSubscriptionForm({
 }: EditSubscriptionProps): JSX.Element {
     const dashboardId = dashboard?.id
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
-    const aiSubscriptionContextsEnabled = useFeatureFlag(FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXT)
+    const aiSubscriptionContextsEnabled = useFeatureFlag('SUBSCRIPTION_AI_CONTEXT')
     const logicProps = {
         id,
         insightShortId,

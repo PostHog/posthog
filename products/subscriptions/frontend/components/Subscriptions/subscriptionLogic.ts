@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -420,8 +420,8 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionLogic']),
     props({} as SubscriptionLogicProps),
     key(
-        ({ id, insightShortId, dashboardId, creationSource, contextEnabled }) =>
-            `${insightShortId || dashboardId}-${id ?? 'new'}-${creationSource ?? 'editor'}-${contextEnabled !== false}`
+        ({ id, insightShortId, dashboardId, creationSource }) =>
+            `${insightShortId || dashboardId}-${id ?? 'new'}-${creationSource ?? 'editor'}`
     ),
     connect(() => ({ values: [userLogic, ['user'], organizationLogic, ['currentOrganization']] })),
 
@@ -1004,6 +1004,33 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             }
         },
     })),
+
+    propsChanged(({ actions, props, values, cache }, oldProps) => {
+        // Feature flags hydrate after the form mounts. Keep the keyed form instance stable so
+        // hydration cannot discard a draft, then add contextual defaults exactly once.
+        if (
+            props.id === 'new' &&
+            props.contextEnabled &&
+            !oldProps.contextEnabled &&
+            values.subscriptionInitialized &&
+            !cache.contextDefaultsApplied
+        ) {
+            cache.contextDefaultsApplied = true
+            const defaults = newSubscriptionForProps(props)
+            const contextDefaults = {
+                context_dashboards: defaults.context_dashboards,
+                context_insights: defaults.context_insights,
+                contexts: defaults.contexts,
+            }
+            // Programmatic route defaults can mark the form touched. Do not reset a touched
+            // form, because that would make a user's in-progress draft look pristine.
+            if (values.subscriptionTouched) {
+                actions.setSubscriptionValues(contextDefaults)
+            } else {
+                actions.resetSubscription({ ...values.subscription, ...contextDefaults })
+            }
+        }
+    }),
 
     beforeUnload(({ actions, values, cache }) => ({
         // A form whose only "changes" are the programmatic prefill was never touched by the user —

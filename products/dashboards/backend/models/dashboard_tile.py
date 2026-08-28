@@ -1,6 +1,8 @@
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Q, QuerySet, UniqueConstraint
+from django.db.models import IntegerField, Q, QuerySet, UniqueConstraint, Value
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 
 from posthog.models.utils import UUIDModel, build_unique_relationship_check
@@ -112,7 +114,19 @@ class DashboardTile(models.Model):
     objects_including_soft_deleted: models.Manager["DashboardTile"] = models.Manager()
 
     class Meta:
-        indexes = [models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx")]
+        indexes = [
+            models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx"),
+            # Keeps the bounded AI-subscription context query ordered without sorting every tile
+            # on a selected dashboard. The expressions intentionally match anchor_context.py.
+            models.Index(
+                "dashboard",
+                Coalesce(Cast(KeyTextTransform("y", KeyTransform("sm", "layouts")), IntegerField()), Value(100)),
+                Coalesce(Cast(KeyTextTransform("x", KeyTransform("sm", "layouts")), IntegerField()), Value(100)),
+                "id",
+                name="dash_tile_anchor_layout_idx",
+                condition=Q(insight__isnull=False),
+            ),
+        ]
         constraints = [
             UniqueConstraint(
                 fields=["dashboard", "insight"],

@@ -11,7 +11,6 @@ import { NextScheduledRun, ProjectTimezoneNotice } from 'lib/components/Schedule
 import { TZLabel } from 'lib/components/TZLabel'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { WizardReview } from 'lib/components/WizardReview'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -100,7 +99,7 @@ export function SubscriptionWizard({
     dashboard,
     onCancel,
 }: SubscriptionWizardProps): JSX.Element {
-    const aiSubscriptionContextsEnabled = useFeatureFlag(FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXT)
+    const aiSubscriptionContextsEnabled = useFeatureFlag('SUBSCRIPTION_AI_CONTEXT')
     const logicProps = {
         id: 'new' as const,
         insightShortId,
@@ -119,6 +118,7 @@ export function SubscriptionWizard({
         subscriptionInitialized,
         isSubscriptionSubmitting,
         subscriptionChanged,
+        subscriptionHasErrors,
     } = useValues(subscriptionFormLogic)
     const { generatePreview, resetSubscription } = useActions(subscriptionFormLogic)
     const { preflight } = useValues(preflightLogic)
@@ -229,7 +229,14 @@ export function SubscriptionWizard({
     let primaryAction: JSX.Element | null = null
     if (currentStep === SubscriptionWizardStep.Review) {
         primaryAction = (
-            <LemonButton type="primary" htmlType="submit" loading={isSubscriptionSubmitting}>
+            <LemonButton
+                type="primary"
+                htmlType="submit"
+                loading={isSubscriptionSubmitting}
+                disabledReason={
+                    subscriptionHasErrors ? 'Complete the required fields before creating this subscription' : undefined
+                }
+            >
                 Create subscription
             </LemonButton>
         )

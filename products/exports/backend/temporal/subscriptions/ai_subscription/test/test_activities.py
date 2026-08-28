@@ -9,8 +9,10 @@ from parameterized import parameterized
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, SubscriptionDeliveryContext
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
     DiagnosticCounts,
+    _claim_ai_report_generation,
     _load_snapshot,
     _persist_ai_report,
+    _release_ai_report_generation_claim,
     _report_diagnostic_counts,
     _snapshot_diagnostic_counts,
 )
@@ -24,6 +26,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_DELIVERY_CONTEXT_MARKER_IDENTIFIER,
     AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND,
     AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_GENERATION_CLAIM_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
 )
@@ -100,6 +103,27 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
     # The generating prompt is captured so the delivery is reproducible and the viewer can show it.
     assert snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "weekly adoption + reliability report"
     assert snapshot[AI_REPORT_CHARTS_KEY] == []
+
+
+async def test_generation_claim_prevents_overlapping_report_generation(team, user) -> None:
+    delivery = await _create_delivery(team, user)
+
+    claim_token = await _claim_ai_report_generation(delivery.id)
+    assert claim_token is not None
+    assert await _claim_ai_report_generation(delivery.id) is None
+
+    persisted = await _persist_ai_report(
+        delivery.id,
+        AiReportResult(markdown="# Weekly report", window_end_utc=_WINDOW_END_UTC, diagnostics=()),
+        prompt="weekly report",
+        generation_claim_token=claim_token,
+    )
+
+    assert persisted is True
+    snapshot = await _snapshot(delivery.id)
+    assert snapshot[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
+    assert AI_REPORT_GENERATION_CLAIM_KEY not in snapshot
+    await _release_ai_report_generation_claim(delivery.id, claim_token)
 
 
 async def test_persist_ai_report_keeps_context_provenance_with_the_report(team, user) -> None:
