@@ -19982,6 +19982,7 @@ export namespace Schemas {
 
     /**
      * * `text` - text
+     * * `link` - link
      * * `number` - number
      * * `currency` - currency
      * * `percent` - percent
@@ -19995,6 +19996,7 @@ export namespace Schemas {
 
     export const CustomPropertyDisplayTypeEnum = {
       Text: 'text',
+      Link: 'link',
       Number: 'number',
       Currency: 'currency',
       Percent: 'percent',
@@ -20281,9 +20283,10 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
+      /** How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL.
        *
        * * `text` - text
+       * * `link` - link
        * * `number` - number
        * * `currency` - currency
        * * `percent` - percent
@@ -20417,7 +20420,7 @@ export namespace Schemas {
     export interface CustomPropertyValueWrite {
       /** UUID of the custom property definition whose value to set for this account. */
       definition: string;
-      /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties. */
+      /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, or text for text properties. */
       value: string | number | boolean;
     }
 
@@ -59748,9 +59751,10 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
+      /** How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL.
        *
        * * `text` - text
+       * * `link` - link
        * * `number` - number
        * * `currency` - currency
        * * `percent` - percent
