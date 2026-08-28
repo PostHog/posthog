@@ -141,14 +141,14 @@ describe("SessionService.clearSessionError retry config", () => {
       "/repo",
       { client: {} },
       session.initialPrompt,
-      "auto", // executionMode
-      "codex", // adapter
-      "claude-fable-5", // model
-      "high", // reasoningLevel
-      undefined, // importedSessionId
-      "1m", // contextWindow
-      true, // fastMode
-      "own-subscription", // codexModelAccess
+      "auto",
+      "codex",
+      "claude-fable-5",
+      "high",
+      undefined,
+      "1m",
+      true,
+      "own-subscription",
     );
   });
 

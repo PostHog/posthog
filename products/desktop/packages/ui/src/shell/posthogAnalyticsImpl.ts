@@ -44,7 +44,7 @@ let registeredHostInfo: HostInfoProperties | null = null;
 let registeredCodexSubscription: CodexSubscriptionState | null = null;
 
 // posthog.reset() wipes super properties, so these are re-registered after each reset.
-function registerPersistentSuperProperties() {
+function registerPersistentSuperProperties(): void {
   posthog.register({
     team: "posthog-code",
     ...(registeredAppVersion !== null
@@ -79,8 +79,7 @@ function codexSubscriptionProperties({
   };
 }
 
-// Super properties: every event carries the subscription state.
-export function registerCodexSubscription(state: CodexSubscriptionState) {
+export function registerCodexSubscription(state: CodexSubscriptionState): void {
   registeredCodexSubscription = state;
   if (!isInitialized) {
     return;

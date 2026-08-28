@@ -20,16 +20,9 @@ export function shouldShowCodexSubscriptionControls(input: {
   flagEnabled: boolean;
   adapter: Adapter | undefined;
 }): boolean {
-  // The connect flow runs the bundled codex binary, so it needs no standalone
-  // CLI on PATH and no existing ~/.codex credentials. Show the controls for any
-  // codex user under the flag so a fresh ChatGPT user can reach sign-in.
   return input.flagEnabled && input.adapter === "codex";
 }
 
-// The status query has no placeholder data, so `status` is undefined while it
-// loads or after an error. Treat only a confirmed signed-out account as needing
-// connection; otherwise a connected user sees the "not connected" notice on every
-// cold mount until the status lands.
 export function codexNeedsConnection(input: {
   flagEnabled: boolean;
   subscriptionOn: boolean;
@@ -48,12 +41,12 @@ export function effectiveCodexModelAccess(input: {
   loggedIn: boolean;
   workspaceMode: "local" | "worktree" | "cloud";
 }): CodexModelAccess {
-  const onOwnPlan =
+  const usesOwnSubscription =
     input.flagEnabled &&
     input.subscriptionOn &&
     input.loggedIn &&
     input.workspaceMode !== "cloud";
-  return onOwnPlan ? "own-subscription" : "posthog-gateway";
+  return usesOwnSubscription ? "own-subscription" : "posthog-gateway";
 }
 
 export function applyCodexModelAccess(
@@ -77,9 +70,6 @@ export async function registerCodexSubscriptionAtBoot(
 ): Promise<void> {
   await settingsHydrated();
   const status = await fetchStatus();
-  // Mirror the session gate: without the flag, sessions run on the gateway
-  // regardless of the persisted setting, so report the gateway too. Otherwise a
-  // user who opted in before a flag rollback keeps reporting own-subscription.
   const access: CodexModelAccess = flagEnabled
     ? useSettingsStore.getState().codexModelAccess
     : "posthog-gateway";
@@ -116,11 +106,10 @@ export function useCodexSubscription(): CodexSubscription {
   const codexModelAccess = useSettingsStore((s) => s.codexModelAccess);
   const { localWorkspaces } = useHostCapabilities();
   const hostTRPC = useHostTRPC();
+  const canQueryStatus = flagEnabled && localWorkspaces;
   const { data: status } = useQuery({
     ...hostTRPC.agent.codexSubscriptionStatus.queryOptions(),
-    // Cloud-only hosts (web) have no local codex and no such host procedure, so
-    // asking would fail with NOT_FOUND. Same gate GeneralSettings uses.
-    enabled: flagEnabled && localWorkspaces,
+    enabled: canQueryStatus,
   });
 
   const subscriptionOn = codexModelAccess === "own-subscription";

@@ -42,7 +42,6 @@ export const sessionConfigSchema = z.object({
 
 export type SessionConfig = z.infer<typeof sessionConfigSchema>;
 
-/** Mirrors CodexModelAccess in @posthog/shared. */
 export const codexModelAccessSchema = z.enum([
   "posthog-gateway",
   "own-subscription",
@@ -261,7 +260,6 @@ export const reconnectSessionInput = z.object({
   logUrl: z.string().optional(),
   sessionId: z.string().optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
-  /** See startSessionInput.codexModelAccess. */
   codexModelAccess: codexModelAccessSchema.optional(),
   /** Additional directories Claude can access beyond cwd (for worktree support) */
   additionalDirectories: z.array(z.string()).optional(),

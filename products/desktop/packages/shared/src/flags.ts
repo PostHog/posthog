@@ -40,7 +40,6 @@ export const KIMI_MODEL_FLAG = "tasks-kimi-k3";
 export const FAST_MODE_FLAG = "posthog-desktop-fast-mode";
 /** Spoken narration (agent speaks via the `speak` tool). Gated for a staged rollout. */
 export const SPOKEN_NARRATION_FLAG = "posthog-code-spoken-narration";
-/** Local Codex sessions on the user's own ChatGPT subscription. Gated for a staged rollout. */
 export const CODEX_OWN_SUBSCRIPTION_FLAG =
   "posthog-code-codex-own-subscription";
 // Gates importing and relaying local MCP servers into cloud task runs.

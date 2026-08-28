@@ -100,7 +100,6 @@ export interface TaskCreateProperties {
   /** Worktree mode: repo has a non-empty .worktreeinclude file */
   uses_worktree_include?: boolean;
   adapter?: Adapter;
-  /** Codex only: the billing the session starts on. */
   codex_model_access?: "posthog-gateway" | "own-subscription";
 }
 

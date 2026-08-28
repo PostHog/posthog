@@ -127,7 +127,6 @@ export class Agent {
       );
     }
 
-    // Without gateway config, codex authenticates from CODEX_HOME.
     const codexGatewayAuth =
       !codexSubscription && gatewayConfig
         ? {

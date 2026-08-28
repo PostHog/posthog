@@ -1,9 +1,3 @@
-/**
- * Runtime evidence: session analytics keep flowing when the user runs Codex on
- * their own ChatGPT subscription. Uses the real posthog-js singleton and taps
- * its request queue, so the asserted object is the exact POST body the SDK
- * sends to ingestion — not a mock of the app code.
- */
 import { setRootContainer } from "@posthog/di/container";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ANALYTICS_TRACKER, track } from "@posthog/ui/shell/analytics";
@@ -36,7 +30,9 @@ function tapRequestQueue(): { enqueued: EnqueuedRequest[] } {
   return { enqueued };
 }
 
-function captureEventsOnWire(enqueued: EnqueuedRequest[]) {
+function captureEventsOnWire(
+  enqueued: EnqueuedRequest[],
+): EnqueuedRequest["data"][] {
   return enqueued
     .filter((r) => r.method === "POST" && r.url.endsWith("/e/"))
     .map((r) => r.data);
@@ -45,7 +41,6 @@ function captureEventsOnWire(enqueued: EnqueuedRequest[]) {
 describe("subscription analytics evidence", () => {
   beforeEach(() => {
     vi.stubEnv("VITE_POSTHOG_API_KEY", "phc_test_key");
-    // No real network: ingestion calls are recorded, never sent.
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("1", { status: 200 })),
@@ -55,8 +50,6 @@ describe("subscription analytics evidence", () => {
     initializePostHog();
     posthog.sessionRecording?.stopRecording();
 
-    // The chain the app uses for session events: shell track() -> DI
-    // ANALYTICS_TRACKER -> posthogAnalyticsTracker -> posthog.capture.
     setRootContainer({
       get: (id: unknown) => {
         if (id === ANALYTICS_TRACKER) return posthogAnalyticsTracker;

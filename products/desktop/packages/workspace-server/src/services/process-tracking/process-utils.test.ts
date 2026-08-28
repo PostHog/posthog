@@ -16,6 +16,8 @@ import { killProcessTree } from "./process-utils";
 describe("killProcessTree", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    mockExecFileSync.mockReset();
+    mockPlatform.mockReset();
     mockPlatform.mockReturnValue("darwin");
   });
 
@@ -26,7 +28,12 @@ describe("killProcessTree", () => {
 
   it("signals Unix descendants before their parent", async () => {
     mockExecFileSync.mockReturnValue(
-      "4242 100\n5000 4242\n6000 5000\n5001 4242\n",
+      [
+        "4242 100 Thu Aug 28 04:00:00 2026",
+        "5000 4242 Thu Aug 28 04:00:01 2026",
+        "6000 5000 Thu Aug 28 04:00:02 2026",
+        "5001 4242 Thu Aug 28 04:00:03 2026",
+      ].join("\n"),
     );
     const killProcess = vi.spyOn(process, "kill").mockReturnValue(true);
 
@@ -44,6 +51,32 @@ describe("killProcessTree", () => {
       [6000, "SIGKILL"],
       [5000, "SIGKILL"],
       [5001, "SIGKILL"],
+      [4242, "SIGKILL"],
+    ]);
+  });
+
+  it("does not force-stop a reused Unix PID", async () => {
+    mockExecFileSync
+      .mockReturnValueOnce(
+        [
+          "4242 100 Thu Aug 28 04:00:00 2026",
+          "5000 4242 Thu Aug 28 04:00:01 2026",
+        ].join("\n"),
+      )
+      .mockReturnValueOnce(
+        [
+          "4242 100 Thu Aug 28 04:00:00 2026",
+          "5000 100 Thu Aug 28 04:00:06 2026",
+        ].join("\n"),
+      );
+    const killProcess = vi.spyOn(process, "kill").mockReturnValue(true);
+
+    killProcessTree(4242);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(killProcess.mock.calls).toEqual([
+      [5000, "SIGTERM"],
+      [4242, "SIGTERM"],
       [4242, "SIGKILL"],
     ]);
   });

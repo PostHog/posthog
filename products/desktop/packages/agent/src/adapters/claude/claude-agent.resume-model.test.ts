@@ -412,10 +412,6 @@ describe("ClaudeAcpAgent session creation", () => {
     },
   );
 
-  // New sessions pass the model to the SDK at spawn, never via setModel. The
-  // Codex-model row guards the desync that surfaced as "picked gpt-5.5, session
-  // ran Opus": a non-Anthropic id on the Claude adapter must fall back to the
-  // default AND warn rather than silently masquerade as a deliberate Opus run.
   it.each([
     {
       name: "uses the gateway default and never calls setModel without a requested model",

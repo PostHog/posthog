@@ -31,7 +31,6 @@ export interface CodexOptions {
    * directory that contains it (see `nativeCodexBinaryPath`).
    */
   binaryPath?: string;
-  /** Private state root. Machine-auth runs use it only for SQLite state. */
   codexHome?: string;
   useMachineAuth?: boolean;
   /** Extra codex `-c key=value` config overrides. */
@@ -51,9 +50,7 @@ export interface CodexAppServerProcessOptions {
   cwd?: string;
   apiBaseUrl?: string;
   apiKey?: string;
-  /** Private state root. Machine-auth runs use it only for SQLite state. */
   codexHome?: string;
-  /** Use the login from the normal local Codex installation. */
   useMachineAuth?: boolean;
   /** Guidance appended to Codex's base prompt via `developer_instructions`. */
   developerInstructions?: string;
