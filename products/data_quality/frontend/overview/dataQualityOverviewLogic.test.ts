@@ -499,7 +499,7 @@ describe('dataQualityOverviewLogic', () => {
     })
 
     it.each<[string, Partial<DataQualityOverviewCheckApi>, string | null]>([
-        ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1'],
+        ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1/tests'],
         ['a view on no DAG', { subject_type: 'view', subject_node_id: null }, null],
         [
             'a synced table',
