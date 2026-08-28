@@ -541,6 +541,27 @@ WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
 
 
+def resolve_task_queue_registrations(
+    task_queue: str,
+) -> tuple[list[type[PostHogWorkflow]], list[typing.Callable[..., typing.Any]]]:
+    """Return the workflows and activities registered for a task queue.
+
+    WORKFLOWS_DICT/ACTIVITIES_DICT are defaultdict(set), so an unknown task queue returns an empty
+    set instead of raising KeyError. Guard against that here: a worker with no workflows and no
+    activities makes Temporal fail with the opaque "At least one activity ... must be specified".
+    Fail fast with the queue name and the valid options instead.
+    """
+    workflows = list(WORKFLOWS_DICT.get(task_queue, set()))
+    activities = list(ACTIVITIES_DICT.get(task_queue, set()))
+    if not workflows and not activities:
+        valid_task_queues = ", ".join(sorted(set(WORKFLOWS_DICT) | set(ACTIVITIES_DICT)))
+        raise CommandError(
+            f'Task queue "{task_queue}" has no registered workflows or activities. '
+            f"Check the TEMPORAL_TASK_QUEUE setting. Valid task queues: {valid_task_queues}"
+        )
+    return workflows, activities
+
+
 def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
     """True when this worker runs data-warehouse source syncs and must eagerly load the sources."""
     return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
@@ -673,11 +694,7 @@ class Command(BaseCommand):
         health_max_idle_seconds = options.get("health_max_idle_seconds", None)
         disable_combined_metrics_server = options.get("disable_combined_metrics_server", False)
 
-        try:
-            workflows = list(WORKFLOWS_DICT[task_queue])
-            activities = list(ACTIVITIES_DICT[task_queue])
-        except KeyError:
-            raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
+        workflows, activities = resolve_task_queue_registrations(task_queue)
 
         # Data-import source modules import vendor SDKs (google-ads, etc.) at module scope, and those
         # SDKs register protobuf descriptors into a process-global pool that rejects a second
