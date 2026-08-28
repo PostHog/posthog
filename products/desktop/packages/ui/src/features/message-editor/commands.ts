@@ -1,5 +1,8 @@
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
-import { buildSlashFeedbackEvents } from "@posthog/core/analytics/aiFeedback";
+import {
+  AI_FEEDBACK_TEXT_MAX_LENGTH,
+  buildSlashFeedbackEvents,
+} from "@posthog/core/analytics/aiFeedback";
 import {
   basename,
   parseCommandLine,
@@ -68,6 +71,14 @@ function makeFeedbackCommand(
     execute(args, ctx) {
       if (input?.required && !args?.trim()) {
         toast.error(input.required);
+        return;
+      }
+      // Reject instead of letting the builder truncate: a silent cut would
+      // drop the tail of the message without the user ever knowing.
+      if ((args?.trim().length ?? 0) > AI_FEEDBACK_TEXT_MAX_LENGTH) {
+        toast.error(
+          `Feedback is limited to ${AI_FEEDBACK_TEXT_MAX_LENGTH.toLocaleString()} characters. Shorten your comment and try again.`,
+        );
         return;
       }
       const { metric, feedback } = buildSlashFeedbackEvents({
