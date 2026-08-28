@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, NamedTuple, cast
@@ -28,7 +28,12 @@ from products.alerts.backend.destination_configs import (
     AlertDestinationConfig,
     AlertDestinationData,
 )
-from products.cdp.backend.api.hog_function import HogFunctionSerializer
+from products.cdp.backend.api.hog_function import (
+    HogFunctionSerializer,
+    StaleHogFunctionUpdateError,
+    record_hog_function_revision,
+    snapshot_hog_function_content,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
@@ -237,7 +242,13 @@ def _validate_managed_alert_destination_filters(
     the other half of that contract: an update may change the destination's payload, but never
     retarget the function at another alert or event stream.
     """
-    events = filters.get("events") if isinstance(filters, dict) else None
+    if not isinstance(filters, Mapping) or filters.get("source") != "events":
+        raise ValidationError({"filters": "A destination must use the events source."})
+
+    if filters.get("actions") or filters.get("data_warehouse"):
+        raise ValidationError({"filters": "A destination cannot subscribe to actions or data warehouse data."})
+
+    events = filters.get("events")
     if not isinstance(events, list) or len(events) != 1 or not isinstance(events[0], dict):
         raise ValidationError({"filters": "A destination must subscribe to exactly one alert event."})
 
@@ -300,6 +311,8 @@ def update_alert_destination_hog_function(
         if current_event_id not in allowed_event_ids:
             raise ValidationError({"filters": "This HogFunction is not a supported alert destination."})
 
+        before_content = snapshot_hog_function_content(destination)
+
         serializer = HogFunctionSerializer(
             destination,
             data=data,
@@ -311,6 +324,9 @@ def update_alert_destination_hog_function(
             },
         )
         serializer.is_valid(raise_exception=True)
+        base_updated_at = serializer.validated_data.pop("base_updated_at", None)
+        if base_updated_at and destination.updated_at > base_updated_at:
+            raise StaleHogFunctionUpdateError()
         _validate_managed_alert_destination_filters(
             filters=serializer.validated_data.get("filters", destination.filters),
             alert_id=alert_id,
@@ -318,6 +334,13 @@ def update_alert_destination_hog_function(
             allowed_event_ids=allowed_event_ids,
         )
         updated = serializer.save()
+        record_hog_function_revision(
+            instance=updated,
+            before=destination,
+            before_content=before_content,
+            team_id=team_id,
+            created_by=request.user if request.user.is_authenticated else None,
+        )
         _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=[updated.id])
 
     return updated

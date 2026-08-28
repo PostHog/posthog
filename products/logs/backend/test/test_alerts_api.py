@@ -1108,6 +1108,55 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["attr"] == "filters"
         assert HogFunction.objects.get(id=hog_function_id).filters["events"][0]["id"] == "$logs_alert_firing"
 
+    def test_update_destination_cannot_change_the_filter_source(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        hog_function_id = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )[0]
+        hog_function = HogFunction.objects.get(id=hog_function_id)
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/destinations/{hog_function_id}/",
+            {"filters": {**hog_function.filters, "source": "person-updates"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+        assert HogFunction.objects.get(id=hog_function_id).filters["source"] == "events"
+
+    def test_update_destination_rejects_stale_writes(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        hog_function_id = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )[0]
+        HogFunction.objects.filter(id=hog_function_id).update(updated_at=datetime.now(UTC))
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/destinations/{hog_function_id}/",
+            {"enabled": False, "base_updated_at": "2020-01-01T00:00:00Z"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert HogFunction.objects.get(id=hog_function_id).enabled is True
+
+    @parameterized.expand([("scalar", True), ("list", [])])
+    def test_update_destination_rejects_non_object_bodies(self, _name: str, payload: object):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        hog_function_id = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )[0]
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/destinations/{hog_function_id}/", payload, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     @parameterized.expand(
         [
             ("slack_missing_workspace", {"type": "slack", "slack_channel_id": "C1"}),

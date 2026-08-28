@@ -52,6 +52,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.user import User
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
 
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
@@ -1337,35 +1338,11 @@ class HogFunctionViewSet(
         instance.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
     def _record_revision(self, instance: HogFunction, before: HogFunction, before_content: dict) -> None:
-        """Version and snapshot a live config change. Runs right after the write it describes, in the
-        same transaction. Comparing two *persisted* snapshots, rather than validated_data against the
-        stored row, keeps a partial payload from reading as a config change; comparing them without
-        derived values keeps a background bytecode recompile from reading as one either."""
-        after_content = snapshot_hog_function_content(instance)
-        if comparable_content(after_content) == comparable_content(before_content):
-            return
-
-        instance.version = (before.version or 0) + 1
-        # queryset.update() rather than instance.save(): the bump must not fire a second worker
-        # reload for a config push that already happened, and workers never read `version`.
-        # nosemgrep: idor-lookup-without-team (ID from already team-scoped instance)
-        HogFunction.objects.filter(pk=instance.pk).update(version=instance.version)
-
-        # On the first tracked write, also snapshot the outgoing config so the state before any
-        # tracked change is always available to roll back to (there's no backfill).
-        if not HogFunctionRevision.objects.filter(hog_function=instance).exists():
-            HogFunctionRevision.objects.create(
-                team_id=self.team_id,
-                hog_function=instance,
-                version=before.version or 0,
-                content=before_content,
-                created_by=None,
-            )
-        HogFunctionRevision.objects.create(
+        record_hog_function_revision(
+            instance=instance,
+            before=before,
+            before_content=before_content,
             team_id=self.team_id,
-            hog_function=instance,
-            version=instance.version,
-            content=after_content,
             created_by=self.request.user if self.request.user.is_authenticated else None,
         )
 
@@ -1814,3 +1791,30 @@ class HogFunctionViewSet(
         hog_function.save(update_fields=["batch_export_id"])
 
         return Response({"batch_export_id": str(batch_export.id)})
+
+
+def record_hog_function_revision(
+    *, instance: HogFunction, before: HogFunction, before_content: dict, team_id: int, created_by: User | None
+) -> None:
+    after_content = snapshot_hog_function_content(instance)
+    if comparable_content(after_content) == comparable_content(before_content):
+        return
+
+    instance.version = (before.version or 0) + 1
+    HogFunction.objects.filter(pk=instance.pk).update(version=instance.version)
+
+    if not HogFunctionRevision.objects.filter(hog_function=instance).exists():
+        HogFunctionRevision.objects.create(
+            team_id=team_id,
+            hog_function=instance,
+            version=before.version or 0,
+            content=before_content,
+            created_by=None,
+        )
+    HogFunctionRevision.objects.create(
+        team_id=team_id,
+        hog_function=instance,
+        version=instance.version,
+        content=after_content,
+        created_by=created_by,
+    )

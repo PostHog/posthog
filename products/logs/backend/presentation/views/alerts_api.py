@@ -1,5 +1,6 @@
 import os
 import datetime as dt
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Final, Literal, TypedDict, cast
 from zoneinfo import ZoneInfo
@@ -1068,6 +1069,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def update_destination(
         self, request: Request, *args: object, hog_function_id: str | None = None, **kwargs: object
     ) -> Response:
+        if not isinstance(request.data, Mapping):
+            raise ValidationError("The request body must be a JSON object.")
         if "deleted" in request.data:
             raise ValidationError({"deleted": "Use the destination delete endpoint to remove a destination."})
 
