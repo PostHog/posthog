@@ -58,7 +58,6 @@ server reads SubBatch frame             stamp armedAt + both budgets into the fe
     per-element chain                   raced against the hard deadline
       ◆ StepPipeline.process            soft-exhausted? → timeout, skip the step
       ◆ chunk steps                     pre-mark soft-exhausted elements timeout, run the rest
-      ◆ withStepRetry / withChunkRetry  signal fired? stop retrying → timeout
     concurrentlyPerGroup                per-key order gate → reject stale elements unfed
     hard deadline fires?                stop waiting: in-flight elements → timeout,
                                         continuations move to the zombie registry
@@ -73,9 +72,9 @@ server reads SubBatch frame             stamp armedAt + both budgets into the fe
    This one check gives per-step granularity across every per-element chain.
 2. **`applyChunkStepToResults`** — chunks can mix elements from different batches with different budgets, so partition per element: exhausted OK elements become timeout and pass through; the step runs on the remainder.
    This reuses the non-OK passthrough chunk steps already honor.
-3. **`withStepRetry` / `withChunkRetry`** — check the signal before each backoff sleep.
-   Budget gone → return timeout instead of burning retries.
-   This bounds the post-budget tail to roughly one attempt of the slowest step instead of five.
+
+Retries are deliberately not a checkpoint: the retry wrappers compose steps and see only the value, so an in-flight step runs its remaining attempts to their configured limit.
+The overrun histogram measures that tail, and the hard deadline bounds it.
 
 `TIMEOUT` and `REJECTED` both mean "not acked, redeliver" — the **unacked** results; the other four all mean "handled, do not resend".
 They split by _who stopped the work_: `TIMEOUT` is the element's own budget cutting it off (mid-chain or before it started), `REJECTED` is the order gate refusing to feed an element whose processing would reorder its key — never attempted, by construction.
@@ -88,7 +87,7 @@ An event cancelled mid-chain (after person processing, before Kafka emit) is red
 
 The soft deadline is the cooperative mechanism above: stop starting, let in-flight steps finish, return when they do.
 It introduces no duplication — a soft-timed-out element is not running anywhere when its redelivery processes.
-Its weakness is the tail: the batch cannot return before the slowest in-flight step does, and a step wedged on a dependency with no client timeout underneath holds the ack until the consumer's watchdog fences the whole stream.
+Its weakness is the tail: the batch cannot return before the slowest in-flight step does (its remaining retry attempts included), and a step wedged on a dependency with no client timeout underneath holds the ack until the consumer's watchdog fences the whole stream.
 
 The hard deadline bounds that tail.
 When it fires, the framework stops waiting: still-running elements resolve `TIMEOUT` immediately, `afterBatch` flushes what completed, the ack goes out, and the admission slot is released.
@@ -115,8 +114,8 @@ export class BatchBudget {
     static deadlines(softAt: number, hardAt: number | null, opts?: { enforce?: boolean }): BatchBudget
     static unlimited(): BatchBudget          // the neutral element: neither deadline exists
 
-    readonly signal: AbortSignal             // fires at the SOFT deadline or explicit abort();
-                                             //   the only deadline steps ever see
+    readonly signal: AbortSignal             // framework-internal: fires at the SOFT
+                                             //   deadline or explicit abort()
     readonly hardAt: number | null           // framework-internal: feed() races settle on it
     readonly enforce: boolean                // false = shadow mode: metrics only
     get remainingMs(): number                // to the soft deadline; Infinity when unlimited
@@ -152,23 +151,13 @@ Pipelines with no time policy (tests, the non-gRPC pipelines) pass `unlimitedBud
 Sub-contexts created by `fanOut` and `filterMap` copy it the way they copy `debugContext`.
 The factory receives the feed context, and the gRPC factory is a pure function of the wire: each of `soft_budget_ms` / `hard_budget_ms` maps to `0 → no deadline`, else `armedAt + budget`, with `armedAt` stamped by the server at frame read — so time parked in the admission queue counts against both deadlines even though the object is minted at feed.
 There is no worker-side sizing knob for it to consult: budget policy belongs to the consumer.
-Result handling treats the unacked results as a no-op (metric, no produce); ingestion-warning handling and TopHog gain both new result labels.
+Result handling treats the unacked results as a no-op (metric, no produce).
 
-### Steps: backward-compatible opt-in
+### Steps stay one-argument
 
-Steps gain an optional second parameter.
-Every existing single-argument step stays assignable; slow steps (person merge internals, hog transformer fetches) adopt the signal over time and can derive per-call client deadlines from `remainingMs()`.
-
-```ts
-export interface StepContext {
-  signal: AbortSignal // never-aborting when unlimited
-  remainingMs(): number
-}
-export type ProcessingStep<T, U, R extends string = never> = (
-  value: T,
-  ctx: StepContext
-) => Promise<PipelineResult<U, R>>
-```
+Steps never see time.
+`ProcessingStep<T, U, R>` remains `(value: T) => Promise<PipelineResult<U, R>>`, and enforcement lives only in the framework runners that invoke steps — `StepPipeline.process` and `applyChunkStepToResults` read the element's budget from its context and decide before the step runs.
+If a slow step ever needs a per-call client deadline, that arrives as separate step-level configuration at pipeline construction, not as a signature change — out of scope here.
 
 ### `StreamIngestDriver` surface
 
@@ -278,7 +267,7 @@ The stash, the cascade rule, and the ordered flush are reused as-is, but everyth
   It commits completed events' person/group writes and ClickHouse rows; its duration must fit inside the margin between budget and watchdog.
 - **No hard per-step timeouts.**
   Racing a timer against a stateful step orphans a continuation that later mutates shared state.
-  Per-step time control is cooperative only: the signal, plus a soft-timeout metric to surface steps that routinely exceed expectations.
+  Per-step time control lives in the framework checkpoints only, with a soft-timeout metric to surface steps that routinely exceed expectations; steps see no deadline.
 - **The watchdog is narrowed, not eliminated.**
   The consumer arms each frame's ack deadline at send time, so wire time, unread-queue time behind slow predecessors, and a wedged `settled` barrier (side effects the budget cannot bound) all consume watchdog time the worker's budget never sees.
   Budgets make the fence rare; the 0.5 × sizing is margin, not proof, and the fence remains the fail-safe.
@@ -287,7 +276,7 @@ The stash, the cascade rule, and the ordered flush are reused as-is, but everyth
 
 - `ingestion_batch_budget_exhausted_total` — budgets that expired before the batch completed.
 - Timeout results by last step and rejected results by key (existing `ingestion_pipeline_result` counter gains both label values) — timeouts indict slow steps, rejections indict hot keys.
-- Overrun histogram — time from budget expiry to batch completion; this is the tail the checkpoints cannot cut, and the input for choosing which steps adopt the signal.
+- Overrun histogram — time from budget expiry to batch completion; this is the tail the checkpoints cannot cut, and the input for choosing which steps need a time policy of their own.
 - Order-gate metrics — routing keys gated, stale elements gated, clears by window-drain vs offset vs TTL.
 - Hard-settle metrics — hard deadlines fired, zombies outstanding (gauge), zombie late results swallowed, writes dropped after store seal, admissions refused at the zombie cap.
 - Consumer side — partial acks, messages redelivered after partial, budget-exempt escalations.
@@ -296,7 +285,7 @@ Shadow mode (`enforce: false`) records all of the above without changing any res
 
 ## Rollout
 
-1. **Framework** — `TIMEOUT` and `REJECTED`, `BatchBudget`, the mandatory constructor factory, the three checkpoints, retry integration, metrics, shadow mode, a framework docs chapter, and stall-investigation cases for the count invariant and within-batch prefix property under budgets.
+1. **Framework** — `TIMEOUT` and `REJECTED`, `BatchBudget`, the mandatory constructor factory, the two checkpoints, metrics, shadow mode, a framework docs chapter, and stall-investigation cases for the count invariant and within-batch prefix property under budgets.
    Every existing constructor passes `unlimitedBudgetFactory`: zero behavior change, and no optional-budget code path ever exists.
 2. **Order gate** — the gate/clear mechanism in `ConcurrentlyGroupingChunkPipeline` behind the sequence-extractor option, plus fuzz tests.
    Inert without budgets.
@@ -304,8 +293,8 @@ Shadow mode (`enforce: false`) records all of the above without changing any res
    Run shadow in production; read the overrun and would-have-cancelled metrics.
 4. **Consumer** — proto regen, budget stamping (soft only at first; hard stays 0), the per-message reply shape with chunk index remapping, the mixed resolve path, completed-only watermarks, the escalation ladder, and e2e coverage in `grpc_transport_test.rs` and the integration harness.
    Enable end to end, soft ≈ 0.5 × watchdog.
-5. **Step adoption** — thread `StepContext.signal` into the steps the overrun metrics indict (person merge internals, hog transformer fetches); derive per-call deadlines from `remainingMs()`.
-6. **Hard deadline** — the settle race, zombie registry, store sealing, and zombie-cap backpressure; enable by setting `hard_budget_ms` ≈ 0.75 × watchdog once soft-mode metrics show a real straggler tail that step adoption did not cut.
+5. **Per-step time policy** — for the steps the overrun metrics indict (person merge internals, hog transformer fetches), design separate step-level configuration that derives per-call client deadlines from the batch budget without changing step signatures.
+6. **Hard deadline** — the settle race, zombie registry, store sealing, and zombie-cap backpressure; enable by setting `hard_budget_ms` ≈ 0.75 × watchdog once soft-mode metrics show a real straggler tail that per-step deadlines did not cut.
    Last deliberately: every element the hard deadline saves is one the soft path plus semantic step deadlines failed to.
 
 ## Implementation plan (commit by commit)
@@ -313,92 +302,87 @@ Shadow mode (`enforce: false`) records all of the above without changing any res
 The rollout stages above are deployment stages; this section is the review story — the sequence of commits, each one concern, each leaving the tree green (typecheck plus the touched area's tests) and the pipeline's behavior unchanged until the enforce flag turns on.
 Commit subjects are fixed; a commit that cannot be built as specified is a finding to report, not a license to restructure silently.
 
-### Phase A — framework core (commits 1–9)
+### Phase A — framework core (commits 1–7)
 
 Everything here is inert: no code constructs a limited budget until Phase C wires the factory to the wire fields.
 
 1. `feat(ingestion): add timeout and rejected pipeline results`
    `results.ts` gains `TIMEOUT` and `REJECTED` members, their result types (reason-carrying, like `DROP`), the `timeout()` / `rejected()` constructors, and `isTimeoutResult` / `isRejectedResult` / `isUnackedResult` guards.
-   Every exhaustive switch over the union updates in the same commit with the no-op semantics: result handling neither produces nor DLQs, warning handling and TopHog gain the two labels.
+   Every exhaustive switch over the union updates in the same commit with the no-op semantics: result handling neither produces nor DLQs, and a fan-out parent becomes unacked when a sub-result is.
    Reviewable alone as: the union grows two "handled elsewhere, redeliver" members that nothing yet emits.
 2. `feat(ingestion): add BatchBudget with soft and hard deadlines`
-   New `batch-budget.ts` exactly per the framework interface section: `deadlines()`, `unlimited()`, the soft-deadline `signal`, `hardAt`, `enforce`, `remainingMs`, `exhausted`, `abort()`, plus `BatchBudgetFactory` and `unlimitedBudgetFactory`.
+   New `batch-budget.ts` exactly per the framework interface section: `deadlines()`, `unlimited()`, the framework-internal `signal`, `hardAt`, `enforce`, `remainingMs`, `exhausted`, `abort()`, plus `BatchBudgetFactory` and `unlimitedBudgetFactory`.
    Unit tests with fake timers.
    No consumers yet.
 3. `feat(ingestion): mint a budget per fed batch via a mandatory factory`
    `BatchingPipeline` constructor options gain a required `budgetFactory`; `feedSerialized` calls it once per fed batch and stamps the budget into each element's context next to `messageId`; `fanOut` / `filterMap` sub-contexts copy it like `debugContext`.
    Every existing constructor site passes `unlimitedBudgetFactory`.
    Zero behavior change; tests assert the stamp and the copy.
-4. `feat(ingestion): give steps a budget-aware StepContext`
-   `StepContext` (`signal`, `remainingMs`) lands in `steps.ts`; `ProcessingStep` gains the optional second parameter; `StepPipeline` passes it through.
-   Purely additive — the commit's review question is exactly "does every existing one-argument step stay assignable".
-5. `feat(ingestion): soft-budget checkpoint in StepPipeline`
-   `StepPipeline.process` checks the element's budget before invoking a step on an OK result: exhausted → `timeout('budget exceeded before <step>')` when `enforce`, metric only in shadow.
+4. `feat(ingestion): soft-budget checkpoint in StepPipeline`
+   `StepPipeline.process` checks the element's budget (from its context) before invoking a step on an OK result: exhausted → `timeout('budget exceeded before <step>')` when `enforce`, metric only in shadow.
+   The step itself is invoked with one argument and sees nothing.
    Tests: mid-chain expiry short-circuits all later steps; shadow mode changes nothing.
-6. `feat(ingestion): soft-budget checkpoint for chunk steps`
+5. `feat(ingestion): soft-budget checkpoint for chunk steps`
    `applyChunkStepToResults` partitions per element — exhausted OK elements become timeout and pass through, the step runs on the remainder — because one chunk can mix elements from batches with different budgets.
    Tests cover the mixed-budget chunk.
-7. `feat(ingestion): stop retrying when the budget signal fires`
-   `withStepRetry` / `withChunkRetry` check the signal before each backoff sleep and return timeout instead of the next attempt.
-   Tests with fake timers: the post-budget tail is bounded to the in-flight attempt.
-8. `feat(ingestion): budget observability`
-   `ingestion_batch_budget_exhausted_total`, the overrun histogram (budget expiry → batch completion), and the shadow-mode would-have-cancelled counters land in `metrics.ts` and are emitted from the commits-5–7 checkpoints.
-9. `chore(ingestion): framework docs chapter and invariant cases for budgets`
+6. `feat(ingestion): budget observability`
+   `ingestion_batch_budget_checkpoint_total`, `ingestion_batch_budget_exhausted_total`, and the overrun histogram (budget expiry → batch completion) land in `metrics.ts`, emitted from the checkpoints and from `BatchingPipeline` at batch completion, each carrying the shadow/enforce mode label.
+7. `chore(ingestion): framework docs chapter and invariant cases for budgets`
    A new executable docs chapter (`18-batch-budgets.test.ts`) in the house style, plus invariant cases: the N-in/N-out count invariant under budget expiry, and the within-batch per-key prefix property.
 
-### Phase B — order gate (commits 10–12)
+### Phase B — order gate (commits 8–10)
 
-10. `feat(ingestion): per-key order gate in the grouping pipeline`
-    `ConcurrentlyGroupingChunkPipeline` gains the optional per-item sequence extractor and the gate: on a key's first timeout, record the gate offset and the in-flight sub-batch set; while gated, later-sequence arrivals resolve `rejected` unfed; clear on in-flight-window drain or an arrival at or before the gate offset; TTL eviction and the gate metrics as a bug net.
-    Unit tests for each clear path.
-11. `feat(ingestion): supply the Kafka offset as the gate sequence`
-    The analytics pipeline passes the sequence extractor (offset from the element context) where it builds its grouping stage.
-    Inert without budgets; the review question is only "is this the right offset".
-12. `chore(ingestion): fuzz the order gate`
+8. `feat(ingestion): per-key order gate in the grouping pipeline`
+   `ConcurrentlyGroupingChunkPipeline` gains the optional per-item sequence extractor and the gate: on a key's first timeout, record the gate offset and the in-flight sub-batch set; while gated, later-sequence arrivals resolve `rejected` unfed; clear on in-flight-window drain or an arrival at or before the gate offset; TTL eviction and the gate metrics as a bug net.
+   Unit tests for each clear path.
+9. `feat(ingestion): supply the Kafka offset as the gate sequence`
+   The analytics pipeline passes the sequence extractor (offset from the element context) where it builds its grouping stage.
+   Inert without budgets; the review question is only "is this the right offset".
+10. `chore(ingestion): fuzz the order gate`
     Randomized interleavings of timeouts, redeliveries, and fresh traffic asserting: per-key feed order is never violated, every gate eventually clears, no rejections occur without a timeout.
 
-### Phase C — wire and worker (commits 13–16)
+### Phase C — wire and worker (commits 11–14)
 
-13. `feat(ingestion): sub-batch budgets and PARTIAL status on the wire`
+11. `feat(ingestion): sub-batch budgets and PARTIAL status on the wire`
     The proto changes from the wire-protocol section verbatim (`soft_budget_ms = 6`, `hard_budget_ms = 7`, `SUB_BATCH_STATUS_PARTIAL = 4`, `timed_out = 5`, `rejected = 6`), with regenerated code per `proto/README.md`.
     Nothing reads or writes the new fields yet.
-14. `feat(ingestion): stamp armedAt and wire budgets into the feed context`
+12. `feat(ingestion): stamp armedAt and wire budgets into the feed context`
     `WorkerIngestServer` stamps `armedAt` and both budget fields at frame read; one shared helper maps `0 → no deadline, else armedAt + budget`; the wire budget factory (a pure function of the feed context) replaces `unlimitedBudgetFactory` in the gRPC pipeline's construction, parameterized by the worker's shadow/enforce flag (default shadow).
-15. `feat(ingestion): time out parked sub-batches at admission`
+13. `feat(ingestion): time out parked sub-batches at admission`
     The admission wait races the soft deadline via the shared helper; a sub-batch that expires parked acks `PARTIAL` with every message timed out, without being fed.
-16. `feat(ingestion): PARTIAL acks with per-message dispositions`
+14. `feat(ingestion): PARTIAL acks with per-message dispositions`
     `CompletedSubBatch` gains `accepted` / `timedOut` / `rejected` computed from the completed batch's elements in feed order; the server acks `PARTIAL` when either list is non-empty after `settled`, `OK` otherwise.
     Tests assert the ack invariant from the wire-protocol section.
 
-### Phase D — consumer (follow-up PR, commits 17–23)
+### Phase D — consumer (follow-up PR, commits 15–21)
 
 This branch stays on the Node.js side; the consumer commits land in a follow-up PR.
 The wire compatibility rules make the split safe: an old consumer treats `PARTIAL` as retriable `BUSY`, and the worker ships in shadow mode, where no `PARTIAL` ack is ever produced.
 
-17. `feat(ingestion-consumer): stamp sub-batch budgets from config`
+15. `feat(ingestion-consumer): stamp sub-batch budgets from config`
     `INGESTION_WORKER_SUB_BATCH_SOFT_BUDGET_MS` / `_HARD_BUDGET_MS` (default 0 — today's semantics), stamped on every `SubBatch`; hard < soft when both set is a startup config error.
-18. `feat(ingestion-consumer): parse PARTIAL acks fail-closed`
+16. `feat(ingestion-consumer): parse PARTIAL acks fail-closed`
     The ack invariant validates on receipt — disjoint lists, together non-empty, `accepted + timed_out.len() + rejected.len() == messages.len()`, `OK` requires both empty; violations handle like `FAILED`.
     A valid `PARTIAL` temporarily takes the existing retriable path (what an old consumer does), so this commit is safe before the mixed resolve exists.
-19. `feat(ingestion-consumer): remap chunk dispositions to sub-batch indices`
+17. `feat(ingestion-consumer): remap chunk dispositions to sub-batch indices`
     The transport's per-message reply shape replaces all-or-nothing acceptance: each 413-split chunk's `timed_out` / `rejected` indices remap to sub-batch positions and merge into one resolution.
-20. `feat(ingestion-consumer): mixed resolve — release completed, stash the remainder`
+18. `feat(ingestion-consumer): mixed resolve — release completed, stash the remainder`
     The dispatcher resolves a partial ack by releasing completed messages and stashing the rest, preserving the outstanding-count invariants (net unchanged for stashed keys, never zero mid-handoff); the cascade rule then defers newer groups behind the stash as today.
-21. `feat(ingestion-consumer): advance watermarks from completed messages only`
+19. `feat(ingestion-consumer): advance watermarks from completed messages only`
     The order sentinel computes a key's watermark from the completed subset of a partial ack, so redelivery of the remainder is not a resend-after-ack violation.
-22. `feat(ingestion-consumer): escalate never-fitting events to unbudgeted resends`
+20. `feat(ingestion-consumer): escalate never-fitting events to unbudgeted resends`
     Stash entries from partial acks carry an attempt count; only `timed_out` occurrences increment it; after N budget-limited attempts the message resends with both budgets 0, with a counter.
-23. `chore(ingestion-consumer): e2e coverage for partial acks`
+21. `chore(ingestion-consumer): e2e coverage for partial acks`
     `grpc_transport_test.rs` and the integration harness: partial ack → redelivery → completion, hot-key ordering preserved across partial acks, the escalation path.
 
-### Phase E — hard deadline (commits 24–25)
+### Phase E — hard deadline (commits 22–23)
 
-24. `feat(ingestion): race batch settle against the hard deadline`
+22. `feat(ingestion): race batch settle against the hard deadline`
     When `hardAt` is set, `feed()` races settle on it: still-running elements resolve timeout, `afterBatch` flushes what completed, the ack goes out, and stranded continuations move to the zombie registry keyed by `messageId` — late results are swallowed and counted, never acked.
-25. `feat(ingestion): seal batch stores at settle and cap zombies`
+23. `feat(ingestion): seal batch stores at settle and cap zombies`
     Batch-scoped store views seal at settle (late writes dropped with a counter) and stay alive until their zombies drain; at the zombie cap the worker stops admitting (`BUSY`), with the outstanding-zombies gauge and the hard-settle metrics.
 
-Out of scope for this branch: the consumer (Phase D, a follow-up PR), step adoption (rollout stage 5 — driven by production overrun metrics), and any production config enabling budgets.
+Out of scope for this branch: the consumer (Phase D, a follow-up PR), a per-step time policy (rollout stage 5 — driven by production overrun metrics), and any production config enabling budgets.
 
 ## Alternatives considered
 
