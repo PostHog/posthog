@@ -705,12 +705,15 @@ def has_live_third_party_oauth_access(user: "User") -> bool:
 
     First-party applications are excluded because they are PostHog's own surfaces, so a token from
     one is not the third-party access this answers about.
+
+    The check starts from the user's tokens, not from the application table. An `id IN (...)`
+    filter on applications makes Postgres scan every application row even when the user has no
+    tokens at all, and this runs on every load of the current user.
     """
-    return OAuthApplication.objects.filter(
-        Q(id__in=live_oauth_access_tokens(user).values("application_id"))
-        | Q(id__in=live_oauth_refresh_tokens(user).values("application_id")),
-        is_first_party=False,
-    ).exists()
+    return (
+        live_oauth_access_tokens(user).filter(application__is_first_party=False).exists()
+        or live_oauth_refresh_tokens(user).filter(application__is_first_party=False).exists()
+    )
 
 
 def lock_oauth_connection(*, user_id: int, application_id: uuid.UUID) -> None:
