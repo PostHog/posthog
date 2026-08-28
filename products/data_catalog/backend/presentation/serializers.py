@@ -16,6 +16,7 @@ from ..facade import api
 from ..facade.api import MAX_DESCRIPTION_LENGTH, METRIC_NAME_MAX_LENGTH
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric, RelationshipProposal, TableCertification
+from ..logic.analytics import certification_target_name
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -247,7 +248,7 @@ class CertificationSerializer(serializers.ModelSerializer):
         "(avoid this source). Informational once the mark is settled.",
     )
     target_type = serializers.SerializerMethodField(help_text="Whether the marked target is a 'table' or a 'view'.")
-    target_name = serializers.SerializerMethodField(help_text="Name of the marked table or view.")
+    target_name = serializers.SerializerMethodField(help_text="Queryable HogQL name of the marked table or view.")
     certified_by = UserBasicSerializer(
         read_only=True, allow_null=True, help_text="User who last set certified/deprecated, or null."
     )
@@ -287,9 +288,7 @@ class CertificationSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_target_name(self, obj: TableCertification) -> str:
-        if obj.table_id:
-            return obj.table.name if obj.table else ""
-        return obj.saved_query.name if obj.saved_query else ""
+        return certification_target_name(obj)
 
 
 class CertificationCreateSerializer(serializers.Serializer):
@@ -297,8 +296,12 @@ class CertificationCreateSerializer(serializers.Serializer):
 
     table_id = serializers.UUIDField(required=False, help_text="Warehouse table id to certify (XOR the other targets).")
     saved_query_id = serializers.UUIDField(required=False, help_text="Warehouse view (saved query) id to certify.")
-    table_name = serializers.CharField(required=False, help_text="Table name; 409 with candidates if ambiguous.")
-    view_name = serializers.CharField(required=False, help_text="View name; 409 with candidates if ambiguous.")
+    table_name = serializers.CharField(
+        required=False, help_text="Queryable HogQL table name; 409 with candidates if ambiguous."
+    )
+    view_name = serializers.CharField(
+        required=False, help_text="Queryable HogQL view name; 409 with candidates if ambiguous."
+    )
     notes = serializers.CharField(required=False, allow_blank=True, help_text="Why this mark exists.")
     proposed_status = serializers.ChoiceField(
         choices=["certified", "deprecated"],

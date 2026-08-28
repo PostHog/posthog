@@ -15,6 +15,8 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.database.database import get_data_warehouse_table_name
+
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
@@ -64,13 +66,30 @@ def _resolve_table(team: Team, table_id: str | UUID | None, table_name: str | No
         if table is None:
             raise ValidationError({"table_id": "Table not found."})
         return table
-    matches = list(live.filter(name=table_name))
+    matches = list(live.filter(name=table_name).select_related("external_data_source").defer("columns"))
+    if table_name is not None and "." in table_name:
+        matches += [
+            table
+            for table in live.exclude(name=table_name).select_related("external_data_source").defer("columns")
+            if get_data_warehouse_table_name(table.external_data_source, table.name) == table_name
+        ]
     if not matches:
         raise ValidationError({"table_name": f"No table named '{table_name}'."})
     if len(matches) > 1:
         raise CatalogConflict(
             detail=f"Multiple tables named '{table_name}'. Pass table_id to disambiguate.",
-            extra={"candidates": [{"id": str(t.id), "created_at": t.created_at.isoformat()} for t in matches]},
+            extra={
+                "candidates": [
+                    {
+                        "id": str(table.id),
+                        "created_at": table.created_at.isoformat(),
+                        "name": table.name,
+                        "source_id": table.external_data_source.source_id if table.external_data_source else None,
+                        "source_prefix": table.external_data_source.prefix if table.external_data_source else None,
+                    }
+                    for table in matches
+                ]
+            },
         )
     return matches[0]
 
@@ -90,7 +109,12 @@ def _resolve_saved_query(
     if len(matches) > 1:
         raise CatalogConflict(
             detail=f"Multiple views named '{view_name}'. Pass saved_query_id to disambiguate.",
-            extra={"candidates": [{"id": str(v.id), "created_at": v.created_at.isoformat()} for v in matches]},
+            extra={
+                "candidates": [
+                    {"id": str(view.id), "created_at": view.created_at.isoformat(), "name": view.name}
+                    for view in matches
+                ]
+            },
         )
     return matches[0]
 
@@ -190,6 +214,6 @@ def certifications_for_team(team: Team) -> QuerySet[TableCertification]:
         .exclude(table__deleted=True)
         .exclude(table__external_data_source__deleted=True)
         .exclude(saved_query__deleted=True)
-        .select_related("table", "saved_query", "certified_by")
+        .select_related("table", "table__external_data_source", "saved_query", "certified_by")
         .order_by("-created_at")
     )
