@@ -9,6 +9,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
+from ..marketplace.packaging import DEFAULT_BUNDLE_SKILLS, MAX_BUNDLE_SKILLS
 from ..models.skills import LLMSkill, LLMSkillFile, category_for_skill_name
 from .community_publish_services import (
     DISPLAY_NAME_PATTERN,
@@ -18,6 +19,7 @@ from .community_publish_services import (
     OPTIONAL_GITHUB_HANDLE_PATTERN,
 )
 from .skill_services import (
+    MAX_SKILL_NAME_LENGTH,
     RESERVED_SKILL_NAMES,
     SKILL_NAME_PATTERN,
     LLMSkillOwnerNotFoundError,
@@ -59,12 +61,12 @@ def validate_skill_name_value(value: str) -> str:
             f"'{value}' is a reserved name and cannot be used.",
             code="reserved_name",
         )
-    if len(value) > 64:
+    if len(value) > MAX_SKILL_NAME_LENGTH:
         raise serializers.ValidationError(
-            "Skill name must be 64 characters or fewer.",
+            f"Skill name must be {MAX_SKILL_NAME_LENGTH} characters or fewer.",
             code="max_length",
         )
-    if not SKILL_NAME_PATTERN.match(value):
+    if not SKILL_NAME_PATTERN.fullmatch(value):
         raise serializers.ValidationError(
             "Only lowercase letters, numbers, and hyphens are allowed. "
             "Must not start or end with a hyphen or contain consecutive hyphens.",
@@ -120,6 +122,28 @@ class LLMSkillFetchQuerySerializer(serializers.Serializer):
         min_value=1,
         required=False,
         help_text="Specific skill version to fetch. If omitted, the latest version is returned.",
+    )
+
+
+class LLMSkillBundleQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        min_value=1,
+        max_value=MAX_BUNDLE_SKILLS,
+        default=DEFAULT_BUNDLE_SKILLS,
+        help_text=(
+            f"Maximum number of skills in the zip, newest first; default {DEFAULT_BUNDLE_SKILLS}, at most "
+            f"{MAX_BUNDLE_SKILLS}. Every skill in the zip costs the agent prompt context on each turn, so pick "
+            "what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped."
+        ),
+    )
+    content = serializers.ChoiceField(
+        choices=["stub", "full"],
+        default="stub",
+        help_text=(
+            "What each skill directory in the zip contains. 'stub' (default) writes a SKILL.md with the name, "
+            "description and instructions to fetch the skill over the PostHog MCP when it is invoked. 'full' writes "
+            "the rendered SKILL.md, every bundled file and the Codex sidecar."
+        ),
     )
 
 

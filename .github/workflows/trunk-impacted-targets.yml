@@ -110,24 +110,28 @@ jobs:
                   printf '%s\n' "$changed" > "$RUNNER_TEMP/changed-files.txt"
 
                   echo 'resolved=true' >> "$GITHUB_OUTPUT"
-                  if printf '%s\n' "$changed" | grep -qx 'rust/Cargo.lock'; then
-                      echo 'cargo_lock=true' >> "$GITHUB_OUTPUT"
+                  if printf '%s\n' "$changed" | grep -qE '^(rust|proto)/'; then
+                      echo 'rust_affected=true' >> "$GITHUB_OUTPUT"
                   fi
 
-            # A lockfile touch would otherwise claim all 66 crates, so the two
-            # steps below buy the narrow answer from the determinator that
-            # ci-rust.yml already runs. Measured at ~50s on a cache miss, which a
-            # lockfile change always is, since the binary's cache key holds it.
-            # Skipped entirely on a PR that leaves rust/Cargo.lock alone.
+            # The determinator that ci-rust.yml selects tests with is the sole
+            # authority on which crates a change set affects, because the lane
+            # script holds no crate dependency edges of its own, so the two
+            # steps below buy its answer for every diff that touches rust/ or
+            # proto/. Measured at ~50s on a cache miss (a lockfile change
+            # always misses, since the binary's cache key holds
+            # rust/Cargo.lock); a cache hit runs the restored binary in a few
+            # seconds. Skipped entirely on the PRs that touch neither tree,
+            # which is nearly all of them.
             - name: Install rust
-              if: steps.changes.outputs.cargo_lock == 'true'
+              if: steps.changes.outputs.rust_affected == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
 
             - name: Compute affected rust crates
               id: affected
-              if: steps.changes.outputs.cargo_lock == 'true'
+              if: steps.changes.outputs.rust_affected == 'true'
               # A failure here must not keep the PR out of the queue. The crate
               # list goes missing, and the script falls back to every crate.
               continue-on-error: true
@@ -135,6 +139,12 @@ jobs:
               with:
                   event-name: ${{ github.event_name }}
                   pr-base-sha: ${{ github.event.pull_request.base.sha }}
+                  # Diff against master rather than the PR base, for the same
+                  # reason the changed-file diff above does: a stacked PR's
+                  # base is the layer below it, and an answer computed against
+                  # a different radius than the file list would read as a
+                  # disagreement and widen to every crate.
+                  base-branch: ${{ github.event.repository.default_branch }}
 
             - name: Compute impacted targets
               id: targets
@@ -144,7 +154,7 @@ jobs:
                   # script reads as every crate. Its own rebuild-all verdict
                   # needs no special case: it fills `crates` with the whole
                   # workspace, which lands on the same target set.
-                  CARGO_LOCK_CRATES: ${{ steps.affected.outputs.crates }}
+                  RUST_AFFECTED_CRATES: ${{ steps.affected.outputs.crates }}
               run: |
                   set -uo pipefail
 

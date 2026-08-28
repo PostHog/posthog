@@ -230,6 +230,22 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.scoutConfigs).toBeNull()
     })
 
+    // The roster mounts from short-lived components, so an unmount mid-request is routine. The
+    // loader reconciles against `values.scoutConfigs`, and that read throws once the reducer branch
+    // leaves the store — a silent error report from a page the user has already left.
+    it('reports nothing when the roster unmounts while its config request is in flight', async () => {
+        const request = deferred<SignalScoutConfigApi[]>()
+        mockSignalsScoutConfigList.mockReturnValueOnce(request.promise)
+
+        logic.actions.loadScoutConfigs()
+        logic.unmount()
+        request.resolve([BASE_CONFIG])
+        // Drain the microtasks the loader resumes on, so the assertion sees its full continuation.
+        await new Promise(setImmediate)
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
+    })
+
     // The 500 row is the point of this case: a guard wide enough to swallow it would leave a real
     // scout-configs outage looking identical to a project the user simply cannot reach.
     it.each([

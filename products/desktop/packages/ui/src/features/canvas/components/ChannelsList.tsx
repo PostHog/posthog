@@ -1902,7 +1902,7 @@ export function ChannelsList() {
   // ordered. Here the list *is* the pane, so the cap has to go and the pane's
   // own padding has to win: `!` is what outranks an unlayered rule.
   const listClass = cn(
-    "flex flex-col gap-px",
+    "sidebar-autocomplete-tree flex flex-col gap-px",
     "!max-h-none !px-2 !pt-2 !pb-16 scroll-py-8",
     scrollClass,
   );

@@ -19,7 +19,10 @@ export function openSettings(
   contextOrAction?: SettingsContext | string,
 ): void {
   prepareSettingsPage(contextOrAction);
-  nav.navigateToSettings(category);
+  // A caller already inside settings is switching category, so replace rather
+  // than stack: one closeSettings() back-step must exit to the app instead of
+  // walking back through the categories visited.
+  nav.navigateToSettings(category, { replace: nav.isOnSettingsRoute() });
 }
 
 /**
@@ -39,6 +42,15 @@ export function prepareSettingsPage(
     store.setInitialAction(null);
   }
   store.setFormMode(false);
+}
+
+/**
+ * Leave the settings page for a route the caller navigates to itself. Resets
+ * the store without the history pop `closeSettings` does, which would land the
+ * user back on the prior route after their own navigation.
+ */
+export function leaveSettings(): void {
+  useSettingsPageStore.getState().reset();
 }
 
 /**

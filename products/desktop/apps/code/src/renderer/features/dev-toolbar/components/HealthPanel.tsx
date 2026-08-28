@@ -171,7 +171,7 @@ function HealthCard({
       ? "text-(--red-11)"
       : accent === "amber"
         ? "text-(--amber-11)"
-        : "text-(--gray-12)";
+        : "text-foreground";
   const lineClass =
     accent === "red"
       ? "text-(--red-9)"
@@ -179,14 +179,18 @@ function HealthCard({
         ? "text-(--amber-9)"
         : "text-(--accent-9)";
   return (
-    <div className="overflow-hidden rounded-md border border-(--gray-5) bg-(--gray-1)">
+    <div className="overflow-hidden rounded-md border border-border bg-background">
       <Flex
         align="center"
         gap="2"
-        className="border-(--gray-5) border-b bg-(--gray-2) px-3 py-1.5"
+        className="border-border border-b bg-chrome px-3 py-1.5"
       >
-        <span className="text-(--gray-10)">{icon}</span>
-        <Text size="1" weight="medium" className="text-(--gray-11) uppercase">
+        <span className="text-muted-foreground">{icon}</span>
+        <Text
+          size="1"
+          weight="medium"
+          className="text-muted-foreground uppercase"
+        >
           {title}
         </Text>
       </Flex>

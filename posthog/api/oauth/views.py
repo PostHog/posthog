@@ -47,6 +47,7 @@ from posthog.api.oauth.cimd import (
     CIMDFetchError,
     CIMDValidationError,
     enqueue_cimd_refresh_if_stale,
+    find_cimd_application,
     get_application_by_client_id,
     get_or_create_cimd_application,
     is_cimd_client_id,
@@ -387,7 +388,6 @@ class OAuthValidator(OAuth2Validator):
         """
         Load the application from the database, supporting CIMD URL-form client_ids.
 
-        For URL-format client_ids, looks up by cimd_metadata_url.
         Does NOT fetch metadata — that only happens in validate_client_id().
         """
 
@@ -397,10 +397,9 @@ class OAuthValidator(OAuth2Validator):
         if request.client:
             return request.client
 
-        # CIMD URLs are looked up by cimd_metadata_url, not the auto-generated client_id UUID
         app: OAuthApplication | None = None
         if is_cimd_client_id(client_id):
-            app = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
+            app = find_cimd_application(client_id)
         else:
             app = OAuthApplication.objects.filter(client_id=client_id).first()
 
@@ -1298,7 +1297,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # Must happen here (not in the OAuthValidator) because the validator
         # only receives an oauthlib Request which lacks request.META for IP extraction.
         client_id = request.query_params.get("client_id")
-        if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
+        if is_cimd_client_id(client_id) and find_cimd_application(client_id) is None:
             for throttle_cls in CIMD_THROTTLE_CLASSES:
                 throttle = throttle_cls()
                 if not throttle.allow_request(request, view=self):
@@ -1764,9 +1763,7 @@ class OAuthTokenView(TokenView):
         request_client_id = request.POST.get("client_id")
 
         try:
-            token, granted, expires_in_seconds = id_jag.issue_access_token(
-                assertion, requested_scope, request_client_id
-            )
+            issued_access_token = id_jag.issue_access_token(assertion, requested_scope, request_client_id)
         except id_jag.IdJagError as e:
             logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)
             self._capture_token_rejected(id_jag.JWT_BEARER_GRANT_TYPE, request_client_id or "", e.error_code)
@@ -1784,8 +1781,8 @@ class OAuthTokenView(TokenView):
             properties={
                 "grant_type": id_jag.JWT_BEARER_GRANT_TYPE,
                 "client_id": request_client_id or "",
-                "granted_scopes": " ".join(granted),
-                "granted_scope_count": len(granted),
+                "granted_scopes": " ".join(issued_access_token.granted_scopes),
+                "granted_scope_count": len(issued_access_token.granted_scopes),
                 "$process_person_profile": False,
                 **(get_region_info() or {}),
             },
@@ -1793,10 +1790,10 @@ class OAuthTokenView(TokenView):
 
         return JsonResponse(
             {
-                "access_token": token,
+                "access_token": issued_access_token.access_token,
                 "token_type": "Bearer",
-                "expires_in": expires_in_seconds,
-                "scope": " ".join(granted),
+                "expires_in": issued_access_token.expires_in_seconds,
+                "scope": " ".join(issued_access_token.granted_scopes),
             }
         )
 

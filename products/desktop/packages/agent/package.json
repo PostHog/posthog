@@ -112,10 +112,6 @@
       "types": "./dist/resume.d.ts",
       "import": "./dist/resume.js"
     },
-    "./handoff-checkpoint": {
-      "types": "./dist/handoff-checkpoint.d.ts",
-      "import": "./dist/handoff-checkpoint.js"
-    },
     "./pi": {
       "types": "./dist/pi/rpc-client.d.ts",
       "import": "./dist/pi/rpc-client.js"

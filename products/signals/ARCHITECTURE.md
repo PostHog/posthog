@@ -388,7 +388,8 @@ suppressed → resolved (resolve an archived report straight out of the archive;
 # - suppressed transitions back to potential, or straight to the researched status it held before
 #   being archived (ready | pending_input | resolved | failed) — see restore_target_status()
 # - any non-deleted status can transition to deleted or suppressed
-# - snooze = transition to potential with snooze_for=N (sets signals_at_run = signal_count + N)
+# - reset/snooze = transition in_progress | pending_input | ready | resolved | failed → potential;
+#   snooze_for=N sets signals_at_run = signal_count + N
 suppressed → potential
 any (except deleted) → deleted
 any (except deleted) → suppressed

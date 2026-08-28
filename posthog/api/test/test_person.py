@@ -101,18 +101,26 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("?search=another@gm", True, False),
-            ("", False, False),
-            ("?search=another@gm&client_query_id=abc-123", True, True),
+            ("partial search", "?search=another@gm", True, False, "clickhouse", "person"),
+            ("no search", "", False, False, "clickhouse", "person"),
+            ("exact identifier", "?search=someone@gmail.com", True, False, "exact_identifier", None),
+            ("client query id", "?search=another@gm&client_query_id=abc-123", True, True, "clickhouse", "person"),
         ]
     )
     def test_person_list_emits_slo_event(
-        self, query: str, expected_has_search: bool, expected_has_client_query_id: bool
+        self,
+        _name: str,
+        query: str,
+        expected_has_search: bool,
+        expected_has_client_query_id: bool,
+        expected_answered_by: str,
+        expected_actor_type: Optional[str],
     ) -> None:
         _create_person(
             team=self.team,
-            distinct_ids=["distinct_id"],
+            distinct_ids=["someone@gmail.com"],
             properties={"email": "another@gmail.com"},
+            immediate=True,
         )
         flush_persons_and_events()
 
@@ -124,10 +132,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(completed), 1)
         self.assertEqual(completed[0]["has_search"], expected_has_search)
         self.assertEqual(completed[0]["has_client_query_id"], expected_has_client_query_id)
-        self.assertEqual(completed[0]["actor_type"], "person")
+        self.assertEqual(completed[0]["answered_by"], expected_answered_by)
         self.assertEqual(completed[0]["outcome"], "success")
         self.assertEqual(completed[0]["result_count"], 1)
         self.assertGreater(completed[0]["duration_ms"], 0)
+        # Only the ClickHouse path runs the actors query runner, which is what tags the actor type.
+        self.assertEqual(completed[0].get("actor_type"), expected_actor_type)
 
     def test_cancelled_search_is_marked_on_the_slo_event(self) -> None:
         with (
@@ -190,6 +200,58 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/person/?search={person.uuid}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
+
+    def test_search_by_exact_identifier_skips_clickhouse(self) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["someone@gmail.com"],
+            properties={"email": "someone@gmail.com"},
+            immediate=True,
+        )
+        anonymous_distinct_id = "0198f3c1-6c2a-7a5b-9d41-9a1b2c3d4e5f"
+        anonymous = _create_person(
+            team=self.team,
+            distinct_ids=[anonymous_distinct_id],
+            properties={"email": "another@gmail.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        # `limit=1` fills the page with the single match, so a page-full paginator would offer a
+        # second page. Following it would leave the fast path and run the ClickHouse search for
+        # results that cannot exist.
+        for url, expected in [
+            (f"/api/person/?search={person.uuid}&limit=1", person),
+            ("/api/person/?search=someone@gmail.com&limit=1", person),
+            (f"/api/person/?search={anonymous_distinct_id}&limit=1", anonymous),
+            ("/api/person/?distinct_id=someone@gmail.com&limit=1", person),
+        ]:
+            with self.subTest(url=url), self.capture_select_queries() as clickhouse_queries:
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual([result["id"] for result in response.json()["results"]], [str(expected.uuid)])
+                self.assertIsNone(response.json()["next"])
+            self.assertEqual(clickhouse_queries, [])
+
+    def test_search_by_exact_identifier_still_applies_other_filters(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["someone@gmail.com"],
+            properties={"email": "someone@gmail.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        other_email = json.dumps(
+            [{"key": "email", "value": "another@gmail.com", "operator": "exact", "type": "person"}]
+        )
+        response = self.client.get(f"/api/person/?search=someone@gmail.com&properties={other_email}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
+        response = self.client.get("/api/person/?search=someone@gmail.com&offset=1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries

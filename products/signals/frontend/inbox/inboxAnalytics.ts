@@ -3,7 +3,13 @@ import type { CaptureOptions } from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 
-import { SignalReport, SignalReportActionability, SignalReportPriority, SignalRunKind } from './types'
+import {
+    InboxReportSectionKey,
+    SignalReport,
+    SignalReportActionability,
+    SignalReportPriority,
+    SignalRunKind,
+} from './types'
 
 /**
  * Inbox telemetry. Mirrors the desktop "Code" app's inbox analytics (event names + property
@@ -24,6 +30,7 @@ export const INBOX_EVENTS = {
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
+    SECTION_TOGGLED: 'Inbox section toggled',
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_SCROLLED: 'Inbox report scrolled',
     REPORT_ACTION: 'Inbox report action',
@@ -49,10 +56,10 @@ export const INBOX_EVENTS = {
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
 
 /** Action surface an `Inbox report action` fired from. */
-export type InboxReportActionSurface = 'detail_pane' | 'detail_footer' | 'list_row' | 'bulk_bar'
+export type InboxReportActionSurface = 'detail_pane' | 'detail_footer' | 'list_row' | 'bulk_bar' | 'triage_mode'
 
-/** How a report detail was opened. */
-export type InboxReportOpenMethod = 'click' | 'deeplink' | 'unknown'
+/** How a report detail was opened. `triage` is the open-report shortcut in triage mode. */
+export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
 
 /**
  * How a report detail was closed. `page_unload` is a tab close or hard page navigation: the scene
@@ -66,7 +73,8 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
 /**
  * Report actions cloud actually emits. Names match the desktop enum one-for-one (so the
  * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Archive tab),
- * `view_diff`, and the section expand/collapse pair (desktop splits those per section instead).
+ * `view_diff`, `show_more` (a list section widening its window), and the section expand/collapse
+ * pair (desktop splits those per section instead).
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
@@ -77,6 +85,7 @@ export type InboxReportActionType =
     | 'refund'
     | 'open_pr'
     | 'view_diff'
+    | 'show_more'
     | 'expand_section'
     | 'collapse_section'
     | 'add_suggested_reviewer'
@@ -113,8 +122,11 @@ export function discussQuestionProperties(params: {
  */
 export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limited'
 
-/** Panels that replace the report list and so never fire `Inbox viewed`. */
-export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings'
+/**
+ * Panels that replace the report list and so never fire `Inbox viewed`. `config` is the Settings
+ * tab; the value predates the rename and stays so the panel breakdown reads continuously.
+ */
+export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange = 'scope' | 'sort' | 'source_product' | 'scout' | 'priority' | 'search' | 'clear' | 'url'
@@ -172,6 +184,7 @@ interface BaseReportProperties {
     report_age_hours: number
     priority: SignalReportPriority | null
     actionability: SignalReportActionability | null
+    has_pr: boolean
 }
 
 /**
@@ -186,6 +199,7 @@ function baseReportProperties(report: SignalReport): BaseReportProperties {
         report_age_hours: reportAgeHours(report),
         priority: report.priority ?? null,
         actionability: report.actionability ?? null,
+        has_pr: !!report.implementation_pr_url,
     }
 }
 
@@ -338,12 +352,18 @@ export function captureInboxReportsImpressed(params: {
     })
 }
 
+/**
+ * `section` is the Reports list section the row was opened from, so "opened from Resolved" and
+ * "opened from Needs decision" are one breakdown. Null when the report isn't in a loaded list
+ * (a cold deep-link), in which case `rank` and `list_size` are null too.
+ */
 export function captureInboxReportOpened(params: {
     report: SignalReport
     openMethod: InboxReportOpenMethod
     previousReportId: string | null
     rank: number | null
     listSize: number | null
+    section: InboxReportSectionKey | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.REPORT_OPENED, {
         ...baseReportProperties(params.report),
@@ -353,6 +373,19 @@ export function captureInboxReportOpened(params: {
         previous_report_id: params.previousReportId,
         rank: params.rank,
         list_size: params.listSize,
+        section: params.section,
+    })
+}
+
+/**
+ * A Reports list section was expanded or collapsed. Resolved and Not actionable start collapsed,
+ * so without this a reader who scrolls down to the resolved work is invisible until a card in it
+ * impresses. Cloud-only: the desktop app has no collapsible sections.
+ */
+export function captureInboxSectionToggled(params: { section: InboxReportSectionKey; isOpen: boolean }): void {
+    captureInboxEvent(INBOX_EVENTS.SECTION_TOGGLED, {
+        section: params.section,
+        is_open: params.isOpen,
     })
 }
 
@@ -407,7 +440,7 @@ export function captureInboxReportAction(params: {
 }): void {
     const base = params.report
         ? baseReportProperties(params.report)
-        : { report_id: null, report_age_hours: 0, priority: null, actionability: null }
+        : { report_id: null, report_age_hours: 0, priority: null, actionability: null, has_pr: false }
     captureInboxEvent(INBOX_EVENTS.REPORT_ACTION, {
         ...base,
         action_type: params.actionType,
@@ -535,9 +568,9 @@ export function captureInboxReportActionCompleted(params: {
 }
 
 /**
- * A surface that replaces the report list (Runs, Configuration, and the two scout panels). None of
- * them render `InboxReportList`, so without this they're invisible — `Inbox viewed` only ever fires
- * for the flat report tabs.
+ * A surface that replaces the report list (Runs, Settings, triage mode, and the two scout panels).
+ * None of them render the Reports sections, so without this they're invisible — `Inbox viewed` only
+ * ever fires for the report views.
  */
 export function captureInboxPanelViewed(params: { panel: InboxPanelName; itemCount?: number | null }): void {
     captureInboxEvent(INBOX_EVENTS.PANEL_VIEWED, {

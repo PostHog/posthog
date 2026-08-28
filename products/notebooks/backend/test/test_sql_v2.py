@@ -2916,3 +2916,99 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         self.assertEqual(
             NotebookNodeRun.objects.for_team(self.team.id).get(id=run.id).status, NotebookNodeRun.Status.DONE
         )
+
+
+class TestSQLV2RunWithNotebookVariables(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbvars01")
+        self.run_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/run/"
+
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_sql_run_stores_the_query_with_its_variables_bound(self, _mock_enabled, _mock_enqueue):
+        # The stored code is what the direct lane executes and what paging re-queries, so an
+        # unbound placeholder here reaches ClickHouse and fails the run.
+        response = self.client.post(
+            self.run_url,
+            data={
+                "node_id": "n1",
+                "code": "select {country} as country",
+                "variables": [{"name": "country", "type": "string", "value": "US"}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertIn("'US'", run.code)
+        self.assertNotIn("{country}", run.code)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_reading_an_undeclared_variable_is_a_400(self, _mock_enabled, mock_enqueue):
+        response = self.client.post(
+            self.run_url,
+            data={"node_id": "n1", "code": "select {country} as country", "variables": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not a notebook variable", response.json()["detail"])
+        mock_enqueue.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_python_run_carries_the_variables_to_the_kernel_unsubstituted(self, _mock_enabled, mock_start):
+        # Python reads them as globals, so the code must reach the kernel untouched with the
+        # values alongside it — substituting into Python source would be a different feature.
+        code = "print(country)"
+        response = self.client.post(
+            self.run_url,
+            data={
+                "node_id": "p1",
+                "code": code,
+                "node_type": "python",
+                "variables": [
+                    {"name": "country", "type": "string", "value": "US"},
+                    {"name": "days", "type": "number", "value": 30},
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertEqual(run.code, code)
+        self.assertEqual(mock_start.call_args.args[0].variables, {"country": "US", "days": 30})
+
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_run_without_variables_is_unchanged(self, _mock_enabled, _mock_enqueue):
+        response = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertEqual(run.code, "select 1")
+
+    @patch("products.notebooks.backend.presentation.views.notebook.get_direct_connection_source")
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_raw_connection_query_refuses_variables(
+        self, _mock_enabled, mock_enqueue, mock_start, mock_source
+    ) -> None:
+        # Quote doubling is not a safe escape on every engine a connection can point at, so the
+        # dispatch is refused rather than run with a hand-rolled literal.
+        mock_source.return_value = object()
+        response = self.client.post(
+            self.run_url,
+            data={
+                "node_id": "n1",
+                "code": "select * from t where c = {country}",
+                "connection_id": "018e0e7a-9999-8888-7777-666666666666",
+                "send_raw_query": True,
+                "variables": [{"name": "country", "type": "string", "value": "US"}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertIn("raw query", response.json()["detail"])
+        mock_enqueue.assert_not_called()
+        mock_start.assert_not_called()

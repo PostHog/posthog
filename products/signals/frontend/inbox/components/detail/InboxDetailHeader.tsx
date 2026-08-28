@@ -6,7 +6,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import { InboxTabKey, INBOX_TAB_LABEL, SignalReport } from '../../types'
+import { SignalReport } from '../../types'
 import { displayConventionalCommitTitle, parseConventionalCommitTitle } from '../../utils/reportPresentation'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 
@@ -15,10 +15,10 @@ import { ConventionalCommitScopeTag } from '../cards/ReportCard'
  * copy-link button that copies an absolute deep-link to the run. Report / PR / Not actionable
  * details render their own merged header inside `InboxDetailFrame`.
  */
-export function InboxDetailHeader({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
+export function InboxDetailHeader({ report }: { report: SignalReport }): JSX.Element {
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
-    const reportPath = urls.inboxReport(tab, report.id)
+    const reportPath = urls.inboxReport('reports', report.id)
 
     return (
         <div className="shrink-0 border-b border-primary px-6 pt-5 pb-4 flex flex-col gap-3">
@@ -26,10 +26,10 @@ export function InboxDetailHeader({ report, tab }: { report: SignalReport; tab: 
                 type="tertiary"
                 size="small"
                 icon={<IconArrowLeft />}
-                to={urls.inbox(tab)}
+                to={urls.inbox('reports')}
                 className="-ml-2 w-fit"
             >
-                {INBOX_TAB_LABEL[tab]}
+                Inbox
             </LemonButton>
             <div className="flex items-start justify-between gap-3 min-w-0">
                 <h1 className="min-w-0 flex-1 m-0 break-words text-2xl font-bold leading-tight tracking-tight">

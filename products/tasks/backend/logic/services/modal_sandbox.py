@@ -1126,7 +1126,7 @@ class ModalSandbox(AgentServerLaunchMixin):
 
         return _ModalExecutionStream(process)
 
-    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+    def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
         if not self.is_running():
             raise SandboxNotRunningError(
                 "Sandbox not in running state.",
@@ -1138,7 +1138,9 @@ class ModalSandbox(AgentServerLaunchMixin):
         try:
             self._sandbox.filesystem.write_bytes(payload, temp_path)
             mv_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
-            result = self.execute(mv_command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            result = self.execute(
+                mv_command, timeout_seconds=timeout_seconds or self.config.default_execution_timeout_seconds
+            )
             if result.exit_code != 0:
                 logger.warning(
                     "sandbox_write_failed",
@@ -1189,6 +1191,15 @@ class ModalSandbox(AgentServerLaunchMixin):
         self._sandbox_url = credentials.url
 
         logger.info(f"Got connect credentials for sandbox {self.id}: {credentials.url}")
+        return AgentServerResult(url=credentials.url, token=credentials.token)
+
+    def create_preview_connect_credentials(self, port: int, user_metadata: dict[str, Any]) -> AgentServerResult:
+        if not self.is_running():
+            raise RuntimeError("Sandbox not in running state.")
+
+        credentials = self._sandbox.create_connect_token(user_metadata=user_metadata, port=port)
+
+        logger.info(f"Minted preview connect credentials for sandbox {self.id} on port {port}")
         return AgentServerResult(url=credentials.url, token=credentials.token)
 
     def _termination_failure_reason(self) -> str:

@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { tagsModel } from '~/models/tagsModel'
 import { initKeaTests } from '~/test/init'
@@ -344,6 +346,51 @@ describe('replayScannersLogic', () => {
                 scanners: expect.arrayContaining([expect.objectContaining({ id: 'a', enabled: false })]),
                 togglingIds: ['a'],
             })
+        })
+
+        it('a persisted toggle completes without a success toast', async () => {
+            const successToast = jest.spyOn(lemonToast, 'success')
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toDispatchActions([
+                'toggleScannerEnabledDone',
+            ])
+
+            expect(successToast).not.toHaveBeenCalled()
+            expect(logic.values.togglingIds).toEqual([])
+        })
+
+        it('ignores a second toggle of the same scanner while one is in flight', async () => {
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleScannerEnabled('a')
+                logic.actions.toggleScannerEnabled('a')
+            })
+                .toMatchValues({
+                    scanners: expect.arrayContaining([expect.objectContaining({ id: 'a', enabled: false })]),
+                    togglingIds: ['a'],
+                })
+                .toFinishAllListeners()
+
+            expect(logic.values.scanners.find((s) => s.id === 'a')?.enabled).toBe(false)
+            expect(logic.values.togglingIds).toEqual([])
+        })
+
+        it('a failed toggle reverts the row and shows an error toast', async () => {
+            useMocks({
+                patch: { '/api/projects/:team/vision/scanners/:id/': () => [500, {}] },
+            })
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toDispatchActions([
+                'revertScannerEnabled',
+            ])
+
+            expect(logic.values.scanners.find((s) => s.id === 'a')?.enabled).toBe(true)
+            expect(logic.values.togglingIds).toEqual([])
+            expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('Failed to disable scanner'))
         })
 
         it('revertScannerEnabled flips the row back and clears the in-flight id', async () => {

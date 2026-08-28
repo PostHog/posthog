@@ -297,9 +297,9 @@ _FACADE_PREFIX = "backend/facade/"
 _FACADE_PRESENTATION_PREFIXES = (_FACADE_PREFIX, "backend/presentation/")
 _ROUTES_PREFIXES = ("backend/routes.py", "backend/routes/")
 
-# The wiring locations ("garages"). A garage prefix is either a directory (trailing slash) or a
-# single-file module; a class re-exported from one of these is accepted wiring, everything else is
-# a leak. See products/architecture.md § Wiring couplings.
+# The wiring locations; the identifiers below call them garages. A prefix is either a directory
+# (trailing slash) or a single-file module. A class re-exported from one of these is accepted
+# wiring, everything else is a leak. See products/architecture.md § Wiring couplings.
 GARAGE_PREFIXES: tuple[str, ...] = (
     "backend/hogql_queries/",
     "backend/max_tools.py",
@@ -307,6 +307,14 @@ GARAGE_PREFIXES: tuple[str, ...] = (
     "backend/tasks.py",
     "backend/tasks/",
 )
+
+# Wiring locations whose watch is computed, not presence-based. Core runs a query runner by the
+# query's kind string, so `product:crossings` can read the dispatch table and find every test
+# outside the product that executes a runner (the `drives(...)` lines in the crossings baseline).
+# Such a location must stay in the inputs only while a line exists for it. The other locations are
+# reached through channels the scan does not read yet (Celery task names, Temporal workflow names,
+# Max tool names), so they stay watched by presence until their channel is scanned too.
+COMPUTED_WIRING_LOCATIONS: frozenset[str] = frozenset({"backend/hogql_queries/"})
 
 
 def _glob_targets(glob: str, prefixes: tuple[str, ...]) -> bool:
@@ -343,7 +351,7 @@ def has_narrowed_turbo_inputs(
     skip inert, and a routes-only narrowing isn't a real contract surface — both are rejected.
     Negated globs ('!...') are excluded from the surface test.
 
-    Permanently-exposed modules, garage wiring locations, carve-out modules, and the model surface
+    Permanently-exposed modules, wiring locations, carve-out modules, and the model surface
     all count as extended surface: a product may list them without forfeiting the narrowing, since
     core depends on each outside the plain facade->contracts channel and they must re-run the suite
     on change (see uncovered_permanent_modules, unwatched_garages, and the carve-out/model coverage
@@ -382,7 +390,7 @@ def _uncovered_locations(product_dir: Path, targets_to_prefixes: dict[str, tuple
     """Targets whose accepted input forms match no narrowed contract-check input.
 
     Empty when the product has no narrowing override — everything is watched, so nothing is
-    uncovered. Shared by the permanent-exposure, garage, and carve-out coverage checks: same
+    uncovered. Shared by the permanent-exposure, wiring-location, and carve-out coverage checks: same
     anchored predicate everywhere, the convention is location-level, no glob simulation."""
     if not targets_to_prefixes:
         return set()
@@ -480,9 +488,9 @@ def routes_in_turbo_inputs(product_dir: Path) -> bool:
 # ---------------------------------------------------------------------------
 #
 # A class only crosses the boundary soundly if it implements a core-owned base and lives in a
-# wiring location ("garage", GARAGE_PREFIXES above) core keeps in the contract-check inputs. These
-# checks catch the two ways that breaks: a facade re-exporting a class from somewhere that ISN'T a
-# garage, and a garage that exists but isn't watched. See products/architecture.md § Wiring couplings.
+# wiring location (GARAGE_PREFIXES above) core keeps in the contract-check inputs. These checks
+# catch the two ways that breaks: a facade re-exporting a class from outside a wiring location,
+# and a wiring location that exists but isn't watched. See products/architecture.md § Wiring couplings.
 
 
 # Sanctioned model-registry carve-outs, keyed (product, class). These model classes cross the
@@ -502,7 +510,7 @@ CARVE_OUTS: frozenset[tuple[str, str]] = frozenset(
 # The watched-models allowance, keyed (product, class) like CARVE_OUTS above. These facades may
 # hand out the named Django model class defined under backend/models/, provided the whole model
 # surface (models + migrations) stays in the narrowed contract-check inputs — the same soundness
-# contract garages have. Sanctioned interim debt, surfaced as a standing lint warning.
+# contract wiring locations have. Sanctioned interim debt, surfaced as a standing lint warning.
 #
 # Keyed per class, not per product, so a product on the list can't quietly grow a new crossing: an
 # unlisted class is a leak again, and sanctioning it costs a doctrine amendment. The list only
@@ -533,7 +541,7 @@ MODEL_SURFACE_PREFIXES: tuple[str, ...] = (*_MODEL_SOURCE_PREFIXES, "backend/mig
 
 @dataclass(frozen=True)
 class FacadeClassImport:
-    """A class a facade module re-exports from a product-internal, non-garage module."""
+    """A class a facade module re-exports from a product-internal module outside a wiring location."""
 
     facade_module: str  # e.g. "queries.py"
     class_name: str  # e.g. "MetricsQueryRunner"
@@ -665,7 +673,7 @@ def _is_test_module(filename: str) -> bool:
 
 
 def _iter_facade_class_reexports(backend_dir: Path) -> Iterator[FacadeClassImport]:
-    """Every product-internal class a facade module hands out, from a non-facade, non-garage module —
+    """Every product-internal class a facade module hands out, from a module that is neither facade nor wiring location —
     carve-outs included (callers filter). Three shapes are read:
 
       - a pure re-export module (no top-level function definitions) hands out every class it imports.
@@ -743,11 +751,11 @@ def _split_facade_reexports(backend_dir: Path, name: str) -> FacadeReexports:
 
 
 def facade_class_imports(backend_dir: Path, name: str) -> list[FacadeClassImport]:
-    """Classes the facade re-exports from a non-garage internal module, minus sanctioned carve-outs
+    """Classes the facade re-exports from an internal module outside a wiring location, minus sanctioned carve-outs
     and watched-models-allowance crossings.
 
     Each is a class the facade can hand out that the wiring doctrine doesn't sanction. The remedy is
-    always one of three: move it to a garage (if it implements a core-owned base), to
+    always one of three: move it to a wiring location (if it implements a core-owned base), to
     facade/contracts.py (if it's a data/error type), or drop the turbo.json narrowing.
 
     Division of labor: deliberate re-exports from a function-bearing facade module must surface via
@@ -761,7 +769,7 @@ def facade_class_imports(backend_dir: Path, name: str) -> list[FacadeClassImport
 def facade_carveout_modules(backend_dir: Path, name: str) -> set[str]:
     """Backend-relative modules that define the carve-out classes this product's facade re-exports.
 
-    A narrowed product must keep these in its contract-check inputs, exactly like a garage."""
+    A narrowed product must keep these in its contract-check inputs, exactly like a wiring location."""
     return set(_split_facade_reexports(backend_dir, name).carveout_modules)
 
 
@@ -784,9 +792,18 @@ def _unwatched_present_locations(product_dir: Path, prefixes: tuple[str, ...]) -
     return _uncovered_locations(product_dir, {p: (p,) for p in present})
 
 
-def unwatched_garages(product_dir: Path) -> set[str]:
-    """Garage locations present in the product but missing from its (narrowed) contract-check inputs."""
-    return _unwatched_present_locations(product_dir, GARAGE_PREFIXES)
+def unwatched_garages(product_dir: Path, driven: frozenset[str] | None = None) -> set[str]:
+    """Wiring locations present in the product but missing from its (narrowed) contract-check inputs.
+
+    `driven` is the subset of COMPUTED_WIRING_LOCATIONS that a test outside the product executes, read
+    from the crossings baseline. A computed location with no driver may leave the inputs. `None`
+    means the caller has no evidence, so every present location counts as driven: the safe
+    direction."""
+    if driven is None:
+        prefixes = GARAGE_PREFIXES
+    else:
+        prefixes = tuple(p for p in GARAGE_PREFIXES if p not in COMPUTED_WIRING_LOCATIONS or p in driven)
+    return _unwatched_present_locations(product_dir, prefixes)
 
 
 def uncovered_carveout_modules(product_dir: Path, carveout_modules: frozenset[str]) -> set[str]:
@@ -810,9 +827,9 @@ def unwatched_model_surface(product_dir: Path) -> set[str]:
     the facade checks cannot prove nothing outside observes it, and a model or migration change has
     to re-run the full suite.
 
-    Stricter than the garage check on purpose: the WHOLE surface must be watched, so a directory
+    Stricter than the wiring-location check on purpose: the WHOLE surface must be watched, so a directory
     location needs its full glob (backend/models/**) — an input inside it, or a negation that may
-    carve files out of it, does not count. A garage may be watched piecemeal; the model
+    carve files out of it, does not count. A wiring location may be watched piecemeal; the model
     surface may not, because any unwatched model file is a class core can observe without re-running
     the suite. There is no glob engine here, so a negation only passes when its literal prefix (up
     to the first wildcard) is provably disjoint from the surface — `!backend/**/x.py` could match a
@@ -858,13 +875,15 @@ class IsolationStatus:
     # schema registry — so they don't qualify as irreducible interfaces and the marker is being
     # abused to keep an internal (models/logic) walled off. IsolationChainCheck blocks on these.
     unqualified_permanent_exposures: tuple[str, ...] = ()
-    # Classes the facade re-exports from a non-garage, non-carve-out internal module — behavior
+    # Classes the facade re-exports from an internal module that is neither wiring location nor carve-out — behavior
     # crossing the boundary that the wiring doctrine doesn't sanction (see facade_class_imports).
     # Blocks narrowing; a warning-only signal while the product is still un-narrowed.
     facade_leaks: tuple[FacadeClassImport, ...] = ()
-    # Garage wiring locations present in the product but missing from a narrowed product's inputs,
-    # and carve-out modules missing the same way. Both keep the skip sound and block when narrowed.
+    # Wiring locations present in the product but missing from a narrowed product's inputs, and
+    # carve-out modules missing the same way. Both keep the skip sound and block when narrowed. A
+    # location in COMPUTED_WIRING_LOCATIONS is listed only while an outside test drives it (driven_wiring_locations).
     unwatched_garages: tuple[str, ...] = ()
+    driven_wiring_locations: tuple[str, ...] = ()
     uncovered_carveout_modules: tuple[str, ...] = ()
     # Model classes the facade hands out under the watched-models allowance (see
     # MODEL_CROSSINGS). uncovered_model_surface lists the model/migration locations a narrowed
@@ -910,8 +929,12 @@ def compute_isolation_status(
     tach_content: str | None = None,
     pyproject_text: str | None = None,
     repo_root: Path | None = None,
+    driven_wiring_locations: frozenset[str] | None = None,
 ) -> IsolationStatus:
-    """Compute the full isolation seal status for one product."""
+    """Compute the full isolation seal status for one product.
+
+    `driven_wiring_locations` is the evidence `unwatched_garages` reads. Without it, every present wiring
+    location must stay watched."""
     if is_isolated is None:
         is_isolated = is_isolated_product(backend_dir)
     if tach_content is None:
@@ -939,7 +962,8 @@ def compute_isolation_status(
             sorted(unqualified_permanent_modules(module_path, permanent_modules, repo_root=repo_root))
         ),
         facade_leaks=reexports.leaks,
-        unwatched_garages=tuple(sorted(unwatched_garages(product_dir))),
+        unwatched_garages=tuple(sorted(unwatched_garages(product_dir, driven_wiring_locations))),
+        driven_wiring_locations=tuple(sorted(driven_wiring_locations or ())),
         uncovered_carveout_modules=tuple(sorted(uncovered_carveout_modules(product_dir, carveout_modules))),
         model_crossings=reexports.model_crossings,
         uncovered_model_surface=tuple(sorted(unwatched_model_surface(product_dir))),
