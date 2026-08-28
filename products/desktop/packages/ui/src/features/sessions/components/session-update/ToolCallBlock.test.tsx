@@ -130,10 +130,16 @@ describe("ToolCallBlock routing", () => {
             agent: "Explore",
             status: "running",
           },
+          {
+            id: 2,
+            label: "Review UI",
+            agent: "Explore",
+            status: "running",
+          },
         ],
       },
       expectedTitle: "Workflow · Release check",
-      expectedSummary: "Running: Review API (Explore)",
+      expectedSummary: "2 agents running in parallel",
       expectedStep: "Review API",
     },
     {
@@ -149,8 +155,8 @@ describe("ToolCallBlock routing", () => {
           },
         ],
       },
-      expectedTitle: "Subagent",
-      expectedSummary: "Explore: Inspect the API",
+      expectedTitle: "Subagent · Explore",
+      expectedSummary: "1 agent running",
       expectedStep: "Explore",
     },
   ])(
@@ -202,16 +208,12 @@ describe("ToolCallBlock routing", () => {
       },
     });
 
-    expect(
-      screen.getByText(
-        "· Completed: API review: Check auth routes; UI review: Check permission controls",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText("· 2 agents completed")).toBeInTheDocument();
   });
 
   it.each([
-    ["in_progress" as const, "Stopped before any agent started"],
-    ["completed" as const, "No agent work reported"],
+    ["in_progress" as const, "No agents started"],
+    ["completed" as const, "No agents started"],
   ])(
     "explains a %s workflow with no agent details in its collapsed header",
     (status, expectedSummary) => {

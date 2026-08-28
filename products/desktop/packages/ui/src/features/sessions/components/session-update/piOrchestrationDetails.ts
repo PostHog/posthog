@@ -7,14 +7,26 @@ import {
 import type { Step } from "@posthog/ui/primitives/StepList";
 
 const TASK_PREVIEW_LENGTH = 160;
-const SUMMARY_ITEM_LIMIT = 3;
+
+interface OrchestrationCounts {
+  total: number;
+  running: number;
+  completed: number;
+  failed: number;
+}
 
 export interface PiOrchestrationViewModel {
   kind: "subagent" | "workflow";
   title: string;
-  summary?: string;
+  phase?: string;
+  plannedPhaseCount: number;
+  counts: OrchestrationCounts;
   steps: Step[];
-  hasReportedWork: boolean;
+}
+
+export interface PiOrchestrationDisplayState {
+  isLoading: boolean;
+  isComplete: boolean;
 }
 
 export function compactOrchestrationText(
@@ -70,67 +82,18 @@ function readSubagentStatus(
   return exitCode === 0 ? "completed" : "failed";
 }
 
-function summarizeItems(items: string[]): string | undefined {
-  if (items.length === 0) {
-    return undefined;
-  }
-  const visibleItems = items.slice(0, SUMMARY_ITEM_LIMIT);
-  const hiddenCount = items.length - visibleItems.length;
-  if (hiddenCount > 0) {
-    visibleItems.push(`+${hiddenCount} more`);
-  }
-  return visibleItems.join("; ");
-}
-
 function formatWorkflowName(name: string): string {
   const readableName = name.replace(/[-_]+/g, " ").trim();
   return `${readableName.charAt(0).toUpperCase()}${readableName.slice(1)}`;
 }
 
-function workflowAction(
-  agent: PiWorkflowToolDetails["agents"][number],
-): string {
-  const completedDetail = agent.resultPreview ?? agent.objective;
-  const activeDetail = agent.objective ?? agent.produces;
-  const detail = agent.status === "done" ? completedDetail : activeDetail;
-  if (!detail) {
-    return `${agent.label} (${agent.agent})`;
-  }
-  return `${agent.label}: ${compactOrchestrationText(detail, 80)}`;
-}
-
-function workflowSummary(details: PiWorkflowToolDetails): string {
-  const activeAgents = details.agents.filter(
-    (agent) => agent.status === "running",
-  );
-  if (activeAgents.length > 0) {
-    return `Running: ${summarizeItems(activeAgents.map(workflowAction))}`;
-  }
-
-  if (details.agents.length > 0) {
-    const actions = summarizeItems(details.agents.map(workflowAction));
-    const failedCount = details.agents.filter(
-      (agent) => agent.status === "error",
-    ).length;
-    if (details.done && failedCount > 0) {
-      return `Completed with ${failedCount} failed: ${actions}`;
-    }
-    if (details.done) {
-      return `Completed: ${actions}`;
-    }
-    if (details.currentPhase) {
-      return `${details.currentPhase}: ${actions}`;
-    }
-    return actions ?? "Preparing workflow";
-  }
-
-  if (details.currentPhase) {
-    return `Running ${details.currentPhase}`;
-  }
-  if (details.phases && details.phases.length > 0) {
-    return `Plan: ${details.phases.join(" → ")}`;
-  }
-  return "Preparing workflow";
+function countSteps(steps: Step[]): OrchestrationCounts {
+  return {
+    total: steps.length,
+    running: steps.filter((step) => step.status === "in_progress").length,
+    completed: steps.filter((step) => step.status === "completed").length,
+    failed: steps.filter((step) => step.status === "failed").length,
+  };
 }
 
 function readWorkflowDetails(
@@ -162,11 +125,10 @@ function readWorkflowDetails(
   return {
     kind: "workflow",
     title: name ? `Workflow · ${formatWorkflowName(name)}` : "Workflow",
-    summary: workflowSummary(parsed.data),
+    phase: currentPhase,
+    plannedPhaseCount: phases?.length ?? 0,
+    counts: countSteps(steps),
     steps,
-    hasReportedWork: Boolean(
-      currentPhase || agents.length > 0 || (phases && phases.length > 0),
-    ),
   };
 }
 
@@ -188,20 +150,97 @@ function readSubagentDetails(
       detail: [result.model, task].filter(Boolean).join(" · "),
     };
   });
-  const summary = summarizeItems(
-    parsed.data.results.map(
-      (result) =>
-        `${result.agent}: ${compactOrchestrationText(result.task, 80)}`,
-    ),
-  );
+  const singleAgent = parsed.data.results[0]?.agent;
 
   return {
     kind: "subagent",
-    title: steps.length > 1 ? "Subagents" : "Subagent",
-    summary,
+    title:
+      steps.length === 1 && singleAgent
+        ? `Subagent · ${singleAgent}`
+        : "Subagents",
+    plannedPhaseCount: 0,
+    counts: countSteps(steps),
     steps,
-    hasReportedWork: parsed.data.results.length > 0,
   };
+}
+
+function agentCount(count: number): string {
+  return count === 1 ? "1 agent" : `${count} agents`;
+}
+
+function activeSummary(view: PiOrchestrationViewModel): string {
+  const { running, completed } = view.counts;
+  if (running > 1) {
+    const completedSuffix = completed > 0 ? ` · ${completed} completed` : "";
+    return `${running} agents running in parallel${completedSuffix}`;
+  }
+  if (running === 1) {
+    const completedSuffix = completed > 0 ? ` · ${completed} completed` : "";
+    return `1 agent running${completedSuffix}`;
+  }
+  if (view.phase) {
+    return `Running ${view.phase}`;
+  }
+  if (view.plannedPhaseCount > 0) {
+    return `Preparing ${view.plannedPhaseCount} phases`;
+  }
+  return "Preparing";
+}
+
+function completedSummary(view: PiOrchestrationViewModel): string {
+  const { total, completed, failed } = view.counts;
+  if (total === 0) {
+    return view.phase ? `Reached ${view.phase}` : "No agents started";
+  }
+  if (failed === 0 && completed === total) {
+    return `${agentCount(completed)} completed`;
+  }
+
+  const summaries: string[] = [];
+  if (completed > 0) {
+    summaries.push(`${completed} completed`);
+  }
+  if (failed > 0) {
+    summaries.push(`${failed} failed`);
+  }
+  const notCompleted = total - completed - failed;
+  if (notCompleted > 0) {
+    summaries.push(`${notCompleted} not completed`);
+  }
+  return summaries.join(" · ");
+}
+
+function stoppedSummary(view: PiOrchestrationViewModel): string {
+  const { total, completed, failed } = view.counts;
+  if (total === 0) {
+    return view.phase ? `Stopped in ${view.phase}` : "No agents started";
+  }
+
+  const stopped = total - completed - failed;
+  const summaries: string[] = [];
+  if (completed > 0) {
+    summaries.push(`${completed} completed`);
+  }
+  if (failed > 0) {
+    summaries.push(`${failed} failed`);
+  }
+  if (stopped > 0) {
+    summaries.push(`${stopped} stopped`);
+  }
+  return summaries.join(" · ");
+}
+
+export function summarizePiOrchestration(
+  view: PiOrchestrationViewModel,
+  state: PiOrchestrationDisplayState,
+): string {
+  if (state.isLoading) {
+    return activeSummary(view);
+  }
+  if (state.isComplete) {
+    return completedSummary(view);
+  }
+  return stoppedSummary(view);
 }
 
 export function readPiOrchestrationDetails(

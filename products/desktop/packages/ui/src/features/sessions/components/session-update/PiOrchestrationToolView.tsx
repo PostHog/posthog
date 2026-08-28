@@ -5,6 +5,7 @@ import { type ReactElement, useEffect, useState } from "react";
 import {
   compactOrchestrationText,
   type PiOrchestrationViewModel,
+  summarizePiOrchestration,
 } from "./piOrchestrationDetails";
 import { ToolRow } from "./ToolRow";
 import type { ToolViewProps } from "./toolCallUtils";
@@ -31,20 +32,15 @@ export function PiOrchestrationToolView({
   turnComplete,
   view,
 }: PiOrchestrationToolViewProps): ReactElement {
-  const { isIncomplete, isLoading, isFailed, wasCancelled, isComplete } =
-    useToolCallStatus(toolCall.status, turnCancelled, turnComplete);
+  const { isLoading, isFailed, wasCancelled, isComplete } = useToolCallStatus(
+    toolCall.status,
+    turnCancelled,
+    turnComplete,
+  );
   const [userToggledOpen, setUserToggledOpen] = useState<boolean | null>(null);
-  const stoppedWithoutResult =
-    isIncomplete && Boolean(turnComplete) && !turnCancelled;
-  let summary = view.summary;
-  if (isComplete && view.kind === "workflow" && !view.hasReportedWork) {
-    summary = "No agent work reported";
-  } else if (stoppedWithoutResult && view.steps.length === 0) {
-    summary = "Stopped before any agent started";
-  } else if (stoppedWithoutResult) {
-    summary = `Stopped: ${view.summary}`;
-  } else if (isFailed) {
-    summary = readFailureSummary(toolCall) ?? view.summary;
+  let summary = summarizePiOrchestration(view, { isLoading, isComplete });
+  if (isFailed) {
+    summary = readFailureSummary(toolCall) ?? summary;
   }
 
   useEffect(() => {
