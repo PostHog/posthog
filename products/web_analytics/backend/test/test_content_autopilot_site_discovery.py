@@ -4,14 +4,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.egress.public_web import PublicWebFetchError
-
 from products.web_analytics.backend.content_autopilot.site_discovery import discover_site, normalize_site_origin
+from products.web_analytics.backend.public_url_fetch import FetchedPublicUrl, PublicUrlFetchError
 
 
-def _response(url: str, *, status: int = 200, body: bytes = b"", location: str | None = None) -> dict[str, object]:
+def _response(url: str, *, status: int = 200, body: bytes = b"", location: str | None = None) -> FetchedPublicUrl:
     headers = {"Location": location} if location else {}
-    return {"status_code": status, "headers": headers, "body": body, "final_url": url}
+    return FetchedPublicUrl(url=url, status_code=status, headers=headers, body=body)
 
 
 class TestContentAutopilotSiteDiscovery(SimpleTestCase):
@@ -37,9 +36,9 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
         with self.assertRaises(ValueError):
             normalize_site_origin(raw_url)
 
-    @patch("products.web_analytics.backend.content_autopilot.site_discovery.public_web_get")
-    def test_detects_site_defaults_and_sitemap(self, public_web_get: MagicMock) -> None:
-        def response_for(url: str, **kwargs: object) -> dict[str, object]:
+    @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
+    def test_detects_site_defaults_and_sitemap(self, fetch_public_url: MagicMock) -> None:
+        def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
             if url.endswith("/robots.txt"):
                 return _response(
                     url,
@@ -51,7 +50,7 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
                 return _response(url, body=b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" />')
             return _response(url, status=404)
 
-        public_web_get.side_effect = response_for
+        fetch_public_url.side_effect = response_for
 
         result = discover_site("HTTPS://Example.com/docs")
 
@@ -61,9 +60,9 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
         self.assertTrue(result["sitemap_detected"])
         self.assertEqual(result["warnings"], [])
 
-    @patch("products.web_analytics.backend.content_autopilot.site_discovery.public_web_get")
-    def test_revalidates_a_same_origin_redirect(self, public_web_get: MagicMock) -> None:
-        def response_for(url: str, **kwargs: object) -> dict[str, object]:
+    @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
+    def test_revalidates_a_same_origin_redirect(self, fetch_public_url: MagicMock) -> None:
+        def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
             if url.endswith("/robots.txt"):
                 return _response(url, status=404)
             if url == "https://example.com/":
@@ -74,30 +73,30 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
                 return _response(url, body=b"<urlset />")
             return _response(url, status=404)
 
-        public_web_get.side_effect = response_for
+        fetch_public_url.side_effect = response_for
 
         result = discover_site("https://example.com")
 
         self.assertTrue(result["sitemap_detected"])
-        self.assertIn("https://example.com:443/welcome", [call.args[0] for call in public_web_get.call_args_list])
+        self.assertIn("https://example.com:443/welcome", [call.args[0] for call in fetch_public_url.call_args_list])
 
-    @patch("products.web_analytics.backend.content_autopilot.site_discovery.public_web_get")
-    def test_never_fetches_a_cross_origin_redirect(self, public_web_get: MagicMock) -> None:
-        def response_for(url: str, **kwargs: object) -> dict[str, object]:
+    @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
+    def test_never_fetches_a_cross_origin_redirect(self, fetch_public_url: MagicMock) -> None:
+        def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
             if url == "https://example.com/":
                 return _response(url, status=302, location="https://other.example/sitemap.xml")
             return _response(url, status=404)
 
-        public_web_get.side_effect = response_for
+        fetch_public_url.side_effect = response_for
 
         result = discover_site("https://example.com")
 
         self.assertFalse(result["sitemap_detected"])
-        self.assertNotIn("other.example", " ".join(call.args[0] for call in public_web_get.call_args_list))
+        self.assertNotIn("other.example", " ".join(call.args[0] for call in fetch_public_url.call_args_list))
 
-    @patch("products.web_analytics.backend.content_autopilot.site_discovery.public_web_get")
-    def test_invalid_xml_uses_an_editable_sitemap_fallback(self, public_web_get: MagicMock) -> None:
-        public_web_get.side_effect = lambda url, **kwargs: _response(
+    @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
+    def test_invalid_xml_uses_an_editable_sitemap_fallback(self, fetch_public_url: MagicMock) -> None:
+        fetch_public_url.side_effect = lambda url, **kwargs: _response(
             url,
             status=404 if url.endswith(("/robots.txt", "/")) else 200,
             body=b"<urlset>" if url.endswith(".xml") else b"",
@@ -111,27 +110,27 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
             ["We couldn't verify a sitemap. Review the suggested URL before saving."],
         )
 
-    @patch("products.web_analytics.backend.content_autopilot.site_discovery.public_web_get")
-    def test_limits_sitemap_candidates_from_robots(self, public_web_get: MagicMock) -> None:
+    @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
+    def test_limits_sitemap_candidates_from_robots(self, fetch_public_url: MagicMock) -> None:
         sitemap_lines = "\n".join(f"Sitemap: https://example.com/sitemap-{index}.xml" for index in range(10))
 
-        def response_for(url: str, **kwargs: object) -> dict[str, object]:
+        def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
             if url.endswith("/robots.txt"):
                 return _response(url, body=sitemap_lines.encode())
             if url == "https://example.com/":
-                raise PublicWebFetchError("unavailable")
+                raise PublicUrlFetchError("transport")
             return _response(url, status=404)
 
-        public_web_get.side_effect = response_for
+        fetch_public_url.side_effect = response_for
 
         discover_site("https://example.com")
 
-        sitemap_calls = [call.args[0] for call in public_web_get.call_args_list if call.kwargs["endpoint"] == "sitemap"]
+        sitemap_calls = [call.args[0] for call in fetch_public_url.call_args_list if "/sitemap-" in call.args[0]]
         self.assertEqual(sitemap_calls, [f"https://example.com/sitemap-{index}.xml" for index in range(5)])
 
-    @patch("products.web_analytics.backend.content_autopilot.site_discovery.public_web_get")
-    def test_skips_a_malformed_sitemap_candidate(self, public_web_get: MagicMock) -> None:
-        def response_for(url: str, **kwargs: object) -> dict[str, object]:
+    @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
+    def test_skips_a_malformed_sitemap_candidate(self, fetch_public_url: MagicMock) -> None:
+        def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
             if url.endswith("/robots.txt"):
                 return _response(
                     url,
@@ -141,23 +140,23 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
                 return _response(url, body=b"<urlset />")
             return _response(url, status=404)
 
-        public_web_get.side_effect = response_for
+        fetch_public_url.side_effect = response_for
 
         result = discover_site("https://example.com")
 
         self.assertEqual(result["source_urls"], ["https://example.com/sitemap.xml"])
         self.assertTrue(result["sitemap_detected"])
 
-    @patch("products.web_analytics.backend.content_autopilot.site_discovery.public_web_get")
-    def test_skips_a_malformed_homepage_sitemap_candidate(self, public_web_get: MagicMock) -> None:
-        def response_for(url: str, **kwargs: object) -> dict[str, object]:
+    @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
+    def test_skips_a_malformed_homepage_sitemap_candidate(self, fetch_public_url: MagicMock) -> None:
+        def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
             if url == "https://example.com/":
                 return _response(url, body=b'<link rel="sitemap" href="https://example.com:invalid/broken.xml">')
             if url.endswith("/sitemap.xml"):
                 return _response(url, body=b"<urlset />")
             return _response(url, status=404)
 
-        public_web_get.side_effect = response_for
+        fetch_public_url.side_effect = response_for
 
         result = discover_site("https://example.com")
 
