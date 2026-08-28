@@ -13,6 +13,8 @@ export interface ResizableColumns {
     startResize: (columnKey: string, event: ReactPointerEvent) => void
     nudgeWidth: (columnKey: string, direction: -1 | 1) => void
     resetWidth: (columnKey: string) => void
+    /** False for the last column — it has nothing to its right to give or take space. */
+    isResizable: (columnKey: string) => boolean
 }
 
 /**
@@ -31,14 +33,37 @@ export function useResizableColumns(tableKey: string, specs: ResizableColumnSpec
     // Widths the last render produced. A drag starts from what is on screen, not from the default.
     const renderedWidthsRef = useRef<Record<string, number>>({})
     const stopDragRef = useRef<(() => void) | null>(null)
+    // Reuse the last resolved widths object when none of its inputs changed, so unrelated
+    // re-renders (a sort click, a hover) don't hand every virtualized row a new `widths`
+    // reference and force them all to re-render.
+    const lastResolvedRef = useRef<{
+        specs: ResizableColumnSpec[]
+        stored: Record<string, number> | undefined
+        dragged: typeof dragged
+        availableWidth: number
+        result: ResolvedColumnWidths
+    } | null>(null)
 
     useEffect(() => () => stopDragRef.current?.(), [])
 
     const resolveWidths = (availableWidth: number): ResolvedColumnWidths => {
+        const last = lastResolvedRef.current
+        if (
+            last &&
+            last.specs === specs &&
+            last.stored === stored &&
+            last.dragged === dragged &&
+            last.availableWidth === availableWidth
+        ) {
+            return last.result
+        }
         const resolved = resolveColumnWidths(specs, stored, dragged, availableWidth)
         renderedWidthsRef.current = resolved.widths
+        lastResolvedRef.current = { specs, stored, dragged, availableWidth, result: resolved }
         return resolved
     }
+
+    const isResizable = useCallback((columnKey: string) => specs[specs.length - 1]?.key !== columnKey, [specs])
 
     const startResize = useCallback(
         (columnKey: string, event: ReactPointerEvent): void => {
@@ -85,5 +110,5 @@ export function useResizableColumns(tableKey: string, specs: ResizableColumnSpec
         [resetColumnWidth, tableKey]
     )
 
-    return { resolveWidths, startResize, nudgeWidth, resetWidth }
+    return { resolveWidths, startResize, nudgeWidth, resetWidth, isResizable }
 }

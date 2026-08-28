@@ -33,8 +33,6 @@ export interface VirtualizedTableColumn<T> {
     align?: 'right'
     /** Header tooltip. */
     tooltip?: string
-    /** Plain-text column name for the resize handle, when `title` is not a string. */
-    label?: string
     render: (record: T) => ReactNode
     /** Provide to make the column sortable. */
     sorter?: (a: T, b: T) => number
@@ -43,7 +41,6 @@ export interface VirtualizedTableColumn<T> {
 function HeaderCell({
     column,
     width,
-    resizable,
     columns,
     sortKey,
     sortOrder,
@@ -51,16 +48,15 @@ function HeaderCell({
 }: {
     column: VirtualizedTableColumn<any>
     width: number
-    resizable: boolean
     columns: ResizableColumns
     sortKey: string | null
     sortOrder: VirtualizedSortOrder
     onSort: (key: string) => void
 }): JSX.Element {
     const label = column.tooltip ? <Tooltip title={column.tooltip}>{column.title}</Tooltip> : column.title
-    const resize = resizable
+    const resize = columns.isResizable(column.key)
         ? {
-              columnLabel: column.label ?? (typeof column.title === 'string' ? column.title : column.key),
+              columnLabel: typeof column.title === 'string' ? column.title : column.key,
               onResizeStart: (event: React.PointerEvent) => columns.startResize(column.key, event),
               onNudge: (direction: -1 | 1) => columns.nudgeWidth(column.key, direction),
               onReset: () => columns.resetWidth(column.key),
@@ -228,12 +224,11 @@ export function VirtualizedTable<T>({
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ height: HEADER_HEIGHT }}
                                 >
-                                    {columns.map((column, index) => (
+                                    {columns.map((column) => (
                                         <HeaderCell
                                             key={column.key}
                                             column={column}
                                             width={widths[column.key]}
-                                            resizable={index < columns.length - 1}
                                             columns={resizableColumns}
                                             sortKey={sortKey}
                                             sortOrder={sortOrder}

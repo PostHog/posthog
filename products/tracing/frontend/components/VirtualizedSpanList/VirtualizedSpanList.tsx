@@ -81,12 +81,16 @@ function SpanHeaderCell({
     return (
         <TableHeaderCell
             width={widths[columnKey]}
-            resize={{
-                columnLabel: label,
-                onResizeStart: (event) => columns.startResize(columnKey, event),
-                onNudge: (direction) => columns.nudgeWidth(columnKey, direction),
-                onReset: () => columns.resetWidth(columnKey),
-            }}
+            resize={
+                columns.isResizable(columnKey)
+                    ? {
+                          columnLabel: label,
+                          onResizeStart: (event) => columns.startResize(columnKey, event),
+                          onNudge: (direction) => columns.nudgeWidth(columnKey, direction),
+                          onReset: () => columns.resetWidth(columnKey),
+                      }
+                    : undefined
+            }
         >
             {sort ? (
                 <button
@@ -139,8 +143,8 @@ function SpanRowHeader({
             />
             <SpanHeaderCell {...shared} columnKey="status" label="Status" />
             <SpanHeaderCell {...shared} columnKey="traceId" label="Trace ID" />
-            {/* Row actions need no heading, and the last column has nothing to its right to resize against. */}
-            <TableHeaderCell width={widths.actions}> </TableHeaderCell>
+            {/* Row actions need no heading. */}
+            <TableHeaderCell width={widths.actions}>{null}</TableHeaderCell>
         </div>
     )
 }

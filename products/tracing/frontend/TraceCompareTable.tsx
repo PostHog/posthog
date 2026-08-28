@@ -112,7 +112,6 @@ function CompareHeaderCell({
     column,
     label,
     align,
-    isLast,
     widths,
     columns,
     sortColumn,
@@ -122,8 +121,6 @@ function CompareHeaderCell({
     column: Exclude<SortColumn, 'change'>
     label: string
     align?: 'right'
-    /** The last column has nothing to its right to resize against. */
-    isLast?: boolean
     widths: Record<string, number>
     columns: ResizableColumns
 } & SortProps): JSX.Element {
@@ -133,14 +130,14 @@ function CompareHeaderCell({
             width={widths[column]}
             align={align}
             resize={
-                isLast
-                    ? undefined
-                    : {
+                columns.isResizable(column)
+                    ? {
                           columnLabel: label,
                           onResizeStart: (event) => columns.startResize(column, event),
                           onNudge: (direction) => columns.nudgeWidth(column, direction),
                           onReset: () => columns.resetWidth(column),
                       }
+                    : undefined
             }
         >
             <button
@@ -179,7 +176,7 @@ function CompareRowHeader({
             <CompareHeaderCell {...shared} column="count" label="Count" align="right" />
             <CompareHeaderCell {...shared} column="p50" label="p50" align="right" />
             <CompareHeaderCell {...shared} column="p95" label="p95" align="right" />
-            <CompareHeaderCell {...shared} column="errors" label="Errors" align="right" isLast />
+            <CompareHeaderCell {...shared} column="errors" label="Errors" align="right" />
         </div>
     )
 }
