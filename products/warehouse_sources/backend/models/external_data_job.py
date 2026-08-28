@@ -2,11 +2,12 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Prefetch
+from django.db.models import OuterRef, Prefetch, Subquery
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataJobPipelineVersion, ExternalDataJobStatus
 
 
@@ -77,6 +78,26 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
     return ExternalDataJob.objects.prefetch_related(
         "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
     ).get(pk=job_id)
+
+
+def latest_completed_job_prefetch(team_id: int, lookup: str, to_attr: str) -> Prefetch:
+    """Prefetch each source's newest completed job as a one-element list on `to_attr`.
+
+    Do not replace this with a sliced prefetch queryset (`order_by("-created_at")[:1]`). Django
+    compiles that to a ROW_NUMBER window over every completed job of every listed source, so
+    Postgres reads and sorts the team's whole job history to keep one row per source. Selecting
+    each source's newest job id in a correlated subquery costs one index probe per source.
+    """
+    latest_job_ids = ExternalDataSource.objects.filter(team_id=team_id).values(
+        latest_job_id=Subquery(
+            ExternalDataJob.objects.filter(
+                pipeline=OuterRef("pk"), team_id=team_id, status=ExternalDataJobStatus.COMPLETED
+            )
+            .order_by("-created_at")
+            .values("id")[:1]
+        )
+    )
+    return Prefetch(lookup, queryset=ExternalDataJob.objects.filter(id__in=latest_job_ids), to_attr=to_attr)
 
 
 @database_sync_to_async
