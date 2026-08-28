@@ -2,7 +2,7 @@ use chrono::{DateTime, Duration, Utc};
 use common_types::error_tracking::{FrameId, RawFrameId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::Executor;
+use sqlx::{Executor, PgPool};
 use uuid::Uuid;
 
 use crate::core::write_attribution::FrameWriteOutcome;
@@ -88,6 +88,13 @@ pub(crate) struct StoredFrameSnapshot {
     pub fresh: bool,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct FrameSnapshotPersistence {
+    pub outcome: FrameWriteOutcome,
+    pub upserted_rows: u64,
+    pub deleted_rows: u64,
+}
+
 pub(crate) fn classify_frame_snapshot(
     existing: &[ErrorTrackingStackFrame],
     current: &[ErrorTrackingStackFrame],
@@ -162,6 +169,61 @@ impl ErrorTrackingStackFrame {
         .execute(e)
         .await?;
         Ok(result.rows_affected())
+    }
+
+    pub(crate) async fn persist_snapshot(
+        pool: &PgPool,
+        existing: &[Self],
+        current: &[Self],
+    ) -> Result<FrameSnapshotPersistence, UnhandledError> {
+        let outcome = classify_frame_snapshot(existing, current);
+        if outcome == FrameWriteOutcome::Unchanged {
+            return Ok(FrameSnapshotPersistence {
+                outcome,
+                upserted_rows: 0,
+                deleted_rows: 0,
+            });
+        }
+
+        let first = current
+            .first()
+            .ok_or_else(|| UnhandledError::Other("frame snapshot cannot be empty".to_string()))?;
+        if current.iter().any(|record| {
+            record.id.hash_id != first.id.hash_id || record.id.team_id != first.id.team_id
+        }) {
+            return Err(UnhandledError::Other(
+                "frame snapshot records must share an identity".to_string(),
+            ));
+        }
+
+        let mut transaction = pool.begin().await?;
+        let mut upserted_rows = 0;
+        for record in current {
+            upserted_rows += record.save(&mut *transaction).await?;
+        }
+
+        let parts = current
+            .iter()
+            .map(|record| record.id.part)
+            .collect::<Vec<_>>();
+        let deleted_rows = sqlx::query(
+            "DELETE FROM posthog_errortrackingstackframe
+             WHERE raw_id = $1 AND team_id = $2 AND NOT (part = ANY($3))",
+        )
+        .bind(&first.id.hash_id)
+        .bind(first.id.team_id)
+        .bind(&parts)
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+
+        transaction.commit().await?;
+
+        Ok(FrameSnapshotPersistence {
+            outcome,
+            upserted_rows,
+            deleted_rows,
+        })
     }
 
     pub async fn load_all<'c, E>(
@@ -375,6 +437,185 @@ mod tests {
                 "{field}"
             );
         }
+    }
+
+    async fn load_stored_snapshot(
+        pool: &sqlx::PgPool,
+        raw_id: &RawFrameId,
+    ) -> Vec<ErrorTrackingStackFrame> {
+        ErrorTrackingStackFrame::load_snapshot(
+            pool,
+            raw_id,
+            FrameResultTtlPolicy::new(Duration::hours(1), Duration::hours(1)),
+        )
+        .await
+        .unwrap()
+        .records
+    }
+
+    fn snapshot_record(raw_id: &RawFrameId, part: i32) -> ErrorTrackingStackFrame {
+        let id = FrameId::new(raw_id.hash_id.clone(), raw_id.team_id, part);
+        let frame = frame_with_part(id.clone(), part);
+        ErrorTrackingStackFrame::new(id, None, frame, true, None)
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn persist_snapshot_inserts_then_skips_an_unchanged_refresh(pool: sqlx::PgPool) {
+        let raw_id = RawFrameId::new("unchanged-frame".to_string(), 1);
+        let current = vec![snapshot_record(&raw_id, 0)];
+
+        let inserted = ErrorTrackingStackFrame::persist_snapshot(&pool, &[], &current)
+            .await
+            .unwrap();
+        assert_eq!(inserted.outcome, FrameWriteOutcome::Insert);
+        assert_eq!(inserted.upserted_rows, 1);
+        assert_eq!(inserted.deleted_rows, 0);
+
+        let stored = load_stored_snapshot(&pool, &raw_id).await;
+        let original_created_at = stored[0].created_at;
+        let mut refreshed = stored.clone();
+        refreshed[0].created_at += Duration::minutes(10);
+
+        let unchanged = ErrorTrackingStackFrame::persist_snapshot(&pool, &stored, &refreshed)
+            .await
+            .unwrap();
+        assert_eq!(unchanged.outcome, FrameWriteOutcome::Unchanged);
+        assert_eq!(unchanged.upserted_rows, 0);
+        assert_eq!(unchanged.deleted_rows, 0);
+
+        let reloaded = load_stored_snapshot(&pool, &raw_id).await;
+        assert_eq!(reloaded[0].created_at, original_created_at);
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn persist_snapshot_writes_each_durable_change(pool: sqlx::PgPool) {
+        let raw_id = RawFrameId::new("changed-frame".to_string(), 1);
+        let initial = vec![snapshot_record(&raw_id, 0)];
+        ErrorTrackingStackFrame::persist_snapshot(&pool, &[], &initial)
+            .await
+            .unwrap();
+
+        let mut stored = load_stored_snapshot(&pool, &raw_id).await;
+        let context = Context {
+            before: Vec::new(),
+            line: crate::frames::ContextLine {
+                number: 1,
+                line: "changed context".to_string(),
+            },
+            after: Vec::new(),
+        };
+        let mut changed_context = stored.clone();
+        changed_context[0].context = Some(context.clone());
+        changed_context[0].contents.context = Some(context);
+        let result = ErrorTrackingStackFrame::persist_snapshot(&pool, &stored, &changed_context)
+            .await
+            .unwrap();
+        assert_eq!(result.outcome, FrameWriteOutcome::Changed);
+        stored = load_stored_snapshot(&pool, &raw_id).await;
+        assert_eq!(stored[0].context, changed_context[0].context);
+
+        let mut changed_resolution = stored.clone();
+        changed_resolution[0].resolved = false;
+        changed_resolution[0].contents.resolved = false;
+        let result = ErrorTrackingStackFrame::persist_snapshot(&pool, &stored, &changed_resolution)
+            .await
+            .unwrap();
+        assert_eq!(result.outcome, FrameWriteOutcome::Changed);
+        stored = load_stored_snapshot(&pool, &raw_id).await;
+        assert!(!stored[0].resolved);
+
+        let mut changed_symbol_set = stored.clone();
+        changed_symbol_set[0].symbol_set_id = Some(Uuid::now_v7());
+        let result = ErrorTrackingStackFrame::persist_snapshot(&pool, &stored, &changed_symbol_set)
+            .await
+            .unwrap();
+        assert_eq!(result.outcome, FrameWriteOutcome::Changed);
+        stored = load_stored_snapshot(&pool, &raw_id).await;
+        assert_eq!(stored[0].symbol_set_id, changed_symbol_set[0].symbol_set_id);
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn persist_snapshot_replaces_expanded_and_contracted_parts(pool: sqlx::PgPool) {
+        let raw_id = RawFrameId::new("multipart-frame".to_string(), 1);
+        let initial = vec![snapshot_record(&raw_id, 0)];
+        ErrorTrackingStackFrame::persist_snapshot(&pool, &[], &initial)
+            .await
+            .unwrap();
+
+        let stored = load_stored_snapshot(&pool, &raw_id).await;
+        let expanded = vec![snapshot_record(&raw_id, 0), snapshot_record(&raw_id, 1)];
+        let result = ErrorTrackingStackFrame::persist_snapshot(&pool, &stored, &expanded)
+            .await
+            .unwrap();
+        assert_eq!(result.outcome, FrameWriteOutcome::Changed);
+        assert_eq!(result.upserted_rows, 2);
+        assert_eq!(result.deleted_rows, 0);
+        let stored = load_stored_snapshot(&pool, &raw_id).await;
+        assert_eq!(
+            stored
+                .iter()
+                .map(|record| record.id.part)
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+
+        let contracted = vec![snapshot_record(&raw_id, 0)];
+        let result = ErrorTrackingStackFrame::persist_snapshot(&pool, &stored, &contracted)
+            .await
+            .unwrap();
+        assert_eq!(result.outcome, FrameWriteOutcome::Changed);
+        assert_eq!(result.upserted_rows, 1);
+        assert_eq!(result.deleted_rows, 1);
+        let stored = load_stored_snapshot(&pool, &raw_id).await;
+        assert_eq!(
+            stored
+                .iter()
+                .map(|record| record.id.part)
+                .collect::<Vec<_>>(),
+            vec![0]
+        );
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn persist_snapshot_rolls_back_upserts_when_obsolete_deletion_fails(pool: sqlx::PgPool) {
+        let raw_id = RawFrameId::new("rollback-frame".to_string(), 1);
+        let initial = vec![snapshot_record(&raw_id, 0)];
+        ErrorTrackingStackFrame::persist_snapshot(&pool, &[], &initial)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "CREATE FUNCTION reject_frame_delete() RETURNS trigger AS $$
+             BEGIN
+                 RAISE EXCEPTION 'delete rejected';
+             END;
+             $$ LANGUAGE plpgsql",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TRIGGER reject_frame_delete
+             BEFORE DELETE ON posthog_errortrackingstackframe
+             FOR EACH ROW EXECUTE FUNCTION reject_frame_delete()",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let stored = load_stored_snapshot(&pool, &raw_id).await;
+        let replacement = vec![snapshot_record(&raw_id, 1)];
+        let result = ErrorTrackingStackFrame::persist_snapshot(&pool, &stored, &replacement).await;
+        assert!(result.is_err());
+
+        let stored = load_stored_snapshot(&pool, &raw_id).await;
+        assert_eq!(
+            stored
+                .iter()
+                .map(|record| record.id.part)
+                .collect::<Vec<_>>(),
+            vec![0]
+        );
     }
 
     #[test]

@@ -67,6 +67,9 @@ pub struct ResolverConfig {
     #[envconfig(default = "300")]
     pub frame_unresolved_ttl_seconds: u64,
 
+    #[envconfig(default = "false")]
+    pub frame_change_only_persistence_enabled: bool,
+
     // TTL for the in-memory negative cache of symbol-set lookup failures in the `Saving` layer.
     // Like `frame_unresolved_ttl_seconds`, this is kept short: a failure record can become
     // resolvable the moment a user uploads the missing symbols, so a cached negative result

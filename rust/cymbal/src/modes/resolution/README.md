@@ -121,6 +121,7 @@ All variables are prefixed `CYMBAL_REMOTE_RESOLUTION_` and live on `cymbal::conf
 | `INTERNAL_API_SECRET` | _empty_ | Shared secret required as `X-Internal-Api-Secret` metadata on every gRPC request. Empty configuration rejects all RPCs. |
 | `MAX_CONCURRENT_REQUESTS` | `256` | Hard cap on in-flight gRPC streams. Excess returns `UNAVAILABLE` from the gRPC load-shed layer. `0` disables the cap. |
 | `SYMBOL_RESOLUTION_CONCURRENCY` | `64` | Cap on concurrent symbol-resolution operations across all in-flight items. |
+| `FRAME_CHANGE_ONLY_PERSISTENCE_ENABLED` | `false` | Persist new and changed frame snapshots atomically while leaving unchanged snapshots untouched. Keep disabled until snapshot freshness consumers are decoupled from timestamp refreshes. |
 | `MAX_ITEM_CONCURRENCY` | `64` | Process-wide cap on concurrently processed exception items. Excess items receive `ERROR_KIND_OVERLOADED`. |
 | `SERVICE_INSTANCE_ID` | random UUID | Identifier surfaced to callers via `LoadEvent` on the Subscribe stream. |
 | `SUBSCRIBE_TICK_INTERVAL_MS` | `1000` | Default `LoadEvent` heartbeat cadence when callers do not suggest one. Load events may be emitted earlier when draining changes or in-flight load crosses coarse thresholds. |
