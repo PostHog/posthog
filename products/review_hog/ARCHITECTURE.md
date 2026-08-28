@@ -397,7 +397,10 @@ through the artefact API, so a later one must not pick its own review's effort):
 P3/P4 → low, no readable judgment
 → `agent_unprioritized` at xhigh with a warning. One exception to stickiness: a person's trigger (label / UI /
 CLI) that starts a **review** of a report in a cheaper tier lifts it to `human` for that and every later turn,
-never the reverse; a resolve-only run upserts the same row but does not lift (`lift_tier_on_human_trigger`). The
+never the reverse; a resolve-only run upserts the same row but does not lift (`lift_tier_on_human_trigger`). A
+person's trigger that lands while the report's review is still running joins that run (`USE_EXISTING`), so the
+trigger endpoints write the lift themselves (`lift_review_tier_for_joined_trigger`) and answer
+`joined_running_review`: the turn's remaining units and every later turn run at human strength. The
 cheaper arms are rolled out per team through the `REVIEWHOG_TEAM_IDS` dogfood gate; other teams record their tier
 but run the default arm. `load_review_arm` → `resolve_review_arm` honors a persisted arm only while it stays a
 registry-supported combo — anything else falls back to the default (full-strength) pins and stamps

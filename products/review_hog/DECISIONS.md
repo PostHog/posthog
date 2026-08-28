@@ -225,7 +225,10 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   UI, CLI) that starts a review of a cheaper tier **lifts** it to `human` for that and every later turn, never
   the reverse — the accepted cost is that the lifted turn treats the cheap findings as already covered. The lift
   is the review fetch's opt-in (`lift_tier_on_human_trigger`), because the resolution stage upserts the same row
-  under the person's trigger and a resolve-only request reviews nothing (found in review). A missing priority fails
+  under the person's trigger and a resolve-only request reviews nothing (found in review). A person's trigger
+  that lands while the review is still running joins it (`USE_EXISTING`) and never reaches that fetch, so the
+  trigger endpoints write the lift themselves and answer `joined_running_review` (ReviewHog finding on the PR:
+  stamphog's refusal hand-off adds the label minutes in, inside that window). A missing priority fails
   expensive under its own label. The table lives in code, not in per-user or per-team settings (the "single
   existing threshold knob, no separate inbox threshold" precedent from Stage 6 applies to model choice too), and
   the cheaper arms roll out per team through the existing `REVIEWHOG_TEAM_IDS` dogfood gate (other teams record

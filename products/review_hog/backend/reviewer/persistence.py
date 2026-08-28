@@ -194,6 +194,25 @@ def _parse_persisted_tier(value: str | None) -> ReviewTier | None:
         return None
 
 
+def lift_review_tier_for_joined_trigger(*, team_id: int, repository: str, pr_number: int) -> bool:
+    """Lift a report in a cheaper tier to `human` when a person's trigger joins its running review.
+
+    A same-id start joins the in-flight turn (`USE_EXISTING`), so the trigger's source never reaches
+    the fetch upsert and the in-turn lift cannot fire. Written directly instead: the turn's remaining
+    units load the arm per unit, so they already run at human strength, and every later turn does.
+    Returns whether a lift happened.
+    """
+    qs = ReviewReport.objects.for_team(team_id)
+    report = qs.filter(repository__iexact=repository, pr_number=pr_number).first()
+    if report is None:
+        return False
+    persisted_tier = _parse_persisted_tier(report.review_tier)
+    if persisted_tier is None or not is_below_human_tier(persisted_tier):
+        return False
+    qs.filter(pk=report.pk).update(**_review_tier_fields(team_id, ReviewTier.HUMAN))
+    return True
+
+
 def _review_tier_fields(team_id: int, tier: ReviewTier) -> dict[str, object]:
     """The tier column plus the arm bundle a report placed in `tier` reviews on.
 

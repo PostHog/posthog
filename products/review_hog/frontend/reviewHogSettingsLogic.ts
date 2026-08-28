@@ -1448,6 +1448,11 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                     lemonToast.info(
                         'This pull request was already reviewed at its current commit. Find it under recent reviews.'
                     )
+                } else if (response.status === 'joined_running_review') {
+                    // No run started — the request joined the review already in flight.
+                    lemonToast.info(
+                        'A review is already running on this pull request. Trigger it again after it finishes to run a full review.'
+                    )
                 } else if (runMode === ReviewTriggerRequestRunModeEnumApi.ResolveOnly) {
                     // Resolve-only runs don't create the report activity the review watch polls for,
                     // so a toast is the feedback: progress shows up on the pull request itself.

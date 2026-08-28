@@ -30,7 +30,12 @@ from products.review_hog.backend.reviewer.artefact_content import (
 from products.review_hog.backend.reviewer.constants import effective_priority
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
-from products.review_hog.backend.reviewer.persistence import load_chunk_set, load_findings_bundle, load_turn_findings
+from products.review_hog.backend.reviewer.persistence import (
+    lift_review_tier_for_joined_trigger,
+    load_chunk_set,
+    load_findings_bundle,
+    load_turn_findings,
+)
 from products.review_hog.backend.reviewer.progress import (
     IN_PROGRESS_STALE_AFTER,
     RESOLUTION_RESOLVING,
@@ -270,7 +275,9 @@ class ReviewTriggerResponseSerializer(serializers.Serializer):
     )
     status = serializers.CharField(
         help_text="Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the "
-        "pull request's current commit already has a published review (no new run starts)."
+        "pull request's current commit already has a published review (no new run starts), "
+        "'joined_running_review' when a review was already in flight (no new run starts; a report in a "
+        "cheaper tier is lifted to human strength for the rest of that review and every later one)."
     )
 
 
@@ -833,6 +840,11 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 ReviewTriggerResponseSerializer({"workflow_id": "", "status": "already_reviewed"}).data,
                 status=status.HTTP_200_OK,
             )
+        # Probed before the start: a same-id start joins the running turn, whose inputs keep the
+        # original trigger, so the requester's tier lift has to be written here (see the helper).
+        joins_running_review = workflow_running(
+            review_pr_workflow_id(team_id=team_id, owner=pr_owner, repo=pr_repo, pr_number=pr_number)
+        )
         workflow_id = start_review_pr_workflow(
             pr_url=pr_url,
             team_id=team_id,
@@ -843,6 +855,15 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             # None = the requester's resolve_comments setting decides; review_only pins it off.
             resolve_comments=False if run_mode == RUN_MODE_REVIEW_ONLY else None,
         )
+        if joins_running_review:
+            lifted = lift_review_tier_for_joined_trigger(team_id=team_id, repository=repository, pr_number=pr_number)
+            logger.info(
+                f"ReviewHog UI trigger joined running workflow {workflow_id} for {pr_url} (tier lifted={lifted})"
+            )
+            return Response(
+                ReviewTriggerResponseSerializer({"workflow_id": workflow_id, "status": "joined_running_review"}).data,
+                status=status.HTTP_202_ACCEPTED,
+            )
         logger.info(f"ReviewHog UI trigger started workflow {workflow_id} for {pr_url} by user {requester_id}")
         return Response(
             ReviewTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,
