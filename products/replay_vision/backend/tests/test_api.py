@@ -1112,6 +1112,108 @@ class TestScannerDigestProvisioning(_VisionAPITestCase):
         self.assertFalse(VisionAction.objects.for_team(self.team.id).filter(scanner_id=resp.json()["id"]).exists())
 
 
+class TestScannerDuplicateAction(_VisionAPITestCase):
+    def _duplicate(self, scanner_id: Any) -> Any:
+        return self.client.post(f"{self.scanners_url}{scanner_id}/duplicate/")
+
+    def test_duplicate_copies_stored_fields_the_read_path_redacts(self) -> None:
+        experiment = create_experiment(self.team, "checkout-redesign")
+        targeting = {"experiment_id": experiment.id, "variant_keys": ["test"], "use_exposure_fallback": False}
+        # A stored filter that no longer passes RecordingsQuery validation: the serializer's read
+        # path nulls it, so a copy built from the list response would silently lose it.
+        stale_query = {"kind": "RecordingsQuery", "duration": "not-a-list"}
+        source = self._create_scanner(
+            name="redacted-source",
+            query=stale_query,
+            experiment_targeting=targeting,
+            credit_limit=500,
+            sampling_rate=0.25,
+            enabled=True,
+        )
+        set_tags_on_object(["checkout", "billing"], source)
+
+        resp = self._duplicate(source.id)
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        body = resp.json()
+        self.assertEqual(body["name"], "redacted-source (copy)")
+        self.assertFalse(body["enabled"])
+        # The response still goes through the read path, which redacts the invalid stored filter.
+        self.assertIsNone(body["query"])
+        copy = ReplayScanner.objects.get(id=body["id"])
+        self.assertEqual(copy.query, stale_query)
+        self.assertEqual(copy.experiment_targeting, targeting)
+        self.assertEqual(copy.credit_limit, 500)
+        self.assertEqual(copy.sampling_rate, 0.25)
+        self.assertEqual(copy.scanner_config, source.scanner_config)
+        self.assertFalse(copy.enabled)
+        self.assertEqual(copy.created_by_id, self.user.id)
+        self.assertEqual(sorted(copy.tagged_items.values_list("tag__name", flat=True)), ["billing", "checkout"])
+
+    def test_duplicate_drops_targeting_for_an_experiment_the_caller_cannot_view(self) -> None:
+        experiment = create_experiment(self.team, "pricing-test")
+        targeting = {"experiment_id": experiment.id, "variant_keys": ["test"], "use_exposure_fallback": False}
+        source = self._create_scanner(name="targeted-source", experiment_targeting=targeting)
+
+        # A scanner is viewable at a coarser grain than its experiment, so this caller reads the
+        # scanner with the targeting already nulled. Copying the stored row instead would hand them
+        # a scanner that scans against an experiment the create path refuses to target.
+        with patch(
+            "products.replay_vision.backend.api.scanners.is_experiment_accessible",
+            return_value=False,
+        ):
+            resp = self._duplicate(source.id)
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        copy = ReplayScanner.objects.get(id=resp.json()["id"])
+        self.assertIsNone(copy.experiment_targeting)
+        source.refresh_from_db()
+        self.assertEqual(source.experiment_targeting, targeting)
+
+    def test_duplicate_numbers_the_copy_name_when_taken(self) -> None:
+        source = self._create_scanner(name="my-scanner")
+        first = self._duplicate(source.id)
+        second = self._duplicate(source.id)
+        self.assertEqual(first.status_code, 201, first.json())
+        self.assertEqual(second.status_code, 201, second.json())
+        self.assertEqual(first.json()["name"], "my-scanner (copy)")
+        self.assertEqual(second.json()["name"], "my-scanner (copy 2)")
+
+    def test_duplicate_rejected_without_resource_level_editor_access(self) -> None:
+        source = self._create_scanner(name="my-scanner")
+        # A caller holding an object-level editor grant while the resource level is "none":
+        # the permission class admits the request, so the action must enforce the
+        # resource-level bar itself, exactly as the create action does.
+        with (
+            patch(
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+                side_effect=lambda resource, **_: resource != "replay_scanner",
+            ),
+            patch(
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.has_any_specific_access_for_resource",
+                return_value=True,
+            ),
+        ):
+            resp = self._duplicate(source.id)
+        self.assertEqual(resp.status_code, 403, resp.json())
+        self.assertIn("editor access", resp.json()["detail"])
+        self.assertEqual(ReplayScanner.objects.filter(team=self.team).count(), 1)
+
+    def test_duplicate_provisions_no_digest_and_reports_a_distinct_event(self) -> None:
+        source = self._create_scanner(name="my-scanner")
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self._duplicate(source.id)
+        self.assertEqual(resp.status_code, 201, resp.json())
+        copy_id = resp.json()["id"]
+        self.assertFalse(VisionAction.objects.for_team(self.team.id).filter(scanner_id=copy_id).exists())
+        report.assert_called_once()
+        self.assertEqual(report.call_args.args[1], "replay_vision_scanner_duplicated")
+        properties = report.call_args.args[2]
+        self.assertEqual(properties["scanner_id"], copy_id)
+        self.assertEqual(properties["source_scanner_id"], str(source.id))
+        self.assertEqual(properties["scanner_type"], ScannerType.MONITOR)
+
+
 class TestScannerEstimatePersistence(_VisionAPITestCase):
     def _create_payload(self, **overrides: Any) -> dict[str, Any]:
         payload: dict[str, Any] = {
