@@ -250,7 +250,14 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
   }
 
   getPendingMcpToolPermissions(taskId: string): McpToolPermissionRequest[] {
-    return [...this.requireSession(taskId).pendingMcpPermissions.values()];
+    const session = this.sessions.get(taskId);
+
+    if (!session) {
+      return [];
+    }
+
+    this.touchSession(session);
+    return [...session.pendingMcpPermissions.values()];
   }
 
   async respondMcpToolPermission(
