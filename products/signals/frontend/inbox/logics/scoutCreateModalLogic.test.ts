@@ -86,6 +86,7 @@ function scoutAccountResponse(servers: MCPServiceAccountServerApi[]): [number, R
         description: 'scout agent',
         handle: 'svc-scout',
         agent_key: 'scout',
+        kind: 'built_in',
         status: 'active',
         server_ids: servers.map(({ id }) => id),
         servers,
