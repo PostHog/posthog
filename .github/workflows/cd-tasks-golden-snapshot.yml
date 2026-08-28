@@ -134,8 +134,9 @@ jobs:
         # `Run migrations` needs a database: 24 skill templates call
         # `render_hogql_example`, which reads `Team.objects.first()`. The schema
         # cache below makes migrate a top-up, but a cache miss is a 22-29 minute
-        # cold migrate (see cd-sandbox-base-image.yml), so budget 45 like that job.
-        timeout-minutes: 45
+        # cold migrate (see cd-sandbox-base-image.yml), so budget an hour for
+        # ample headroom over that worst case.
+        timeout-minutes: 60
         permissions:
             contents: read
 
