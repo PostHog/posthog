@@ -235,13 +235,6 @@ function actionabilityBreakdown(reports: SignalReport[]): Record<string, number>
     }
 }
 
-/**
- * The `variant` sent on the welcome events. The redesigned welcome page won the
- * `inbox-welcome-redesign` experiment and is the only welcome page now, but the property stays so
- * the insights built during the experiment keep matching the same rows.
- */
-const INBOX_WELCOME_VARIANT = 'redesign'
-
 /** Where a wizard-command copy happened: the full welcome takeover or the re-enable banner. */
 export type InboxWelcomeCopySurface = 'takeover' | 'banner'
 
@@ -250,20 +243,16 @@ export type InboxWelcomeCopySurface = 'takeover' | 'banner'
  * takeover replaces the report list), so this is the top-of-funnel event for setup conversion.
  */
 export function captureInboxWelcomeViewed(): void {
-    captureInboxEvent(INBOX_EVENTS.WELCOME_VIEWED, {
-        variant: INBOX_WELCOME_VARIANT,
-    })
+    captureInboxEvent(INBOX_EVENTS.WELCOME_VIEWED, {})
 }
 
 /**
  * The wizard setup command was copied. Previously only recoverable from autocapture (and
  * unreliably: `$el_text` is null on about half of clicks), so the setup funnel's first
- * conversion step gets its own event. `variant` is null on the banner, which never took part in
- * the welcome experiment.
+ * conversion step gets its own event.
  */
 export function captureInboxWelcomeCommandCopied(params: { surface: InboxWelcomeCopySurface }): void {
     captureInboxEvent(INBOX_EVENTS.WELCOME_COMMAND_COPIED, {
-        variant: params.surface === 'takeover' ? INBOX_WELCOME_VARIANT : null,
         surface: params.surface,
     })
 }
@@ -276,9 +265,7 @@ export function captureInboxWelcomeCommandCopied(params: { surface: InboxWelcome
  * nowhere.
  */
 export function captureInboxWelcomeManualSetupClicked(): void {
-    captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {
-        variant: INBOX_WELCOME_VARIANT,
-    })
+    captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {})
 }
 
 /**
