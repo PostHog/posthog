@@ -143,6 +143,8 @@ return response.body
         {
             // Only meaningful on a Slack-triggered workflow; the builder hides it for other
             // triggers, and the hog code above no-ops when the trigger event isn't a Slack message.
+            // Off, the backend sees no slack_context and ends the run when the agent finishes;
+            // on, the run stays open for its idle window so the thread reply can relay.
             key: 'reply_in_slack_thread',
             type: 'boolean',
             label: 'Reply in the Slack thread',
@@ -151,7 +153,7 @@ return response.body
             default: true,
             templating: false,
             description:
-                'The agent posts its updates as replies in the Slack thread that started this workflow. Replies in that thread are sent to the agent.',
+                'The agent posts its updates as replies in the Slack thread that started this workflow. Replies in that thread are sent to the agent. The run stays open for about 2 minutes after the agent finishes so replies can reach it.',
         },
         {
             // The engine treats a 4xx as a step failure before the code above runs, unless the

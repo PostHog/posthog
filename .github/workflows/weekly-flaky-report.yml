@@ -72,7 +72,7 @@ jobs:
                   # Optional: override the source-prefixed runs table name.
                   ENG_ANALYTICS_RUNS_TABLE: ${{ vars.ENG_ANALYTICS_RUNS_TABLE }}
                   # The same switches the CI uploaders read, so the report can only claim a test is
-                  # masked when Trunk is actually masking it. Unset means no Trunk section at all.
+                  # masked when Trunk is actually masking it. Unset means no Trunk state at all.
                   TRUNK_UPLOAD_ENABLED: ${{ vars.TRUNK_UPLOAD_ENABLED }}
                   TRUNK_QUARANTINE_ENABLED: ${{ vars.TRUNK_QUARANTINE_ENABLED }}
                   # Optional: override the source-prefixed Trunk quarantine table name.
