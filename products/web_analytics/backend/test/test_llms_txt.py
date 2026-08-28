@@ -81,9 +81,10 @@ def test_fetch_llms_txt_stops_streams_over_the_size_limit(pinned_session_mock: M
         fetch_llms_txt("https://example.com/llms.txt")
 
 
+@pytest.mark.parametrize("header_name", ["Content-Type", "content-type", "Content-type"])
 @patch("products.web_analytics.backend.public_url_fetch.pinned_session")
-def test_fetch_llms_txt_rejects_html_responses(pinned_session_mock: Mock) -> None:
-    response = _response(headers={"Content-Type": "text/html"}, chunks=[b"<html>Not found</html>"])
+def test_fetch_llms_txt_rejects_html_responses(pinned_session_mock: Mock, header_name: str) -> None:
+    response = _response(headers={header_name: "text/html"}, chunks=[b"<html>Not found</html>"])
     pinned_session_mock.return_value = nullcontext(_session(response))
 
     with pytest.raises(LlmsTxtFetchError, match="HTML page"):

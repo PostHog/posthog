@@ -8,9 +8,8 @@ from products.web_analytics.backend.content_autopilot.site_discovery import disc
 from products.web_analytics.backend.public_url_fetch import FetchedPublicUrl, PublicUrlFetchError
 
 
-def _response(url: str, *, status: int = 200, body: bytes = b"", location: str | None = None) -> FetchedPublicUrl:
-    headers = {"Location": location} if location else {}
-    return FetchedPublicUrl(url=url, status_code=status, headers=headers, body=body)
+def _response(*, status: int = 200, body: bytes = b"", location: str | None = None) -> FetchedPublicUrl:
+    return FetchedPublicUrl(status_code=status, headers={"location": location} if location else {}, body=body)
 
 
 class TestContentAutopilotSiteDiscovery(SimpleTestCase):
@@ -41,14 +40,13 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
         def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
             if url.endswith("/robots.txt"):
                 return _response(
-                    url,
                     body=b"User-agent: *\nSitemap: https://example.com/content-sitemap.xml",
                 )
             if url == "https://example.com/":
-                return _response(url, body=b"<html><head><title>Example Docs | Guides</title></head></html>")
+                return _response(body=b"<html><head><title>Example Docs | Guides</title></head></html>")
             if url.endswith("/content-sitemap.xml"):
-                return _response(url, body=b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" />')
-            return _response(url, status=404)
+                return _response(body=b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" />')
+            return _response(status=404)
 
         fetch_public_url.side_effect = response_for
 
@@ -61,43 +59,24 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
         self.assertEqual(result["warnings"], [])
 
     @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
-    def test_revalidates_a_same_origin_redirect(self, fetch_public_url: MagicMock) -> None:
+    def test_follows_a_redirect_to_another_host(self, fetch_public_url: MagicMock) -> None:
         def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
-            if url.endswith("/robots.txt"):
-                return _response(url, status=404)
-            if url == "https://example.com/":
-                return _response(url, status=302, location="https://example.com:443/welcome")
-            if url.endswith("/welcome"):
-                return _response(url, body=b'<link rel="sitemap" href="/pages.xml">')
-            if url.endswith("/pages.xml"):
-                return _response(url, body=b"<urlset />")
-            return _response(url, status=404)
+            if url == "https://example.com/sitemap.xml":
+                return _response(status=301, location="https://www.example.com/sitemap.xml")
+            if url == "https://www.example.com/sitemap.xml":
+                return _response(body=b"<urlset />")
+            return _response(status=404)
 
         fetch_public_url.side_effect = response_for
 
         result = discover_site("https://example.com")
 
         self.assertTrue(result["sitemap_detected"])
-        self.assertIn("https://example.com:443/welcome", [call.args[0] for call in fetch_public_url.call_args_list])
-
-    @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
-    def test_never_fetches_a_cross_origin_redirect(self, fetch_public_url: MagicMock) -> None:
-        def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
-            if url == "https://example.com/":
-                return _response(url, status=302, location="https://other.example/sitemap.xml")
-            return _response(url, status=404)
-
-        fetch_public_url.side_effect = response_for
-
-        result = discover_site("https://example.com")
-
-        self.assertFalse(result["sitemap_detected"])
-        self.assertNotIn("other.example", " ".join(call.args[0] for call in fetch_public_url.call_args_list))
+        self.assertEqual(result["source_urls"], ["https://example.com/sitemap.xml"])
 
     @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
     def test_invalid_xml_uses_an_editable_sitemap_fallback(self, fetch_public_url: MagicMock) -> None:
         fetch_public_url.side_effect = lambda url, **kwargs: _response(
-            url,
             status=404 if url.endswith(("/robots.txt", "/")) else 200,
             body=b"<urlset>" if url.endswith(".xml") else b"",
         )
@@ -116,10 +95,10 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
 
         def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
             if url.endswith("/robots.txt"):
-                return _response(url, body=sitemap_lines.encode())
+                return _response(body=sitemap_lines.encode())
             if url == "https://example.com/":
                 raise PublicUrlFetchError("transport")
-            return _response(url, status=404)
+            return _response(status=404)
 
         fetch_public_url.side_effect = response_for
 
@@ -133,28 +112,11 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
         def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
             if url.endswith("/robots.txt"):
                 return _response(
-                    url,
                     body=b"Sitemap: https://example.com:invalid/broken.xml\nSitemap: /sitemap.xml",
                 )
             if url.endswith("/sitemap.xml"):
-                return _response(url, body=b"<urlset />")
-            return _response(url, status=404)
-
-        fetch_public_url.side_effect = response_for
-
-        result = discover_site("https://example.com")
-
-        self.assertEqual(result["source_urls"], ["https://example.com/sitemap.xml"])
-        self.assertTrue(result["sitemap_detected"])
-
-    @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
-    def test_skips_a_malformed_homepage_sitemap_candidate(self, fetch_public_url: MagicMock) -> None:
-        def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
-            if url == "https://example.com/":
-                return _response(url, body=b'<link rel="sitemap" href="https://example.com:invalid/broken.xml">')
-            if url.endswith("/sitemap.xml"):
-                return _response(url, body=b"<urlset />")
-            return _response(url, status=404)
+                return _response(body=b"<urlset />")
+            return _response(status=404)
 
         fetch_public_url.side_effect = response_for
 

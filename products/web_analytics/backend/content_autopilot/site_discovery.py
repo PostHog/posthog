@@ -15,6 +15,7 @@ _MAX_REDIRECTS = 2
 _MAX_SITEMAP_CANDIDATES = 5
 _MAX_DISCOVERY_SECONDS = 20.0
 _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+_DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
 class SiteDiscoveryResult(TypedDict):
@@ -26,20 +27,14 @@ class SiteDiscoveryResult(TypedDict):
     warnings: list[str]
 
 
-class _HomepageParser(HTMLParser):
+class _TitleParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
-        self.sitemap_hrefs: list[str] = []
         self.title = ""
         self._inside_title = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        values = {key.lower(): value or "" for key, value in attrs}
-        if tag.lower() == "link" and "sitemap" in values.get("rel", "").lower().split():
-            href = values.get("href", "").strip()
-            if href:
-                self.sitemap_hrefs.append(href)
-        elif tag.lower() == "title":
+        if tag.lower() == "title":
             self._inside_title = True
 
     def handle_endtag(self, tag: str) -> None:
@@ -59,37 +54,36 @@ def normalize_site_origin(raw_url: str) -> str:
     except ValueError as error:
         raise ValueError("Enter a valid http or https site URL.") from error
     scheme = parsed.scheme.lower()
-    if scheme not in {"http", "https"} or not hostname or parsed.username or parsed.password:
+    if scheme not in _DEFAULT_PORTS or not hostname or parsed.username or parsed.password:
         raise ValueError("Enter a valid http or https site URL.")
     netloc = f"[{hostname}]" if ":" in hostname else hostname
-    if port is not None and port != {"http": 80, "https": 443}[scheme]:
+    if port is not None and port != _DEFAULT_PORTS[scheme]:
         netloc = f"{netloc}:{port}"
     return urlunparse((scheme, netloc, "", "", "", ""))
 
 
-def _origin_key(url: str) -> tuple[str, str, int | None]:
+def _origin_key(url: str) -> tuple[str, str, int] | None:
     try:
         parsed = urlparse(url)
         scheme = parsed.scheme.lower()
         hostname = (parsed.hostname or "").lower()
         port = parsed.port
-    except ValueError as error:
-        raise PublicUrlFetchError("read", "The site returned an invalid URL.") from error
-    if scheme not in {"http", "https"} or not hostname or parsed.username or parsed.password:
-        raise PublicUrlFetchError("read", "The site returned an invalid URL.")
-    effective_port = port if port is not None else {"http": 80, "https": 443}[scheme]
-    return scheme, hostname, effective_port
+    except ValueError:
+        return None
+    if scheme not in _DEFAULT_PORTS or not hostname or parsed.username or parsed.password:
+        return None
+    return scheme, hostname, port if port is not None else _DEFAULT_PORTS[scheme]
 
 
-def has_same_public_origin(first_url: str, second_url: str) -> bool:
-    return _origin_key(first_url) == _origin_key(second_url)
+def _is_same_origin(url: str, origin: str) -> bool:
+    key = _origin_key(url)
+    return key is not None and key == _origin_key(origin)
 
 
-def _fetch_text(url: str, *, origin: str, deadline: float) -> str:
+def _fetch_text(url: str, *, deadline: float) -> str:
     current_url = url
     for _ in range(_MAX_REDIRECTS + 1):
-        remaining_seconds = deadline - time.monotonic()
-        if remaining_seconds <= 0:
+        if time.monotonic() >= deadline:
             raise PublicUrlFetchError("deadline", "Site discovery took too long.")
         response = fetch_public_url(
             current_url,
@@ -103,13 +97,10 @@ def _fetch_text(url: str, *, origin: str, deadline: float) -> str:
             read_timeout_seconds=5.0,
         )
         if response.status_code in _REDIRECT_STATUSES:
-            location = response.headers.get("Location") or response.headers.get("location")
+            location = response.headers.get("location")
             if not location:
                 raise PublicUrlFetchError("read", "The site returned an invalid redirect.")
-            next_url = urljoin(current_url, location)
-            if _origin_key(next_url) != _origin_key(origin):
-                raise PublicUrlFetchError("blocked", "The site redirected outside its origin.")
-            current_url = next_url
+            current_url = urljoin(current_url, location)
             continue
         if response.status_code >= 400:
             raise PublicUrlFetchError("read", "The site response could not be used.")
@@ -122,12 +113,9 @@ def _sitemaps_from_robots(robots_text: str, *, origin: str) -> list[str]:
     for line in robots_text.splitlines():
         key, separator, value = line.partition(":")
         if separator and key.strip().lower() == "sitemap":
-            try:
-                candidate = urljoin(f"{origin}/", value.strip())
-                if _origin_key(candidate) == _origin_key(origin):
-                    sitemaps.append(candidate)
-            except (ValueError, PublicUrlFetchError):
-                continue
+            candidate = urljoin(f"{origin}/", value.strip())
+            if _is_same_origin(candidate, origin):
+                sitemaps.append(candidate)
     return sitemaps
 
 
@@ -155,21 +143,15 @@ def discover_site(raw_url: str) -> SiteDiscoveryResult:
     title = ""
 
     try:
-        robots_text = _fetch_text(f"{origin}/robots.txt", origin=origin, deadline=deadline)
+        robots_text = _fetch_text(f"{origin}/robots.txt", deadline=deadline)
         candidates.extend(_sitemaps_from_robots(robots_text, origin=origin))
     except PublicUrlFetchError:
         pass
 
     try:
-        homepage_text = _fetch_text(f"{origin}/", origin=origin, deadline=deadline)
-        parser = _HomepageParser()
-        parser.feed(homepage_text)
+        parser = _TitleParser()
+        parser.feed(_fetch_text(f"{origin}/", deadline=deadline))
         title = parser.title
-        for href in parser.sitemap_hrefs:
-            try:
-                candidates.append(urljoin(f"{origin}/", href))
-            except ValueError:
-                continue
     except PublicUrlFetchError:
         pass
 
@@ -180,22 +162,14 @@ def discover_site(raw_url: str) -> SiteDiscoveryResult:
             f"{origin}/sitemap-index.xml",
         ]
     )
-    unique_candidates: list[str] = []
-    for candidate in candidates:
-        try:
-            if _origin_key(candidate) == _origin_key(origin) and candidate not in unique_candidates:
-                unique_candidates.append(candidate)
-        except (ValueError, PublicUrlFetchError):
-            continue
-        if len(unique_candidates) == _MAX_SITEMAP_CANDIDATES:
-            break
+    unique_candidates = list(dict.fromkeys(candidates))[:_MAX_SITEMAP_CANDIDATES]
 
     detected_sitemaps: list[str] = []
     for candidate in unique_candidates:
         if time.monotonic() >= deadline:
             break
         try:
-            if _is_sitemap(_fetch_text(candidate, origin=origin, deadline=deadline)):
+            if _is_sitemap(_fetch_text(candidate, deadline=deadline)):
                 detected_sitemaps.append(candidate)
         except PublicUrlFetchError:
             continue

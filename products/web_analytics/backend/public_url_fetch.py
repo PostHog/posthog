@@ -23,7 +23,6 @@ class PublicUrlFetchError(Exception):
 
 @frozen
 class FetchedPublicUrl:
-    url: str
     status_code: int
     headers: dict[str, str]
     body: bytes
@@ -93,9 +92,8 @@ def fetch_public_url(
                     raise PublicUrlFetchError("too_large")
 
                 return FetchedPublicUrl(
-                    url=url,
                     status_code=response.status_code,
-                    headers=dict(response.headers),
+                    headers={name.lower(): value for name, value in response.headers.items()},
                     body=_read_response_body(response, deadline=deadline, max_bytes=max_bytes),
                 )
             finally:
