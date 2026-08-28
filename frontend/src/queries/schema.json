@@ -26879,7 +26879,10 @@
                 "NationBuilder",
                 "Tana",
                 "Zenchef",
-                "Lovable"
+                "Lovable",
+                "Anvil",
+                "Coolify",
+                "SocialPilot"
             ],
             "type": "string"
         },
