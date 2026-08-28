@@ -1776,6 +1776,14 @@ snapshots:
         hash: v1.k794b7964.de021a6d2a8c7ec6bc031fc7c9586a2d9f12e80804b9a92ec1a9f464c096314e.jqj7jfnrY7rf7IO2Uqrc784pV_YXfH52sTArLcXn8c0
     components-product-empty-state--endpoints-needs-setup--light:
         hash: v1.k794b7964.f704e98aa8d0102c164b7db7390449584c4b84f461cc5bbeac426e48a16dc200.S0QeUPtO_6LQsU5lZ09MyJMaf_Q_CPBBuYbvKzik1cU
+    components-product-empty-state--error-tracking-needs-setup--dark:
+        hash: v1.k794b7964.a3fcfa83eb816f90ccc0a031486d1d493e3893df6d9b23ab8138efbbfe833374.AIGP2LVUdagSan_3zq5NEx5QT3To4HN4BwQv06ML7Nw
+    components-product-empty-state--error-tracking-needs-setup--light:
+        hash: v1.k794b7964.e14dd5aa0920ec0d2fe037a2bbe475dbe63aa94a8bb0d707d99bff904d03ceac.g1vL6Sreqh6sDhZZ73EXQfP24ijGmiecYFgz75lHR_c
+    components-product-empty-state--error-tracking-waiting-for-data--dark:
+        hash: v1.k794b7964.b4a3ce872a790b2f7ac8493f2779c8374b7a89092c1871c9e33196824dedc46d.XKxwszYrXHtHSSZkmmgmXVm_AEeT5MGBuA8khgFTuC4
+    components-product-empty-state--error-tracking-waiting-for-data--light:
+        hash: v1.k794b7964.606fcb85ae3de44040e6f9ca829eba813c3a76458b07309d9db2b9df3de5632d.WHMYLkvIW4k85BPm58UOLkrvxESRnrA0P107HNQZmfo
     components-product-empty-state--experiments-needs-setup--dark:
         hash: v1.k794b7964.4963f41af44c16dbfdacc188339ff9c4f5ca4aada2f5848ad4f195b52c1cc81d.SiIn79B-XFAK4ZwxeLxdLgGNGPbtraECPD_tfCokLdg
     components-product-empty-state--experiments-needs-setup--light:
@@ -6521,9 +6529,9 @@ snapshots:
     scenes-app-errortracking--list-page--light:
         hash: v1.k794b7964.ec828bd049bcf02367910abb18539201ef5f6447b602a75891a64d45d743c4f5.RAArjfFKQhB64bx3ypvlJdCR3svO5Yify4gANdrDJ94
     scenes-app-errortracking--list-page-with-ingestion-warning--dark:
-        hash: v1.k794b7964.97ebfc5cbd8a42f9812b6ae0af9d00cec4ba9ca7f46107868182a390024faab3.ooOBXcc0lMvw3a8ZbdAY85MWZUswPFAuGCXQoj6_5ig
+        hash: v1.k794b7964.ddc0508f1528d4495934ff8fa694b9437395a72a737b43f912e6510701cb8dae.ef-9ekf-CJcH-5LpaXgUAx1EImpupKQIwG6bYOLYSMU
     scenes-app-errortracking--list-page-with-ingestion-warning--light:
-        hash: v1.k794b7964.7b9f01e55b78170fce3391e35155eb18d06792895ba3258d414de3d1dbc0d4b5.c16uU0LYiIhXwjauAVxLiRe89gjPabGtgzW6nQ64oe0
+        hash: v1.k794b7964.5aa533d7446a1b64961e31c54bf2ce3bcf8cae59475396fafded5333f9c46ff8._LBuYyLkmYRNNFrSoBumRKSw1iUj7keg1vN2TjwasKU
     scenes-app-errortracking--list-page-with-source-maps-banner--dark:
         hash: v1.k794b7964.c8aff38ce4732c22ffb12634a8a88a7608eab6b35f19136a093c7a76c8b6dfb0.X7tIrVh7xeTeQGkJpJ6deLOaEofLRqPGo8tDDkffOrU
     scenes-app-errortracking--list-page-with-source-maps-banner--light:
