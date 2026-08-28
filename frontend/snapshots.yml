@@ -544,6 +544,14 @@ snapshots:
         hash: v1.k794b7964.acbbd66bb3841f17a58d897e19c4b073fcbbf0452e959355276b012c7cd6b463.n89wKvwy5vfBtTTyqqi5InfW-EdZ8-pjfT0N1pRafQ0
     components-eventdetails--nested-properties--light:
         hash: v1.k794b7964.6f1c381cb3e974066a9b11169cf51b0ecaf39e636598a67e9a7d695bfcadd866.7oJQgvEiijwBqHCOAfPbYAKW6yAnMwtdzUbgdks_Xf0
+    components-feature-previews--basic--dark:
+        hash: v1.k794b7964.c66cfff16795578a873fcd4e7b2db735978055147ca45980f1e4ffa39e16141a.ZI1lTFkvtZwhkp4X7-p81_7OYGXZwbBYh06mbiXeDdc
+    components-feature-previews--basic--light:
+        hash: v1.k794b7964.90292410ce2f9bb854ec5b7f60d38836c4bc3de766a725f55b59380bdee3dfe9.8iCe4nwSmQ00mZsN20Kwp2zWm-lG6ISaYqjiAxxpmJk
+    components-feature-previews--empty--dark:
+        hash: v1.k794b7964.991e5f44ceae5eced661d06ca75fdd314fea213b73791c697078d601655b3876.pDXTpK6DyIMq248_s0s0QZJxOnwPiQKzjoJanIrQL-8
+    components-feature-previews--empty--light:
+        hash: v1.k794b7964.6fa703c825304215f198e3c1c37821a15fdec4772505a4b5db2e4e0ce491ff8d.Xp_4MqTRyevKnhM7Q2mIK9B_PhsbXY-R_lTqCpViZVY
     components-hedgehogmode--profile-picture-hog--dark:
         hash: v1.k794b7964.969bdab0c4f15b4457bc162b9ad87ec0341d5e98ed3a9279494cc2f019c12250.5eEGiofVhJFttdE4ETVy01n1PTA-WrkIsgHZEB9rG5I
     components-hedgehogmode--profile-picture-hog--light:
@@ -3124,14 +3132,6 @@ snapshots:
         hash: v1.k794b7964.33dac53a2c2f3c8945bb52917b010f00a24b8d8b213106939af1037022d4ed5e.QNBv_MCq5SJyqzj3G7AuQxGF1qLYQLIQotnO3MfqpRE
     insights-worldmap--default--light:
         hash: v1.k794b7964.a4f523dbe2e78f12ddf6c95d6e1e0b1da4457008aa42a9b83fb5e21bc4519915.sRV9jpfMOemd-Hss7Y7z4hMMwHYzM7l8Dq9i4uoJBiE
-    layout-feature-previews--basic--dark:
-        hash: v1.k794b7964.c66cfff16795578a873fcd4e7b2db735978055147ca45980f1e4ffa39e16141a.ostnaazHLWdTtrGt0nr_xgvRw0jFrBsF3QIM52HtvSk
-    layout-feature-previews--basic--light:
-        hash: v1.k794b7964.90292410ce2f9bb854ec5b7f60d38836c4bc3de766a725f55b59380bdee3dfe9.7-WB7_aNzuLpQ3dPw59R1YhdITfL81ogyZgoFFfhFso
-    layout-feature-previews--empty--dark:
-        hash: v1.k794b7964.991e5f44ceae5eced661d06ca75fdd314fea213b73791c697078d601655b3876.oYIeuhsUskKn04mPwRQIt2PxlPCn2vDgjSEAs3gCEo0
-    layout-feature-previews--empty--light:
-        hash: v1.k794b7964.6fa703c825304215f198e3c1c37821a15fdec4772505a4b5db2e4e0ce491ff8d.alVq_s9UO6kwXke420wed5rTIxA8rc1hxARcxqEU9lM
     layout-impersonation-reason-modal--loading--dark:
         hash: v1.k794b7964.56bc03177fcbe93f212232c9025d90ec672e9043881ce4e9a3dbbb612b501066.mkYeZ8C0UhPLy7CKjURxERYeFMjyvXrOyEpykdHmmrM
     layout-impersonation-reason-modal--loading--light:
