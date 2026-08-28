@@ -580,13 +580,10 @@ jobs:
 
             - name: Output logs on failure
               if: failure()
-              # Tailed: an untrimmed ClickHouse dump runs to tens of thousands of lines and pushes
-              # the Jest summary past what the job-log API will return, so the failure it was meant
-              # to explain becomes unreadable.
               run: |
-                  docker compose -f docker-compose.dev.yml logs --tail=200 clickhouse
+                  docker compose -f docker-compose.dev.yml logs clickhouse
                   # Echo out the logs stored in the container
-                  docker compose -f docker-compose.dev.yml exec clickhouse tail -n 200 /var/log/clickhouse-server/clickhouse-server.err.log
+                  docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
 
     rust_ingestion_e2e:
         if: needs.changes.outputs.nodejs == 'true'
@@ -799,13 +796,10 @@ jobs:
 
             - name: Output logs on failure
               if: failure()
-              # Tailed: an untrimmed ClickHouse dump runs to tens of thousands of lines and pushes
-              # the Jest summary past what the job-log API will return, so the failure it was meant
-              # to explain becomes unreadable.
               run: |
-                  docker compose -f docker-compose.dev.yml logs --tail=200 clickhouse
+                  docker compose -f docker-compose.dev.yml logs clickhouse
                   # Echo out the logs stored in the container
-                  docker compose -f docker-compose.dev.yml exec clickhouse tail -n 200 /var/log/clickhouse-server/clickhouse-server.err.log
+                  docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
 
     report-test-speed:
         name: Node.js test-speed report
