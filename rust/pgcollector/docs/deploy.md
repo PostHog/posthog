@@ -111,8 +111,9 @@ See [`deploy/values.example.yaml`](../deploy/values.example.yaml). Key points:
 * **`pgbouncer: false` on every `psql:` entry.** pgcollector sets session GUCs
   and needs stable backends; it refuses to start if it detects PgBouncer.
 * **Monitored servers come from env var names**, not from the TOML. A `psql:`
-  entry whose `writeEnv` is `PGCOLLECTOR_SERVER_<ID>_URL` is all it takes; add
-  `readEnv: PGCOLLECTOR_SERVER_<ID>_READER_URL` for the reader endpoint.
+  entry whose `write.env` maps `PGCOLLECTOR_SERVER_<ID>_URL: POSTGRES_URL` is all
+  it takes; add `read.env: {PGCOLLECTOR_SERVER_<ID>_READER_URL: POSTGRES_URL}` for
+  the reader endpoint.
   Adding a cluster = one `psql:` entry + one Terraform user.
 * `configFiles:` carries the TOML (sink URL, retention, defaults). Explicit
   `[[servers]]` blocks are still allowed for per-server overrides and

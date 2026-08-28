@@ -43,28 +43,33 @@ resources:
 # <ID> and <NAME> are lower-cased with _ → - to form server_id / instance.
 psql:
   pgcollector:                   # the sink; user must be in the `ddl` tier
-    write: true
     pgbouncer: false
-    writeEnv:
-      PGCOLLECTOR_SINK_URL: POSTGRES_URL
+    write:
+      enabled: true
+      env:
+        PGCOLLECTOR_SINK_URL: POSTGRES_URL
 
   cloud:                         # monitored cluster; user in the `monitor` tier
-    write: true
-    read: true
     pgbouncer: false
-    writeEnv:
-      PGCOLLECTOR_SERVER_CLOUD_URL: POSTGRES_URL
-    readEnv:
-      PGCOLLECTOR_SERVER_CLOUD_READER_URL: POSTGRES_URL
+    write:
+      enabled: true
+      env:
+        PGCOLLECTOR_SERVER_CLOUD_URL: POSTGRES_URL
+    read:
+      enabled: true
+      env:
+        PGCOLLECTOR_SERVER_CLOUD_READER_URL: POSTGRES_URL
 
   persons:
-    write: true
-    read: true
     pgbouncer: false
-    writeEnv:
-      PGCOLLECTOR_SERVER_PERSONS_URL: POSTGRES_URL
-    readEnv:
-      PGCOLLECTOR_SERVER_PERSONS_READER_URL: POSTGRES_URL
+    write:
+      enabled: true
+      env:
+        PGCOLLECTOR_SERVER_PERSONS_URL: POSTGRES_URL
+    read:
+      enabled: true
+      env:
+        PGCOLLECTOR_SERVER_PERSONS_READER_URL: POSTGRES_URL
 
 env:
   PGCOLLECTOR_SERVER_CLOUD_LOG_GROUP: /aws/rds/cluster/<cloud-cluster-id>/postgresql
