@@ -17,17 +17,22 @@ import { formatDuration } from './TraceWaterfallView'
 const ROW_HEIGHT = 44
 const HEADER_HEIGHT = 32
 
-// Fixed column widths (px). The name column flexes to fill the remaining space.
+// Fixed column widths (px). The span-name and service columns flex to share the remaining space.
 const COL_WIDTH = {
-    service: 160,
     count: 110,
     p50: 110,
     p95: 110,
     errors: 110,
 } as const
 
+// Minimum widths the flexing columns keep before the row scrolls horizontally. Span name takes the
+// larger share of spare width, but Service now grows too instead of truncating on wide viewports.
 const NAME_MIN_WIDTH = 200
-const MIN_ROW_WIDTH = Object.values(COL_WIDTH).reduce((sum, width) => sum + width, 0) + NAME_MIN_WIDTH
+const NAME_GROW = 3
+const SERVICE_MIN_WIDTH = 160
+const SERVICE_GROW = 1
+const MIN_ROW_WIDTH =
+    Object.values(COL_WIDTH).reduce((sum, width) => sum + width, 0) + NAME_MIN_WIDTH + SERVICE_MIN_WIDTH
 
 // 'change' is the default: biggest p95 movers (both directions) first, so the table answers
 // "what changed?" without any clicking. Column header clicks switch to plain value sorts.
@@ -97,16 +102,27 @@ function Delta({ current, previous, higherIsWorse, format }: DeltaProps): JSX.El
     )
 }
 
-function Cell({ width, align, children }: { width?: number; align?: 'right'; children: React.ReactNode }): JSX.Element {
+function Cell({
+    width,
+    minWidth,
+    grow,
+    align,
+    children,
+}: {
+    width?: number
+    minWidth?: number
+    grow?: number
+    align?: 'right'
+    children: React.ReactNode
+}): JSX.Element {
+    const flex = width === undefined
     return (
         <div
-            className={cn(
-                'shrink-0 truncate px-2 text-xs',
-                width === undefined && 'flex-1 min-w-0',
-                align === 'right' && 'text-right'
-            )}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={width !== undefined ? { width } : undefined}
+            className={cn('shrink-0 truncate px-2 text-xs', align === 'right' && 'text-right')}
+            style={
+                // eslint-disable-next-line react/forbid-dom-props
+                flex ? { flexGrow: grow ?? 1, flexBasis: 0, minWidth: minWidth ?? NAME_MIN_WIDTH } : { width }
+            }
         >
             {children}
         </div>
@@ -123,14 +139,23 @@ function SortableHeaderCell({
     column,
     label,
     width,
+    minWidth,
+    grow,
     align,
     sortColumn,
     sortOrder,
     onSort,
-}: { column: SortColumn; label: string; width?: number; align?: 'right' } & SortProps): JSX.Element {
+}: {
+    column: SortColumn
+    label: string
+    width?: number
+    minWidth?: number
+    grow?: number
+    align?: 'right'
+} & SortProps): JSX.Element {
     const active = sortColumn === column
     return (
-        <Cell width={width} align={align}>
+        <Cell width={width} minWidth={minWidth} grow={grow} align={align}>
             <button
                 type="button"
                 className={cn(
@@ -158,7 +183,8 @@ function CompareRowHeader({ sortColumn, sortOrder, onSort }: SortProps): JSX.Ele
             <SortableHeaderCell
                 column="service_name"
                 label="Service"
-                width={COL_WIDTH.service}
+                minWidth={SERVICE_MIN_WIDTH}
+                grow={SERVICE_GROW}
                 sortColumn={sortColumn}
                 sortOrder={sortOrder}
                 onSort={onSort}
@@ -166,6 +192,8 @@ function CompareRowHeader({ sortColumn, sortOrder, onSort }: SortProps): JSX.Ele
             <SortableHeaderCell
                 column="name"
                 label="Span name"
+                minWidth={NAME_MIN_WIDTH}
+                grow={NAME_GROW}
                 sortColumn={sortColumn}
                 sortOrder={sortOrder}
                 onSort={onSort}
@@ -262,10 +290,10 @@ function CompareListRow({
                 role={onRowClick ? 'button' : undefined}
                 tabIndex={onRowClick ? 0 : undefined}
             >
-                <Cell width={COL_WIDTH.service}>
+                <Cell minWidth={SERVICE_MIN_WIDTH} grow={SERVICE_GROW}>
                     <span className="font-mono">{row.service_name}</span>
                 </Cell>
-                <Cell>
+                <Cell minWidth={NAME_MIN_WIDTH} grow={NAME_GROW}>
                     <span className="inline-flex items-center gap-1.5 max-w-full">
                         <span className="font-mono truncate">{row.name}</span>
                         {statusTag && (

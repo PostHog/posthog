@@ -19,10 +19,9 @@ const HEADER_HEIGHT = 32
 // Trigger the next page once the bottom of the rendered window is within this many rows of the end.
 const LOAD_MORE_THRESHOLD = 10
 
-// Fixed column widths (px). The name column flexes to fill the remaining space.
+// Fixed column widths (px). The name and service columns flex to share the remaining space.
 const COL_WIDTH = {
     timestamp: 190,
-    service: 150,
     kind: 90,
     duration: 90,
     status: 80,
@@ -30,11 +29,17 @@ const COL_WIDTH = {
     actions: 130,
 } as const
 
-// Minimum width the flexing name column keeps before the row scrolls horizontally on narrow viewports.
+// Minimum widths the flexing columns keep before the row scrolls horizontally on narrow viewports.
+// Name takes the larger share of spare width so operation names stay readable, but Service now grows
+// too instead of truncating at a fixed width on wide viewports.
 const NAME_MIN_WIDTH = 160
-// Minimum content width: every fixed column at full width plus a sensible name column. Derived so it
-// can't drift when columns are added or removed.
-const MIN_ROW_WIDTH = Object.values(COL_WIDTH).reduce((sum, width) => sum + width, 0) + NAME_MIN_WIDTH
+const NAME_GROW = 3
+const SERVICE_MIN_WIDTH = 150
+const SERVICE_GROW = 1
+// Minimum content width: every fixed column at full width plus the flex columns at their minimums.
+// Derived so it can't drift when columns are added or removed.
+const MIN_ROW_WIDTH =
+    Object.values(COL_WIDTH).reduce((sum, width) => sum + width, 0) + NAME_MIN_WIDTH + SERVICE_MIN_WIDTH
 
 function isRootSpan(span: Span): boolean {
     return !span.parent_span_id
@@ -61,12 +66,25 @@ interface SpanRowProps {
     onRowClick: (span: Span) => void
 }
 
-function Cell({ width, children }: { width?: number; children: React.ReactNode }): JSX.Element {
+function Cell({
+    width,
+    minWidth,
+    grow,
+    children,
+}: {
+    width?: number
+    minWidth?: number
+    grow?: number
+    children: React.ReactNode
+}): JSX.Element {
+    const flex = width === undefined
     return (
         <div
-            className={cn('shrink-0 truncate px-2 text-xs', width === undefined && 'flex-1 min-w-0')}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={width !== undefined ? { width } : undefined}
+            className="shrink-0 truncate px-2 text-xs"
+            style={
+                // eslint-disable-next-line react/forbid-dom-props
+                flex ? { flexGrow: grow ?? 1, flexBasis: 0, minWidth: minWidth ?? NAME_MIN_WIDTH } : { width }
+            }
         >
             {children}
         </div>
@@ -114,8 +132,12 @@ function SpanRowHeader({ orderBy, orderDirection, onSort }: SortProps): JSX.Elem
                 orderDirection={orderDirection}
                 onSort={onSort}
             />
-            <Cell>Name</Cell>
-            <Cell width={COL_WIDTH.service}>Service</Cell>
+            <Cell minWidth={NAME_MIN_WIDTH} grow={NAME_GROW}>
+                Name
+            </Cell>
+            <Cell minWidth={SERVICE_MIN_WIDTH} grow={SERVICE_GROW}>
+                Service
+            </Cell>
             <Cell width={COL_WIDTH.kind}>Kind</Cell>
             <SortableHeaderCell
                 column="duration"
@@ -151,7 +173,7 @@ function SpanRow({ span, onClick }: { span: Span; onClick: () => void }): JSX.El
             tabIndex={0}
         >
             <Cell width={COL_WIDTH.timestamp}>{new Date(span.timestamp).toLocaleString()}</Cell>
-            <Cell>
+            <Cell minWidth={NAME_MIN_WIDTH} grow={NAME_GROW}>
                 <span className="flex items-center gap-2 truncate">
                     <span className="truncate">{span.name}</span>
                     {isRootSpan(span) && (
@@ -161,7 +183,7 @@ function SpanRow({ span, onClick }: { span: Span; onClick: () => void }): JSX.El
                     )}
                 </span>
             </Cell>
-            <Cell width={COL_WIDTH.service}>
+            <Cell minWidth={SERVICE_MIN_WIDTH} grow={SERVICE_GROW}>
                 <LemonTag>{span.service_name}</LemonTag>
             </Cell>
             <Cell width={COL_WIDTH.kind}>{SPAN_KIND_LABELS[span.kind] ?? span.kind}</Cell>
