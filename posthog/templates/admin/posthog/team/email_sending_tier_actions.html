@@ -20,7 +20,7 @@
         onsubmit="this.querySelector('input[type=submit]').disabled = true;">
         {% csrf_token %}
         <input type="submit" class="button" value="Recompute now from sending history"
-            onclick="return confirm('Recompute the email sending tier for {{ team_name_escaped }} from its recent sending history?');" />
+            onclick="return confirm('Recompute the email sending tier for this team from its recent sending history?');" />
     </form>
     <p style="margin-top: 8px; color: #666; font-size: 12px;">
         Saving a tier writes <code>email_sending_tier</code> on the team's workflows config and stamps

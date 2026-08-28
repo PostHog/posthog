@@ -974,7 +974,6 @@ class TeamAdmin(admin.ModelAdmin):
                     "pinned": bool(config and config.email_sending_tier_pinned),
                     "set_tier_url": reverse("admin:posthog_team_set_email_sending_tier", args=[team.pk]),
                     "recompute_url": reverse("admin:posthog_team_recompute_email_sending_tier", args=[team.pk]),
-                    "team_name_escaped": escapejs(team.name),
                 },
             )
         )
