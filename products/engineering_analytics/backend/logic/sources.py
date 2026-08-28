@@ -263,8 +263,9 @@ def resolve_trunk_quarantined_tests_source(
                 continue
             table = schema.table
             if table is not None and not table.deleted and _IDENTIFIER.match(table.name):
-                slug = (source.job_inputs or {}).get("org_url_slug") or None
-                return TrunkQuarantineSource(table=table.name, org_url_slug=slug)
+                # job_inputs is an EncryptedJSONField and can hold any JSON shape.
+                inputs = source.job_inputs if isinstance(source.job_inputs, dict) else {}
+                return TrunkQuarantineSource(table=table.name, org_url_slug=inputs.get("org_url_slug") or None)
     return None
 
 

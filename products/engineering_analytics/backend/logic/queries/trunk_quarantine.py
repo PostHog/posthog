@@ -16,7 +16,6 @@ from datetime import UTC, datetime, timedelta
 from posthog.clickhouse.workload import Workload
 
 from products.engineering_analytics.backend.facade.contracts import (
-    CITestRunner,
     TrunkQuarantineDebt,
     TrunkQuarantinedTest,
     TrunkQuarantineTeamDebt,
@@ -124,7 +123,7 @@ def query_trunk_quarantine_debt(
         age_days = max((now - quarantined_at) // timedelta(days=1), 0)
         tests.append(
             TrunkQuarantinedTest(
-                runner=CITestRunner(runner),
+                runner=runner,
                 nodeid=nodeid,
                 file=file,
                 owner_team=owner,

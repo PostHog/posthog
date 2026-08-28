@@ -85021,11 +85021,8 @@ export namespace Schemas {
     }
 
     export interface TrunkQuarantinedTest {
-      /** Test runner: 'pytest' or 'jest'.
-       *
-       * * `pytest` - PYTEST
-       * * `jest` - JEST */
-      runner: CITestRunnerEnum;
+      /** Test runner: 'pytest' or 'jest'. */
+      runner: string;
       /** Runner-native test id reconstructed from Trunk's (file, classname, name) key. */
       nodeid: string;
       /** Repo-relative path of the test file, as Trunk reports it. */

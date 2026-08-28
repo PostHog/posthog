@@ -638,7 +638,10 @@ class TrunkQuarantinedTest:
     in-retention span aggregates under ``'unowned'``.
     """
 
-    runner: CITestRunner
+    # Runner label derived from Trunk's uploader-specific 'parent' field: 'pytest', 'jest',
+    # 'playwright', 'rust', or 'storybook'. Free-form on purpose; Trunk ingests suites the
+    # CITestRunner enum does not model.
+    runner: str
     # Runner-native test id reconstructed from Trunk's (file, classname, name) key.
     nodeid: str
     file: str

@@ -40,8 +40,8 @@ const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
     repository: 'PostHog/posthog',
     trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog',
     teams: [
-        { owner_team: 'batch-exports', test_count: 3, overdue_count: 2, oldest_age_days: 44 },
-        { owner_team: 'team-replay', test_count: 2, overdue_count: 1, oldest_age_days: 38 },
+        { owner_team: 'batch-exports', test_count: 1, overdue_count: 1, oldest_age_days: 44 },
+        { owner_team: 'team-replay', test_count: 1, overdue_count: 1, oldest_age_days: 38 },
         { owner_team: 'unowned', test_count: 1, overdue_count: 0, oldest_age_days: 9 },
     ],
     tests: [

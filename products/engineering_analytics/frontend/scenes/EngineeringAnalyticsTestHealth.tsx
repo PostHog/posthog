@@ -68,7 +68,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
     if (trunkQuarantineStatus === 'error') {
         return <LemonBanner type="warning">Couldn't load Trunk quarantine data. Try refreshing.</LemonBanner>
     }
-    if (trunkQuarantine && !trunkQuarantine.available) {
+    if (trunkQuarantineStatus === 'notConnected' || (trunkQuarantine && !trunkQuarantine.available)) {
         return (
             <LemonBanner type="info">
                 No Trunk source is connected. Connect the Trunk.io data warehouse source with its quarantined tests

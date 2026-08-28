@@ -3,19 +3,23 @@
 
 def build_query(table: str) -> str:
     """Curated SELECT over a synced Trunk quarantined-tests table: the reconstructed runner-native
-    nodeid, the runner, and the parsed quarantine timestamp.
+    nodeid, a runner label, and the parsed quarantine timestamp.
 
-    Trunk keys a test by (file, classname, name) rather than one id, and the two runners split the
-    name differently: pytest hides the class inside ``classname`` (the file's module plus the
-    class), while jest puts the whole title in ``name``. Trimming the module prefix recovers the
-    pytest class; jest needs no reassembly. ``parent`` carries the runner for pytest and the file
-    path for jest. Rows without a file, name, or quarantine time carry nothing a consumer can
-    attribute or age, so they drop here.
+    Trunk keys a test by (file, classname, name) and overloads ``parent`` per uploader (verified
+    against a real connected source): 'pytest' for pytest, the test file path for jest and
+    Playwright, and the nextest 'suite::test' id for Rust. Trimming the module prefix recovers the
+    pytest class; jest and Playwright need no reassembly; Rust and Storybook rows carry no file, so
+    the nodeid falls back to classname::name. Rows without a name or quarantine time carry nothing
+    a consumer can attribute or age, so they drop here.
     """
     return f"""
     SELECT
         runner,
-        concat(file, '::', if(cls = '', '', concat(cls, '::')), name) AS nodeid,
+        multiIf(
+            file != '', concat(file, '::', if(cls = '', '', concat(cls, '::')), name),
+            classname != '' AND classname != name, concat(classname, '::', name),
+            name
+        ) AS nodeid,
         file,
         any(status) AS status,
         any(quarantine_setting) AS quarantine_setting,
@@ -25,9 +29,16 @@ def build_query(table: str) -> str:
         min(quarantined_at_parsed) AS quarantined_at
     FROM (
         SELECT
-            if(parent = 'pytest', 'pytest', 'jest') AS runner,
+            multiIf(
+                parent = 'pytest', 'pytest',
+                parent LIKE '%::%', 'rust',
+                parent LIKE 'playwright/%' OR parent LIKE '%.spec.ts', 'playwright',
+                parent LIKE '%.stories.tsx', 'storybook',
+                'jest'
+            ) AS runner,
             ifNull(file, '') AS file,
             ifNull(name, '') AS name,
+            ifNull(classname, '') AS classname,
             ifNull(status, '') AS status,
             ifNull(quarantine_setting, '') AS quarantine_setting,
             ifNull(test_case_id, '') AS test_case_id,
@@ -38,6 +49,6 @@ def build_query(table: str) -> str:
                '') AS cls
         FROM {table}
     )
-    WHERE file != '' AND name != '' AND quarantined_at_parsed IS NOT NULL
+    WHERE name != '' AND quarantined_at_parsed IS NOT NULL
     GROUP BY runner, nodeid, file
 """

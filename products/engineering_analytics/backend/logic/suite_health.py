@@ -1,4 +1,5 @@
-"""Test-health orchestration: the active test-health queue and the broken-tests panel."""
+"""Test-health orchestration: the flaky-test queue, the broken-tests panel, and the Trunk
+quarantine debt scoreboard."""
 
 from datetime import UTC, datetime
 

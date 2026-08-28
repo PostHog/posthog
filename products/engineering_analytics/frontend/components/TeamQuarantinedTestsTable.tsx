@@ -32,20 +32,32 @@ export function TeamQuarantinedTestsTable({
             // max-w-0 lets the auto-layout cell shrink to the distributed width, so a long
             // nodeid truncates instead of pushing the table wider than the scene.
             className: 'w-full max-w-0',
-            render: (_, row) => (
-                <Tooltip title={row.trunkUrl ? `${row.nodeid} - open in Trunk` : row.nodeid}>
-                    <Link
-                        to={row.trunkUrl ?? `https://github.com/${repository}/blob/master/${row.file}`}
-                        target="_blank"
-                        targetBlankIcon={false}
-                        className="flex max-w-full items-center gap-1 font-mono text-xs"
-                    >
-                        {/* Icon leads so truncating a long nodeid never clips it away. */}
-                        <IconExternal className="shrink-0" />
-                        <span className="truncate">{row.nodeid}</span>
-                    </Link>
-                </Tooltip>
-            ),
+            render: (_, row) => {
+                // Rust and Storybook rows carry no file path in Trunk's data.
+                const url =
+                    row.trunkUrl ?? (row.file ? `https://github.com/${repository}/blob/master/${row.file}` : null)
+                if (!url) {
+                    return (
+                        <Tooltip title={row.nodeid}>
+                            <span className="block max-w-full truncate font-mono text-xs">{row.nodeid}</span>
+                        </Tooltip>
+                    )
+                }
+                return (
+                    <Tooltip title={row.trunkUrl ? `${row.nodeid} - open in Trunk` : row.nodeid}>
+                        <Link
+                            to={url}
+                            target="_blank"
+                            targetBlankIcon={false}
+                            className="flex max-w-full items-center gap-1 font-mono text-xs"
+                        >
+                            {/* Icon leads so truncating a long nodeid never clips it away. */}
+                            <IconExternal className="shrink-0" />
+                            <span className="truncate">{row.nodeid}</span>
+                        </Link>
+                    </Tooltip>
+                )
+            },
         },
         {
             title: 'Runner',
