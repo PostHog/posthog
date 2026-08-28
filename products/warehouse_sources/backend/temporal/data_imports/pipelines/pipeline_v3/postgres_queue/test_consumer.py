@@ -2021,6 +2021,53 @@ class TestReconcileFailedRuns:
 
         mock_capture.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "conn_closed,expect_capture",
+        [(True, False), (False, True)],
+        ids=["closed_conn_suppresses_capture", "open_conn_still_captured"],
+    )
+    @pytest.mark.asyncio
+    async def test_stranded_sweep_closed_connection_not_captured(self, conn_closed, expect_capture):
+        # A psycopg.OperationalError from a closed connection is a transient network
+        # drop — the engine reconnects on the next cycle. Only a real unexpected error
+        # (conn still open) should reach error tracking.
+        consumer = _make_consumer()
+        # consumer._recovery_conn starts healthy so _ensure_recovery_conn returns it
+        # without reconnecting. The side-effect below simulates the connection closing
+        # mid-sweep (as it does in practice when a network blip hits an active query).
+
+        async def raise_with_maybe_closed_conn(*args: object, **kwargs: object) -> None:
+            if conn_closed:
+                consumer._recovery_conn.closed = True
+            raise psycopg.OperationalError("the connection is closed")
+
+        with (
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                new_callable=AsyncMock,
+                return_value=0.0,
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_claimable_batch_count",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_stale_stranded_runs",
+                new_callable=AsyncMock,
+                side_effect=raise_with_maybe_closed_conn,
+            ),
+            patch(f"{consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            await consumer._reconcile_failed_runs()
+
+        assert mock_capture.called is expect_capture
+
 
 class TestConnectionRecovery:
     @pytest.mark.parametrize(
