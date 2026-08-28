@@ -27,13 +27,19 @@ describe('TwoFactorSetup', () => {
         return container.querySelector<HTMLInputElement>('input[data-attr="token"]')!
     }
 
-    it('syncs a password-manager autofill into the form on blur', async () => {
+    // A password manager can fill the field without a React change event, so the store only catches
+    // up when the field commits: blur on a mouse submit, or Enter through the form's implicit submit.
+    const commitTriggers: [string, (input: HTMLInputElement) => void][] = [
+        ['blur', (input) => fireEvent.blur(input)],
+        ['pressing Enter', (input) => fireEvent.keyDown(input, { key: 'Enter' })],
+    ]
+
+    it.each(commitTriggers)('syncs a password-manager autofill into the form on %s', async (_label, commit) => {
         const input = renderSetup()
 
-        // A password manager writes the field without firing a React change event. Setting the DOM
-        // value directly mimics that fill; only blur then reaches the form store.
+        // Set the DOM value directly to mimic the autofill, then commit without a change event.
         input.value = '123 456'
-        fireEvent.blur(input)
+        commit(input)
 
         await expectLogic(twoFactorLogic).toMatchValues({ token: { token: '123456' } })
     })

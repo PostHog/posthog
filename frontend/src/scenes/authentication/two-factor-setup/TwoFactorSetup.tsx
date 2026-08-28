@@ -60,9 +60,11 @@ export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.El
                             autoComplete="one-time-code"
                             value={value ?? ''}
                             // Password-manager autofill can set the field without firing a React change event.
-                            // Read the value on change and blur so the store matches what the field shows.
+                            // Read the value on change, blur, and Enter so the store matches what the field shows.
+                            // Enter submits the form without blurring, so sync the value before validation runs.
                             onChange={(newValue) => onChange(newValue.replace(/\D/g, ''))}
                             onBlur={(e) => onChange(e.currentTarget.value.replace(/\D/g, ''))}
+                            onPressEnter={(e) => onChange(e.currentTarget.value.replace(/\D/g, ''))}
                         />
                     )}
                 </LemonField>
