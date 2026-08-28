@@ -187,6 +187,7 @@ describe('scoutFleetLogic', () => {
     })
 
     it('lists the whole roster A→Z and tags each row with its lifecycle group', () => {
+        logic.actions.setRosterEvaluatedAt(new Date('2026-08-28T12:00:00Z').valueOf())
         logic.actions.loadScoutConfigsSuccess([
             { ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' },
             { ...BASE_CONFIG, id: 'busy', skill_name: 'signals-scout-busy' },
@@ -204,6 +205,16 @@ describe('scoutFleetLogic', () => {
                 enabled: false,
                 status: 'paused_by_system',
                 pause_reason: 'repeated_failures',
+                status_changed_at: '2026-08-27T12:00:00Z',
+            },
+            {
+                ...BASE_CONFIG,
+                id: 'stale-pause',
+                skill_name: 'signals-scout-stale-pause',
+                enabled: false,
+                status: 'paused_by_system',
+                pause_reason: 'no_output',
+                status_changed_at: '2026-08-20T12:00:00Z',
             },
             {
                 ...BASE_CONFIG,
@@ -222,9 +233,10 @@ describe('scoutFleetLogic', () => {
             ['busy', 'working'],
             ['off', 'off'],
             ['quiet', 'watching'],
+            ['stale-pause', 'needs_you'],
             ['warned', 'needs_you'],
         ])
-        // The stats tell a warning apart from a pause; a human pause is neither.
+        // The stats tell a warning apart from a recent pause; human and stale pauses are neither.
         expect(logic.values.pauseAttentionCounts).toEqual({ pausingSoon: 1, recentlyPaused: 1 })
     })
 

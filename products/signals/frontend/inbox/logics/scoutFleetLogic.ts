@@ -192,7 +192,10 @@ export interface scoutFleetLogicValues {
     fleetSummary: FleetSummary | null
     lastRunAt: string | null
     manualRunScoutIds: string[]
-    pauseAttentionCounts: { pausingSoon: number; recentlyPaused: number }
+    pauseAttentionCounts: {
+        pausingSoon: number
+        recentlyPaused: number
+    }
     rollups: Map<string, ScoutRollup>
     rosterEvaluatedAt: number
     rosterGroupCounts: Record<ScoutGroupKey, number>
@@ -410,15 +413,18 @@ export interface scoutFleetLogicMeta {
             scoutEnabledFilter: ScoutEnabledFilter,
             scoutRosterSort: ScoutRosterSort
         ) => ScoutRosterRow[]
-        pauseAttentionCounts: (scoutConfigs: SignalScoutConfigApi[] | null) => {
-            pausingSoon: number
-            recentlyPaused: number
-        }
         rosterGroupCounts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>,
             rosterEvaluatedAt: number
         ) => Record<ScoutGroupKey, number>
+        pauseAttentionCounts: (
+            scoutConfigs: SignalScoutConfigApi[] | null,
+            rosterEvaluatedAt: number
+        ) => {
+            pausingSoon: number
+            recentlyPaused: number
+        }
         emittedFindingsSummary: (fleetFindingsSummary: FleetFindingsSummaryApi | null) => {
             authoredReportCount: number
             count: number
@@ -879,14 +885,22 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
          * unnarrowed by search, for the same reason as `rosterGroupCounts`.
          */
         pauseAttentionCounts: [
-            (s) => [s.scoutConfigs],
-            (scoutConfigs: SignalScoutConfig[] | null): { pausingSoon: number; recentlyPaused: number } => {
+            (s) => [s.scoutConfigs, s.rosterEvaluatedAt],
+            (
+                scoutConfigs: SignalScoutConfig[] | null,
+                rosterEvaluatedAt: number
+            ): { pausingSoon: number; recentlyPaused: number } => {
                 let pausingSoon = 0
                 let recentlyPaused = 0
+                const windowStart = dayjs(rosterEvaluatedAt).subtract(SCOUT_ROSTER_WINDOW_HOURS, 'hours')
                 for (const config of scoutConfigs ?? []) {
                     if (config.status === 'pending_pause') {
                         pausingSoon += 1
-                    } else if (config.status === 'paused_by_system') {
+                    } else if (
+                        config.status === 'paused_by_system' &&
+                        config.status_changed_at &&
+                        dayjs(config.status_changed_at).isAfter(windowStart)
+                    ) {
                         recentlyPaused += 1
                     }
                 }
