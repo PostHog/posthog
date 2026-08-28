@@ -127,6 +127,7 @@ tools:
             id:
                 description: ID of the canvas to attach the image to.
             file_name:
+                required: true
                 description: The attached file's name exactly as it appears in the conversation (e.g. "photo.png").
     canvas-edit-create:
         operation: canvases_edit_create

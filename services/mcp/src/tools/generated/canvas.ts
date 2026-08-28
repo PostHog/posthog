@@ -149,9 +149,9 @@ const CanvasAssetAttachSchema = CanvasesAssetsAttachCreateParams.omit({ project_
     .extend(CanvasesAssetsAttachCreateBody.shape)
     .extend({
         id: CanvasesAssetsAttachCreateParams.shape['id'].describe('ID of the canvas to attach the image to.'),
-        file_name: CanvasesAssetsAttachCreateBody.shape['file_name'].describe(
-            'The attached file\'s name exactly as it appears in the conversation (e.g. "photo.png").'
-        ),
+        file_name: CanvasesAssetsAttachCreateBody.shape['file_name']
+            .unwrap()
+            .describe('The attached file\'s name exactly as it appears in the conversation (e.g. "photo.png").'),
     })
 
 const canvasAssetAttach = (): ToolBase<typeof CanvasAssetAttachSchema, Schemas.CanvasAsset> => ({

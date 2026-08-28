@@ -11,6 +11,6 @@
             "type": "string"
         }
     },
-    "required": ["id"],
+    "required": ["id", "file_name"],
     "type": "object"
 }
