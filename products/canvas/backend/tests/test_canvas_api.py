@@ -21,6 +21,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.annotations.backend.models.annotation import Annotation
@@ -1332,6 +1333,12 @@ class TestCanvasAssets(CanvasAPIBaseTest):
         canvas_id = self._create_canvas()
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/{'ab' * 32}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_asset_read_returns_503_when_storage_unavailable(self):
+        canvas_id = self._create_canvas()
+        with patch.object(build_service.object_storage, "read_bytes", side_effect=ObjectStorageError("read failed")):
+            response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/{'ab' * 32}")
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     def test_attach_copies_a_task_attachment_into_the_store(self):
         canvas_id = self._create_canvas()

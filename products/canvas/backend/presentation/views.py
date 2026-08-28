@@ -807,6 +807,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={
             (200, "application/octet-stream"): OpenApiTypes.BINARY,
             404: OpenApiResponse(description="No such asset in this canvas's store."),
+            503: OpenApiResponse(description="Canvas asset storage is temporarily unavailable."),
         },
     )
     @action(methods=["GET"], detail=True, url_path=r"assets/(?P<sha256>[0-9a-f]{64})")
@@ -818,7 +819,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         execute on the application origin.
         """
         canvas = self.get_object()
-        data = asset_store.read_canvas_asset(self.team_id, canvas.id, sha256)
+        try:
+            data = asset_store.read_canvas_asset(self.team_id, canvas.id, sha256)
+        except ObjectStorageError:
+            return Response(
+                {"detail": "Canvas asset storage is temporarily unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         if data is None:
             raise NotFound("No such asset in this canvas's store.")
         response = HttpResponse(data, content_type="application/octet-stream")
