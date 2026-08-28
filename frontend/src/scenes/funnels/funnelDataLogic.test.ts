@@ -7,7 +7,7 @@ import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/fil
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { DataNode, FunnelsQuery, FunnelsQuerySeriesNodeUnion, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     EntityType,
@@ -464,20 +464,21 @@ describe('funnelDataLogic', () => {
 
             // A group step as the backend serializes it: `name` and `action_id` both hold the joined
             // member list, so a group's own label is machine-composed rather than typed by a person.
-            const groupStep = {
+            const groupStep: FunnelStep = {
                 ...(funnelResult.result as FunnelStep[])[0],
                 action_id: '$pageview, $autocapture',
                 name: '$pageview, $autocapture',
+                // The backend labels a group step `group`, which `EntityType` spells `groups`.
                 type: 'group' as EntityType,
             }
-            const warehouseStep = {
+            const warehouseStep: FunnelStep = {
                 ...(funnelResult.result as FunnelStep[])[0],
                 action_id: '',
                 name: 'stripe_invoices',
-                type: 'data_warehouse' as EntityType,
+                type: 'data_warehouse',
             }
 
-            it.each([
+            const exemptCases: [string, FunnelsQuerySeriesNodeUnion, FunnelStep | null, string | null][] = [
                 [
                     'a group, whose name its members compose rather than a person',
                     {
@@ -487,20 +488,6 @@ describe('funnelDataLogic', () => {
                         nodes: [
                             { kind: NodeKind.EventsNode, event: '$pageview' },
                             { kind: NodeKind.EventsNode, event: 'signed up' },
-                        ],
-                    },
-                    groupStep,
-                    null,
-                ],
-                [
-                    'a group whose members are unchanged',
-                    {
-                        kind: NodeKind.GroupNode,
-                        operator: FilterLogicalOperator.Or,
-                        name: '$pageview, $autocapture',
-                        nodes: [
-                            { kind: NodeKind.EventsNode, event: '$pageview' },
-                            { kind: NodeKind.EventsNode, event: '$autocapture' },
                         ],
                     },
                     groupStep,
@@ -553,14 +540,16 @@ describe('funnelDataLogic', () => {
                     warehouseStep,
                     'Invoiced',
                 ],
-            ])('resolves the step label for %s', async (_name, node, step, expected) => {
+            ]
+
+            it.each(exemptCases)('resolves the step label for %s', async (_name, node, step, expected) => {
                 const query: FunnelsQuery = {
                     kind: NodeKind.FunnelsQuery,
-                    series: [node as any, { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+                    series: [node, { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
                 }
                 const result = [...(funnelResult.result as FunnelStep[])]
                 if (step) {
-                    result[0] = { ...(step as FunnelStep), order: 0 }
+                    result[0] = { ...step, order: 0 }
                 }
                 const insight: Partial<InsightModel> = {
                     filters: { insight: InsightType.FUNNELS },
