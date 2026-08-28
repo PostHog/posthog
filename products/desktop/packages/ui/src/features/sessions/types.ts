@@ -28,16 +28,14 @@ type ConversationContentUpdate = {
   | { sessionUpdate: "agent_thought_chunk" }
 );
 
-interface ConversationToolCallUpdate {
+interface ConversationToolCallUpdate
+  extends Partial<
+    Omit<AgentToolCall, "id" | "parentId" | "content" | "locations" | "title">
+  > {
   _meta?: { [key: string]: unknown } | null;
   content?: AgentToolCallContent[] | null;
-  kind?: AgentToolKind | null;
   locations?: AgentToolCallLocation[] | null;
-  rawInput?: unknown;
-  rawOutput?: unknown;
-  details?: unknown;
   sessionUpdate: "tool_call_update";
-  status?: AgentToolCallStatus | null;
   title?: string | null;
   toolCallId: string;
 }
