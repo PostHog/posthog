@@ -10,7 +10,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import AgentRuntime
-from products.signals.backend.artefact_schemas import FeatureLifecycle, FeatureStage, Priority
+from products.signals.backend.artefact_schemas import FeatureLifecycle, FeatureStage, Priority, QuestionArtefact
 from products.signals.backend.features.discovery import (
     DiscoveredFeatureCodeReference,
     DiscoveredFeatureDocument,
@@ -44,7 +44,15 @@ def _exploration() -> FeatureDiscoveryExploration:
 def _feature(title: str = "Session replay") -> DiscoveredFeatureDocument:
     return DiscoveredFeatureDocument(
         title=title,
-        summary="Users can record and replay browser sessions.\n\n## Outcome\n\nUnderstand behavior.",
+        summary=(
+            "## Overview\n\nUsers can record and replay browser sessions.\n\n"
+            "## Current status\n\nAvailable.\n\n"
+            "## User experience\n\nOpen a recording and play it back.\n\n"
+            "## Implementation\n\nThe replay scene loads captured snapshots.\n\n"
+            "## In-flight work\n\nNone found.\n\n"
+            "## Measurement and health\n\nMonitor playback errors.\n\n"
+            "## Next steps\n\nValidate playback reliability."
+        ),
         repository="PostHog/posthog",
         related_repositories=[],
         owners=[DiscoveredFeatureOwner(github_login="owner", reason="Owns the replay scene.")],
@@ -61,6 +69,7 @@ def _feature(title: str = "Session replay") -> DiscoveredFeatureDocument:
             )
         ],
         owner_scout_playbook="Monitor replay load success and playback errors.",
+        open_questions=["Should recordings be retained when a user revokes consent?"],
     )
 
 
@@ -94,6 +103,24 @@ def _set_discovery_failure_details(team_id: int, run_id: str, failure_details: s
     )
 
 
+@pytest.mark.parametrize(
+    ("summary", "expected_error"),
+    [
+        ("## Outcome\n\nUsers understand behavior.", "must include feature overview sections"),
+        (
+            _feature().summary + "\n\n## Recommendation\n\nShip an improvement.",
+            "must not use reactive report sections",
+        ),
+    ],
+)
+def test_feature_document_rejects_reactive_report_summaries(summary: str, expected_error: str) -> None:
+    document = _feature().model_dump()
+    document["summary"] = summary
+
+    with pytest.raises(ValidationError, match=expected_error):
+        DiscoveredFeatureDocument.model_validate(document)
+
+
 @pytest.mark.asyncio
 async def test_feature_discovery_stops_when_agent_says_there_are_no_more_features() -> None:
     session = MagicMock()
@@ -119,7 +146,12 @@ async def test_feature_discovery_stops_when_agent_says_there_are_no_more_feature
 
     assert [feature.title for feature in result.features] == ["Session replay"]
     assert session.send_followup.await_count == 2
-    assert "Only replay features" in session.send_followup.await_args_list[0].args[0]
+    feature_prompt = session.send_followup.await_args_list[0].args[0]
+    assert "Only replay features" in feature_prompt
+    assert "living overview" in feature_prompt
+    assert "## Current status" in feature_prompt
+    assert "open_questions" in feature_prompt
+    assert "Do not guess about intended behavior" in feature_prompt
     session.end.assert_awaited_once_with()
 
 
@@ -322,6 +354,14 @@ class TestPersistDiscoveredFeatures(APIBaseTest):
         lifecycle = FeatureLifecycle.model_validate_json(lifecycle_row.content)
         assert lifecycle.feature_stage == FeatureStage.STAGED
         assert lifecycle.discovery_run_id == str(run.id)
+        question_row = SignalReportArtefact.objects.get(
+            report=reports.get(),
+            type=SignalReportArtefact.ArtefactType.QUESTION,
+        )
+        question = QuestionArtefact.model_validate_json(question_row.content)
+        assert question.question == "Should recordings be retained when a user revokes consent?"
+        assert question.answered is False
+        assert question_row.task_id == task.id
         run.refresh_from_db()
         assert run.status == FeatureDiscoveryRun.Status.COMPLETED
         assert run.discovered_count == 1

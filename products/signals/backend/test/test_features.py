@@ -100,6 +100,10 @@ class TestFeatureService(APIBaseTest):
         assert created.report_id in note
         assert "inbox-report-artefacts-create" in note
         assert owner_scout_skill_name(created.report_id) in note
+        assert "living overview" in note
+        assert "Questions before action" in note
+        assert "Prefer asking a question" in note
+        assert "starting implementation work" in note
 
         kwargs = mock_create.call_args.kwargs
         assert kwargs["mode"] == "interactive"
@@ -114,6 +118,8 @@ class TestFeatureService(APIBaseTest):
         assert "system of record" in first_message
         assert "planning agent for a software feature" in first_message
         assert "monitor, and optimize" in first_message
+        assert "inspect every outstanding `question` artefact" in first_message
+        assert "living overview" in first_message
         assert "Build a widget" in first_message
 
     def test_feature_planning_readiness_lists_missing_pieces(self):
@@ -153,6 +159,8 @@ class TestFeatureService(APIBaseTest):
         assert str(report.id) in skill.body
         assert "Monitor and optimize" in skill.body
         assert "PostHog" in skill.body
+        assert "Resolve questions before work" in skill.body
+        assert "do not start implementation" in skill.body
         config = SignalScoutConfig.all_teams.get(team=self.team, skill_name=skill_name)
         assert config.enabled
 

@@ -19,6 +19,7 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     Priority,
     PriorityAssessment,
+    QuestionArtefact,
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
@@ -31,6 +32,16 @@ from products.tasks.backend.models import TaskRun
 
 MAX_DISCOVERED_FEATURES = 30
 _MAX_VALIDATION_ERROR_LENGTH = 4000
+_FEATURE_SUMMARY_SECTIONS = (
+    "## Overview",
+    "## Current status",
+    "## User experience",
+    "## Implementation",
+    "## In-flight work",
+    "## Measurement and health",
+    "## Next steps",
+)
+_REACTIVE_SUMMARY_SECTIONS = {"## outcome", "## root cause", "## recommendation"}
 _StructuredOutputT = TypeVar("_StructuredOutputT", bound=BaseModel)
 
 
@@ -82,8 +93,9 @@ class DiscoveredFeatureDocument(BaseModel):
         min_length=1,
         max_length=30000,
         description=(
-            "A standalone feature report with sections for outcome, current implementation, user journey, "
-            "code ownership, measurement plan, risks and constraints, and next opportunities."
+            "A living overview of the feature with sections for overview, current status, user experience, "
+            "implementation, in-flight work, measurement and health, and next steps. This describes the "
+            "feature's current state, not a reactive finding, incident report, or proposed project."
         ),
     )
     repository: str = Field(
@@ -117,6 +129,14 @@ class DiscoveredFeatureDocument(BaseModel):
         max_length=8000,
         description="Feature-specific monitoring and optimization instructions for its future owner scout.",
     )
+    open_questions: list[str] = Field(
+        default_factory=list,
+        max_length=12,
+        description=(
+            "Questions for a human owner wherever the intended functionality is uncertain. Do not replace "
+            "uncertainty with an assumption."
+        ),
+    )
 
     @field_validator("title", "summary", "repository", "priority_explanation", "owner_scout_playbook")
     @classmethod
@@ -124,6 +144,25 @@ class DiscoveredFeatureDocument(BaseModel):
         if not value.strip():
             raise ValueError("must not be blank")
         return value.strip()
+
+    @field_validator("summary")
+    @classmethod
+    def summary_must_be_a_feature_overview(cls, value: str) -> str:
+        headings = {line.strip().casefold() for line in value.splitlines() if line.startswith("## ")}
+        missing = [section for section in _FEATURE_SUMMARY_SECTIONS if section.casefold() not in headings]
+        if missing:
+            raise ValueError(f"must include feature overview sections: {', '.join(missing)}")
+        reactive = sorted(_REACTIVE_SUMMARY_SECTIONS.intersection(headings))
+        if reactive:
+            raise ValueError(f"must not use reactive report sections: {', '.join(reactive)}")
+        return value
+
+    @field_validator("open_questions")
+    @classmethod
+    def questions_must_not_be_blank(cls, value: list[str]) -> list[str]:
+        if any(not question.strip() for question in value):
+            raise ValueError("questions must not be blank")
+        return [question.strip() for question in value]
 
 
 class FeatureDiscoveryContinuation(BaseModel):
@@ -174,7 +213,17 @@ def build_feature_document_prompt(existing_titles: list[str], focus: str) -> str
 {scope_reminder}Do not repeat or subdivide one of these already documented features:
 {previous}
 
-The report must describe what the feature does today, not a proposed project. Ground every claim in code you inspected. Explain the end-to-end user journey and account for the wider codebase and any related repositories. The measurement plan should name concrete PostHog events, properties, insights, dashboards, flags, experiments, errors, logs, or replays that an owner could use. The owner scout playbook should tell an agent what to monitor and how to find safe optimization work over time. Each code reference must contain at most 20 lines, and its start and end lines must match that excerpt.
+The summary is the feature's living overview. It is not a reactive report, incident report, or implementation proposal. Do not organize it around "Outcome", "Root cause", or "Recommendation". Use these sections instead:
+
+- `## Overview`: what the feature is for and the intended functionality.
+- `## Current status`: whether it is available, partial, gated, deprecated, or otherwise constrained today.
+- `## User experience`: the end-to-end journey and important variants.
+- `## Implementation`: the main boundaries, components, and related repositories.
+- `## In-flight work`: work already underway, grounded in repository evidence. Say "None found" when there is none.
+- `## Measurement and health`: existing instrumentation plus concrete PostHog events, properties, insights, dashboards, flags, experiments, errors, logs, or replays an owner can use.
+- `## Next steps`: known maintenance, optimization, or completion work grounded in evidence.
+
+Ground every claim in code you inspected and account for the wider codebase and any related repositories. Do not guess about intended behavior. Put every uncertainty about intended functionality in `open_questions` as a direct question for a human owner, even when the rest of the feature is well understood. Keep those questions out of the summary so the question artefacts remain the source of truth. The owner scout playbook should tell an agent what to monitor and how to find safe optimization work over time. Each code reference must contain at most 20 lines, and its start and end lines must match that excerpt.
 
 Respond with JSON matching this schema:
 
@@ -357,6 +406,13 @@ def persist_discovered_features(*, run_id: str, team_id: int, result: FeatureDis
                     contents=reference.contents,
                     relevance_note=reference_note,
                 ),
+                attribution=attribution,
+            )
+        for question in document.open_questions:
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=QuestionArtefact(question=question),
                 attribution=attribution,
             )
         related_repositories = "\n".join(f"- `{repository}`" for repository in document.related_repositories)
