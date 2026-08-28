@@ -25,6 +25,7 @@ from posthog.api.secret_revocation import (
     CANONICAL_PROJECT_SECRET_API_KEY,
     revoke_leaked_secret,
 )
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
@@ -158,7 +159,15 @@ class SecretAlertSerializer(serializers.Serializer):
     source: Any = serializers.CharField()
 
 
-def process_alert_item(item: dict) -> tuple[dict, dict]:
+@frozen
+class AlertItemOutcome:
+    """One alert's response entry and its pending analytics event."""
+
+    result: dict
+    event: dict
+
+
+def process_alert_item(item: dict) -> AlertItemOutcome:
     """Revoke one leaked secret and build its result and pending analytics event."""
     if item["type"] not in GITHUB_ALERT_TYPE_CONFIG:
         raise ValidationError(detail="Unexpected alert type")
@@ -205,7 +214,7 @@ def process_alert_item(item: dict) -> tuple[dict, dict]:
         "token_type": item["type"],
         "label": "true_positive" if local_found else "false_positive",
     }
-    return result, event_data
+    return AlertItemOutcome(result=result, event=event_data)
 
 
 def relay_false_positives_to_eu(results: list[dict], raw_body: str, kid: str, sig: str) -> set[str]:
@@ -321,9 +330,9 @@ class SecretAlert(APIView):
         results = []
         pending_events = []
         for item in secret_alert.validated_data:
-            result, event_data = process_alert_item(item)
-            results.append(result)
-            pending_events.append(event_data)
+            outcome = process_alert_item(item)
+            results.append(outcome.result)
+            pending_events.append(outcome.event)
 
         eu_found_hashes = relay_false_positives_to_eu(results, raw_body, kid, sig)
         capture_secret_alert_events(pending_events, eu_found_hashes)
