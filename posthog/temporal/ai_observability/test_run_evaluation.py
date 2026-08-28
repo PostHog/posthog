@@ -287,7 +287,10 @@ class TestRunEvaluationWorkflow:
             "id": str(evaluation_obj.id),
             "name": "Test Evaluation",
             "evaluation_type": "llm_judge",
-            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "evaluation_config": {
+                "prompt": "Is this response factually accurate?",
+                "input_transformations": [{"pattern": "2\\+2", "replacement": "[calculation]"}],
+            },
             "output_type": "boolean",
             "output_config": {},
             "team_id": team.id,
@@ -318,6 +321,9 @@ class TestRunEvaluationWorkflow:
             assert result["verdict"] is True
             assert result["reasoning"] == "The answer is correct"
             mock_client.complete.assert_called_once()
+            content = mock_client.complete.call_args.args[0].messages[0]["content"]
+            assert "What is [calculation]?" in content
+            assert "2+2" not in content
 
     @pytest.mark.parametrize(
         "oversized_input",

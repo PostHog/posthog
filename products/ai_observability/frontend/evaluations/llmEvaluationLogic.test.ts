@@ -283,7 +283,27 @@ describe('llmEvaluationLogic', () => {
 
             await expectLogic(logic).toMatchValues({
                 evaluation: expect.objectContaining({
-                    evaluation_config: { prompt: 'New prompt' },
+                    evaluation_config: { prompt: 'New prompt', input_transformations: [] },
+                }),
+            })
+        })
+
+        it('edits input transformations in order', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.addInputTransformation()
+            logic.actions.updateInputTransformation(0, { pattern: 'private', replacement: '[removed]' })
+            logic.actions.addInputTransformation()
+            logic.actions.updateInputTransformation(1, { pattern: 'secret', replacement: '' })
+            logic.actions.moveInputTransformation(1, 'up')
+            logic.actions.removeInputTransformation(1)
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_config: {
+                        prompt: '',
+                        input_transformations: [{ pattern: 'secret', replacement: '' }],
+                    },
                 }),
             })
         })
@@ -589,6 +609,22 @@ return result`,
                 await expectLogic(logic).toMatchValues({ formValid: true })
             })
 
+            it('returns false when an input transformation is invalid', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Valid Name')
+                logic.actions.setEvaluationPrompt('Valid prompt')
+                logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
+                logic.actions.setModelConfiguration({
+                    provider: 'openai',
+                    model: 'gpt-5-mini',
+                    provider_key_id: 'key-1',
+                })
+                logic.actions.addInputTransformation()
+                logic.actions.updateInputTransformation(0, { pattern: '[' })
+
+                await expectLogic(logic).toMatchValues({ inputTransformationsValid: false, formValid: false })
+            })
+
             // A loaded evaluation whose stored shape doesn't match its type (e.g. an llm_judge
             // record with no prompt) used to crash formValid with a TypeError on render.
             it.each([
@@ -868,7 +904,10 @@ return result`,
                     expectedEvaluation: {
                         name: 'Relevance',
                         evaluation_type: 'llm_judge',
-                        evaluation_config: { prompt: expect.stringContaining('relevant') },
+                        evaluation_config: {
+                            prompt: expect.stringContaining('relevant'),
+                            input_transformations: [],
+                        },
                         output_type: 'boolean',
                     },
                 },
@@ -1132,7 +1171,7 @@ return result`,
             await expectLogic(logic).toMatchValues({
                 evaluation: expect.objectContaining({
                     evaluation_type: 'llm_judge',
-                    evaluation_config: { prompt: '' },
+                    evaluation_config: { prompt: '', input_transformations: [] },
                 }),
             })
         })

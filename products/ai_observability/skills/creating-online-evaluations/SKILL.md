@@ -234,6 +234,23 @@ Leave `provider_key_id` as `null` only after `llma-evaluation-config-get` confir
 If there is no usable key, you may still create a disabled draft for the user to review. Do not spot-run or
 enable it. Ask the user to add or validate a key in the UI before continuing.
 
+An LLM judge can preprocess the text it receives with ordered regex replacements. Add
+`evaluation_config.input_transformations` only when captured input contains text that should not affect the
+verdict, such as injected instructions or changing identifiers. Each rule has a required RE2 `pattern` and an
+optional literal `replacement`. An omitted or empty replacement removes matches. Rules run from top to bottom
+before the judge input is shortened to fit its context window. They apply to generation, trace, and session
+targets without changing the stored events or trace.
+
+```json
+"evaluation_config": {
+  "prompt": "Return true when the assistant addresses the person's request.",
+  "input_transformations": [
+    { "pattern": "(?s)<injected_context>.*?</injected_context>", "replacement": "" },
+    { "pattern": "request-[0-9]+", "replacement": "[request id]" }
+  ]
+}
+```
+
 ### 2.4 — Create it disabled
 
 Create with `enabled: false` so nothing fires until the scope is verified. Minimal `hog` example:

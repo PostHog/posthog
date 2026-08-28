@@ -3,7 +3,7 @@ import type { AnyPropertyFilter } from '~/types'
 import { evaluationsList, evaluationsPartialUpdate, llmAnalyticsEvaluationReportsList } from '../generated/api'
 import type { EvaluationApi, EvaluationReportApi, PatchedEvaluationApi } from '../generated/api.schemas'
 import { listAllPages } from '../listAllPages'
-import type { EvaluationConfig, ModelConfiguration } from './types'
+import type { EvaluationConfig, LLMJudgeEvaluationConfig, ModelConfiguration } from './types'
 
 const EVALUATIONS_PAGE_SIZE = 100
 const EVALUATION_REPORTS_PAGE_SIZE = 100
@@ -67,11 +67,15 @@ export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig {
         evaluation.evaluation_config &&
         'prompt' in evaluation.evaluation_config
     ) {
+        const evaluationConfig = evaluation.evaluation_config as LLMJudgeEvaluationConfig
         return {
             ...baseEvaluation,
             evaluation_type: 'llm_judge',
             output_type: 'boolean',
-            evaluation_config: { prompt: evaluation.evaluation_config.prompt },
+            evaluation_config: {
+                prompt: evaluationConfig.prompt,
+                input_transformations: evaluationConfig.input_transformations ?? [],
+            },
         }
     }
 

@@ -6,6 +6,8 @@ Tests cover multiple LLM provider formats, tool calls, truncation, and edge case
 
 from parameterized import parameterized
 
+from products.ai_observability.backend.input_transformations import compile_input_transformations
+
 from ..constants import MISSING_REASONING_NOTE, MISSING_TOOL_OUTPUT_NOTE, MISSING_TOOLS_NOTE
 from ..message_formatter import (
     extract_text_content,
@@ -69,6 +71,22 @@ class TestTruncateContent:
         assert lines[0] == "a" * 250  # Half of 500
         assert lines[4] == "a" * 250
         assert "4500>>>" in lines[2]  # 5000 - 500 = 4500
+
+    def test_input_transformations_run_before_truncation(self) -> None:
+        content = f"start<private>{'x' * 2000}</private>end"
+        lines, truncated = truncate_content(
+            content,
+            {
+                "truncated": True,
+                "truncate_buffer": 100,
+                "input_transformations": compile_input_transformations(
+                    [{"pattern": "(?s)<private>.*</private>", "replacement": "[removed]"}]
+                ),
+            },
+        )
+
+        assert truncated is False
+        assert lines == ["start[removed]end"]
 
 
 class TestSafeExtractText:

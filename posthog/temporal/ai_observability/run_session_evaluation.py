@@ -44,6 +44,10 @@ from posthog.temporal.ai_observability.message_utils import extract_text_from_me
 from posthog.temporal.ai_observability.run_trace_evaluation import TRACE_EVENTS_LOOKBACK
 from posthog.temporal.common.utils import close_db_connections
 
+from products.ai_observability.backend.input_transformations import (
+    EvaluationInputTransformation,
+    compile_input_transformations,
+)
 from products.ai_observability.backend.models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
     MAX_SESSION_EVAL_EVENTS,
@@ -330,7 +334,9 @@ user's conversation, in order — according to this criteria:
 {config.instructions}"""
 
 
-def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
+def format_session_for_judge(
+    traces: list[LLMTrace], input_transformations: list[EvaluationInputTransformation] | None = None
+) -> str | None:
     """Render a session as the canonical text representation, one section per trace.
 
     The char budget is split evenly across traces so one long trace can't crowd the others out,
@@ -355,6 +361,7 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
         "truncated": True,
         "include_line_numbers": True,
         "max_length": per_trace_budget,
+        "input_transformations": compile_input_transformations(input_transformations or []),
     }
     sections: list[str] = []
     for index, trace in enumerate(traces, start=1):
@@ -436,7 +443,9 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
     if outcome.skip_reason or outcome.traces is None:
         return build_session_skip_result(allows_na, outcome.skip_reason or "session_not_found")
 
-    transcript = format_session_for_judge(outcome.traces)
+    transcript = format_session_for_judge(
+        outcome.traces, evaluation.get("evaluation_config", {}).get("input_transformations")
+    )
     if transcript is None:
         return build_session_skip_result(allows_na, "session_too_long_to_judge")
 
