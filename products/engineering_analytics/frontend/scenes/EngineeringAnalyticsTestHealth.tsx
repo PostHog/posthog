@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
@@ -17,8 +17,14 @@ function teamLabel(ownerTeam: string): string {
 }
 
 function TrunkQuarantineDebtBoard(): JSX.Element {
-    const { trunkQuarantine, trunkQuarantineLoading, trunkQuarantineStatus, trunkQuarantineTestsByTeam } =
-        useValues(engineeringAnalyticsLogic)
+    const {
+        trunkQuarantine,
+        trunkQuarantineLoading,
+        trunkQuarantineStatus,
+        trunkQuarantineTestsByTeam,
+        expandedTrunkQuarantineTeams,
+    } = useValues(engineeringAnalyticsLogic)
+    const { toggleTrunkQuarantineTeam } = useActions(engineeringAnalyticsLogic)
 
     const ttlDays = trunkQuarantine?.ttlDays ?? 30
     const overdueCount = trunkQuarantine ? trunkQuarantine.tests.filter((test) => test.overdue).length : null
@@ -124,8 +130,13 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
                 useURLForSorting={false}
                 emptyState="No tests are quarantined right now."
                 nouns={['team', 'teams']}
+                onRow={(row) => ({
+                    className: 'cursor-pointer',
+                    onClick: () => toggleTrunkQuarantineTeam(row.ownerTeam),
+                })}
                 expandable={{
                     noIndent: true,
+                    isRowExpanded: (row) => expandedTrunkQuarantineTeams.includes(row.ownerTeam),
                     expandedRowRender: (row) => (
                         <TeamQuarantinedTestsTable
                             tests={trunkQuarantineTestsByTeam[row.ownerTeam] ?? []}
