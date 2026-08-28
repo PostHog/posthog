@@ -391,9 +391,10 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {
-            "description": ["This field is not supported by this deployment."],
-            "verified": ["This field is not supported by this deployment."],
-            "hidden": ["This field is not supported by this deployment."],
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "This field is not supported by this deployment.",
+            "attr": "description",
         }
         assert not EventDefinition.objects.filter(name="event_with_unsupported_metadata", team=self.demo_team).exists()
 
