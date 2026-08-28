@@ -9,15 +9,14 @@ import { DiffStatsBadge } from "@posthog/ui/features/diff-stats/DiffStatsBadge";
 import { BranchSelector } from "@posthog/ui/features/git-interaction/components/BranchSelector";
 import { TaskActionsMenu } from "@posthog/ui/features/git-interaction/components/TaskActionsMenu";
 import { useReviewInRightPanel } from "@posthog/ui/features/navigation/useReviewInRightPanel";
-import { StopCloudRunButton } from "@posthog/ui/features/sessions/components/StopCloudRunButton";
 import {
   useIsCloudTask,
   useWorkspace,
   useWorkspaceLoaded,
 } from "@posthog/ui/features/workspace/useWorkspace";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
-import { ArchiveTaskButton } from "./ArchiveTaskButton";
 import { TaskAnalysisButton } from "./TaskAnalysisButton";
+import { TaskOverflowMenu } from "./TaskOverflowMenu";
 
 function TaskDiffStatsBadge({ task }: { task: Task }) {
   const { filesChanged, linesAdded, linesRemoved, isOpen, toggle } =
@@ -67,14 +66,11 @@ export function TaskHeaderActions({ task }: { task: Task }) {
       {showDiffBadge && <TaskDiffStatsBadge task={task} />}
 
       {workspaceLoaded && (
-        <>
-          {isCloudTask && <StopCloudRunButton taskId={task.id} />}
-          <TaskActionsMenu taskId={task.id} isCloud={isCloudTask} />
-        </>
+        <TaskActionsMenu taskId={task.id} isCloud={isCloudTask} />
       )}
-      {/* Archiving needs nothing from the workspace, so it stays put while the
-          rest of the row is still resolving. */}
-      <ArchiveTaskButton task={task} />
+      {/* Acting on the task itself needs nothing from the workspace, so the
+          menu stays put while the rest of the row is still resolving. */}
+      <TaskOverflowMenu task={task} />
     </div>
   );
 }
