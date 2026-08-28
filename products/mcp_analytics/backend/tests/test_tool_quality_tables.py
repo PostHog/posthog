@@ -109,6 +109,10 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
             query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from="-7d"), limit=2, offset=2),
             team=self.team,
         ).calculate()
+        out_of_range_page = MCPToolQualityRowsQueryRunner(
+            query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from="-7d"), limit=2, offset=100),
+            team=self.team,
+        ).calculate()
         searched = MCPToolQualityRowsQueryRunner(
             query=MCPToolQualityRowsQuery(dateRange=DateRange(date_from="-7d"), search="TARGET", limit=1),
             team=self.team,
@@ -127,6 +131,8 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert first_page.totalCount == 3
         assert [row.tool for row in last_page.results] == ["rare_target"]
         assert last_page.totalCount == 3
+        assert out_of_range_page.results == []
+        assert out_of_range_page.totalCount == 3
         assert [row.tool for row in searched.results] == ["rare_target"]
         assert searched.totalCount == 1
         assert [row.tool for row in highest_error_rate.results] == ["rare_target"]

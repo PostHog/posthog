@@ -119,9 +119,12 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
     def query_date_range(self) -> QueryDateRange:
         return mcp_query_date_range(self.team, self.query.dateRange)
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        limit = min(max(self.query.limit or _TOOL_ROW_DEFAULT_LIMIT, 1), _TOOL_ROW_MAX_LIMIT)
-        offset = max(self.query.offset or 0, 0)
+    def to_query(
+        self, *, limit_override: int | None = None, offset_override: int | None = None
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        requested_limit = limit_override if limit_override is not None else self.query.limit
+        limit = min(max(requested_limit or _TOOL_ROW_DEFAULT_LIMIT, 1), _TOOL_ROW_MAX_LIMIT)
+        offset = max(offset_override if offset_override is not None else self.query.offset or 0, 0)
         search = (self.query.search or "").strip()
         sort_column = self.query.sortColumn or "total_calls"
         if sort_column not in _TOOL_SORT_COLUMNS:
@@ -186,9 +189,20 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
             )
-
-        rows = response.results or []
-        total_count = int(rows[0][11] or 0) if rows else 0
+            rows = response.results or []
+            total_count = int(rows[0][11] or 0) if rows else 0
+            if not rows and (self.query.offset or 0) > 0:
+                first_row_response = execute_hogql_query(
+                    query=self.to_query(limit_override=1, offset_override=0),
+                    team=self.team,
+                    user=self.user,
+                    query_type="mcp_tool_quality_rows_query",
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                )
+                first_row = first_row_response.results or []
+                total_count = int(first_row[0][11] or 0) if first_row else 0
         results = [
             MCPToolQualityRowItem(
                 tool=str(row[0] or ""),
