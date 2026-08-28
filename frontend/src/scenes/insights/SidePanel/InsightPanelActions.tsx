@@ -6,6 +6,7 @@ import { IconCode2, IconCopy, IconEndpoints, IconGraph, IconPencil, IconPeople }
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
+import { SceneCopyImageButton } from 'lib/components/Scenes/InsightOrDashboard/SceneCopyImageButton'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneAlertsButton } from 'lib/components/Scenes/SceneAlertsButton'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
@@ -22,7 +23,14 @@ import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopy
 import { urls } from 'scenes/urls'
 
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
-import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
+import { INSIGHT_GRAPH_SELECTOR } from '~/queries/nodes/InsightViz/InsightVizDisplay'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isEventsQuery,
+    isHogQLQuery,
+    isInsightVizNode,
+} from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -67,6 +75,8 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
         AccessControlLevel.Viewer
     )
     const canExport = exportContext != null && insight.short_id != null
+    // Only an InsightViz renders the results card that the copy-image action captures.
+    const canCopyImage = isInsightVizNode(query)
     const showCohort =
         hogQL != null &&
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
@@ -88,6 +98,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                     Copy to another project
                 </ButtonPrimitive>
             )}
+            {canCopyImage && <SceneCopyImageButton selector={INSIGHT_GRAPH_SELECTOR} dataAttrKey={RESOURCE_TYPE} />}
             <SceneFavorite
                 dataAttrKey={RESOURCE_TYPE}
                 onClick={() => setInsightMetadata({ favorited: !insight.favorited })}

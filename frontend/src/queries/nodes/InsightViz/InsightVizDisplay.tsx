@@ -64,6 +64,13 @@ import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 
+/**
+ * Marks the card holding the chart and its legend. Playwright and the copy-image action both find the
+ * results this way, so treat the value as a wire string and do not rename it.
+ */
+export const INSIGHT_GRAPH_DATA_ATTR = 'insights-graph'
+export const INSIGHT_GRAPH_SELECTOR = `[data-attr="${INSIGHT_GRAPH_DATA_ATTR}"]`
+
 /** When the dashboard is still streaming/refreshing tiles, prefer loading UX over "Chart data didn't load". */
 function DashboardInsightRefreshHintOrLoading({
     dashboardId,
@@ -508,7 +515,7 @@ export function InsightVizDisplay({
                     `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()}`,
                     !embedded && 'border rounded bg-surface-primary'
                 )}
-                data-attr="insights-graph"
+                data-attr={INSIGHT_GRAPH_DATA_ATTR}
             >
                 {disableHeader ? null : <InsightDisplayConfig />}
                 {showingResults && (

@@ -8,6 +8,7 @@ import {
     IconDownload,
     IconEndpoints,
     IconGraph,
+    IconImage,
     IconPencil,
     IconPeople,
     IconPlusSmall,
@@ -21,6 +22,7 @@ import { Button } from '@posthog/quill'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
+import { copyImageLogic } from 'lib/components/Scenes/InsightOrDashboard/copyImageLogic'
 import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
@@ -48,8 +50,15 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { tagsModel } from '~/models/tagsModel'
+import { INSIGHT_GRAPH_SELECTOR } from '~/queries/nodes/InsightViz/InsightVizDisplay'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isEventsQuery,
+    isHogQLQuery,
+    isInsightVizNode,
+} from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -103,6 +112,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const { openTerraformModal, openAddToDashboardModal } = useActions(insightModalsLogic(insightLogicProps))
 
     const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const { copyImage } = useActions(copyImageLogic)
+    const { isCopying: isCopyingImage } = useValues(copyImageLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
 
     const { user, hasAvailableFeature } = useValues(userLogic)
@@ -122,6 +133,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
     const canExport = exportContext != null && insight.short_id != null
+    // Only an InsightViz renders the results card that the copy-image action captures.
+    const canCopyImage = isInsightVizNode(query)
     const showCohort =
         hogQL != null &&
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
@@ -256,6 +269,16 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                         >
                             <IconCopy />
                             Copy to another project
+                        </SceneMenuBarItem>
+                    )}
+                    {canCopyImage && (
+                        <SceneMenuBarItem
+                            onClick={() => copyImage(INSIGHT_GRAPH_SELECTOR)}
+                            disabled={isCopyingImage}
+                            data-attr={`${RESOURCE_TYPE}-menubar-copy-image`}
+                        >
+                            <IconImage />
+                            Copy image
                         </SceneMenuBarItem>
                     )}
                     <SceneMenuBarItem
