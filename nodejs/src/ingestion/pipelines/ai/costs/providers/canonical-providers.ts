@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-28 14:00:55 UTC
+// Generated at: 2026-08-28 21:57:03 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -100,7 +100,6 @@ export type CanonicalProvider =
     | 'liquid-fp8'
     | 'makora'
     | 'makora-fp4'
-    | 'makora-fp8'
     | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
@@ -111,9 +110,9 @@ export type CanonicalProvider =
     | 'mistral'
     | 'mistral-eu'
     | 'mistral-zdr'
+    | 'modal'
     | 'modal-fp8'
     | 'modal-mxfp4'
-    | 'modal-nvfp4'
     | 'modelrun-fp4'
     | 'moonshotai-highspeed'
     | 'moonshotai-int4'
