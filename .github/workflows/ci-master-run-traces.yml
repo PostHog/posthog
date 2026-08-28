@@ -1,9 +1,11 @@
 name: Master run traces
 
-# Emits one OTLP trace per completed master-push workflow run: root span = the run,
+# Emits one OTLP trace per completed master workflow run: root span = the run,
 # a span per job beneath it, a span per step beneath those. Covers every workflow,
 # including the ones with no telemetry of their own (Container Images CD, the
-# container CD lane, the Rust image builds).
+# container CD lane, the Rust image builds). Master pushes are scanned repo-wide;
+# workflows that cover master from a cron are scanned on their scheduled runs too
+# (see SCHEDULED_MASTER_WORKFLOWS in the script).
 #
 # Complements .github/scripts/report_test_timings.py, which emits per-test traces
 # from JUnit XML under its own trace IDs. Those stay separate traces.

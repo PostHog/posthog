@@ -244,6 +244,7 @@ class TestMCPDashboardSeriesGate(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTes
                 "MCPToolCallsAndErrorsQuery",
                 "MCPToolCallBreakdownQuery",
                 "MCPToolCategoryMapQuery",
+                "MCPToolQualityRowsQuery",
             )
             for scopes, expected_status in (
                 (["query:read"], 403),

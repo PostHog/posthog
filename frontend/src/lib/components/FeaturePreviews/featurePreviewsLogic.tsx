@@ -3,21 +3,20 @@ import { loaders } from 'kea-loaders'
 import { EarlyAccessFeature, posthog } from 'posthog-js'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import type { SupportFormFields } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { createFeaturePreviewSearch } from 'lib/utils/fuseSearch'
+import type { ProductCrossSellProperties } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-
-import type { SupportFormFields } from '../../lib/components/Support/supportLogic'
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { ProductCrossSellProperties } from '../../lib/utils/product-intents'
-import type { UserType } from '../../types'
+import type { UserType } from '~/types'
 
 export interface EnrichedEarlyAccessFeature extends Omit<EarlyAccessFeature, 'flagKey'> {
     flagKey: string
@@ -140,7 +139,7 @@ export type featurePreviewsLogicType = MakeLogicType<
 >
 
 export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
-    path(['layout', 'FeaturePreviews', 'featurePreviewsLogic']),
+    path(['lib', 'components', 'FeaturePreviews', 'featurePreviewsLogic']),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], userLogic, ['user']],
         actions: [supportLogic, ['submitSupportTicket'], teamLogic, ['addProductIntentForCrossSell']],

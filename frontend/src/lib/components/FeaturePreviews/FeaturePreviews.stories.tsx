@@ -12,7 +12,7 @@ interface StoryProps {
 
 type Story = StoryObj<(props: StoryProps) => JSX.Element>
 const meta: Meta<(props: StoryProps) => JSX.Element> = {
-    title: 'Layout/Feature Previews',
+    title: 'Components/Feature Previews',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

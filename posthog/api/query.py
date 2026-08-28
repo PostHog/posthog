@@ -183,6 +183,7 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "MCPToolCallsAndErrorsQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallBreakdownQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCategoryMapQuery": ["query:read", "mcp_analytics:read"],
+    "MCPToolQualityRowsQuery": ["query:read", "mcp_analytics:read"],
 }
 
 

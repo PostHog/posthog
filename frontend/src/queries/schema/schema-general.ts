@@ -3519,16 +3519,40 @@ export interface MCPToolQualityRowItem {
     last_seen: string
 }
 
+export type MCPToolQualitySortColumn =
+    | 'total_calls'
+    | 'error_rate_pct'
+    | 'p50_duration_ms'
+    | 'p95_duration_ms'
+    | 'p99_duration_ms'
+    | 'users'
+    | 'sessions'
+    | 'last_seen'
+
+export type MCPToolQualitySortDirection = 'ASC' | 'DESC'
+
 export interface MCPToolQualityRowsQueryResponse extends AnalyticsQueryResponseBase {
     results: MCPToolQualityRowItem[]
+    /** Number of tools matching the date, category, and search filters. */
+    totalCount: integer
 }
 
-/** One row per $mcp_tool_name — call volume, error rate, latency percentiles, and reach — over the window. */
+/** One row per effective MCP tool name, with server-side search, sorting, and pagination. */
 export interface MCPToolQualityRowsQuery extends DataNode<MCPToolQualityRowsQueryResponse> {
     kind: NodeKind.MCPToolQualityRowsQuery
     dateRange?: DateRange
     /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
     categories?: string[]
+    /** Case-insensitive substring search on the effective tool name. */
+    search?: string
+    /** Aggregate column used to order tools. Defaults to total_calls. */
+    sortColumn?: MCPToolQualitySortColumn
+    /** Sort direction. Defaults to DESC. */
+    sortDirection?: MCPToolQualitySortDirection
+    /** Page size. The server defaults to 50 and caps this at 100. */
+    limit?: integer
+    /** Number of matching tools to skip. */
+    offset?: integer
 }
 
 export type CachedMCPToolQualityRowsQueryResponse = CachedQueryResponse<MCPToolQualityRowsQueryResponse>
