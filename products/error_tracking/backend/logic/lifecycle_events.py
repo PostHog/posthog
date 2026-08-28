@@ -13,11 +13,14 @@ from django.db import transaction
 
 import structlog
 
-from posthog.api.shared import UserBasicSerializer
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.models.user import User
 
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -55,6 +58,17 @@ def assignee_property(assignee: dict[str, Any]) -> str:
     return json.dumps({"type": assignee["type"], "id": assignee_id}, separators=(",", ":"))
 
 
+def _current_assignee_property(issue: ErrorTrackingIssue) -> Optional[str]:
+    assignment = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).values("user_id", "role_id").first()
+    if assignment is None:
+        return None
+    if assignment["user_id"] is not None:
+        return assignee_property({"type": "user", "id": assignment["user_id"]})
+    if assignment["role_id"] is not None:
+        return assignee_property({"type": "role", "id": assignment["role_id"]})
+    return None
+
+
 def issue_fingerprint_for_links(issue: ErrorTrackingIssue) -> Optional[str]:
     # Deterministic: always the issue's longest-held fingerprint, so persisted
     # links keep resolving to this issue as long as possible. Callers whose
@@ -86,19 +100,37 @@ def produce_issue_lifecycle_event_on_commit(
     # issue's latest exception instead of an empty window around the mutation.
     if fingerprint is None:
         fingerprint = issue_fingerprint_for_links(issue)
+    current_assignee = _current_assignee_property(issue)
+    # Same issue-property set the ingestion-driven producer emits (see
+    # produce_issue_lifecycle_internal_event), so destination property filters
+    # match both paths.
     properties: dict[str, Any] = {
         "name": issue.name,
         "description": issue.description,
+        "issue_description": issue.description,
+        "first_seen": issue.created_at.isoformat(),
+        "severity": issue.severity,
         "status": status_label(status if status is not None else issue.status),
         **({"fingerprint": fingerprint} if fingerprint is not None else {}),
+        **({"assignee": current_assignee} if current_assignee is not None else {}),
         **(extra_properties or {}),
     }
     internal_event = InternalEventEvent(event=event, distinct_id=str(issue.id), properties=properties)
 
     person = None
     if user is not None:
-        user_data = UserBasicSerializer(user).data
-        person = InternalEventPerson(id=str(user_data["id"]), properties=dict(user_data))
+        # Deliberately a minimal actor subset: person reaches customer-configured
+        # destinations verbatim (the default webhook body sends `{person}`), so no
+        # full user serializer here.
+        person = InternalEventPerson(
+            id=str(user.id),
+            properties={
+                "id": str(user.id),
+                "distinct_id": user.distinct_id,
+                "email": user.email,
+                "first_name": user.first_name,
+            },
+        )
 
     def _produce() -> None:
         try:
