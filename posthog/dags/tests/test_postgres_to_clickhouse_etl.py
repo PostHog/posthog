@@ -7,6 +7,9 @@ from decimal import Decimal
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.contrib.postgres.fields import ArrayField
+from django.db.models import JSONField
+
 from dagster import build_asset_context, build_op_context
 from parameterized import parameterized
 
@@ -26,6 +29,7 @@ from posthog.dags.postgres_to_clickhouse_etl import (
     transform_row,
     verify_sync,
 )
+from posthog.models import Organization, Team
 
 
 def _config(**overrides) -> PostgresToClickHouseETLConfig:
@@ -75,11 +79,12 @@ class TestTransformations:
             "logo_media_id": uuid.uuid4(),
             "is_member_join_email_enabled": True,
             "is_hipaa": False,
-            "available_product_features": '[{"key": "feature1"}]',  # ::text on the PG side
-            "usage": '{"events": 1000}',
+            "available_product_features": [{"key": "feature1"}],  # ArrayField, so psycopg2 parses it
+            "usage": '{"events": 1000}',  # ::text on the PG side
             "personalization": '{"role": "engineer"}',
             "domain_whitelist": ["example.com"],
         }
+        usage_text = row["usage"]
 
         transformed = transform_row("posthog_organization", row)
 
@@ -87,9 +92,11 @@ class TestTransformations:
         assert isinstance(transformed["logo_media_id"], str)
         assert transformed["is_member_join_email_enabled"] == 1
         assert transformed["is_hipaa"] == 0
-        # ::text columns pass through untouched — no parse-then-redump.
-        assert transformed["available_product_features"] == row["available_product_features"]
-        assert transformed["usage"] == row["usage"]
+        # ArrayField columns arrive as Python lists, but the mirror column is String, so the
+        # ClickHouse driver rejects any value the transform leaves unserialized.
+        assert transformed["available_product_features"] == '[{"key": "feature1"}]'
+        # ::text columns pass through untouched, with no parse-then-redump.
+        assert transformed["usage"] == usage_text
         assert transformed["domain_whitelist"] == ["example.com"]
 
     def test_transform_team_row(self):
@@ -107,9 +114,13 @@ class TestTransformations:
             "test_account_filters": '[{"key": "email", "value": "test@example.com"}]',
             "app_urls": ["https://app.example.com"],
             "person_display_name_properties": None,
+            "session_recording_url_trigger_config": [{"url": "example.com", "matching": "regex"}],
+            "session_recording_url_blocklist_config": None,
+            "session_recording_event_trigger_config": ["$pageview"],
             "session_recording_sample_rate": Decimal("0.50"),
             "drop_events_older_than": timedelta(days=30),
         }
+        test_account_filters_text = row["test_account_filters"]
 
         transformed = transform_row("posthog_team", row)
 
@@ -117,9 +128,15 @@ class TestTransformations:
         assert transformed["organization_id"] == str(org_uuid)
         assert transformed["anonymize_ips"] == 1
         assert transformed["session_recording_opt_in"] == 0
-        assert transformed["test_account_filters"] == row["test_account_filters"]
+        assert transformed["test_account_filters"] == test_account_filters_text
         assert transformed["app_urls"] == ["https://app.example.com"]
         assert transformed["person_display_name_properties"] == []
+        # ArrayField columns arrive as Python lists, but the mirror column is String, so the
+        # ClickHouse driver rejects any value the transform leaves unserialized.
+        assert transformed["session_recording_url_trigger_config"] == '[{"url": "example.com", "matching": "regex"}]'
+        assert transformed["session_recording_event_trigger_config"] == '["$pageview"]'
+        # The mirror column is Nullable(String), so a NULL source value stays NULL.
+        assert transformed["session_recording_url_blocklist_config"] is None
         assert transformed["session_recording_sample_rate"] == Decimal("0.50")
         assert transformed["drop_events_older_than"] == 30 * 24 * 60 * 60
 
@@ -183,6 +200,46 @@ class TestTransformations:
     def test_transform_row_unknown_table_raises(self):
         with pytest.raises(KeyError):
             transform_row("posthog_nonexistent", {})
+
+
+class TestConfigCoversPostgresCompositeTypes:
+    # Every mirrored column that psycopg2 hands over as a Python list or dict must have an
+    # adaptation on its TableConfig. Without one the value reaches a ClickHouse String column
+    # unserialized and the driver raises AttributeError instead of inserting.
+    @parameterized.expand(
+        [
+            ("posthog_organization", Organization),
+            ("posthog_team", Team),
+        ]
+    )
+    def test_every_array_and_json_column_has_an_adaptation(self, table_name, model):
+        cfg = TABLE_CONFIGS[table_name]
+        fields_by_column = {f.column: f for f in model._meta.get_fields() if getattr(f, "column", None)}
+        serialized = set(cfg.jsonb_text_cast) | set(cfg.array_fields) | set(cfg.json_dumps_fields)
+
+        unhandled = [
+            col
+            for col in cfg.select_columns
+            if isinstance(fields_by_column.get(col), ArrayField | JSONField) and col not in serialized
+        ]
+
+        assert unhandled == []
+
+    @parameterized.expand(
+        [
+            ("posthog_organization", Organization),
+            ("posthog_team", Team),
+        ]
+    )
+    def test_array_columns_are_never_cast_to_text(self, table_name, model):
+        # `col::text` on an ArrayField renders Postgres array literal syntax, which JSONExtract*
+        # cannot read. Those columns must go through json_dumps_fields or array_fields instead.
+        cfg = TABLE_CONFIGS[table_name]
+        fields_by_column = {f.column: f for f in model._meta.get_fields() if getattr(f, "column", None)}
+
+        miscast = [col for col in cfg.jsonb_text_cast if isinstance(fields_by_column.get(col), ArrayField)]
+
+        assert miscast == []
 
 
 class TestTableDdl:
@@ -275,7 +332,7 @@ def _org_row(**overrides):
             "id": 1,
             "name": "Org",
             "is_member_join_email_enabled": True,
-            "available_product_features": "[]",
+            "available_product_features": [],
             "created_at": datetime(2024, 1, 1),
             "updated_at": datetime(2024, 1, 2),
         }
