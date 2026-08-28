@@ -150,11 +150,11 @@ tools:
             an external source. Returns the schema name, sync status, sync frequency, incremental field configuration,
             last_synced_at, and latest error. Use this to see which tables are actively syncing and their health. To
             check one table's freshness, pass `search` with the table/schema name to narrow to that schema. Column
-            definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns.
-            When a table stopped syncing, check `incremental_sync_blocked`: it is set when a run proved the table's
-            incremental sync can never succeed, and such a table stays disabled and fails the same way on every retry
-            until its sync configuration changes or the table is fixed at the source. That field's description lists
-            the resolutions, which are applied with 'external-data-schemas-partial-update'.
+            definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns. When a
+            table stopped syncing, check `incremental_sync_blocked`: it is set when a run proved the table's incremental
+            sync can never succeed, and such a table stays disabled and fails the same way on every retry until its sync
+            configuration changes or the table is fixed at the source. That field's description lists the resolutions,
+            which are applied with 'external-data-schemas-partial-update'.
         response:
             exclude:
                 - table.columns
