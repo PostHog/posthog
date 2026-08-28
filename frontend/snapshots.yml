@@ -8473,29 +8473,29 @@ snapshots:
     scenes-app-web-analytics-achievements--weekly-only-arm--light:
         hash: v1.k794b7964.eb042d165752cd9ff0145ee3b49f0769671244ca00e931c8ece93ec0d01a9a6f.YlQzVwE6qBKZs4cKyA1-lYowaxlhGEGt_K4jt076OSE
     scenes-app-web-analytics-agent-analytics--agent-analytics-issue-detail--dark:
-        hash: v1.k794b7964.db05514590a9c1cb5c0e51f0d2f456cdd4cb846404a92c072ba2f4732fb37237.2gbpC1h70Xx2wmsbIPUIbCOBrMFhSuGAhyB9_E4uQpI
+        hash: v1.k794b7964.af274a968f5fc7478aba061f54b9f72a16e62ffe34f90730eaf20c6cb4d24908.B154fMHWwqtix4WQBYKSpIBYg09BGSXEA47Ck_SPZzY
     scenes-app-web-analytics-agent-analytics--agent-analytics-issue-detail--light:
-        hash: v1.k794b7964.32269b6b42d424c5474a6b177493c3f11047c45a3e235f767effde374ccb28a0.B2i2JuzGStYHeRNIZUpf5OcVEWs3RYNr3HyonMRspL8
+        hash: v1.k794b7964.9e90469453688fbf4a73e64d196514e06246724500b2c3abeaafe24720892466.MNwUaksA3ekrFBmDDNaEHnumzK7NMY1O2V2Wtue9oEE
     scenes-app-web-analytics-agent-analytics--agent-analytics-issues--dark:
-        hash: v1.k794b7964.1bfde0afefcac295e73d7514c956f614a4f491f213a7721f8e234b0cf55629ca.xt_Xg1LAQ9Nz7aqK1gWhLiSVPpkjiRjt23q1cTW-49o
+        hash: v1.k794b7964.dbb9d5de03bf6352fac544ee7ac3aa659f3a3fd2049131c0f0d43ef60286015d.lRjAydasGmuax6O8AcjmoQmB0DYmJsM9jKea5f680-w
     scenes-app-web-analytics-agent-analytics--agent-analytics-issues--light:
-        hash: v1.k794b7964.9644f789015f929cdfb726d1c0cd62f49733d05d8f0f165466b492f674073102.uEAbIDN2ujoi-RLrY6oprqOe-FgUJlKzgbfw2UbFjXk
+        hash: v1.k794b7964.242da963fdefad55a219d3dceb731d1d1ac3d3a06b1ee1555311f65355a96f2f.Gy1ll240PgZ_-4KJBCy4_u6Qt0T2Y_qhD1EEnC8W-Fo
     scenes-app-web-analytics-agent-analytics--agent-analytics-journey-detail--dark:
         hash: v1.k794b7964.a41af94b2f159564c15f466c86d0013477b5da1852171ce3517dc3a5b7945c3f.XJKSaN7lj3vUaFek_cyUycRbB7GMYDwwS1yl-ubyc5c
     scenes-app-web-analytics-agent-analytics--agent-analytics-journey-detail--light:
         hash: v1.k794b7964.7423c0f038b2414ad75227d6f51ac444598b6fbe292d6ccb96c77accb2065248.wDAKbneqR4cdPd-jUHIUkJ_KRR9Q6l-5eJvHnz5Xbow
     scenes-app-web-analytics-agent-analytics--agent-analytics-journeys--dark:
-        hash: v1.k794b7964.5d435ad587a4f4192840b2651c64e267994b08e49083d9134127a1cc3851dc86.Bt5Byc4MIlv3lqOY00iXNzZmQyo0CUCb2p5QZfOVCAg
+        hash: v1.k794b7964.f87591bd4b33dff97c12468aae2c4e45774a5d07bc1f0acdf14a3b0e83258a34.o2axgpUlamnIEvP9GKa7PkuM5f4HNAiGaje4HkvCKWs
     scenes-app-web-analytics-agent-analytics--agent-analytics-journeys--light:
-        hash: v1.k794b7964.3f3aca6b28942025bc67ce2f08639d9c19d310499029fbc7378fb627b4498031.d7oSuGU9H6WaDcRwhDWHMk4nIwBM0KFUKOYlvj1bANE
+        hash: v1.k794b7964.d0a60d6d52e7f303b9d472f0271123f553d9a84bb05ed72d76edd481bbcd8ba2.K4ByRriw9Y_nw2vCGUyybZz_C3VtNSWMUCVHYLxBbe0
     scenes-app-web-analytics-agent-analytics--agent-analytics-overview--dark:
-        hash: v1.k794b7964.b0b3586ff4f7f3d86097d97e944d4f7b768a7b91f0276b538ca562dee9d25696.cHhmwRrHysTx3VhAreWIs2xEQXw1K8yBuAoWcTWF6h8
+        hash: v1.k794b7964.4f38c8e352d3ecec0c06d3c56054e8bd713ee2fc4dddd9fb37065f9401befb69.CcbIVNmpGyPxnNYfZLgXnuttc0QgoXnYVjYsvPIhPJM
     scenes-app-web-analytics-agent-analytics--agent-analytics-overview--light:
-        hash: v1.k794b7964.580cc782dae93151a24cb8153e2f9f42c99e8bcc5f7fa66e51a33a87d611f99a.heo7GLCPFpJVm2ydxI-9Tdc3KA1bld8MWRkrlqtlQ8Q
+        hash: v1.k794b7964.e1ca0655433728301a86a76b772f3667e4577305bfcfeae45b1de3f2179a3e18.uGdX8ketOinZIdo2t5edjOqxK8EtzScwmcwgMyF9q50
     scenes-app-web-analytics-agent-analytics--agent-analytics-readiness--dark:
-        hash: v1.k794b7964.cb09b07338a12112460c07ab1fcab00aee290078783f0abca3e9c8c3735af0bc.Iy7sIApgk4h6wWAHgMaXZdIVIMavLZqYqciU1CPyNyE
+        hash: v1.k794b7964.b5bf9c96f00005058fad9d49ce6d6326a80cfb8384734f082418c0e14ef1fb09.n62WqZrpVGLNIhRGgl19CU_nYmPalydA6d0VQI_JCNs
     scenes-app-web-analytics-agent-analytics--agent-analytics-readiness--light:
-        hash: v1.k794b7964.013722ac9f9e514367b74214571d1640593aaa13749f46281ab12a9d076e9719.diwQCGsQ1KdebPGaogDBrVx0xISAm23do_CmBaJZG6U
+        hash: v1.k794b7964.0ec6ee7ca0f8b82113d0854ff0593bbbf45e86fb75ad70c17931d400950a4c59.x4Mky3FWK2KxXOs_HF37107l27zrmliUkvT3MN2wHIE
     scenes-app-web-analytics-livemetricscharts--bot-events-per-minute--dark:
         hash: v1.k794b7964.933ca8aa37de16e55b07b9be45e8784e14b6a9aa8d7119882340e8858c5f9afd.FWPAiDTJNN-96zh7GPc5h6lH7TSlCDPeLmG0lk3YW1I
     scenes-app-web-analytics-livemetricscharts--bot-events-per-minute--light:
@@ -8533,9 +8533,9 @@ snapshots:
     scenes-app-web-analytics-pageperformancemetriccard--without-sparkline--light:
         hash: v1.k794b7964.27bbdd01e4451fe0fe7cfbf693975714907972cdef4cc9b74ab13f99c28f5c34.9VZtUj_jx6H9AXXqTTKz1uomaF3X9e8cENkeIs8iJ_I
     scenes-app-web-analytics-search-ai--web-analytics-page-performance--dark:
-        hash: v1.k794b7964.e16fba49fefaa838664302127f5c6d217c9f5e4ed524782d28c4329910e8c41f.1HBkyN4tp4cpY22NHhGYjSY4FAycELc2UGR_fHsm5XE
+        hash: v1.k794b7964.8eeb81f682d69259a410e13fa177f97688d93a5b4318d5802f1a526b14a04f5a.Ax7VbE9AwsNh5RDC1o5dTHOgFt9IyRADjsXNFrGp8DM
     scenes-app-web-analytics-search-ai--web-analytics-page-performance--light:
-        hash: v1.k794b7964.ed85370e899c4756038835ed4299a9bfd86c3b5d4173f5f03be2ebf505f24582.5YrW-wAvpl3P_2Ikn1DEusrQl_Wq7gU-XU9HuPd35nw
+        hash: v1.k794b7964.f99572a518724083637df057775b29ebd33277ee027d9b8abc705c82f466877c.043McBdgpHVssTGBD8VUXH9K31maA6ek32vP-RijEQY
     scenes-inbox-scout-tags--editor-and-filter--dark:
         hash: v1.k794b7964.b76b173ee1dc78112e700af267b53d59959164f8ebbc814df2b5f4a3811bcd49.2hfIhAW_k3BdFlo9jtUoJhOyZhS1uQmgafcdvh_CGmg
     scenes-inbox-scout-tags--editor-and-filter--light:
