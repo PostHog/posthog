@@ -52,6 +52,7 @@ export function openDismissReportDialog({
         title,
         description,
         maxWidth: '36rem',
+        overlayClassName: '!items-center',
         initialValues: { reason: null as DismissalReasonValue | null, note: '' },
         content: (
             <div className="flex flex-col gap-3">

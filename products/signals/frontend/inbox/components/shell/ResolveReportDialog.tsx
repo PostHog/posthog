@@ -57,6 +57,7 @@ export function openResolveReportDialog({
         title,
         description,
         maxWidth: '36rem',
+        overlayClassName: '!items-center',
         initialValues: { reason: null as ResolveReasonValue | null, note: '' },
         content: (
             <div className="flex flex-col gap-3">
