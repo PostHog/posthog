@@ -161,6 +161,7 @@ jobs:
                       "hypercache-server": 40,
                       "ingestion-consumer": 20,
                       "ingestion-control-plane": 41,
+                      "pgcollector": 45,
                       "k8s-awareness": 116,
                       "kafka-assigner": 175,
                       "kafka-assigner-proto": 5,
