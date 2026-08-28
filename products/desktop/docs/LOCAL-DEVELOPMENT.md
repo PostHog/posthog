@@ -135,6 +135,23 @@ region you pick at login.
 > `posthog.featureFlags.override({ "mcp-gateway": true })` in the renderer
 > console (clear with `posthog.featureFlags.override(false)`).
 
+### Test first-run onboarding
+
+Users with `posthog-desktop-onboarding-test-tools` enabled see onboarding test
+tools in **Settings > Advanced**. A short wizard asks who is arriving and what
+is happening in the project, then opens the session it builds. A separate
+action resolves or creates the teaching canvas.
+
+Both run in your own `#me` space rather than `#general`, so repeat runs stay
+out of everyone else's way. They also revive a teaching canvas you deleted and
+republish the current tour, so deleting the canvas is how you reset it.
+
+Local development can enable the panel with the renderer override:
+
+```js
+posthog.featureFlags.override({ "posthog-desktop-onboarding-test-tools": true })
+```
+
 ## Troubleshooting
 
 ### Feature flags never enabled (flag-gated UI missing)

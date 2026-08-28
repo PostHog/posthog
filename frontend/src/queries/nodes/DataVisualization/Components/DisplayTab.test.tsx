@@ -130,6 +130,54 @@ describe('DisplayTab', () => {
             )
         })
     })
+    it('offers box plot settings and hides unsupported controls', async () => {
+        initKeaTests()
+
+        const key = 'display-tab-box-plot-test'
+        let query: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select * from summaries',
+            },
+            display: ChartDisplayType.BoxPlot,
+            chartSettings: { boxPlot: { excludeOutliers: true } },
+        }
+
+        const props: DataVisualizationLogicProps = {
+            key,
+            query,
+            dataNodeCollectionId: key,
+            setQuery: (setter) => {
+                query = setter(query)
+            },
+        }
+
+        dataVisualizationLogic(props).mount()
+        displayLogic({ key }).mount()
+
+        render(
+            <BindLogic logic={dataVisualizationLogic} props={props}>
+                <BindLogic logic={displayLogic} props={{ key }}>
+                    <DisplayTab />
+                </BindLogic>
+            </BindLogic>
+        )
+
+        const user = userEvent.setup()
+
+        expect(await screen.findByText('Y-axis')).toBeInTheDocument()
+        expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
+        expect(screen.queryByText('Goals')).not.toBeInTheDocument()
+        expect(screen.queryByText('Show total row')).not.toBeInTheDocument()
+
+        await user.click(screen.getByText('Exclude outliers'))
+        await user.click(screen.getByText('Y-axis'))
+        expect(screen.queryByText('Begin at zero')).not.toBeInTheDocument()
+
+        await waitFor(() => expect(query.chartSettings?.boxPlot?.excludeOutliers).toBe(false))
+    })
+
     it('offers scatter axis settings and drops the panels a scatter has no support for', async () => {
         initKeaTests()
 

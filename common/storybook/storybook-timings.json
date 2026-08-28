@@ -31,10 +31,6 @@
         "chromium": 11.725,
         "webkit": 1.981
     },
-    "frontend/src/layout/navigation/SelfReadOnlyNotice/SelfReadOnlyNotice.stories.tsx": {
-        "chromium": 5.614,
-        "webkit": 1.513
-    },
     "frontend/src/layout/panel-layout/InstallationStatusNavButton.stories.tsx": {
         "chromium": 28.015,
         "webkit": 3.879

@@ -1,4 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
+
+const updateTaskRun = vi.fn();
+
+vi.mock("../../../signed-commit-artefacts", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../../signed-commit-artefacts")
+  >()),
+  createSandboxPosthogClient: () => ({ updateTaskRun }),
+}));
+
 import { enabledLocalTools } from "../index";
 import type { LocalToolCtx, LocalToolGateMeta } from "../registry";
 import { FINISH_TOOL_NAME, finishSchema, finishTool } from "./finish";
@@ -14,10 +24,16 @@ describe("finish tool", () => {
       expected: true,
     },
     {
-      name: "background cloud run without requestFinish",
+      name: "background cloud run without requestFinish or run ids",
       ctx: { cwd: "/repo" },
       meta: { environment: "cloud", background: true },
       expected: false,
+    },
+    {
+      name: "background cloud run with run ids only (out-of-process adapter)",
+      ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
+      meta: { environment: "cloud", background: true },
+      expected: true,
     },
     {
       name: "interactive cloud run (background unset)",
@@ -72,6 +88,21 @@ describe("finish tool", () => {
       { status: "failed", reason: "ran out of quota" },
     );
     expect(spy).toHaveBeenCalledWith("failed", "ran out of quota");
+    expect(result.isError).toBeUndefined();
+  });
+
+  it("marks the run terminal via the API when no requestFinish callback exists", async () => {
+    updateTaskRun.mockResolvedValue({});
+    const result = await finishTool.handler(
+      { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
+      { status: "failed", reason: "blocked" },
+    );
+    expect(updateTaskRun).toHaveBeenCalledWith(
+      "task-1",
+      "run-1",
+      { status: "failed", error_message: "blocked" },
+      expect.any(AbortSignal),
+    );
     expect(result.isError).toBeUndefined();
   });
 

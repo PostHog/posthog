@@ -283,3 +283,12 @@ def test_retryable_errors_cover_connection_reset():
     error_msg = "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))"
     patterns = GoogleAnalyticsSource().get_retryable_errors()
     assert error_message_matches(error_msg, patterns)
+
+
+def test_retryable_errors_cover_read_timeout():
+    # A read timeout talking to the Data API surfaces as a `requests.ConnectionError` from
+    # `session.post()` in `_run_report`, same as the connection-reset case above — must stay
+    # classified as retryable so it doesn't page as a bug.
+    error_msg = "HTTPSConnectionPool(host='analyticsdata.googleapis.com', port=443): Read timed out."
+    patterns = GoogleAnalyticsSource().get_retryable_errors()
+    assert error_message_matches(error_msg, patterns)

@@ -51,6 +51,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     date_to_filter_clause,
     merge_queue_branch_predicate,
     run_scope_filter_clause,
+    window_pair_predicates,
 )
 
 # The billable-tier predicate over the cost source's classified columns — defined once in logic.cost
@@ -380,22 +381,24 @@ def query_workflow_window_costs_with_prev(
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
     }
-    cur = "(c.run_started_at >= {date_from}" + (" AND c.run_started_at <= {date_to})" if date_to else ")")
-    # Half-open: a run starting exactly at date_from is current, not both windows.
-    prev = "(c.run_started_at >= {prev_from} AND c.run_started_at < {date_from})"
+    windows = window_pair_predicates("c.run_started_at", date_to=date_to)
     date_to_clause = ""
     if date_to is not None:
         date_to_clause = "AND c.run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
+    # The prefix predicate deliberately counts all queue-shaped spend, including branch shapes
+    # logic/merge_queue.py cannot resolve to a PR (e.g. trunk-merge/gr-*). The per-PR landing stats
+    # in merge_queue_overview.py use the narrower corroborated population; the two answer different
+    # questions, so don't unify them casually.
     queue = merge_queue_branch_predicate("c.head_branch")
     queue_agg = (
-        f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {cur}) AS queue_billable_seconds, "
-        f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {prev}) AS queue_billable_seconds_prev"
+        f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {windows.current}) AS queue_billable_seconds, "
+        f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {windows.previous}) AS queue_billable_seconds_prev"
     )
     sql = (
         _WINDOW_COST_WITH_PREV_SELECT.replace("__COST_SOURCE__", cost_source)
-        .replace("__CUR_AGG__", _cost_aggregates(when=cur))
-        .replace("__PREV_AGG__", _cost_aggregates(when=prev, suffix="_prev"))
+        .replace("__CUR_AGG__", _cost_aggregates(when=windows.current))
+        .replace("__PREV_AGG__", _cost_aggregates(when=windows.previous, suffix="_prev"))
         .replace("__QUEUE_AGG__", queue_agg)
         .replace("__DATE_TO__", date_to_clause)
     )

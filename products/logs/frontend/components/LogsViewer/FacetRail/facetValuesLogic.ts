@@ -175,13 +175,13 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                     const target: Partial<_LogsFacetValuesBodyApi> =
                         source.type === 'column'
                             ? { facetField: source.column }
-                            : { facetResourceAttribute: source.key }
+                            : source.type === 'attribute'
+                              ? { facetAttribute: source.key }
+                              : { facetResourceAttribute: source.key }
                     const response = await logsFacetValuesCreate(String(values.currentTeamId), {
                         query: {
                             ...target,
                             dateRange: values.utcDateRange,
-                            severityLevels: values.filters.severityLevels ?? [],
-                            serviceNames: values.filters.serviceNames ?? [],
                             searchTerm: values.filters.searchTerm || undefined,
                             facetSearch: values.facetSearch || undefined,
                             filterGroup,
@@ -229,8 +229,6 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                     currentTeamId,
                     utcDateRange,
                     searchTerm: filters.searchTerm,
-                    severityLevels: filters.severityLevels,
-                    serviceNames: filters.serviceNames,
                     queryFilterGroup,
                     personId,
                 }),

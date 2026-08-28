@@ -4,12 +4,22 @@ import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import type { ErrorEventType } from 'lib/components/Errors/types'
 
 import { useMocks } from '~/mocks/jest'
+import type { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { errorTrackingIssueSceneLogic, toErrorTrackingIssueSummary } from './errorTrackingIssueSceneLogic'
 import { linkedReportsLogic } from './linkedReportsLogic'
 
 const VALID_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
+const ISSUE: ErrorTrackingRelationalIssue = {
+    id: VALID_ISSUE_ID,
+    name: 'TypeError',
+    description: 'Something broke',
+    assignee: null,
+    status: 'active',
+    severity: 'low',
+    first_seen: '2026-01-01T00:00:00Z',
+}
 
 const makeFingerprints = (fingerprint: string = 'fp-1'): ErrorTrackingFingerprint[] => [
     { fingerprint, issue_id: VALID_ISSUE_ID, created_at: '2026-01-01T00:00:00Z' },
@@ -21,13 +31,16 @@ describe('errorTrackingIssueSceneLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/error_tracking/issues/:id/': {},
+                '/api/environments/:team_id/error_tracking/issues/:id/': ISSUE,
                 '/api/environments/:team_id/error_tracking/issues/:id/fingerprints/': [],
                 // Fails by default, so every test in this file also proves the panel degrades quietly.
                 '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'ClickHouse is unhappy' }],
             },
             post: {
                 '/api/environments/:team_id/query/': { results: [] },
+            },
+            patch: {
+                '/api/projects/:team_id/error_tracking/issues/:id/': ISSUE,
             },
         })
         initKeaTests()
@@ -102,6 +115,25 @@ describe('errorTrackingIssueSceneLogic', () => {
         logic.actions.selectEvent(null)
 
         expect(logic.values.selectedEvent).toBeNull()
+    })
+
+    it('updates severity on the issue detail and persists it', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setIssue(ISSUE)
+            logic.actions.updateSeverity('critical')
+        })
+            .toDispatchActions(['updateIssueSeverity'])
+            .toMatchValues({ issue: expect.objectContaining({ severity: 'critical' }) })
+    })
+
+    it('restores the persisted severity when an update fails', async () => {
+        logic.actions.setIssue({ ...ISSUE, severity: 'critical' })
+
+        await expectLogic(logic, () => {
+            logic.actions.mutationFailure('updateIssueSeverity', new Error('Update failed'))
+        })
+            .toDispatchActions(['loadIssueSuccess'])
+            .toMatchValues({ issue: expect.objectContaining({ severity: 'low' }) })
     })
 
     it('keeps stable first and last event IDs in the issue summary', () => {

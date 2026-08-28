@@ -2,6 +2,12 @@ version: 1
 owners: []
 rules:
     - match:
+          - '/generated/mcp_analytics/'
+          - '/hono/analytics.ts'
+          - '/lib/posthog/analytics.ts'
+          - '/tools/generated/mcp_analytics.ts'
+      owners: team-mcp-analytics
+    - match:
           - '/generated/ai_observability/'
           - '/tools/aiObservability/'
           - '/tools/generated/ai_observability.ts'

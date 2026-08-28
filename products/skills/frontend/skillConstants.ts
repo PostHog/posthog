@@ -3,6 +3,8 @@ export const SKILL_DESCRIPTION_MAX_LENGTH = 4096
 // Kept in sync with MAX_SKILL_FILE_BYTES and MAX_SKILL_FILE_COUNT in the backend skill_serializers.
 export const SKILL_FILE_MAX_BYTES = 1_000_000
 export const SKILL_FILE_MAX_COUNT = 200
+// Kept in sync with MAX_SKILL_OWNERS in the backend skill_serializers.
+export const SKILL_OWNER_MAX_COUNT = 25
 
 // Names that collide with reserved /skills routes: 'new' (the create form) and the tab slugs
 // registered under /skills/<slug> in manifest.tsx. A skill with one of these names would be

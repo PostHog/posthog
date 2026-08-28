@@ -13,15 +13,29 @@ type ChannelPane = "list" | "channel";
 
 interface ChannelPaneState {
   pane: ChannelPane;
-  setPane: (pane: ChannelPane) => void;
+  animateTransition: boolean;
+  setPane: (pane: ChannelPane, animateTransition?: boolean) => void;
+  finishTransition: () => void;
 }
 
 export const useChannelPaneStore = create<ChannelPaneState>()((set) => ({
   // A scoped channel is the resting state, so a cold start lands on the channel
   // rather than sliding away from it.
   pane: "channel",
-  setPane: (pane) => set({ pane }),
+  animateTransition: false,
+  setPane: (pane, animateTransition = false) =>
+    set({ pane, animateTransition }),
+  finishTransition: () => set({ animateTransition: false }),
 }));
+
+interface ShowChannelListOptions {
+  keepForRoute?: string;
+  animate?: boolean;
+}
+
+interface ShowChannelPaneOptions {
+  animate?: boolean;
+}
 
 /**
  * Keyed on the channel rather than consumed on first read so it survives a
@@ -51,15 +65,20 @@ export function clearKeepListForRoute(): void {
  * arriving at a channel pulls the slider to it, and the latch holds the list
  * across that navigation.
  */
-export function showChannelList(keepForRoute?: string): void {
+export function showChannelList({
+  keepForRoute,
+  animate = false,
+}: ShowChannelListOptions = {}): void {
   keepListForChannelId = keepForRoute ?? null;
-  useChannelPaneStore.getState().setPane("list");
+  useChannelPaneStore.getState().setPane("list", animate);
 }
 
 /** Slide to the channel pane — every channel entry point goes through here. */
-export function showChannelPane(): void {
+export function showChannelPane({
+  animate = false,
+}: ShowChannelPaneOptions = {}): void {
   keepListForChannelId = null;
-  useChannelPaneStore.getState().setPane("channel");
+  useChannelPaneStore.getState().setPane("channel", animate);
 }
 
 /**
@@ -76,11 +95,13 @@ export function applyTabViewState(view: {
   listOpen?: boolean;
   spaceId?: string | null;
 }): void {
+  useChannelPaneStore.getState().finishTransition();
   // A stored null explicitly clears the space; only an absent value is skipped.
   if (view.spaceId !== undefined) {
     useCurrentChannelStore.getState().setCurrentChannel(view.spaceId);
   }
   if (view.listOpen === undefined) return;
-  if (view.listOpen) showChannelList(view.spaceId ?? undefined);
-  else showChannelPane();
+  if (view.listOpen) {
+    showChannelList({ keepForRoute: view.spaceId ?? undefined });
+  } else showChannelPane();
 }

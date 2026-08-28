@@ -81,11 +81,14 @@ from posthog.plugins.plugin_server_api import (
     get_hog_flow_in_flight_count,
     rerun_hog_invocations,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import relative_date_parse_with_delta_mapping
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
@@ -96,6 +99,8 @@ from products.messaging.backend.api.message_templates import DesignOperationSeri
 from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
+from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.workflow_tasks import WorkflowTaskConnectorsInvalid, validate_connectors
 from products.workflows.backend.api.action_redirects import compute_action_redirects
 from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
@@ -180,6 +185,7 @@ DRAFT_CONTENT_FIELDS = (
     "trigger_masking",
     "conversion",
     "exit_condition",
+    "email_sending_rate_limit",
     "abort_action",
     "variables",
 )
@@ -531,6 +537,16 @@ _FIXED_TEMPLATE_IDS = {
     "function_push": "template-native-push",
 }
 
+# The "Create AI task" step. Its inputs name things (connectors, a model, a repository) that
+# only make sense checked against live state, so it gets extra save-time checks beyond the
+# generic input-shape validation every function step goes through.
+_CREATE_TASK_TEMPLATE_ID = "template-posthog-create-task"
+
+_REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+
+MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 1
+MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 100
+
 
 class _TriggerSourceTemplate(NamedTuple):
     template_id: str
@@ -766,6 +782,38 @@ def _normalize_slack_channel_filters(filters: dict) -> None:
             prop["value"] = value.split("|")[0]
         elif isinstance(value, list):
             prop["value"] = [item.split("|")[0] if isinstance(item, str) else item for item in value]
+
+
+# Exact is the only operator that names channels. Channel ids are opaque (C0...), so
+# substring and regex matching can't narrow meaningfully and patterns like ".*" or "C"
+# match every channel; presence operators match every message and carry the operator
+# string as their value, so a value check alone can't catch them; negations exclude
+# channels rather than pick any. The property compiler treats a missing operator as exact.
+_CHANNEL_RESTRICTING_OPERATORS = frozenset({"exact"})
+
+
+def _has_slack_channel_filter(filters: dict) -> bool:
+    """Whether the filters restrict the trigger to at least one Slack channel.
+
+    The builder always writes this filter ("Please pick a Slack channel"), but the table's
+    enable action, the raw API, and MCP authoring all reach activation without the builder,
+    and a live slack-message trigger with no channel filter fires on every message in every
+    channel the bot was ever invited to.
+    """
+    properties = filters.get("properties")
+    if not isinstance(properties, list):
+        return False
+    for prop in properties:
+        if not isinstance(prop, dict) or prop.get("key") != "channel":
+            continue
+        if (prop.get("operator") or "exact") not in _CHANNEL_RESTRICTING_OPERATORS:
+            continue
+        value = prop.get("value")
+        if isinstance(value, str) and value.strip():
+            return True
+        if isinstance(value, list) and any(isinstance(item, str) and item.strip() for item in value):
+            return True
+    return False
 
 
 def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]:
@@ -1178,6 +1226,75 @@ class HogFlowActionSerializer(serializers.Serializer):
                         }
                     )
 
+    def _validate_create_task_action(self, inputs: dict) -> None:
+        """Save-time checks for the "Create AI task" step beyond input shape: whether the
+        chosen connectors, model and repository are actually usable, and the parallel-run
+        limit is sane - so a misconfigured step fails here instead of only when it fires."""
+        connectors = (inputs.get("connectors") or {}).get("value")
+        if connectors:
+            get_team = self.context.get("get_team")
+            owner_id = self.context.get("workflow_owner_id")
+            # No team/owner to check against outside a request (internal re-saves) - nothing
+            # new is being authored there, so there is nothing to validate.
+            if get_team is not None and owner_id is not None:
+                try:
+                    validate_connectors(get_team().id, owner_id, connectors)
+                except WorkflowTaskConnectorsInvalid as e:
+                    raise serializers.ValidationError(
+                        {"inputs": {"connectors": f"MCP installation(s) not found or inactive: {e.invalid_ids}"}}
+                    )
+
+        repository = (inputs.get("repository") or {}).get("value")
+        if repository and not _REPOSITORY_SHAPE.fullmatch(repository):
+            raise serializers.ValidationError(
+                {"inputs": {"repository": "Repository must be an organization/repo name like your-org/your-repo."}}
+            )
+
+        model_value = (inputs.get("model") or {}).get("value") or {}
+        model = model_value.get("model")
+        reasoning_effort = model_value.get("reasoning_effort")
+        if model:
+            # An empty catalogue means the gateway is unreachable, not that no model is valid -
+            # skip rather than block every save during an outage (see available_model_choices).
+            available = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
+            if available:
+                choice = next((c for c in available if c.model == model), None)
+                if choice is None:
+                    raise serializers.ValidationError({"inputs": {"model": f"'{model}' is not an available model."}})
+                if reasoning_effort and reasoning_effort not in choice.supported_efforts:
+                    raise serializers.ValidationError(
+                        {
+                            "inputs": {
+                                "model": (
+                                    f"Reasoning effort '{reasoning_effort}' is not supported for model "
+                                    f"'{model}'. Supported values: {', '.join(choice.supported_efforts) or 'none'}."
+                                )
+                            }
+                        }
+                    )
+
+        max_parallel_tasks = (inputs.get("max_parallel_tasks") or {}).get("value")
+        if max_parallel_tasks is not None:
+            # Matches the runtime IntegerField's own leniency (a "5.0" from an API client
+            # coerces to 5 there) while still catching a fractional value or a bool, neither
+            # of which the runtime field accepts.
+            is_whole_number = (isinstance(max_parallel_tasks, int) and not isinstance(max_parallel_tasks, bool)) or (
+                isinstance(max_parallel_tasks, float) and max_parallel_tasks.is_integer()
+            )
+            if not is_whole_number or not (
+                MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS <= max_parallel_tasks <= MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "inputs": {
+                            "max_parallel_tasks": (
+                                f"Must be a whole number between {MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS} and "
+                                f"{MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS}."
+                            )
+                        }
+                    }
+                )
+
     def validate(self, data):
         is_draft = self.context.get("is_draft")
         # Drafts from the web builder stay lenient (incomplete graphs save fine); programmatic callers
@@ -1305,6 +1422,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                 filters.pop("events", None)
                 filters.pop("actions", None)
                 _normalize_slack_channel_filters(filters)
+                if not is_draft and not _has_slack_channel_filter(filters):
+                    raise serializers.ValidationError(
+                        {
+                            "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
+                        }
+                    )
                 # Left on the default "events" source: the internal event is event-shaped, so
                 # property filters compile against event.properties.* with no special casing.
                 serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
@@ -1387,6 +1510,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                 else:
                     function_config_serializer.is_valid(raise_exception=True)
                     data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+
+                if strict and template_id == _CREATE_TASK_TEMPLATE_ID:
+                    self._validate_create_task_action(data["config"]["inputs"])
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
@@ -1688,6 +1814,32 @@ class HogFlowConversionSerializer(serializers.Serializer):
         return value
 
 
+class HogFlowEmailSendingRateLimitSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        min_value=1,
+        max_value=1_000_000,
+        help_text="Maximum number of emails this workflow sends per period.",
+    )
+    period = serializers.ChoiceField(
+        choices=["minute", "hour"],
+        help_text="Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.",
+    )
+
+    def validate(self, data):
+        # A PATCH propagates partial=True into nested serializers, which would let a lone
+        # {"period": ...} skip the required count and store a shape the worker can't enforce.
+        # The value is atomic: replace it whole or clear it with null.
+        missing = [field for field in ("count", "period") if field not in data]
+        if missing:
+            raise serializers.ValidationError(f"Both count and period are required, missing: {', '.join(missing)}.")
+        return data
+
+    def to_representation(self, value):
+        # Pass stored JSON through untouched so a legacy or hand-written row that doesn't match
+        # the declared fields can still render (and be fixed) instead of crashing the read.
+        return value
+
+
 class HogFlowScheduleSerializer(serializers.ModelSerializer):
     class Meta:
         model = HogFlowSchedule
@@ -1982,6 +2134,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "trigger_masking",
             "conversion",
             "exit_condition",
+            "email_sending_rate_limit",
             "edges",
             "actions",
             "abort_action",
@@ -2086,6 +2239,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "exit_on_trigger_not_matched_or_conversion: both (needs 'conversion')."
         ),
     )
+    email_sending_rate_limit = HogFlowEmailSendingRateLimitSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker "
+            "spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead "
+            "of failing. Null disables pacing."
+        ),
+    )
     edges = serializers.ListField(
         child=HogFlowEdgeSerializer(),
         required=False,
@@ -2150,6 +2312,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # When used as a nested field (the `configuration` override on test invocations) DRF never
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
         instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
+
+        # Who a "Create AI task" step runs as: the existing creator for an update, or the
+        # requesting user for a brand-new flow (matches the `created_by` a create() actually
+        # writes). None outside a request (internal re-saves), where connector checks are skipped.
+        owner = instance.created_by if instance else None
+        if owner is None:
+            request = self.context.get("request")
+            user = getattr(request, "user", None)
+            if user is not None and getattr(user, "is_authenticated", False):
+                owner = user
+        self.context["workflow_owner_id"] = owner.id if owner else None
 
         # Wait conditions the live flow already carries, so per-action validation can tell a newly
         # introduced clock condition from one we have been storing all along. Seeded here because
@@ -2233,6 +2406,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "trigger_masking",
             "conversion",
             "exit_condition",
+            "email_sending_rate_limit",
             "edges",
             "actions",
             "abort_action",

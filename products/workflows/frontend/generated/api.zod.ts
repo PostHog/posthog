@@ -394,6 +394,8 @@ export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsCreateBodyEmailSendingRateLimitOneCountMax = 1000000
+
 export const hogFlowsCreateBodyActionsItemIdMax = 200
 
 export const hogFlowsCreateBodyActionsItemNameMax = 400
@@ -515,6 +517,27 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+            ),
+        email_sending_rate_limit: zod
+            .union([
+                zod.object({
+                    count: zod
+                        .number()
+                        .min(1)
+                        .max(hogFlowsCreateBodyEmailSendingRateLimitOneCountMax)
+                        .describe('Maximum number of emails this workflow sends per period.'),
+                    period: zod
+                        .enum(['minute', 'hour'])
+                        .describe('\* `minute` - minute\n\* `hour` - hour')
+                        .describe(
+                            'Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.\n\n\* `minute` - minute\n\* `hour` - hour'
+                        ),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing."
             ),
         edges: zod
             .array(
@@ -749,6 +772,8 @@ export const hogFlowsUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsUpdateBodyEmailSendingRateLimitOneCountMax = 1000000
+
 export const hogFlowsUpdateBodyActionsItemIdMax = 200
 
 export const hogFlowsUpdateBodyActionsItemNameMax = 400
@@ -870,6 +895,27 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+            ),
+        email_sending_rate_limit: zod
+            .union([
+                zod.object({
+                    count: zod
+                        .number()
+                        .min(1)
+                        .max(hogFlowsUpdateBodyEmailSendingRateLimitOneCountMax)
+                        .describe('Maximum number of emails this workflow sends per period.'),
+                    period: zod
+                        .enum(['minute', 'hour'])
+                        .describe('\* `minute` - minute\n\* `hour` - hour')
+                        .describe(
+                            'Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.\n\n\* `minute` - minute\n\* `hour` - hour'
+                        ),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing."
             ),
         edges: zod
             .array(
@@ -1104,6 +1150,8 @@ export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsPartialUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsPartialUpdateBodyEmailSendingRateLimitOneCountMax = 1000000
+
 export const hogFlowsPartialUpdateBodyActionsItemIdMax = 200
 
 export const hogFlowsPartialUpdateBodyActionsItemNameMax = 400
@@ -1230,6 +1278,27 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+            ),
+        email_sending_rate_limit: zod
+            .union([
+                zod.object({
+                    count: zod
+                        .number()
+                        .min(1)
+                        .max(hogFlowsPartialUpdateBodyEmailSendingRateLimitOneCountMax)
+                        .describe('Maximum number of emails this workflow sends per period.'),
+                    period: zod
+                        .enum(['minute', 'hour'])
+                        .describe('\* `minute` - minute\n\* `hour` - hour')
+                        .describe(
+                            'Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.\n\n\* `minute` - minute\n\* `hour` - hour'
+                        ),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing."
             ),
         edges: zod
             .array(
@@ -1652,6 +1721,8 @@ export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMi
 export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsInvocationsCreateBodyConfigurationOneEmailSendingRateLimitOneCountMax = 1000000
+
 export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemIdMax = 200
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemNameMax = 400
@@ -1834,6 +1905,27 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+                ),
+            email_sending_rate_limit: zod
+                .union([
+                    zod.object({
+                        count: zod
+                            .number()
+                            .min(1)
+                            .max(hogFlowsInvocationsCreateBodyConfigurationOneEmailSendingRateLimitOneCountMax)
+                            .describe('Maximum number of emails this workflow sends per period.'),
+                        period: zod
+                            .enum(['minute', 'hour'])
+                            .describe('\* `minute` - minute\n\* `hour` - hour')
+                            .describe(
+                                'Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.\n\n\* `minute` - minute\n\* `hour` - hour'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing."
                 ),
             edges: zod
                 .array(
@@ -2347,6 +2439,8 @@ export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsBulkDeleteCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsBulkDeleteCreateBodyEmailSendingRateLimitOneCountMax = 1000000
+
 export const hogFlowsBulkDeleteCreateBodyActionsItemIdMax = 200
 
 export const hogFlowsBulkDeleteCreateBodyActionsItemNameMax = 400
@@ -2473,6 +2567,27 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End"
+            ),
+        email_sending_rate_limit: zod
+            .union([
+                zod.object({
+                    count: zod
+                        .number()
+                        .min(1)
+                        .max(hogFlowsBulkDeleteCreateBodyEmailSendingRateLimitOneCountMax)
+                        .describe('Maximum number of emails this workflow sends per period.'),
+                    period: zod
+                        .enum(['minute', 'hour'])
+                        .describe('\* `minute` - minute\n\* `hour` - hour')
+                        .describe(
+                            'Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.\n\n\* `minute` - minute\n\* `hour` - hour'
+                        ),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing."
             ),
         edges: zod
             .array(

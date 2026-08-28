@@ -81,8 +81,8 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
     # Overrides the abstract base's max_length=100 so the column can hold a CIMD
-    # metadata-document URL as the client's identifier (sized to match cimd_metadata_url).
-    # Non-CIMD clients keep the generated opaque value.
+    # metadata-document URL as the client's identifier. Non-CIMD clients keep the
+    # generated opaque value.
     client_id: models.CharField = models.CharField(
         max_length=2048, unique=True, default=generate_client_id, db_index=True
     )
@@ -190,6 +190,9 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         verbose_name="Is CIMD client",
         help_text="True if this client was registered via Client ID Metadata Document (CIMD)",
     )
+    # Superseded by client_id, which now holds this same URL. Nothing resolves a client
+    # through it any more; it stays written on create so a rollback to code that does keeps
+    # working, and is dropped once that window closes.
     cimd_metadata_url: models.URLField = models.URLField(
         max_length=2048,
         null=True,
@@ -313,21 +316,6 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     # Client authentication is registration state on purpose. A client_id is public, so
     # inferring the method from what a request happens to present would let anyone act as a
     # confidential client by presenting nothing at all.
-
-    @property
-    def effective_client_id(self) -> str:
-        """The identifier this client uses for itself on the wire.
-
-        For a CIMD client that is its metadata URL, which is what the client sends and what it
-        names itself by in a signed assertion; the ``client_id`` column holds an opaque value
-        generated at registration. For every other client the two are the same.
-
-        Gated on ``is_cimd_client`` so a stray ``cimd_metadata_url`` on a non-CIMD app cannot
-        change which identifier an assertion's ``iss``/``sub`` are checked against.
-        """
-        if self.is_cimd_client and self.cimd_metadata_url:
-            return self.cimd_metadata_url
-        return self.client_id
 
     @property
     def requires_client_authentication(self) -> bool:
@@ -511,28 +499,39 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         return list(schemes) if schemes else ["https"]
 
 
+def oauth_scope_tokens_expression() -> models.Func:
+    return models.Func(
+        models.F("scope"),
+        models.Value(" "),
+        function="string_to_array",
+        output_field=ArrayField(models.TextField()),
+    )
+
+
 class OAuthAccessToken(AbstractAccessToken):
     class Meta(AbstractAccessToken.Meta):
         verbose_name = "OAuth Access Token"
         verbose_name_plural = "OAuth Access Tokens"
         swappable = "OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL"
         indexes = [
-            # The gateway credential cache scans for tokens holding a given scope via a
-            # whitespace-bounded regex on the space-separated `scope` text. A trigram GIN
-            # index lets that parameterized `~*` use an index scan; partial on
-            # application_id IS NOT NULL (which every such scan already filters on) keeps
-            # it to app tokens. See posthog/storage/gateway_credential_cache.py.
+            # Direct updates avoid pending-list merges that make one token write absorb batched GIN maintenance.
             GinIndex(
-                fields=["scope"],
-                name="oauthaccesstoken_scope_trgm",
-                opclasses=["gin_trgm_ops"],
+                oauth_scope_tokens_expression(),
+                name="oauthaccesstoken_scopes_gin",
                 condition=Q(application__isnull=False),
+                fastupdate=False,
             ),
             # B-tree on the plaintext `token` so equality lookups by token value resolve
             # via an index scan instead of a sequential scan. These lookups account for a
             # large share of the server's CPU time; the index removes that hot-path scan.
             models.Index(fields=["token"], name="oauthaccesstoken_token_idx"),
         ]
+
+    @classmethod
+    def with_scope(cls, scope: str) -> models.QuerySet["OAuthAccessToken"]:
+        return cls.objects.alias(scope_tokens=oauth_scope_tokens_expression()).filter(
+            scope_tokens__contains=[scope], application_id__isnull=False
+        )
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
@@ -923,7 +922,7 @@ def generate_random_token_cimd_verification() -> str:
 # unparseable-input branch. Issuance validates and normalizes before storing (see
 # `CIMDVerificationTokenCreateSerializer` in posthog/api/cimd_verification_token.py), so no
 # stored `CIMDVerificationToken.cimd_url` can ever equal this — it exists only to give the
-# refresh path (which normalizes `OAuthApplication.cimd_metadata_url` read straight from the
+# refresh path (which normalizes `OAuthApplication.client_id` read straight from the
 # database, unrevalidated) a value to compare against instead of raising.
 UNNORMALIZABLE_CIMD_URL = "\x00unnormalizable"
 
@@ -1111,11 +1110,11 @@ def _block_cimd_url_on_application_delete(sender, instance: OAuthApplication, **
     # Auto-blocklist a CIMD URL when its app is deleted, so a metadata refresh
     # can't immediately recreate the same partner. Admin can explicitly
     # unblock via unblock_cimd_url if they want to allow re-registration.
-    if not (instance.is_cimd_client and instance.cimd_metadata_url):
+    if not instance.is_cimd_client:
         return
     from posthog.api.oauth.cimd import block_cimd_url
 
     block_cimd_url(
-        instance.cimd_metadata_url,
+        instance.client_id,
         reason=f"Auto-blocked on deletion of OAuthApplication {instance.pk}",
     )

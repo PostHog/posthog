@@ -1,36 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonSelect } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
-import {
-    ErrorTrackingIssueSeverityRuleEnumApi,
-    type ErrorTrackingIssueSeverityRuleEnumApi as Severity,
-} from '../../../generated/api.schemas'
+import { ISSUE_SEVERITY_OPTIONS, IssueSeverityTag } from '../../../components/IssueSeverityTag'
 import { RuleModal } from '../rules/RuleModal'
 import { severityRuleModalLogic } from './severityRuleModalLogic'
-
-const SEVERITY_OPTIONS: { label: string; value: Severity }[] = [
-    { label: 'Low', value: ErrorTrackingIssueSeverityRuleEnumApi.Low },
-    { label: 'Medium', value: ErrorTrackingIssueSeverityRuleEnumApi.Medium },
-    { label: 'High', value: ErrorTrackingIssueSeverityRuleEnumApi.High },
-    { label: 'Critical', value: ErrorTrackingIssueSeverityRuleEnumApi.Critical },
-]
-
-export const severityTagType = (severity: Severity): 'default' | 'warning' | 'danger' => {
-    if (severity === ErrorTrackingIssueSeverityRuleEnumApi.Critical) {
-        return 'danger'
-    }
-    if (severity === ErrorTrackingIssueSeverityRuleEnumApi.High) {
-        return 'warning'
-    }
-    return 'default'
-}
-
-export const severityLabel = (severity: Severity): string =>
-    SEVERITY_OPTIONS.find((option) => option.value === severity)?.label ?? severity
 
 export function SeverityRuleModal(): JSX.Element {
     const { rule, hasFilters, hasSeverity } = useValues(severityRuleModalLogic)
@@ -58,9 +35,9 @@ export function SeverityRuleModal(): JSX.Element {
                         value={rule.severity ?? undefined}
                         placeholder="Choose severity"
                         onChange={updateSeverity}
-                        options={SEVERITY_OPTIONS.map((option) => ({
+                        options={ISSUE_SEVERITY_OPTIONS.map((option) => ({
                             value: option.value,
-                            label: <LemonTag type={severityTagType(option.value)}>{option.label}</LemonTag>,
+                            label: <IssueSeverityTag severity={option.value} />,
                         }))}
                     />
                 </div>

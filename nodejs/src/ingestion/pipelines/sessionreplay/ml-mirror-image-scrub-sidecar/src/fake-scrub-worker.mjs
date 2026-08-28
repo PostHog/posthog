@@ -30,7 +30,10 @@ parentPort.on('message', async (job) => {
         return
     }
     if (kind === 'undecodable') {
-        parentPort.postMessage({ id: job.id, failure: { message: 'bad bytes', kind: 'undecodable' } })
+        parentPort.postMessage({
+            id: job.id,
+            failure: { message: 'bad bytes', kind: 'undecodable', reason: 'decode_failed' },
+        })
         return
     }
     if (kind === 'opt-out') {

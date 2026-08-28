@@ -13,6 +13,7 @@ from django.utils.html import format_html
 from oauth2_provider.generators import generate_client_id, generate_client_secret
 from oauth2_provider.models import AbstractApplication
 
+from posthog.api.oauth.cimd import is_cimd_client_id
 from posthog.models.oauth import OAuthApplication, revoke_application_sessions
 from posthog.models.oauth_provisioning import UNLIMITED_OVERRIDE, ProvisioningConfig
 
@@ -115,8 +116,26 @@ class OAuthApplicationForm(forms.ModelForm):
             endpoint = field_name.removeprefix(PROVISIONING_RATE_LIMIT_PREFIX)
             self.fields[field_name].initial = config.rate_limits.get(endpoint)
 
+    def _reject_cimd_shaped_client_id(self, cleaned: dict) -> None:
+        """Keep a URL-form client_id to the CIMD clients that register themselves.
+
+        A CIMD client is identified by its metadata URL, and a metadata refresh writes that
+        document's redirect URIs and auth settings onto whichever row carries the URL. An app
+        given that shape by hand would take those writes from a document nobody here controls.
+        """
+        client_id = cleaned.get("client_id")
+        if not client_id or self.instance.is_cimd_client:
+            return
+        if is_cimd_client_id(client_id):
+            self.add_error(
+                "client_id",
+                "A client ID that looks like a URL is reserved for CIMD clients, which register "
+                "themselves. Use the generated value, or an ID that is not a URL.",
+            )
+
     def clean(self):
         cleaned = super().clean() or {}
+        self._reject_cimd_shaped_client_id(cleaned)
         for field_name in self._rate_limit_field_names():
             # 0 is rejected rather than meaning "unlimited": that footgun is why the
             # unlimited sentinel is -1 (UNLIMITED_OVERRIDE).
@@ -383,12 +402,12 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
 
     @admin.display(description="CIMD URL")
     def cimd_url(self, obj: OAuthApplication):
-        if not obj.cimd_metadata_url:
+        if not obj.is_cimd_client:
             return "–"
         return format_html(
             '<a href="{}" target="_blank" rel="noopener noreferrer">{}</a>',
-            obj.cimd_metadata_url,
-            obj.cimd_metadata_url,
+            obj.client_id,
+            obj.client_id,
         )
 
     @admin.display(description="Verified", boolean=True, ordering="is_verified")

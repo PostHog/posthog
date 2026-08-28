@@ -22,6 +22,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
@@ -30,6 +31,7 @@ from posthog.permissions import get_authenticator_scopes
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
+from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.config_registry import cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
@@ -623,6 +625,11 @@ class ScratchpadEntrySerializer(serializers.Serializer):
     )
     created_at = serializers.CharField(allow_null=True, help_text="ISO-8601 creation timestamp.")
     updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 last-write timestamp.")
+    expires_at = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="ISO-8601 expiry, or null for a durable memory that stays until it's forgotten.",
+    )
     created_by_run_id = serializers.CharField(
         allow_null=True,
         help_text="Run that wrote this entry, or null if human-authored.",
@@ -665,6 +672,14 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
             "ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result "
             "cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry "
             "from the prior page)."
+        ),
+    )
+    include_expired = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include entries whose `expires_at` has passed. Off by default so a time-boxed memory "
+            "retires itself; turn it on to audit what the fleet remembered and when it lapsed."
         ),
     )
     keys_only = serializers.BooleanField(
@@ -716,6 +731,21 @@ class RememberRequestSerializer(serializers.Serializer):
             "null), not rejected, so the memory write is never lost."
         ),
     )
+    expires_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a "
+            "window you're watching). After this time the entry drops out of searches, so you "
+            "don't have to come back and forget it. Omit for a durable memory — every write sets "
+            "the whole entry, so omitting it on a later write clears an expiry set earlier."
+        ),
+    )
+
+    def validate_expires_at(self, value: datetime | None) -> datetime | None:
+        if value is not None and value <= timezone.now():
+            raise serializers.ValidationError("expires_at must be in the future")
+        return value
 
 
 class ForgetRequestSerializer(serializers.Serializer):
@@ -1117,6 +1147,16 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "the finding rests on a trend, a spike, or a comparison you already queried."
         ),
     )
+    suggested_prompts = serializers.ListField(
+        required=False,
+        child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_LENGTH),
+        max_length=MAX_SUGGESTED_PROMPTS,
+        help_text=(
+            "Optional follow-up questions to offer above the report's `Ask AI` box. The reader clicks "
+            "one to fill the box with it, then sends or edits it. Write the questions your own research "
+            "left open, phrased as the reader would ask them."
+        ),
+    )
 
 
 class EmitReportResponseSerializer(serializers.Serializer):
@@ -1199,6 +1239,19 @@ class EditReportRequestSerializer(serializers.Serializer):
             "send an empty list to take them all down."
         ),
     )
+    suggested_prompts = serializers.ListField(
+        required=False,
+        allow_null=True,
+        child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_LENGTH),
+        max_length=MAX_SUGGESTED_PROMPTS,
+        help_text=(
+            "The full set of follow-up questions the report should offer above its `Ask AI` box. "
+            "Replaces the report's questions rather than adding to them, so send every one you want "
+            "kept. Omit the field (or send null) to leave them untouched, and send an empty list to "
+            "take them down, which is what you want once a rewrite has left them answering the old "
+            "report."
+        ),
+    )
 
 
 class EditReportResponseSerializer(serializers.Serializer):
@@ -1215,6 +1268,14 @@ class EditReportResponseSerializer(serializers.Serializer):
             "How many charts the report now shows, or null if the edit left its charts as they were "
             "(the field omitted, or a re-send of what was already stored). 0 means the edit took the "
             "report's charts down."
+        ),
+    )
+    suggested_prompts_set = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "How many questions the report now suggests, or null if the edit left them as they were "
+            "(the field omitted, or a re-send of what was already stored). 0 means the edit took the "
+            "report's suggested prompts down."
         ),
     )
 
@@ -2228,6 +2289,17 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "name list. Defaults to `custom` if the skill is not currently present on the team."
         ),
     )
+    owners = serializers.SerializerMethodField(
+        help_text=(
+            "Who answers for this scout, seed-creator first. Ownership is recorded on the scout's "
+            "skill rather than on this config, so editing the skill or toggling the scout leaves it "
+            "unchanged. Reports the scout files suggest these people as reviewers. Prefer this over "
+            "`created_by`-style fields, which only say who last flipped a switch. Empty when nobody "
+            "owns the scout, when the owners are no longer members with access to the project, or "
+            "when the caller is a scout sandbox token: owners are member PII, and a scout reads "
+            "them through the skill API instead."
+        ),
+    )
     enabled = serializers.BooleanField(
         read_only=True,
         help_text=(
@@ -2370,6 +2442,15 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
         return info.origin if info else "custom"
 
+    @extend_schema_field(UserBasicSerializer(many=True))
+    def get_owners(self, obj: SignalScoutConfig) -> list[dict[str, Any]]:
+        # A scout joins to its skill by name, which is also the key `LLMSkillOwner` uses, so the
+        # view resolves the whole fleet's owners in one query and passes the map through context
+        # (see `scout_config_context`). Empty when a caller builds the serializer without it —
+        # owners are then unknown, not absent, and no caller renders them on that path.
+        owners = (self.context.get("owners_by_skill_name") or {}).get(obj.skill_name, [])
+        return list(UserBasicSerializer(owners, many=True).data)
+
     class Meta:
         model = SignalScoutConfig
         fields = [
@@ -2377,6 +2458,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "skill_name",
             "description",
             "scout_origin",
+            "owners",
             "enabled",
             "status",
             "pause_reason",

@@ -2,6 +2,13 @@ import { z } from 'zod'
 
 import { CyclotronInputMappingSchema, CyclotronInputSchema, CyclotronJobInputSchemaTypeSchema } from './cyclotron'
 
+export const HogFlowEmailSendingRateLimitSchema = z.object({
+    count: z.number().int().positive(),
+    period: z.enum(['minute', 'hour']),
+})
+
+export type HogFlowEmailSendingRateLimit = z.infer<typeof HogFlowEmailSendingRateLimitSchema>
+
 const HogFlowOutputVariableSchema = z.object({
     key: z.string(),
     result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
@@ -324,6 +331,9 @@ export const HogFlowSchema = z.object({
         'exit_on_trigger_not_matched_or_conversion',
         'exit_only_at_end',
     ]),
+    // User-configured email pacing for deliverability. The email worker holds this flow's sends
+    // under the limit by rescheduling over-limit sends, never dropping them.
+    email_sending_rate_limit: HogFlowEmailSendingRateLimitSchema.optional().nullable(),
     actions: z.array(HogFlowActionSchema),
     // Secret function inputs, split out of `actions` and stored Fernet-encrypted at rest, keyed by
     // action id then input key. Decrypted by the manager and merged back into `action.config.inputs`

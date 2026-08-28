@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Collection, Iterable
+from dataclasses import replace
 from io import BytesIO
 from typing import Any, cast
 from uuid import uuid4
@@ -42,10 +43,8 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
 )
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
 
+from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
-from products.customer_analytics.backend.temporal.account_property_sync import (
-    stage_warehouse_account_property_files_activity,
-)
 from products.data_modeling.backend.facade.api import compute_enrichment_hash
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import (
@@ -64,11 +63,9 @@ from products.warehouse_sources.backend.facade.hooks import (
     saved_query_binding,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_paths import (
-    job_staged_prefix as account_job_staged_prefix,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_paths import (
-    job_staged_prefix,
+from products.warehouse_sources.backend.facade.temporal import (
+    account_property_job_staged_prefix,
+    person_property_job_staged_prefix,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -975,7 +972,7 @@ class TestNodeSuspension:
     async def test_does_not_resuspend_on_failures_from_before_a_resume(self, ateam, anode, asaved_query, adag):
         from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
 
-        from products.data_modeling.backend.logic.node_suspension import resume_nodes
+        from products.data_modeling.backend.facade.api import resume_nodes
 
         jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(5)]
         first_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
@@ -1786,7 +1783,7 @@ class TestMaterializeViewStagesPersonPropertyRows:
         with self._env(bucket_name, projection):
             result = await activity_environment.run(materialize_view_activity, inputs)
             # Resolved inside the overridden settings, so it names the same bucket the sink wrote to.
-            prefix = job_staged_prefix(ateam.pk, saved_query_binding(asaved_query.id), str(ajob.id))
+            prefix = person_property_job_staged_prefix(ateam.pk, saved_query_binding(asaved_query.id), str(ajob.id))
 
         # The workflow gates the person-property child on this field.
         assert result.person_property_sync_enabled is True
@@ -1866,7 +1863,7 @@ class TestMaterializeViewStagesAccountPropertyRows:
             ),
         ):
             result = await activity_environment.run(materialize_view_activity, inputs)
-            prefix = account_job_staged_prefix(
+            prefix = account_property_job_staged_prefix(
                 ateam.pk,
                 saved_query_binding(asaved_query.id),
                 str(ajob.id),
@@ -1876,6 +1873,7 @@ class TestMaterializeViewStagesAccountPropertyRows:
                 Prefix=prefix.removeprefix(f"{bucket_name}/"),
             )
             assert result.delta_version is not None
+            activity_environment.info = replace(activity_environment.info, workflow_run_id=str(uuid4()))
             staged = await activity_environment.run(
                 stage_warehouse_account_property_files_activity,
                 StageAccountPropertySyncInput(

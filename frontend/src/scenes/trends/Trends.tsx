@@ -7,6 +7,8 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
+import { BoxPlotChart } from 'scenes/insights/views/BoxPlot'
+import { TrendsCalendarHeatMap } from 'scenes/insights/views/CalendarHeatMap'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { MetricCard } from 'scenes/insights/views/Metric/Metric'
 
@@ -14,59 +16,18 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightType } from '~/types'
 
+import { StickinessBarChart } from 'products/product_analytics/frontend/insights/stickiness/StickinessBarChart/StickinessBarChart'
+import { StickinessLineChart } from 'products/product_analytics/frontend/insights/stickiness/StickinessLineChart/StickinessLineChart'
+import { TrendsBarChart } from 'products/product_analytics/frontend/insights/trends/TrendsBarChart/TrendsBarChart'
+import { TrendsLifecycleChart } from 'products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/TrendsLifecycleChart'
+import { TrendsLineChart } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart'
+import { TrendsPieChart } from 'products/product_analytics/frontend/insights/trends/TrendsPieChart/TrendsPieChart'
+import { TrendsSlopeChart } from 'products/product_analytics/frontend/insights/trends/TrendsSlopeChart/TrendsSlopeChart'
+
 import { trendsDataLogic } from './trendsDataLogic'
-// Lazy-loaded viz types that are rarely used on dashboards
+// Maps carry ~1 MB of d3-geo + topojson data only the map display needs; kept lazy.
 const WorldMap = lazyWithRetry(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
 const RegionMap = lazyWithRetry(() => import('scenes/insights/views/RegionMap').then((m) => ({ default: m.RegionMap })))
-const TrendsCalendarHeatMap = lazyWithRetry(() =>
-    import('scenes/insights/views/CalendarHeatMap').then((m) => ({ default: m.TrendsCalendarHeatMap }))
-)
-const BoxPlotChart = lazyWithRetry(() =>
-    import('scenes/insights/views/BoxPlot').then((m) => ({ default: m.BoxPlotChart }))
-)
-// Lazy-loaded — keep the quill/d3 slope chart out of the eager Trends/Dashboard bundle
-const TrendsSlopeChart = lazyWithRetry(() =>
-    import('products/product_analytics/frontend/insights/trends/TrendsSlopeChart/TrendsSlopeChart').then((m) => ({
-        default: m.TrendsSlopeChart,
-    }))
-)
-// Lazy-loaded — keep full d3 out of the eager Trends/Dashboard bundle
-const TrendsLineChart = lazyWithRetry(() =>
-    import('products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart').then((m) => ({
-        default: m.TrendsLineChart,
-    }))
-)
-const TrendsBarChart = lazyWithRetry(() =>
-    import('products/product_analytics/frontend/insights/trends/TrendsBarChart/TrendsBarChart').then((m) => ({
-        default: m.TrendsBarChart,
-    }))
-)
-const StickinessLineChart = lazyWithRetry(() =>
-    import('products/product_analytics/frontend/insights/stickiness/StickinessLineChart/StickinessLineChart').then(
-        (m) => ({
-            default: m.StickinessLineChart,
-        })
-    )
-)
-const StickinessBarChart = lazyWithRetry(() =>
-    import('products/product_analytics/frontend/insights/stickiness/StickinessBarChart/StickinessBarChart').then(
-        (m) => ({
-            default: m.StickinessBarChart,
-        })
-    )
-)
-const TrendsPieChart = lazyWithRetry(() =>
-    import('products/product_analytics/frontend/insights/trends/TrendsPieChart/TrendsPieChart').then((m) => ({
-        default: m.TrendsPieChart,
-    }))
-)
-const TrendsLifecycleChart = lazyWithRetry(() =>
-    import('products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/TrendsLifecycleChart').then(
-        (m) => ({
-            default: m.TrendsLifecycleChart,
-        })
-    )
-)
 
 interface Props {
     view: InsightType

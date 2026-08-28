@@ -33,6 +33,8 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useSidebarPeekStore } from "@posthog/ui/features/sidebar/sidebarPeekStore";
+import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
 import type { SidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { useTaskAnalysis } from "@posthog/ui/features/task-detail/components/TaskAnalysisButton";
 import {
@@ -44,6 +46,7 @@ import {
   type ComponentType,
   type ReactElement,
   type ReactNode,
+  useCallback,
   useMemo,
   useState,
 } from "react";
@@ -54,8 +57,8 @@ import {
  * which needs the channel list and a mutation — belongs to the menu.
  *
  * Canvases share this menu but not all of it: they can be added to the command
- * centre, pinned, and deleted, but they can't be filed to another space.
- * `kind` decides which remaining actions apply.
+ * centre, pinned, filed, and deleted. `kind` decides which remaining actions
+ * apply.
  */
 export interface TaskRowMenuProps {
   kind: "task" | "canvas";
@@ -63,7 +66,7 @@ export interface TaskRowMenuProps {
   title: string;
   isPinned: boolean;
   task?: Task;
-  /** The channel this task is already filed to, ticked in "File to…". */
+  /** The channel this item is already filed to, ticked in "File to…". */
   channelId?: string;
   /** Absent when the command centre is full, which disables the item. */
   onAddToCommandCenter?: () => void;
@@ -71,6 +74,8 @@ export interface TaskRowMenuProps {
   onRename?: () => void;
   onStop?: () => void;
   onTogglePin: () => void;
+  /** Canvases supply their own filing mutation; task filing is shared here. */
+  onFile?: (channelId: string) => void;
   /** Tasks are archived; canvases are deleted (with an undo window). */
   onArchive?: () => void;
   onDelete?: () => void;
@@ -143,7 +148,7 @@ function TaskRowMenuItems({
   );
   const isTask = menu.kind === "task";
   const analysisTask = isTask && menu.task?.latest_run ? menu.task : null;
-  const { channels } = useChannels({ enabled: bluebirdEnabled && isTask });
+  const { channels } = useChannels({ enabled: bluebirdEnabled });
   const fileToChannel = useFileTaskToChannel();
 
   const channelItems: MenuFlyoutItem[] = channels.map((channel) => ({
@@ -183,7 +188,7 @@ function TaskRowMenuItems({
         <SquaresFourIcon size={14} />
         Add to Command Center…
       </Item>
-      {isTask && channelItems.length > 0 && (
+      {channelItems.length > 0 && (isTask || menu.onFile) && (
         <Sub>
           <SubTrigger>
             <FolderSimpleIcon size={14} />
@@ -195,7 +200,9 @@ function TaskRowMenuItems({
               placeholder="Search spaces…"
               emptyLabel="No spaces"
               onSelect={(channelId) =>
-                fileToChannel(channelId, menu.id, menu.title)
+                menu.kind === "canvas"
+                  ? menu.onFile?.(channelId)
+                  : fileToChannel(channelId, menu.id, menu.title)
               }
             />
           </MenuSubFlyout>
@@ -408,8 +415,19 @@ export function TaskRowContextMenu({
   onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
+  const holdSidebarPeek = useHoldSidebarPeek();
+  const handleOpenChange = useCallback(
+    (open: boolean): void => {
+      if (!open || useSidebarPeekStore.getState().peek) {
+        holdSidebarPeek(open);
+      }
+      onOpenChange?.(open);
+    },
+    [holdSidebarPeek, onOpenChange],
+  );
+
   return (
-    <ContextMenu onOpenChange={onOpenChange}>
+    <ContextMenu onOpenChange={handleOpenChange}>
       <ContextMenuTrigger render={<div className="min-w-0" />}>
         {children}
       </ContextMenuTrigger>

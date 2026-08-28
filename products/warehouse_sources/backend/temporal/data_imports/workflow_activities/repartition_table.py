@@ -17,9 +17,10 @@ import datetime as dt
 import dataclasses
 from typing import Any
 
-from django.db import InterfaceError, OperationalError, close_old_connections
+from django.db import InterfaceError, InternalError, OperationalError, close_old_connections
 from django.utils import timezone
 
+import psycopg.errors
 from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
@@ -103,8 +104,17 @@ _TRANSIENT_ERROR_SNIPPETS = (
 REWRITE_DEADLINE_MARGIN = dt.timedelta(minutes=5)
 
 
-def _rewrite_deadline() -> float | None:
+def _rewrite_deadline(activity_started: float) -> float | None:
     """Monotonic time by which the rewrite must stop to leave room to record its own failure.
+
+    `activity_started` is the `time.monotonic()` reading taken when the activity began. The deadline
+    is anchored to it, not to now: the budget is measured from `start_to_close_timeout`, which Temporal
+    counts from the same start, so the pre-rewrite work (job fetch, flag evaluation, the pre-extraction
+    Delta-log measurement, temp validation) has to be charged against it too. Anchoring to now instead
+    hands the rewrite a deadline later than the activity's own timeout by however long that pre-work
+    took, so on the heavily-fragmented tables this path exists to rescue — where reading the log alone
+    runs into minutes — Temporal kills the rewrite mid-stream before it can record an outcome, and the
+    hard-killed attempt counts toward the give-up cap.
 
     None when there is no budget to derive one from: outside an activity context (direct calls from
     tests), when the activity declares no `start_to_close_timeout`, or when that timeout is shorter
@@ -120,11 +130,19 @@ def _rewrite_deadline() -> float | None:
     budget = (info.start_to_close_timeout - REWRITE_DEADLINE_MARGIN).total_seconds()
     if budget <= 0:
         return None
-    return time.monotonic() + budget
+    return activity_started + budget
 
 
 def _is_transient_infra_error(error: Exception) -> bool:
     if isinstance(error, OperationalError | InterfaceError):
+        return True
+    # A primary-DB failover briefly routes one of the rewrite's own writes (checkpoint, swap marker,
+    # scheme persist) onto a connection that has become a read-only standby: Postgres raises
+    # ReadOnlySqlTransaction (SQLSTATE 25006), which psycopg classifies under InternalError rather than
+    # OperationalError, so it needs its own check. Matched on the cause, not a bare InternalError
+    # isinstance, so real corruption errors sharing the base class are still reported. Mirrors the same
+    # classification in delta.errors.is_transient_maintenance_error.
+    if isinstance(error, InternalError) and isinstance(error.__cause__, psycopg.errors.ReadOnlySqlTransaction):
         return True
     message = str(error).lower()
     return any(snippet in message for snippet in _TRANSIENT_ERROR_SNIPPETS)
@@ -242,6 +260,10 @@ def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
 
 
 def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: FilteringBoundLogger) -> None:
+    # Anchor the rewrite deadline to when the activity began, so the pre-rewrite work below (job fetch,
+    # flag evaluation, pre-extraction Delta-log measurement) is charged against the activity's timeout
+    # rather than handed to the rewrite on top of it. See `_rewrite_deadline`.
+    activity_started = time.monotonic()
     try:
         schema = retry_on_db_connection_drop(
             lambda: ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
@@ -412,7 +434,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 target=target,
                 logger=logger,
                 claim_token=claim_token,
-                deadline=_rewrite_deadline(),
+                deadline=_rewrite_deadline(activity_started),
             )
     except RepartitionBudgetExceededError as e:
         # The rewrite didn't fit in one activity's budget. Checkpoint/resume lets a large table

@@ -20,7 +20,7 @@ if (empty(inputs.prompt)) {
   throw Error('Instructions are required')
 }
 
-let payload := { 'prompt': inputs.prompt }
+let payload := { 'prompt': inputs.prompt, 'event': event }
 
 if (not empty(inputs.title)) {
   payload.title := inputs.title
@@ -47,6 +47,18 @@ if (not empty(inputs.posthog_mcp_scopes)) {
 
 if (not empty(inputs.max_parallel_tasks)) {
   payload.max_parallel_tasks := inputs.max_parallel_tasks
+}
+
+if (inputs.reply_in_slack_thread != false and event.event == '$slack_message_received' and not empty(event.properties.channel) and not empty(event.properties.ts)) {
+  payload.slack_context := {
+    'integration_id': event.properties.integration_id,
+    'channel': event.properties.channel,
+    'thread_ts': event.properties.thread_ts ?? event.properties.ts,
+    'message_ts': event.properties.ts,
+    'slack_user_id': event.properties.user ?? '',
+    'slack_team_id': event.properties.slack_team_id ?? '',
+    'is_ext_shared_channel': event.properties.is_ext_shared_channel ?? false
+  }
 }
 
 let response := postHogCreateTask(payload)
@@ -126,7 +138,20 @@ return response.body
             required: false,
             default: 5,
             description:
-                'New runs are skipped while this many tasks from this workflow are still running. Protects against a burst of trigger events starting too many agents at once.',
+                'New runs are skipped while this many tasks from this workflow are still running. Protects against a burst of trigger events starting too many agents at once. Daily limits on how many tasks a workflow and project can create also apply.',
+        },
+        {
+            // Only meaningful on a Slack-triggered workflow; the builder hides it for other
+            // triggers, and the hog code above no-ops when the trigger event isn't a Slack message.
+            key: 'reply_in_slack_thread',
+            type: 'boolean',
+            label: 'Reply in the Slack thread',
+            secret: false,
+            required: false,
+            default: true,
+            templating: false,
+            description:
+                'The agent posts its updates as replies in the Slack thread that started this workflow. Replies in that thread are sent to the agent.',
         },
         {
             // The engine treats a 4xx as a step failure before the code above runs, unless the

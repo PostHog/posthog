@@ -24,10 +24,9 @@ The identity fields (`dashboardId | taskId | channelId + channelSection |
 appView`) survive **only as a label and icon cache**, written alongside the href.
 Never compare them to decide where a tab is.
 
-The strip is gated inside the spaces layout by `useSpacesTabs`
-(`SPACES_TABS_FLAG`). Off is the same code path with a single tab, not a second
-implementation: with one tab, the tab is the window, so per-tab history and view
-state behave the way the window-global versions did.
+The strip is always present in the app shell. `useSpacesTabs` tells shortcut and
+navigation owners when the spaces layout owns browser-tab behavior. It is not a
+rollout gate.
 
 ## Components & styling
 
@@ -102,21 +101,18 @@ differ. Desktop ships first.
   — they update the instant you navigate, not after the server snapshot
   round-trips (see Gotchas).
 
-### Opening, replacing, the new-tab page
+### Opening, replacing, and blank tabs
 - **Navigating while a tab is active replaces that tab's location in place**
   (in-tab navigation). It does *not* open or focus another tab, ever.
-- **New tabs come only from explicit new-tab actions.** `+` opens a tab on
-  `/spaces`; Cmd/Ctrl-clicking a navigation destination opens that destination's
-  root in a new tab (the rail in Spaces, the sidebar in the legacy layout). The
-  space index renders the space grid and acts as the new-tab page. Without the
-  spaces layout the Code new-task screen stands in.
+- **New tabs come only from explicit new-tab actions.** `+` and Cmd/Ctrl+T open
+  `/activity`. Cmd/Ctrl-clicking a navigation destination opens that destination's
+  root in a new tab (the rail in Spaces, the sidebar in the legacy layout).
 - `openTab` always appends. There is no dedup to focus an existing tab.
 
 ### Closing
 - Closing the active tab focuses its neighbour.
-- Closing the last tab of a **secondary** window closes the window; closing the
-  last tab of the **primary** window lands on the default (`#me` under the
-  spaces layout, the Code new-task screen otherwise), which opens a fresh tab.
+- Closing the last tab of a **secondary** window closes the window. Closing the
+  last tab of the **primary** window replaces it with a fresh `/activity` tab.
 
 ### Keyboard
 - **⌘1-9 switches tabs**, the browser way: 1-8 pick that position, 9 picks the
@@ -213,6 +209,7 @@ retarget its originating background tab as described below. `railHistoryStore`
 ### Cross-window & persistence
 - Tabs, order, windows, and each tab's `href` + `viewState` persist to sqlite;
   the full session (all windows + their tabs + active tab) is restored on launch.
+  Desktop and web both seed `/activity` when the primary window has no tabs.
 - `rewriteSavedLocation` (in `@posthog/shared`) runs over persisted hrefs on
   load, so a snapshot written before the routes were flattened does not restore
   tabs onto `/website/*` routes that no longer exist.
@@ -247,7 +244,10 @@ retarget its originating background tab as described below. `railHistoryStore`
   still settled. That transient pairing lets the navigation effect write the
   outgoing href into the selected tab. Selection only pushes the target's
   tagged history entry; that settled entry drives view-state restore,
-  activation, and durable focus through the navigation effect.
+  activation, and durable focus through the navigation effect. The sidebar may
+  project the tagged target's stored `viewState` while navigation is pending,
+  but that projection is render-only: it must not write stores or trigger
+  visibility side effects such as marking the projected space seen.
 - **The effect reconciles SETTLED state only (`settledLocation.ts`).** During a
   pending navigation the router's `location` is already the destination while
   `resolvedLocation` (and `matches`, and so `params` / `railPane`) still describe
@@ -276,15 +276,12 @@ retarget its originating background tab as described below. `railHistoryStore`
   it's an absolutely-positioned sibling. The wrapper is `flex` so it hugs the
   button height (a block wrapper adds an inline line-box ~2px taller).
 - **`/spaces` is a page, not a redirect.** It used to bounce to `channels[0]`.
-  It is now where `+` lands, so a redirect there would send every new tab
-  somewhere the user did not ask for. Don't reintroduce one.
+  The rail can land there and return to it, so don't reintroduce the redirect.
 - **All writes are local-first (`tabsSync.ts`).** Close/open/new/reorder apply
-  their shared transform to the mirror and navigate in the same tick; the
-  `/spaces` index therefore always renders against post-mutation state. Mutation results and
-  subscription pushes are never applied while writes are in flight — only the
-  last settle reconciles. Don't add a mutation `onSuccess` that calls
-  `setSnapshot`; route new writes through `applyLocalTransform` +
-  `persistWrite`.
+  their shared transform to the mirror and navigate in the same tick. Mutation
+  results and subscription pushes are never applied while writes are in flight —
+  only the last settle reconciles. Don't add a mutation `onSuccess` that calls
+  `setSnapshot`; route new writes through `applyLocalTransform` + `persistWrite`.
 
 ## Testing
 

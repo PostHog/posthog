@@ -3,7 +3,6 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from functools import partial
 
 from django.conf import settings
 from django.db.models import Q
@@ -26,9 +25,15 @@ from posthog.clickhouse.cluster import (
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import JobOwners
+from posthog.dags.common.staged_dictionary import (
+    StagedDictionary,
+    create_on_every_cluster,
+    load_and_verify_on_every_cluster,
+)
 from posthog.dags.person_overrides import squash_person_overrides
+from posthog.dataclasses import frozen
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.deletion_targets import personal_data_tables
+from posthog.models.deletion_targets import resolve_placements, sweep_clusters
 from posthog.models.event.deletion import events_data_tables
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
@@ -106,6 +111,10 @@ class MonthlyCleanupConfig(dagster.Config):
 
 
 ShardMutations = dict[int, MutationWaiters]
+# Shard numbers are per cluster, so a sweep spanning two of them cannot key its waiters by shard
+# alone. Keyed by cluster name rather than by handle: the handle is recovered with
+# ClickhouseCluster.sibling, which is memoized, and a name survives the op boundary.
+ClusterShardMutations = dict[str, ShardMutations]
 
 
 @dataclass
@@ -226,7 +235,7 @@ class AdhocEventDeletesTable(Table):
         client.execute(f"OPTIMIZE TABLE {self.qualified_name} FINAL")
 
 
-@dataclass
+@frozen
 class Dictionary(abc.ABC):
     source: Table
 
@@ -244,8 +253,43 @@ class Dictionary(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
+    def create(
+        self,
+        client: Client,
+        shards: int,
+        max_execution_time: int,
+        max_memory_usage: int,
+        query: str | None = None,
+    ) -> None:
+        """``query`` overrides the SOURCE query, for a host that cannot see the source table."""
         raise NotImplementedError()
+
+    @abc.abstractmethod
+    def staged(self) -> StagedDictionary:
+        """Where this dictionary's rows go so another cluster can load them; see StagedDictionary.
+
+        Keyed by the dictionary's own name, never by anything per-run. A dictionary outlives the
+        run that created it, and CREATE ... IF NOT EXISTS keys on that same name, so a per-run key
+        would leave the earlier definition pointing at an object no later run writes.
+        """
+        raise NotImplementedError()
+
+    def recreate(
+        self,
+        client: Client,
+        shards: int,
+        max_execution_time: int,
+        max_memory_usage: int,
+        query: str | None = None,
+    ) -> None:
+        """Replace the dictionary, so no definition an earlier run left behind can survive.
+
+        CREATE ... IF NOT EXISTS keeps the existing source, which is right where that source is the
+        replicated table and wrong where it is a staged object whose query can change between
+        deploys.
+        """
+        self.drop(client)
+        self.create(client, shards, max_execution_time, max_memory_usage, query)
 
     def exists(self, client: Client) -> bool:
         results = client.execute(
@@ -292,7 +336,7 @@ class Dictionary(abc.ABC):
         raise NotImplementedError()
 
 
-@dataclass
+@frozen
 class PendingDeletesDictionary(Dictionary):
     source: PendingDeletesTable
 
@@ -300,7 +344,21 @@ class PendingDeletesDictionary(Dictionary):
     def query(self) -> str:
         return f"SELECT team_id, deletion_type, key, created_at FROM {self.source.qualified_name}"
 
-    def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
+    def staged(self) -> StagedDictionary:
+        return StagedDictionary(
+            key=f"{self.name}.parquet",
+            columns="team_id, deletion_type, key, created_at",
+            structure="team_id Int64, deletion_type UInt8, key String, created_at DateTime",
+        )
+
+    def create(
+        self,
+        client: Client,
+        shards: int,
+        max_execution_time: int,
+        max_memory_usage: int,
+        query: str | None = None,
+    ) -> None:
         client.execute(
             f"""
             CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
@@ -319,7 +377,7 @@ class PendingDeletesDictionary(Dictionary):
                 "database": settings.CLICKHOUSE_DATABASE,
                 "user": settings.CLICKHOUSE_USER,
                 "password": settings.CLICKHOUSE_PASSWORD,
-                "query": self.query,
+                "query": query or self.query,
             },
         )
 
@@ -334,7 +392,7 @@ class PendingDeletesDictionary(Dictionary):
         return checksum
 
 
-@dataclass
+@frozen
 class AdhocEventDeletesDictionary(Dictionary):
     source: AdhocEventDeletesTable
 
@@ -342,7 +400,21 @@ class AdhocEventDeletesDictionary(Dictionary):
     def query(self) -> str:
         return f"SELECT team_id, uuid, created_at FROM {self.source.qualified_name} WHERE (team_id, uuid) not in (SELECT team_id, uuid FROM {self.source.qualified_name} WHERE is_deleted = 1)"
 
-    def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
+    def staged(self) -> StagedDictionary:
+        return StagedDictionary(
+            key=f"{self.name}.parquet",
+            columns="team_id, uuid, created_at",
+            structure="team_id Int64, uuid UUID, created_at DateTime64(6, 'UTC')",
+        )
+
+    def create(
+        self,
+        client: Client,
+        shards: int,
+        max_execution_time: int,
+        max_memory_usage: int,
+        query: str | None = None,
+    ) -> None:
         client.execute(
             f"""
             CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
@@ -360,7 +432,7 @@ class AdhocEventDeletesDictionary(Dictionary):
                 "database": settings.CLICKHOUSE_DATABASE,
                 "user": settings.CLICKHOUSE_USER,
                 "password": settings.CLICKHOUSE_PASSWORD,
-                "query": self.query,
+                "query": query or self.query,
             },
         )
 
@@ -459,6 +531,7 @@ def load_pending_deletions(
 
 @dagster.op
 def create_deletes_dict(
+    context: dagster.OpExecutionContext,
     load_pending_deletions: PendingDeletesTable,
     config: DeleteConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
@@ -475,14 +548,14 @@ def create_deletes_dict(
         source=load_pending_deletions,
     )
 
-    cluster.map_all_hosts(
-        partial(
-            del_dict.create,
-            shards=config.shards,
-            max_execution_time=config.max_execution_time,
-            max_memory_usage=config.max_memory_usage,
-        )
-    ).result()
+    create_on_every_cluster(
+        context,
+        sweep_clusters(cluster),
+        del_dict,
+        shards=config.shards,
+        max_execution_time=config.max_execution_time,
+        max_memory_usage=config.max_memory_usage,
+    )
     return del_dict
 
 
@@ -506,14 +579,14 @@ def create_adhoc_event_deletes_dict(
         source=adhoc_event_deletions,
     )
 
-    cluster.map_all_hosts(
-        partial(
-            del_dict.create,
-            shards=config.shards,
-            max_execution_time=config.max_execution_time,
-            max_memory_usage=config.max_memory_usage,
-        )
-    ).result()
+    create_on_every_cluster(
+        context,
+        sweep_clusters(cluster),
+        del_dict,
+        shards=config.shards,
+        max_execution_time=config.max_execution_time,
+        max_memory_usage=config.max_memory_usage,
+    )
 
     # The dictionary holds identical data on every host, so count the loaded ids on a single
     # data node (verifying replica identity is the job of load_and_verify_adhoc_event_deletes_dictionary).
@@ -538,9 +611,8 @@ def load_and_verify_deletes_dictionary(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PendingDeletesDictionary,
 ) -> PendingDeletesDictionary:
-    """Load the dictionary data on all hosts in the cluster, and ensure all hosts have identical data."""
-    checksums = cluster.map_all_hosts(dictionary.load, concurrency=1).result()
-    assert len(set(checksums.values())) == 1
+    """Load the dictionary on every host of every cluster the mutations run on, and verify it."""
+    load_and_verify_on_every_cluster(sweep_clusters(cluster), dictionary)
     return dictionary
 
 
@@ -549,9 +621,8 @@ def load_and_verify_adhoc_event_deletes_dictionary(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: AdhocEventDeletesDictionary,
 ) -> AdhocEventDeletesDictionary:
-    """Load the dictionary data on all hosts in the cluster, and ensure all hosts have identical data."""
-    checksums = cluster.map_all_hosts(dictionary.load, concurrency=1).result()
-    assert len(set(checksums.values())) == 1
+    """Load the dictionary on every host of every cluster the mutations run on, and verify it."""
+    load_and_verify_on_every_cluster(sweep_clusters(cluster), dictionary)
     return dictionary
 
 
@@ -561,8 +632,8 @@ def delete_events(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     load_and_verify_deletes_dictionary: PendingDeletesDictionary,
     load_and_verify_adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary,
-) -> tuple[PendingDeletesDictionary, ShardMutations]:
-    """Delete events from sharded_events table for pending deletions."""
+) -> tuple[PendingDeletesDictionary, ClusterShardMutations]:
+    """Delete events from every personal-data table, on whichever cluster stores each one."""
 
     def count_pending_deletes(client: Client) -> int:
         result = client.execute(
@@ -605,35 +676,44 @@ def delete_events(
     # Every registered target must get this delete, or rows survive on the table that got skipped.
     # The predicate below reads only team_id, person_id, timestamp and uuid, which every target
     # declares, so it applies unchanged to all of them.
+    placements = resolve_placements(cluster)
     delete_mutation_runners = [
-        LightweightDeleteMutationRunner(
-            table=table,
-            predicate="""or(
+        (
+            placement,
+            LightweightDeleteMutationRunner(
+                table=placement.target.data_table,
+                predicate="""or(
             (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id)) AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))),
             (dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))),
             (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid)))
         )
         """,
-            parameters={
-                "pending_deletes_dictionary": load_and_verify_deletes_dictionary.qualified_name,
-                "person_deletion_type": DeletionType.Person,
-                "team_deletion_type": DeletionType.Team,
-                "adhoc_event_deletes_dictionary": load_and_verify_adhoc_event_deletes_dictionary.qualified_name,
-            },
+                parameters={
+                    "pending_deletes_dictionary": load_and_verify_deletes_dictionary.qualified_name,
+                    "person_deletion_type": DeletionType.Person,
+                    "team_deletion_type": DeletionType.Team,
+                    "adhoc_event_deletes_dictionary": load_and_verify_adhoc_event_deletes_dictionary.qualified_name,
+                },
+            ),
         )
-        for table in personal_data_tables(cluster)
+        for placement in placements
     ]
 
-    shard_waiters: dict[int, list[MutationWaiter]] = {}
-    for delete_mutation_runner in delete_mutation_runners:
-        for host, mutation in cluster.map_one_host_per_shard(delete_mutation_runner).result().items():
+    waiters: dict[str, dict[int, list[MutationWaiter]]] = {}
+    for placement, delete_mutation_runner in delete_mutation_runners:
+        # placement.cluster, not the job's handle: the dictionary the predicate joins was created
+        # on every cluster here, but the storage table only exists on this one.
+        for host, mutation in placement.cluster.map_one_host_per_shard(delete_mutation_runner).result().items():
             if host.shard_num is not None:
-                shard_waiters.setdefault(host.shard_num, []).append(mutation)
-    shard_mutations: ShardMutations = {
-        shard_num: MutationWaiters(waiters=waiters) for shard_num, waiters in shard_waiters.items()
+                by_shard = waiters.setdefault(placement.cluster.data_cluster_name, {})
+                by_shard.setdefault(host.shard_num, []).append(mutation)
+
+    cluster_mutations: ClusterShardMutations = {
+        name: {shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()}
+        for name, by_shard in waiters.items()
     }
 
-    return (load_and_verify_deletes_dictionary, shard_mutations)
+    return (load_and_verify_deletes_dictionary, cluster_mutations)
 
 
 def delete_team_data(
@@ -713,11 +793,13 @@ def delete_team_data_from(
 def wait_for_delete_mutations_in_shards(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    delete_mutations: tuple[PendingDeletesDictionary, ShardMutations],
+    delete_mutations: tuple[PendingDeletesDictionary, ClusterShardMutations],
 ) -> PendingDeletesDictionary:
-    pending_deletes_dict, shard_mutations = delete_mutations
+    pending_deletes_dict, cluster_mutations = delete_mutations
 
-    cluster.map_all_hosts_in_shards({shard: mutation.wait for shard, mutation in shard_mutations.items()}).result()
+    for cluster_name, shard_mutations in cluster_mutations.items():
+        handle = cluster.sibling(cluster_name)
+        handle.map_all_hosts_in_shards({shard: mutation.wait for shard, mutation in shard_mutations.items()}).result()
 
     return pending_deletes_dict
 
@@ -783,11 +865,13 @@ def cleanup_delete_assets(
         dagster.get_dagster_logger().info("Skipping cleanup as cleanup is disabled")
         return True
 
-    # Must drop dict first
-    cluster.map_all_hosts(resources.pending_deletions_dictionary.drop).result()
-    cluster.map_all_hosts(resources.pending_deletions_dictionary.source.drop).result()
+    # Must drop dict first. Every cluster the mutations ran on carries a copy of each dictionary;
+    # only the job's own cluster carries the source table the staged object was exported from.
+    for handle in sweep_clusters(cluster):
+        handle.map_all_hosts(resources.pending_deletions_dictionary.drop).result()
+        handle.map_all_hosts(resources.adhoc_event_deletes_dictionary.drop).result()
 
-    cluster.map_all_hosts(resources.adhoc_event_deletes_dictionary.drop).result()
+    cluster.map_all_hosts(resources.pending_deletions_dictionary.source.drop).result()
     cluster.any_host_by_role(
         resources.adhoc_event_deletes_dictionary.source.optimize, NodeRole.DATA, Workload.ONLINE
     ).result()

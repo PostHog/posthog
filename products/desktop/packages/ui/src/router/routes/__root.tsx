@@ -14,6 +14,7 @@ import { useServerArchiveSync } from "@posthog/ui/features/archive/useServerArch
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UsageButton } from "@posthog/ui/features/billing/UsageButton";
 import { UsageLimitModal } from "@posthog/ui/features/billing/UsageLimitModal";
+import { useSpendGuardrails } from "@posthog/ui/features/billing/useSpendGuardrails";
 import { BrowserTabStrip } from "@posthog/ui/features/browser-tabs/BrowserTabStrip";
 import { BrowserTabsDndProvider } from "@posthog/ui/features/browser-tabs/BrowserTabsDnd";
 import { TabShortcutFallback } from "@posthog/ui/features/browser-tabs/TabShortcutFallback";
@@ -42,12 +43,12 @@ import { useNewTaskDeepLink } from "@posthog/ui/features/deep-links/useNewTaskDe
 import { useOpenTargetDeepLink } from "@posthog/ui/features/deep-links/useOpenTargetDeepLink";
 import { useTaskDeepLink } from "@posthog/ui/features/deep-links/useTaskDeepLink";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useSpacesTabs } from "@posthog/ui/features/feature-flags/useSpacesTabs";
 import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepLink";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
 import { useScoutDeepLink } from "@posthog/ui/features/scouts/hooks/useScoutDeepLink";
 import { useSetupDiscovery } from "@posthog/ui/features/setup/useSetupDiscovery";
+import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import {
   beginSidebarPeek,
   cancelSidebarPeek,
@@ -194,6 +195,7 @@ function RootLayout() {
   const queryClient = useQueryClient();
   const reconcilingTaskIds = useRef<Set<string>>(new Set());
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
+  useSpendGuardrails();
   // "PostHog Web" is a channels-world affordance — show it only while the user
   // is actually seeing channels (toggle on, which itself requires the flag).
   const bluebirdEnabled = useFeatureFlag(
@@ -204,10 +206,6 @@ function RootLayout() {
   // The new channels layout has exactly one gate: its feature flag (no
   // sidebar toggle). When on it subsumes the channels alpha entirely.
   const channelsLayout = useChannelsLayout();
-  // Tabs exist in the legacy layout already; the flag gates only bringing them
-  // into the spaces layout.
-  const spacesTabs = useSpacesTabs();
-  const showTabStrip = channelsLayout ? spacesTabs : true;
   const { hasSidebar } = useRailSurface();
   // When the sidebar is collapsed (Cmd+B) the title bar's left block shrinks to
   // fit its own controls so the tab strip flushes left with the content pane.
@@ -413,7 +411,7 @@ function RootLayout() {
               moved to the rail to make room for it (see NavRail). The strip is
               also the only global owner of Cmd+W, so the fallback has to hold
               that key wherever the strip isn't mounted. */}
-          {showTabStrip ? <BrowserTabStrip /> : <TabShortcutFallback enabled />}
+          <BrowserTabStrip />
           {/* Gated so an empty right-side group can't claim a no-drag rect
               in the title bar for nothing — every pixel without controls
               should drag the window. */}
@@ -442,6 +440,7 @@ function RootLayout() {
           {!sidebarOpen && (
             <Box
               aria-hidden
+              style={{ left: channelsLayout ? NAV_RAIL_WIDTH : 0 }}
               // The radix preset replaces Tailwind's palette, so plain
               // `bg-black/*` doesn't exist — use the radix black-alpha scale
               // (--black-a2 = 10%, --black-a5 = 30%).
