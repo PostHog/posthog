@@ -93,6 +93,7 @@ function buildLoginSupportMessage({
 export function LoginForm(): JSX.Element {
     const { precheck, exitCodeVerification, resendCodeBasedVerification } = useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { sendSupportRequest } = useValues(supportLogic)
     const {
         precheckResponse,
         precheckResponseLoading,
@@ -190,14 +191,19 @@ export function LoginForm(): JSX.Element {
                                         openSupportForm({
                                             kind: 'support',
                                             email: login.email,
-                                            message: buildLoginSupportMessage({
-                                                errorCode: generalError.code,
-                                                region: preflight?.region,
-                                                ssoEnforcement: precheckResponse.sso_enforcement,
-                                                availableLoginMethods,
-                                                precheckTrusted,
-                                                codeVerificationPending: codeVerificationRequired,
-                                            }),
+                                            // Prefill only into an empty form. Passing no message lets
+                                            // openSupportForm keep a draft the person already started,
+                                            // so reopening this link never overwrites their text.
+                                            message: sendSupportRequest.message
+                                                ? undefined
+                                                : buildLoginSupportMessage({
+                                                      errorCode: generalError.code,
+                                                      region: preflight?.region,
+                                                      ssoEnforcement: precheckResponse.sso_enforcement,
+                                                      availableLoginMethods,
+                                                      precheckTrusted,
+                                                      codeVerificationPending: codeVerificationRequired,
+                                                  }),
                                         })
                                     }}
                                     className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
