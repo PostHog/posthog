@@ -14,23 +14,33 @@ export function createGuardedStorageEngine(): Storage {
             if (typeof prop !== 'string') {
                 return undefined
             }
+            // The in-memory copy holds the latest value written this session, including a
+            // write localStorage refused. A quota-blocked browser can still serve stale
+            // reads, so prefer memory to avoid returning a value the write already replaced.
+            if (memory.has(prop)) {
+                return memory.get(prop)
+            }
             try {
                 const value = window.localStorage.getItem(prop)
                 if (value !== null) {
                     return value
                 }
             } catch {
-                // fall through to the in-memory copy
+                // fall through to the missing-key result
             }
             // `undefined` (not `null`) so kea-localstorage treats a missing key as absent
-            return memory.get(prop)
+            return undefined
         },
         set(_target, prop, value) {
             if (typeof prop === 'string') {
+                // Always mirror into memory so a later read stays consistent with this
+                // write, even when localStorage refuses it (quota) but reads still succeed.
+                memory.set(prop, value)
                 try {
                     window.localStorage.setItem(prop, value)
                 } catch {
-                    memory.set(prop, value)
+                    // localStorage refused the write; the in-memory copy above keeps the
+                    // session consistent.
                 }
             }
             return true

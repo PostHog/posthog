@@ -38,4 +38,20 @@ describe('createGuardedStorageEngine', () => {
         }).not.toThrow()
         expect(engine['blocked.path']).toBe('{"b":2}')
     })
+
+    it('reads back a refused write instead of the stale localStorage value', () => {
+        // Quota-exhausted browser: setItem throws while getItem keeps serving the older
+        // persisted value. Without an in-memory mirror the read returns that stale value
+        // and the reducer reverts within the same page load.
+        window.localStorage.setItem('pref.path', '{"old":true}')
+        jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new Error('QuotaExceededError')
+        })
+
+        const engine = createGuardedStorageEngine() as any
+
+        engine['pref.path'] = '{"new":true}'
+
+        expect(engine['pref.path']).toBe('{"new":true}')
+    })
 })
