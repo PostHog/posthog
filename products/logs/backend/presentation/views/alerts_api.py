@@ -186,6 +186,7 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
 
 
 class LogsAlertUpdateDestinationSerializer(serializers.Serializer):
+    base_updated_at = serializers.DateTimeField(required=False, write_only=True)
     enabled = serializers.BooleanField(required=False)
     name = serializers.CharField(required=False, max_length=400)
     description = serializers.CharField(required=False, allow_blank=True)

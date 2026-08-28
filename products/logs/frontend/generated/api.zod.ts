@@ -398,6 +398,7 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
 export const logsAlertsDestinationsUpdateBodyNameMax = 400
 
 export const LogsAlertsDestinationsUpdateBody = /* @__PURE__ */ zod.object({
+    base_updated_at: zod.iso.datetime({ offset: true }).optional(),
     enabled: zod.boolean().optional(),
     name: zod.string().max(logsAlertsDestinationsUpdateBodyNameMax).optional(),
     description: zod.string().optional(),
