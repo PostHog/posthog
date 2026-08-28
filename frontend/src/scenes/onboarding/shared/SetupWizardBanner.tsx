@@ -24,10 +24,10 @@ const SetupWizardBanner = ({
         <>
             <h2>Automated installation</h2>
             <LemonBanner type="info" hideIcon={true}>
-                <h3 className="pb-1">AI setup wizard</h3>
+                <h3 className="pb-1">AI setup agent</h3>
                 <div className="flex flex-col p-2">
                     <p className="font-normal pb-1">
-                        The setup wizard detects your framework, installs the SDK, and sets up event capture.
+                        The setup agent detects your framework, installs the SDK, and sets up event capture.
                     </p>
                     <p className="font-normal pb-1">
                         It is a Node command-line tool that you run with npx. It supports many frameworks and languages,
