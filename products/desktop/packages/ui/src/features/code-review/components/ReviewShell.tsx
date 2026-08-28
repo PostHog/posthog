@@ -173,10 +173,15 @@ export function ReviewShell({
 
   // The room the review was given, not the mode it was opened in: the same
   // review is a column, a widened panel, and a scene of its own.
-  const showFileBrowser = useIsWiderThan(
+  const hasRoomForFileBrowser = useIsWiderThan(
     shellRef,
     REVIEW_FILE_BROWSER_MIN_WIDTH,
   );
+  const fileBrowserCollapsed = useReviewNavigationStore(
+    (s) => s.fileBrowserCollapsed[taskId] ?? false,
+  );
+  // Width auto-hides the browser; an explicit collapse wins over the room.
+  const showFileBrowser = hasRoomForFileBrowser && !fileBrowserCollapsed;
 
   const viewedCount = useMemo(() => {
     const visibleKeys =
@@ -423,6 +428,8 @@ export function ReviewShell({
             commentedFileCount={commentedFileCount}
             unresolvedCommentedFileCount={unresolvedCommentedFileCount}
             commentFilter={activeCommentFilter}
+            hasFileBrowserRoom={hasRoomForFileBrowser}
+            fileBrowserCollapsed={fileBrowserCollapsed}
             onCommentFilterChange={
               commentedFilePaths && unresolvedCommentedFilePaths
                 ? (filter) => setCommentFileFilter(taskId, filter)
