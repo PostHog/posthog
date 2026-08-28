@@ -1,4 +1,11 @@
-import { ArrowsSplit, Cloud, Cube, Laptop, Plus } from "@phosphor-icons/react";
+import {
+  ArrowsSplit,
+  Cloud,
+  Cube,
+  Gear,
+  Laptop,
+  Plus,
+} from "@phosphor-icons/react";
 import {
   Button,
   DropdownMenu,
@@ -14,8 +21,12 @@ import {
   ItemTitle,
   MenuLabel,
 } from "@posthog/quill";
-import type { WorkspaceMode } from "@posthog/shared";
+import type { Adapter, WorkspaceMode } from "@posthog/shared";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import {
+  shouldShowCodexSubscriptionControls,
+  useCodexSubscription,
+} from "@posthog/ui/features/settings/useCodexSubscription";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { useCallback, useMemo, useState } from "react";
 import { useSandboxCustomImages } from "../../settings/sections/environments/useSandboxCustomImages";
@@ -30,6 +41,7 @@ interface WorkspaceModeSelectProps {
   size?: "1" | "2";
   disabled?: boolean;
   overrideModes?: WorkspaceMode[];
+  adapter?: Adapter;
   selectedCloudEnvironmentId?: string | null;
   onCloudEnvironmentChange?: (envId: string | null) => void;
   selectedCustomImageId?: string | null;
@@ -63,6 +75,7 @@ export function WorkspaceModeSelect({
   onChange,
   disabled,
   overrideModes,
+  adapter,
   selectedCloudEnvironmentId,
   onCloudEnvironmentChange,
   selectedCustomImageId,
@@ -70,6 +83,7 @@ export function WorkspaceModeSelect({
 }: WorkspaceModeSelectProps) {
   const { localWorkspaces } = useHostCapabilities();
   const cloudModeEnabled = useCloudModeEnabled();
+  const codexSubscription = useCodexSubscription();
 
   const { environments } = useSandboxEnvironments();
   const { images, customImagesEnabled } = useSandboxCustomImages();
@@ -148,6 +162,36 @@ export function WorkspaceModeSelect({
         sideOffset={6}
         className="w-auto min-w-[280px]"
       >
+        {localModes.length > 0 && (
+          <div className="flex items-center justify-between px-2 py-1">
+            <MenuLabel className="p-0">Local</MenuLabel>
+            {shouldShowCodexSubscriptionControls({
+              flagEnabled: codexSubscription.flagEnabled,
+              adapter,
+            }) && (
+              <div className="flex items-center gap-1.5">
+                {codexSubscription.subscriptionOn &&
+                  codexSubscription.loggedIn && (
+                    <span className="text-[11px] text-muted-foreground">
+                      Using Codex subscription
+                    </span>
+                  )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    openSettings("harness");
+                  }}
+                  aria-label="Subscription settings"
+                  className="flex cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0.5 text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground"
+                >
+                  <Gear size={12} />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <DropdownMenuGroup>
           {localModes.map((item) => (
             <DropdownMenuItem
