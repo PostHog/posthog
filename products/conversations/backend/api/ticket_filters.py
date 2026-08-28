@@ -287,90 +287,89 @@ def _order_by_to_sorting(order_by: str) -> dict[str, Any] | None:
     return {"columnKey": column, "order": -1 if order_by.startswith("-") else 1}
 
 
+# Params whose comma-separated values map onto a canonical list field: (filter key, param, allowed values).
+_ENUM_LIST_PARAMS = (
+    ("status", "status", VALID_STATUS_VALUES),
+    ("priority", "priority", VALID_PRIORITY_VALUES),
+    ("aiTriageResult", "ai_triage_result", AI_TRIAGE_FILTER_VALUES),
+)
+# Params whose single value maps onto a canonical scalar field: (filter key, param, allowed values).
+_SINGLE_ENUM_PARAMS = (
+    ("channel", "channel_source", VALID_CHANNEL_VALUES),
+    ("sla", "sla", SLA_FILTER_VALUES),
+)
+
+
+def _enum_list_filters(params: Mapping[str, str]) -> dict[str, Any]:
+    # Guard every list on being non-empty: a param whose values all parse away must not
+    # set the key, or merging onto a saved view would clear that filter and widen results.
+    result: dict[str, Any] = {}
+    for key, param, valid in _ENUM_LIST_PARAMS:
+        raw = params.get(param)
+        if not raw:
+            continue
+        values = [v.strip() for v in raw.split(",") if v.strip() in valid]
+        if values:
+            result[key] = values
+    return result
+
+
+def _single_enum_filters(params: Mapping[str, str]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, param, valid in _SINGLE_ENUM_PARAMS:
+        value = params.get(param)
+        if value and value in valid:
+            result[key] = value
+    return result
+
+
+def _tag_filters(params: Mapping[str, str]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    if raw := params.get("tags"):
+        if tags := _decode_json_tag_list(raw):
+            result["tags"] = tags
+            result["tagsMatch"] = "any"
+    if raw := params.get("tags_all"):
+        if tags := _decode_json_tag_list(raw):
+            # Separate key from tags/tagsMatch so tags= and tags_all= compose (AND)
+            # instead of the later param clobbering the earlier one. Deliberately NOT
+            # part of the saved-view serializer contract: the app can't render a
+            # tagsAll filter, so a view holding one would behave differently in the
+            # app than via ?view=.
+            result["tagsAll"] = tags
+    if raw := params.get("tags_exclude"):
+        if tags := _decode_json_tag_list(raw):
+            result["tagsExclude"] = tags
+    return result
+
+
+def _misc_filters(params: Mapping[str, str]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    if raw := params.get("assignee"):
+        if assignees := _decode_assignee_param(raw):
+            result["assignee"] = assignees
+    search = params.get("search")
+    if search and len(search) <= MAX_SEARCH_LENGTH:
+        result["search"] = search
+    # 'all' passes through so an explicit param can disable a view's saved lower bound.
+    if date_from := params.get("date_from"):
+        result["dateFrom"] = date_from
+    if date_to := params.get("date_to"):
+        result["dateTo"] = date_to
+    if order_by := params.get("order_by"):
+        if sorting := _order_by_to_sorting(order_by):
+            result["sorting"] = sorting
+    return result
+
+
 def query_params_to_view_filters(params: Mapping[str, str]) -> dict[str, Any]:
     """Translate the flat snake_case ticket-list query params into the canonical
     TicketViewFilters shape. Only keys whose param is present are set, so values coming
     from a saved view survive unless explicitly overridden. Invalid values are dropped
     rather than rejected, matching the endpoint's long-standing behavior."""
     filters: dict[str, Any] = {}
-
-    # Guard every list on being non-empty: a param whose values all parse away must not
-    # set the key, or merging onto a saved view would clear that filter and widen results.
-    status_param = params.get("status")
-    if status_param:
-        statuses = [s.strip() for s in status_param.split(",") if s.strip() in VALID_STATUS_VALUES]
-        if statuses:
-            filters["status"] = statuses
-
-    priority_param = params.get("priority")
-    if priority_param:
-        priorities = [p.strip() for p in priority_param.split(",") if p.strip() in VALID_PRIORITY_VALUES]
-        if priorities:
-            filters["priority"] = priorities
-
-    channel_source = params.get("channel_source")
-    if channel_source and channel_source in VALID_CHANNEL_VALUES:
-        filters["channel"] = channel_source
-
-    sla_param = params.get("sla")
-    if sla_param and sla_param in SLA_FILTER_VALUES:
-        filters["sla"] = sla_param
-
-    ai_triage_result_param = params.get("ai_triage_result")
-    if ai_triage_result_param:
-        results = [r.strip() for r in ai_triage_result_param.split(",") if r.strip() in AI_TRIAGE_FILTER_VALUES]
-        if results:
-            filters["aiTriageResult"] = results
-
-    assignee_param = params.get("assignee")
-    if assignee_param:
-        assignees = _decode_assignee_param(assignee_param)
-        if assignees:
-            filters["assignee"] = assignees
-
-    tags_param = params.get("tags")
-    if tags_param:
-        tags = _decode_json_tag_list(tags_param)
-        if tags:
-            filters["tags"] = tags
-            filters["tagsMatch"] = "any"
-
-    tags_all_param = params.get("tags_all")
-    if tags_all_param:
-        tags = _decode_json_tag_list(tags_all_param)
-        if tags:
-            # Separate key from tags/tagsMatch so tags= and tags_all= compose (AND)
-            # instead of the later param clobbering the earlier one. Deliberately NOT
-            # part of the saved-view serializer contract: the app can't render a
-            # tagsAll filter, so a view holding one would behave differently in the
-            # app than via ?view=.
-            filters["tagsAll"] = tags
-
-    tags_exclude_param = params.get("tags_exclude")
-    if tags_exclude_param:
-        tags = _decode_json_tag_list(tags_exclude_param)
-        if tags:
-            filters["tagsExclude"] = tags
-
-    search = params.get("search")
-    if search and len(search) <= MAX_SEARCH_LENGTH:
-        filters["search"] = search
-
-    date_from = params.get("date_from")
-    if date_from:
-        # 'all' passes through so an explicit param can disable a view's saved lower bound.
-        filters["dateFrom"] = date_from
-
-    date_to = params.get("date_to")
-    if date_to:
-        filters["dateTo"] = date_to
-
-    order_by = params.get("order_by")
-    if order_by:
-        sorting = _order_by_to_sorting(order_by)
-        if sorting:
-            filters["sorting"] = sorting
-
+    for extract in (_enum_list_filters, _single_enum_filters, _tag_filters, _misc_filters):
+        filters.update(extract(params))
     return filters
 
 
@@ -396,7 +395,21 @@ def _sorting_to_order_expressions(sorting: Mapping[str, Any] | None) -> tuple[Or
     return primary, "-ticket_number"
 
 
-def _assignee_filter_q(entries: list[Any], user: User | None) -> Q:
+def _append_typed_assignee_id(entry: dict[str, Any], user_ids: list[int], role_ids: list[uuid.UUID]) -> None:
+    entry_type = entry.get("type")
+    if entry_type == "user":
+        try:
+            user_ids.append(int(entry["id"]))
+        except (ValueError, TypeError):
+            pass
+    elif entry_type == "role":
+        try:
+            role_ids.append(uuid.UUID(str(entry["id"])))
+        except (ValueError, AttributeError):
+            pass
+
+
+def _resolve_assignee_entries(entries: list[Any], user: User | None) -> tuple[list[int], list[uuid.UUID], bool]:
     user_ids: list[int] = []
     role_ids: list[uuid.UUID] = []
     include_unassigned = False
@@ -408,16 +421,13 @@ def _assignee_filter_q(entries: list[Any], user: User | None) -> Q:
             # shared saved view scoped to "me" means each viewer's own tickets.
             if user is not None:
                 user_ids.append(user.id)
-        elif isinstance(entry, dict) and entry.get("type") == "user":
-            try:
-                user_ids.append(int(entry["id"]))
-            except (ValueError, TypeError):
-                pass
-        elif isinstance(entry, dict) and entry.get("type") == "role":
-            try:
-                role_ids.append(uuid.UUID(str(entry["id"])))
-            except (ValueError, AttributeError):
-                pass
+        elif isinstance(entry, dict):
+            _append_typed_assignee_id(entry, user_ids, role_ids)
+    return user_ids, role_ids, include_unassigned
+
+
+def _assignee_filter_q(entries: list[Any], user: User | None) -> Q:
+    user_ids, role_ids, include_unassigned = _resolve_assignee_entries(entries, user)
     assignee_q = Q()
     if user_ids:
         assignee_q |= Q(assignment__user_id__in=user_ids)
@@ -461,12 +471,7 @@ def _apply_search(queryset: QuerySet, search: str, team: Team) -> QuerySet:
     )
 
 
-def apply_ticket_filters(queryset: QuerySet, filters: Mapping[str, Any], *, team: Team, user: User | None) -> QuerySet:
-    """Apply a canonical TicketViewFilters mapping to a Ticket queryset and order it.
-
-    `filters` must already be validated/normalized, either by TicketViewFiltersSerializer
-    (saved-view path) or by query_params_to_view_filters (flat-param path).
-    """
+def _apply_column_filters(queryset: QuerySet, filters: Mapping[str, Any]) -> QuerySet:
     statuses = filters.get("status") or []
     if statuses:
         queryset = queryset.filter(status__in=statuses)
@@ -478,33 +483,47 @@ def apply_ticket_filters(queryset: QuerySet, filters: Mapping[str, Any], *, team
     channel = filters.get("channel")
     if channel and channel != "all":
         queryset = queryset.filter(channel_source=channel)
+    return queryset
 
+
+def _apply_sla_filter(queryset: QuerySet, filters: Mapping[str, Any]) -> QuerySet:
     sla = filters.get("sla")
-    if sla and sla != "all":
-        now = timezone.now()
-        if sla == "breached":
-            queryset = queryset.filter(sla_due_at__lt=now)
-        elif sla == "at-risk":
-            queryset = queryset.filter(sla_due_at__gte=now, sla_due_at__lte=now + timedelta(hours=1))
-        elif sla == "on-track":
-            queryset = queryset.filter(sla_due_at__gt=now + timedelta(hours=1))
+    if not sla or sla == "all":
+        return queryset
+    now = timezone.now()
+    if sla == "breached":
+        return queryset.filter(sla_due_at__lt=now)
+    if sla == "at-risk":
+        return queryset.filter(sla_due_at__gte=now, sla_due_at__lte=now + timedelta(hours=1))
+    if sla == "on-track":
+        return queryset.filter(sla_due_at__gt=now + timedelta(hours=1))
+    return queryset
 
+
+def _apply_triage_filter(queryset: QuerySet, filters: Mapping[str, Any]) -> QuerySet:
     triage_results = set(filters.get("aiTriageResult") or [])
-    if triage_results:
-        triage_q = Q()
-        normal_results = triage_results - {"in_progress"}
-        if normal_results:
-            triage_q |= Q(ai_triage__result__in=normal_results)
-        if "in_progress" in triage_results:
-            triage_q |= Q(ai_triage__status="in_progress")
-        queryset = queryset.filter(triage_q)
+    if not triage_results:
+        return queryset
+    triage_q = Q()
+    normal_results = triage_results - {"in_progress"}
+    if normal_results:
+        triage_q |= Q(ai_triage__result__in=normal_results)
+    if "in_progress" in triage_results:
+        triage_q |= Q(ai_triage__status="in_progress")
+    return queryset.filter(triage_q)
 
+
+def _apply_assignee_filter(queryset: QuerySet, filters: Mapping[str, Any], user: User | None) -> QuerySet:
     assignee_entries = normalize_assignee_filter(filters.get("assignee"))
-    if assignee_entries:
-        assignee_q = _assignee_filter_q(assignee_entries, user)
-        if assignee_q:
-            queryset = queryset.filter(assignee_q)
+    if not assignee_entries:
+        return queryset
+    assignee_q = _assignee_filter_q(assignee_entries, user)
+    if assignee_q:
+        queryset = queryset.filter(assignee_q)
+    return queryset
 
+
+def _apply_tag_filters(queryset: QuerySet, filters: Mapping[str, Any]) -> QuerySet:
     tags = [str(tag) for tag in filters.get("tags") or []][:MAX_TAG_FILTER_VALUES]
     if tags:
         if filters.get("tagsMatch") == "all":
@@ -524,7 +543,10 @@ def apply_ticket_filters(queryset: QuerySet, filters: Mapping[str, Any], *, team
     tags_exclude = [str(tag) for tag in filters.get("tagsExclude") or []][:MAX_TAG_FILTER_VALUES]
     if tags_exclude:
         queryset = queryset.exclude(tagged_items__tag__name__in=tags_exclude)
+    return queryset
 
+
+def _apply_date_filters(queryset: QuerySet, filters: Mapping[str, Any], team: Team) -> QuerySet:
     date_from = filters.get("dateFrom")
     if date_from and date_from != "all":
         parsed = relative_date_parse(date_from, team.timezone_info)
@@ -536,6 +558,21 @@ def apply_ticket_filters(queryset: QuerySet, filters: Mapping[str, Any], *, team
         parsed = relative_date_parse(date_to, team.timezone_info)
         if parsed:
             queryset = queryset.filter(updated_at__lte=parsed)
+    return queryset
+
+
+def apply_ticket_filters(queryset: QuerySet, filters: Mapping[str, Any], *, team: Team, user: User | None) -> QuerySet:
+    """Apply a canonical TicketViewFilters mapping to a Ticket queryset and order it.
+
+    `filters` must already be validated/normalized, either by TicketViewFiltersSerializer
+    (saved-view path) or by query_params_to_view_filters (flat-param path).
+    """
+    queryset = _apply_column_filters(queryset, filters)
+    queryset = _apply_sla_filter(queryset, filters)
+    queryset = _apply_triage_filter(queryset, filters)
+    queryset = _apply_assignee_filter(queryset, filters, user)
+    queryset = _apply_tag_filters(queryset, filters)
+    queryset = _apply_date_filters(queryset, filters, team)
 
     search = filters.get("search")
     if search and len(search) <= MAX_SEARCH_LENGTH:
