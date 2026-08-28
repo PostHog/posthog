@@ -11,7 +11,7 @@ from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
-from products.skills.backend.api.skill_serializers import RESERVED_SKILL_NAMES
+from products.skills.backend.api.skill_serializers import RESERVED_SKILL_NAMES, SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
@@ -146,6 +146,7 @@ class GetSkillFileArgs(BaseModel):
 class CreateSkillArgs(BaseModel):
     name: str = Field(description="Kebab-case skill name. <=64 chars. Must be unique within the team.")
     description: str = Field(
+        max_length=SPEC_DESCRIPTION_MAX_LENGTH,
         description="Short summary explaining what the skill does and when agents should pick it. <=1024 chars.",
     )
     body: str = Field(description="SKILL.md instructions as markdown. Treated as system instructions when invoked.")
@@ -184,7 +185,11 @@ class UpdateSkillArgs(BaseModel):
             "Each entry: {old, new}. 'old' must match exactly once. Mutually exclusive with 'body'."
         ),
     )
-    description: str | None = Field(default=None, description="Optional new description.")
+    description: str | None = Field(
+        default=None,
+        max_length=SPEC_DESCRIPTION_MAX_LENGTH,
+        description="Optional new description. <=1024 chars.",
+    )
     license: str | None = Field(default=None, description="Optional new license.")
     compatibility: str | None = Field(default=None, description="Optional new compatibility string.")
     allowed_tools: list[str] | None = Field(default=None, description="Optional replacement for allowed_tools.")
