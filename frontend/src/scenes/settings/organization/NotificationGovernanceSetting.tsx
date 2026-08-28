@@ -83,7 +83,7 @@ function MemberNotifications(): JSX.Element {
             ))}
 
             {pendingChangeCount > 0 && (
-                <div className="sticky bottom-0 flex items-center justify-between gap-2 border rounded p-3 bg-surface-primary">
+                <div className="sticky bottom-0 z-10 flex items-center justify-between gap-2 border rounded p-3 bg-surface-primary">
                     <span className="text-sm">
                         {pluralize(pendingChangeCount, 'change')} pending for {pluralize(affectedMemberCount, 'member')}
                     </span>
