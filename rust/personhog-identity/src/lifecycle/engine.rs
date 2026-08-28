@@ -338,9 +338,8 @@ impl Engine {
                 if claim_attempt.is_some() {
                     // We drove it over the line (vs attaching to an op that
                     // was already done). A driver whose lease was stolen
-                    // between its last renewal and this reload still counts
-                    // here alongside the stealer — a narrow double-count
-                    // accepted because attributing the terminal CAS would
+                    // before this reload double-counts alongside the stealer
+                    // — accepted, since attributing the terminal CAS would
                     // cost a verification query per completion.
                     common_metrics::inc(
                         OPS_COMPLETED_TOTAL,

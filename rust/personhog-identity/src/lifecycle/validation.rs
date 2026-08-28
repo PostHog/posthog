@@ -65,12 +65,10 @@ static CASE_INSENSITIVE_ILLEGAL_IDS: LazyLock<HashSet<String>> =
 static CASE_SENSITIVE_ILLEGAL_IDS: LazyLock<HashSet<String>> =
     LazyLock::new(|| with_quoted(BARE_CASE_SENSITIVE_ILLEGAL_IDS));
 
-/// Whether JavaScript's `String.prototype.trim` would strip this char:
-/// ECMAScript WhiteSpace (TAB VT FF SP NBSP ZWNBSP + Space_Separator) plus
-/// LineTerminator (LF CR LS PS). Deliberately NOT Rust's `str::trim`, whose
-/// Unicode White_Space set also strips U+0085 (NEL) — a char JS keeps. The
-/// two sides must agree on which ids are illegal, or an id one side accepts
-/// draws a whole-request INVALID_ARGUMENT from the other on every delivery.
+/// Whether JavaScript's `String.prototype.trim` would strip this char —
+/// deliberately NOT Rust's `str::trim`, which also strips U+0085 (NEL), a
+/// char JS keeps. The two sides must agree on which ids are illegal, or an
+/// id one side accepts draws INVALID_ARGUMENT from the other forever.
 fn is_js_whitespace(c: char) -> bool {
     matches!(
         c,

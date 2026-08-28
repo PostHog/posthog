@@ -196,11 +196,9 @@ const ROLE_SOURCE: &str = "source";
 
 /// Cap on concurrent leader RPCs per fan-out (fence, release): a bulk
 /// merge must not burst the router with one in-flight call per source.
-/// Liveness bound, not a deadline: a worst-case-wide merge under a
-/// degraded leader (250 sources at the full per-call timeout) outlives
-/// any single client attempt, the engine checks its deadline only
-/// between steps, and the cancelled fan-out restarts from an idempotent
-/// re-seal — the merge completes only once per-call latency recovers.
+/// A worst-case fan-out under a degraded leader outlives any single
+/// client attempt; the cancelled fan-out restarts from an idempotent
+/// re-seal, so this is a liveness bound rather than a deadline.
 const LEADER_CALL_CONCURRENCY: usize = 8;
 
 const STEPS_TOTAL: &str = "personhog_lifecycle_merge_steps_total";
@@ -1042,16 +1040,9 @@ impl MergeDriver {
     }
 
     /// Back the op out after a pre-flip refusal: release the live
-    /// sources' fences (an aborted release cannot itself be refused),
-    /// settle the marks, and complete as aborted. No person is
-    /// destroyed before the flip, so unwinding is safe; a refusal after
-    /// the flip has no undo and parks instead. One qualifier: a fold
-    /// that landed at the leader before its driver crashed short of the
-    /// step CAS has already moved the sources' properties into the
-    /// target, and a definitive refusal on the re-drive aborts over it —
-    /// the target keeps those folded properties while the verdict says
-    /// nothing merged. Sources and their ids are intact, so this is
-    /// recorded divergence, not loss; the parity ledger carries it.
+    /// sources' fences, settle the marks, and complete as aborted. No
+    /// person is destroyed before the flip, so unwinding is safe; a
+    /// refusal after the flip has no undo and parks instead.
     async fn abort_refused(
         &self,
         pool: &PgPool,
@@ -1091,16 +1082,11 @@ impl MergeDriver {
         )
         .execute(&mut *tx)
         .await?;
-        // Every status that reaches this abort is a slugged semantic
-        // refusal: `SagaError::leader` mints `LeaderRefused` for nothing
-        // else, and a fence held by another op bounces as a bare
-        // FAILED_PRECONDITION the router retries and exhausts into
-        // UNAVAILABLE — transient at the step, never an abort. A slugged
-        // refusal (a missing lifecycle database, a dead target mark) is a
-        // definitive verdict no retry meets differently; recording it as
-        // a conflict would send the caller through salted retries that
-        // abort identically and then misfile the loss as a claim race,
-        // hiding a configuration error behind a contention counter.
+        // Every status reaching this abort is a slugged semantic refusal;
+        // fence contention bounces as bare FAILED_PRECONDITION and
+        // exhausts into UNAVAILABLE, transient at the step, never an
+        // abort. Recording a refusal as a conflict would misfile a
+        // configuration error as claim contention behind salted retries.
         let outcome = build_outcome(&mut tx, op, Some(OUTCOME_SKIPPED_REFUSED)).await?;
         if !complete_op_in_tx(
             &mut tx,
@@ -1115,11 +1101,9 @@ impl MergeDriver {
             return Ok(());
         }
         tx.commit().await?;
-        // The abort is attributed the moment it commits: a failed release
-        // below returns an error for an op that is already terminal, and
-        // nothing retries it, so counting or logging afterwards would lose
-        // this abort's attribution permanently on exactly the path that
-        // leaves ghost fences behind.
+        // Attribute the abort the moment it commits: a failed release
+        // below leaves the op terminal with nothing retrying it, losing
+        // the attribution on exactly the path that leaves ghost fences.
         tracing::error!(
             op_id = %op.op_id,
             step = %from_step.as_str(),
@@ -1129,15 +1113,11 @@ impl MergeDriver {
         );
         record_transition(from_step.as_str(), STEP_ABORTED);
         record_outcomes(&outcome);
-        // Releases run only after the completing CAS committed: the CAS
-        // succeeding proves this driver still owned the op, so no stealer
-        // has advanced it and these fences are ours to drop. Releasing
-        // first would let a stale driver unfence sources a stealer's flip
-        // still needs held. A crash between the commit and the releases —
-        // or a release call that fails, since retries attach to the
-        // completed row and never re-release — leaves fences whose marks
-        // are settled: ghosts the leader's lazy healer clears on the next
-        // bounced write.
+        // Releases run only after the completing CAS committed: success
+        // proves this driver still owned the op, so no stealer's flip
+        // needs these fences held. A crash or failed release after the
+        // commit leaves ghosts on settled marks, which the leader's lazy
+        // healer clears on the next bounced write.
         self.release_fences(op, &pairs).await?;
         Ok(())
     }
@@ -1224,13 +1204,10 @@ async fn settle_drops(
             continue;
         };
         if vanished.contains(&person_id) {
-            // A vanished source records error. When the whole seal then
-            // falls out and aborts, this becomes the one aborted outcome
-            // whose sources say error rather than a skipped verdict; the
-            // caller's fold guard treats error-without-merged as an abort,
-            // so that shape cannot read as executed, and renaming it here
-            // would churn the vocabulary for an arm the seal already logs
-            // as an anomaly.
+            // A vanished source records error. If the whole seal then
+            // falls out and aborts, the caller's fold guard reads
+            // error-without-merged as an abort, so this shape cannot read
+            // as executed.
             disposition.decision = OUTCOME_ERROR.to_string();
         } else if identified.contains(&person_id) {
             disposition.decision = OUTCOME_SKIPPED_ALREADY_IDENTIFIED.to_string();
@@ -1322,15 +1299,11 @@ impl MergeDriver {
                     SagaError::LeaderRefused(status) => {
                         // 'fold-unverified' has two provenances the row
                         // tells apart. If the op advanced under this
-                        // drive's stale claim — another driver flipped or
-                        // aborted it — aborting would release fences the
-                        // advancing driver still needs held between its
-                        // flip and its death documents, where an acked
-                        // write could land and be destroyed; Busy sends the
-                        // caller's retry back through attach, which reads
-                        // the row's truth. If the row is still ours and
-                        // live, the target mark itself is gone bad, and the
-                        // pre-flip abort unwinds our own work safely.
+                        // drive's stale claim, aborting would release
+                        // fences the advancing driver still needs held, so
+                        // Busy sends the retry back through attach; if the
+                        // row is still ours and live, the target mark went
+                        // bad and the pre-flip abort unwinds safely.
                         if personhog_common::grpc::semantic_refusal_reason(&status)
                             == Some("fold-unverified")
                             && op_moved_on(pool, op).await?
@@ -1453,14 +1426,11 @@ async fn flip(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), 
     .await?;
     sources.sort_unstable();
 
-    // Take every row lock this transaction will need up front, in id order,
-    // before the multi-row updates below. Those statements acquire locks in
-    // whatever order the query plan visits rows, and the writer's flush
-    // upsert spans overlapping persons in one statement — uncontrolled
-    // order on either side is a deadlock cycle waiting for load. Sorted
-    // acquisition on both sides (the writer sorts its flush batches the
-    // same way) makes a cycle impossible; unmap takes the same locks for
-    // the same reason.
+    // Take every row lock up front, in id order: the updates below lock
+    // in plan order and the writer's flush upsert spans overlapping
+    // persons, so uncontrolled order is a deadlock cycle under load.
+    // Sorted acquisition on both sides (the writer sorts its flush
+    // batches; unmap does the same) makes a cycle impossible.
     let lock_persons_sql = format!(
         "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE",
         person_table = tables.person,
@@ -1652,13 +1622,8 @@ async fn move_hash_key_overrides(
 }
 
 /// Scrub and tombstone the sealed source person rows at the death version
-/// the leader derives from the same seal (sealed + 1; the leader
-/// max-merges with its current version as defense in depth), so a reused
-/// key revives above it. The fence seals at the leader's emitted-version
-/// floor, so a spent-but-unconfirmed version is covered while the floor
-/// lives; the residual is that the floor is per-pod in-memory, so a
-/// version spent by a previous leader incarnation (a restart or a
-/// handoff) can still sit above the seal.
+/// the leader derives from the same seal (sealed + 1), so a reused key
+/// revives above it.
 async fn tombstone_sealed_sources(
     tx: &mut Tx<'_>,
     tables: &IdentityTables,

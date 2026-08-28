@@ -111,9 +111,9 @@ impl MergeEntrance {
             let row = self.ops.execute(op_id, row.team_id, &frozen).await?;
             let delivered = self.deliver_aborted_writes(&request, &row).await?;
             // Drives the recorded op with its own frozen request, so a
-            // terminal row is reproduced rather than reclassified and a
-            // non-terminal one is resumed. The event's own properties are
-            // applied only where the op aborted; see deliver_aborted_writes.
+            // terminal row is reproduced rather than reclassified. The
+            // event's properties apply only where the op aborted; see
+            // deliver_aborted_writes.
             return merge_response(&row, delivered);
         }
 
@@ -334,12 +334,10 @@ impl MergeEntrance {
     ) -> Result<Option<ProtoPerson>, Status> {
         let flip = flip_identified && !survivor.is_identified;
         // A person the establish path just birthed records the event that
-        // created it, which is what the Postgres backend writes at creation.
-        // Only here: that backend stamps it once and never afterwards, so a
-        // survivor that already existed must not gain one. It travels in
-        // $set rather than on the stub row because a stub is written
-        // straight to Postgres and never reaches the leader's changelog,
-        // which is the same reason the stub is born unidentified.
+        // created it, matching the Postgres backend's stamp-once-at-creation
+        // behavior; a survivor that already existed must not gain one. It
+        // travels in $set because a stub row never reaches the leader's
+        // changelog.
         let stamp_creator = was_born && !request.creator_event_uuid.is_empty();
         if request.event_set.is_empty()
             && request.event_set_once.is_empty()
@@ -482,10 +480,9 @@ impl MergeEntrance {
 }
 
 /// The event's `$set` map with `$creator_event_uuid` added, for a person
-/// the establish path just birthed. Rides `$set` and overwrites, because
-/// the Postgres backend spreads the key last over both of the event's maps
-/// at creation: the property names the event that created the person, so
-/// an event carrying its own value for that key does not get to decide it.
+/// the establish path just birthed. It overwrites because the property
+/// names the event that created the person, so an event carrying its own
+/// value for the key does not get to decide it.
 // See `MergeEntrance::handle` for why result_large_err is allowed.
 #[allow(clippy::result_large_err)]
 fn with_creator_event_uuid(set: &[u8], creator_event_uuid: &str) -> Result<Vec<u8>, Status> {
@@ -546,20 +543,12 @@ fn merge_original(
     })
 }
 
-/// Fields that describe how a merge runs rather than which merge it is.
-///
-/// All three drift between two deliveries of one event, so refusing on them
-/// would turn an ordinary redelivery into a permanent FAILED_PRECONDITION.
-/// `created_at` comes from the event timestamp, which ingestion derives from
-/// the wall clock when the event carries none, and the two property fields
-/// carry values later pipeline stages refresh.
-///
-/// Excluded from the comparison, not ignored: a replay of an aborted op
-/// still delivers the event's properties, taking the incoming ones so the
-/// latest delivery wins.
-///
-/// `move_limit` is deliberately not stripped, since the client folds it into
-/// the op id, so a same-id call with a different limit is a real mismatch.
+/// Fields that describe how a merge runs rather than which merge it is:
+/// all three legitimately drift between deliveries of one event, so
+/// refusing on them would turn an ordinary redelivery into a permanent
+/// FAILED_PRECONDITION. Excluded from the comparison, not ignored (a
+/// replay still delivers the incoming properties); `move_limit` stays in
+/// the comparison because the client folds it into the op id.
 const MERGE_PARAMETERS: [&str; 3] = ["created_at", "event_set", "event_set_once"];
 
 /// Whether a retry is describing the merge the recorded op performed.
@@ -684,9 +673,8 @@ fn merge_response(
                 source_distinct_id: did.clone(),
                 outcome: outcome_enum(outcome).into(),
                 // Only a merged source names a person, because only that
-                // person is permanently gone. Every other verdict either
-                // destroys nothing or names one still live — including
-                // noop_same_person, whose id is the survivor's.
+                // person is permanently gone; every other verdict names one
+                // still live.
                 source_person_id: match outcome {
                     OUTCOME_MERGED => record.and_then(|r| r.person_id),
                     _ => None,
@@ -703,17 +691,11 @@ fn merge_response(
             .map(|s| survivor_to_proto(s, row.team_id))
             .or(delivered),
         results,
-        // Not always true: establish_target skips ineligible sources when it
-        // picks a survivor, while the classification loop routes any source
-        // that resolved elsewhere to the saga, so an unresolved target with
-        // an already-identified source both births and runs a saga. The op
-        // row does not record which, and a resume has only the row, so the
-        // answer is the safe one — the caller runs its follow-up update.
-        // Costs that newborn its $creator_event_uuid, which only the inline
-        // path stamps. With one source there is no Postgres person to
-        // compare it against, since that backend attaches the unresolved id
-        // to the identified person rather than creating anyone; with several
-        // it routes through its fold and the comparison is untested.
+        // Not always true: an unresolved target with an already-identified
+        // source both births and runs a saga, and the op row does not record
+        // which, so a resume answers the safe way and the caller runs its
+        // follow-up update. Costs that newborn its $creator_event_uuid,
+        // which only the inline path stamps.
         survivor_was_born: false,
     })
 }

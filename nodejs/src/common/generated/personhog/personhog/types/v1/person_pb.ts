@@ -1039,14 +1039,11 @@ export type FencePersonRequest = Message<'personhog.types.v1.FencePersonRequest'
 
     /**
      * The uuid of the event whose merge installed this fence, echoed on
-     * fenced-write rejections as `x-person-fenced-creator`. Where op_id is
-     * derived (and salted across conflict retries), this is the stable
-     * identity of the event behind it, which attributes the fence in logs
-     * and lets a caller holding the same event classify the fence as a
-     * sibling of its own work. It cannot decide ownership: one event owns
-     * several operations (a fold and its per-event fallback merges), and
-     * only the op id names which one. Advisory: empty for delete ops and
-     * for callers that do not send it, and the leader never branches on it.
+     * fenced-write rejections as `x-person-fenced-creator`: the stable
+     * identity behind a salted op_id, letting a caller holding the same
+     * event classify the fence as a sibling of its own work. Advisory only
+     * — one event owns several operations, so ownership keys on the op id;
+     * empty for delete ops, and the leader never branches on it.
      *
      * @generated from field: string creator_event_uuid = 5;
      */

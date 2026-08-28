@@ -273,12 +273,11 @@ async fn raw_proxy_update_person_properties_routes_to_leader() {
     assert_eq!(result.person.unwrap().version, test_person.version + 1);
 }
 
-/// A person-lifecycle fence is the one refusal whose holder the caller can
-/// act on: ingestion recognises its own merge's op id and drives it to
-/// completion, where any other holder means back off. The router classifies
-/// the leader's FAILED_PRECONDITION as a transient bounce and answers with
-/// its own UNAVAILABLE once the retries run out, so unless the fence keys
-/// ride along, the one fact the caller needs is discarded in transit.
+/// A lifecycle fence is the one refusal whose holder the caller can act
+/// on: ingestion recognises its own merge's op id and drives it to
+/// completion. The router exhausts the bounce into its own UNAVAILABLE, so
+/// unless the fence keys ride along, the one fact the caller needs is
+/// discarded in transit.
 #[tokio::test]
 async fn raw_proxy_exhausted_person_fence_bounce_names_the_holder() {
     let test_person = create_test_person();
@@ -331,12 +330,10 @@ async fn raw_proxy_exhausted_person_fence_bounce_names_the_holder() {
     );
 }
 
-/// A fence refusal names the operation holding the person, and callers act
-/// on that: recognising somebody else's operation is a settled answer they
-/// ack rather than retry. Those keys must therefore describe the bounce that
-/// actually ended the request. Carrying them forward from an earlier attempt
-/// reports a dead leader as a person held by someone else, and the caller
-/// acks a merge that never happened.
+/// Callers ack rather than retry a fence naming somebody else's operation,
+/// so the keys must describe the bounce that actually ended the request.
+/// Carried forward from an earlier attempt, they report a dead leader as a
+/// held person and the caller acks a merge that never happened.
 #[tokio::test]
 async fn raw_proxy_a_dead_leader_after_a_fence_is_not_reported_as_fenced() {
     let test_person = create_test_person();

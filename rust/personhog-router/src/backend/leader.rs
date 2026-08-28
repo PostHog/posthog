@@ -109,14 +109,10 @@ pub enum ForwardDecision {
     },
     Bounced(BounceReason),
     /// Any non-semantic FAILED_PRECONDITION, carrying the refusal's own
-    /// metadata. Most are partition-level refusals during a handoff and
-    /// carry no person keys at all; the case the metadata exists for is a
-    /// person held by a lifecycle op. Such a fence never clears on its own —
-    /// only an explicit retry from the caller driving that op resumes it —
-    /// so when the retries run out, the identity of the holder is the one
-    /// thing that lets that caller tell "keep waiting" from "this one is
-    /// mine to finish". Bouncing without it hands back generic retry advice
-    /// that is wrong for the only party who can act on it.
+    /// metadata. The metadata exists for a person held by a lifecycle op:
+    /// such a fence resumes only on an explicit retry from the caller
+    /// driving that op, so the holder's identity is what lets that caller
+    /// tell "keep waiting" from "this one is mine to finish".
     BouncedFenced {
         headers: HeaderMap,
     },
@@ -498,14 +494,11 @@ impl LeaderBackend {
                             },
                         );
                         // Only the fence keys travel, and only from the
-                        // bounce that actually ended the request. The caller
-                        // reads them to recognise its own operation, and
-                        // every other header on the refusal belongs to a
-                        // response we are not forwarding. Taking them from
-                        // this decision rather than a remembered one is what
-                        // keeps a leader that died after being fenced from
-                        // coming back labelled as a person somebody holds —
-                        // a verdict callers ack rather than retry.
+                        // bounce that actually ended the request: taking
+                        // them from this decision rather than a remembered
+                        // one keeps a leader that died after being fenced
+                        // from coming back labelled as held — a verdict
+                        // callers ack rather than retry.
                         if let ForwardDecision::BouncedFenced { headers: fence } = &decision {
                             for key in [
                                 FENCED_METADATA_KEY,

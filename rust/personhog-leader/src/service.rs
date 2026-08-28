@@ -353,14 +353,10 @@ impl PersonHogLeaderService {
     ) -> Result<Arc<CachedPerson>, Status> {
         let Some(fallback) = &self.fallback else {
             // With no fallback pool a cache miss is answered as absence,
-            // which conflates "cannot see Postgres" with "destroyed":
-            // ingestion treats NotFound as an authoritative death signal
-            // and holds a 25-hour destroyed mark on it. A pool-less
-            // deployment is therefore only safe where the cache is the
-            // whole world; production always configures the pool, and the
-            // ingestion death-stamp counter's site label is what
-            // attributes a poisoning if this ever answers for a live
-            // person.
+            // conflating "cannot see Postgres" with "destroyed" — ingestion
+            // treats NotFound as an authoritative death signal and holds a
+            // 25-hour destroyed mark on it. Only safe where the cache is
+            // the whole world; production always configures the pool.
             return Err(Status::not_found(format!(
                 "person not found: team_id={}, person_id={}",
                 key.team_id, key.person_id
