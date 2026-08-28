@@ -95,6 +95,11 @@ def run_started_floor_constant(window_start: datetime) -> ast.Constant:
 # realistic re-run latency ("re-run on Monday what failed on Friday") and still turns an all-time jobs
 # scan into a bounded one. It is a bound, not a proof: a re-run older than this loses its earlier
 # attempts from the window's cost, which is the coarseness the floor trades for the scan.
+#
+# The same wide floor applies to any query that EXCLUDES re-run copies, whichever clock it windows:
+# the copy is only recognisable while its original attempt is inside the scan, so a tight floor under a
+# late re-run would turn the copy back into an execution. Queries that keep copies (red/green reads)
+# can use the tight floor.
 _JOB_FLOOR_SLACK_ON_JOB_CREATED = timedelta(days=1)
 _JOB_FLOOR_SLACK_ON_RUN_STARTED = timedelta(days=7)
 

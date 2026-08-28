@@ -9,8 +9,8 @@ DevEx Depot cost tooling already uses (list price, per-vCPU multiplier ladder).
 Billed, not wall-clock: GitHub stamps ``started_at`` when Depot accepts the job, and the
 machine then boots before the first step runs. Depot bills only the time after the job
 started running, so the elapsed every function here takes is ``billed_elapsed_seconds``
--- wall-clock minus that provisioning. It is ~23s per job on ``PostHog/posthog`` (~4-5%
-of billed minutes), which is why the correction sits in the model rather than being
+-- wall-clock minus that provisioning. It is tens of seconds per job, a few percent of
+billed minutes at scale, which is why the correction sits in the model rather than being
 waved off as noise.
 
 GitHub/Depot specifics (the ``depot-*`` label shapes, the rate ladder) live here in

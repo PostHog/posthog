@@ -5,7 +5,7 @@ and renders the Depot cost model from ``logic.cost`` as ClickHouse expressions, 
 ``provider`` / ``os`` / ``vcpu`` / ``multiplier`` / ``billable_seconds`` / ``estimated_cost_usd``
 are computed at query time from the same constants the Python model uses. Cost runs off Depot's
 billed clock, which starts at the job's first step rather than at ``started_at`` (GitHub stamps that
-when Depot accepts the job, ~23s before the machine has booted); ``duration_seconds`` stays the full
+when Depot accepts the job, before the machine has booted); ``duration_seconds`` stays the full
 wall-clock window the duration and queue reads want. The cost model stays
 defined once in ``logic.cost``; this module only wires its rendered expressions over the join.
 
@@ -13,7 +13,7 @@ Rows are kept for every job attempt the source landed, including the ones GitHub
 later attempt without re-running them ("Re-run failed jobs" copies — see the ``workflow_jobs``
 builder). Dropping them would make this view disagree with ``ci_job_history`` on what a run contains,
 so instead they are flagged ``is_rerun_copy`` and carry no cost: nothing executed, so Depot billed
-nothing, and counting them over-reported this repo's CI spend by ~2.6%.
+nothing, and counting them over-reported CI spend by a few percent.
 
 ``build_query`` produces the SELECT for one GitHub source; ``build_team_view`` unions every
 qualifying source into the single view body. The join is a LEFT JOIN (all jobs are kept — a job

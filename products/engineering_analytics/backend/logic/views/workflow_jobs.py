@@ -14,18 +14,17 @@ JSON with ``ifNull``; the outer SELECT derives the durations and the copy flag o
 **``provisioning_seconds`` — the VM boot Depot does not bill.** GitHub stamps a job's ``started_at``
 the moment Depot accepts it, but the machine then boots before the first step ("Set up job") runs, and
 Depot bills only the time after the job started running, not provisioning. The gap is the job's
-``started_at`` to its first step's ``started_at``: ~23s per job measured over 95K ``PostHog/posthog``
-jobs, ~4-5% of billed minutes (the tail at the other end is negligible — last step to ``completed_at``
-averages 2s). NULL when the ``steps`` payload is missing or empty, which ``logic.cost`` reads as "don't
+``started_at`` to its first step's ``started_at`` — tens of seconds per job, a few percent of billed
+minutes at scale (the tail at the other end, last step to ``completed_at``, is negligible). NULL when the ``steps`` payload is missing or empty, which ``logic.cost`` reads as "don't
 correct" — an under-correction, never an over-correction. ``duration_seconds`` stays the full
 wall-clock, because that is what queue and duration UX is about; only cost reads this.
 
 **``is_rerun_copy`` — rows for jobs that never executed.** "Re-run failed jobs" re-lists every job
 that already passed under the new ``run_attempt``: new job ids, but ``started_at`` / ``completed_at``
-copied verbatim from the attempt that actually ran (verified on ``PostHog/posthog`` run 32837341242,
-where attempt 2 lists 81 jobs of which 80 are copies; GitHub's ``filter=latest`` returns them too, so
+copied verbatim from the attempt that actually ran (a partial re-run of a large matrix re-lists every
+passed job and re-runs only the failed ones; GitHub's ``filter=latest`` returns the re-listings too, so
 the source can't drop them). Those rows are re-listings, not executions — nothing ran and Depot billed
-nothing — and on this repo they are ~2.6% of job rows and minutes. A row is a copy when the same
+nothing — and they are a few percent of job rows and minutes. A row is a copy when the same
 ``(run_id, name, started_at, completed_at)`` exists at a LOWER ``run_attempt``, which is the window
 below. Consumers counting executions (cost, retry pressure, duration percentiles) must exclude them;
 the flag is defined here so nobody re-derives it.
