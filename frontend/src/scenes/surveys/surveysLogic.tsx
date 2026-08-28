@@ -480,7 +480,7 @@ export const surveysLogic = kea<surveysLogicType>([
             source: SURVEY_CREATED_SOURCE
         ) => ({ toolOutput, source }),
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, cache }) => ({
         data: {
             __default: {
                 surveys: [] as Survey[],
@@ -489,20 +489,32 @@ export const surveysLogic = kea<surveysLogicType>([
                 searchSurveysCount: 0,
             } as SurveyDataState,
             loadSurveys: async () => {
+                const requestId = (cache.surveyListRequestSequence = (cache.surveyListRequestSequence ?? 0) + 1)
                 const response = await api.surveys.list(getSurveyListParams(values.filters))
+                if (requestId !== cache.surveyListRequestSequence) {
+                    return values.data
+                }
                 loadResponseCountsForSurveys(actions.loadResponsesCount, response.results)
                 return mergeSurveysData(values.data, response)
             },
             loadNextPage: async () => {
+                const requestId = (cache.surveyListRequestSequence = (cache.surveyListRequestSequence ?? 0) + 1)
                 const offset = values.data.surveys.length
                 const response = await api.surveys.list(getSurveyListParams(values.filters, undefined, offset))
+                if (requestId !== cache.surveyListRequestSequence) {
+                    return values.data
+                }
 
                 loadResponseCountsForSurveys(actions.loadResponsesCount, response.results)
                 return mergeSurveysData(values.data, response, true)
             },
             loadSearchResults: async (options: { debounce?: boolean } | undefined, breakpoint) => {
+                const requestId = (cache.surveyListRequestSequence = (cache.surveyListRequestSequence ?? 0) + 1)
                 if (options?.debounce) {
                     await breakpoint(300)
+                }
+                if (requestId !== cache.surveyListRequestSequence) {
+                    return values.data
                 }
                 const trimmedSearchTerm = values.searchTerm?.trim() || ''
                 if (trimmedSearchTerm === '') {
@@ -511,13 +523,20 @@ export const surveysLogic = kea<surveysLogicType>([
 
                 const response = await api.surveys.list(getSurveyListParams(values.filters, trimmedSearchTerm))
                 breakpoint()
+                if (requestId !== cache.surveyListRequestSequence) {
+                    return values.data
+                }
 
                 loadResponseCountsForSurveys(actions.loadResponsesCount, response.results)
                 return mergeSearchSurveysData(values.data, response)
             },
             loadNextSearchPage: async () => {
+                const requestId = (cache.surveyListRequestSequence = (cache.surveyListRequestSequence ?? 0) + 1)
                 const offset = values.data.searchSurveys.length
                 const response = await api.surveys.list(getSurveyListParams(values.filters, values.searchTerm, offset))
+                if (requestId !== cache.surveyListRequestSequence) {
+                    return values.data
+                }
 
                 loadResponseCountsForSurveys(actions.loadResponsesCount, response.results)
                 return mergeSearchSurveysData(values.data, response, true)

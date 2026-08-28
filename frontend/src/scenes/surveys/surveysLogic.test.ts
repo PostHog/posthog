@@ -1,5 +1,8 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import api, { CountedPaginatedResponse } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -31,6 +34,14 @@ const createTestSurvey = (id: string, name: string): Survey => ({
     schedule: SurveySchedule.Once,
     user_access_level: AccessControlLevel.Editor,
 })
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((promiseResolve) => {
+        resolve = promiseResolve
+    })
+    return { promise, resolve }
+}
 
 describe('surveysLogic', () => {
     describe('search functionality', () => {
@@ -163,6 +174,31 @@ describe('surveysLogic', () => {
             expect(params?.get('status')).toEqual('running')
             expect(params?.get('type')).toEqual(SurveyType.Widget)
             expect(params?.get('limit')).toEqual('100')
+        })
+
+        it('keeps the latest filtered results when requests finish out of order', async () => {
+            const olderRequest = deferred<CountedPaginatedResponse<Survey>>()
+            const newerRequest = deferred<CountedPaginatedResponse<Survey>>()
+            const olderSurvey = createTestSurvey('older', 'Older filter result')
+            const newerSurvey = createTestSurvey('newer', 'Newer filter result')
+            const listSpy = jest
+                .spyOn(api.surveys, 'list')
+                .mockImplementationOnce(() => olderRequest.promise)
+                .mockImplementationOnce(() => newerRequest.promise)
+
+            logic.actions.setSurveysFilters({ created_by: 41 })
+            logic.actions.setSurveysFilters({ created_by: 42 })
+
+            expect(listSpy).toHaveBeenNthCalledWith(1, expect.objectContaining({ created_by: 41 }))
+            expect(listSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ created_by: 42 }))
+
+            newerRequest.resolve({ count: 1, results: [newerSurvey] })
+            await waitFor(() => expect(logic.values.data.surveys).toEqual([newerSurvey]))
+
+            olderRequest.resolve({ count: 1, results: [olderSurvey] })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.data.surveys).toEqual([newerSurvey])
         })
 
         it('loads response counts for each page and merges them', async () => {
