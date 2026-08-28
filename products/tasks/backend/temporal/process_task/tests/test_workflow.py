@@ -34,6 +34,7 @@ from products.tasks.backend.temporal.process_task import workflow as process_tas
 from products.tasks.backend.temporal.process_task.activities import (
     STEER_DECLINED_OUTCOME,
     CleanupSandboxInput,
+    CloneRepositoryInSandboxOutput,
     CompleteRunStreamInput,
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
@@ -2401,7 +2402,7 @@ class TestProcessTaskWorkflowUnit:
             if activity_fn is clone_repository_in_sandbox:
                 cloned.append(args[0].repository)
                 clone_options[args[0].repository] = kwargs
-                return None
+                return CloneRepositoryInSandboxOutput(clone_ms=10, clone_strategy="shallow_blobless")
             if activity_fn is emit_progress_activity:
                 return None
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
@@ -2416,7 +2417,8 @@ class TestProcessTaskWorkflowUnit:
         assert clone_options["posthog/posthog"]["retry_policy"].maximum_attempts == 3
         assert clone_options["posthog/code"]["start_to_close_timeout"] == timedelta(minutes=5)
         assert clone_options["posthog/code"]["retry_policy"].maximum_attempts == 3
-        assert result.clone_ms is None
+        assert result.clone_ms == 20
+        assert result.clone_strategy == "shallow_blobless"
 
     async def test_get_sandbox_for_repository_uses_desktop_budget_for_snapshot_checkout(self, monkeypatch):
         workflow = ProcessTaskWorkflow()

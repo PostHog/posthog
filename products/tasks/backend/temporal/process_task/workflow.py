@@ -1739,6 +1739,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "boot_total_ms": agent_server_output.boot_total_ms,
                 "sandbox_create_ms": sandbox_output.create_ms,
                 "repo_clone_ms": sandbox_output.clone_ms,
+                "repo_clone_strategy": sandbox_output.clone_strategy,
                 "branch_checkout_ms": sandbox_output.checkout_ms,
                 "agent_launch_ms": sandbox_output.launch_ms,
                 "agent_prepare_ms": (
@@ -2044,6 +2045,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._agent_shadow_launched = bool(launch_output and launch_output.shadow_launched)
 
         clone_ms: int | None = None
+        clone_strategy: str | None = None
         failed_repositories: set[str] = set()
         materialized_failed_repositories: set[str] = set()
         repo_ready_released = False
@@ -2105,6 +2107,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 *(clone_repository(repository) for repository in repositories_to_clone)
             )
             clone_durations: list[int] = []
+            clone_strategies: set[str] = set()
             for repository, (clone_output, clone_failed, released_after_clone) in zip(
                 repositories_to_clone, clone_outputs
             ):
@@ -2115,7 +2118,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 repo_ready_released = repo_ready_released or released_after_clone
                 if (duration := getattr(clone_output, "clone_ms", None)) is not None:
                     clone_durations.append(duration)
+                if (strategy := getattr(clone_output, "clone_strategy", None)) is not None:
+                    clone_strategies.add(strategy)
             clone_ms = sum(clone_durations) if clone_durations else None
+            if clone_strategies:
+                clone_strategy = next(iter(clone_strategies)) if len(clone_strategies) == 1 else "mixed"
             if failed_repositories:
                 failed_list = ", ".join(sorted(failed_repositories))
                 remaining_failed_repositories = sorted(failed_repositories - materialized_failed_repositories)
@@ -2194,6 +2201,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             image_source=prepared.image_source,
             create_ms=created.create_ms,
             clone_ms=clone_ms,
+            clone_strategy=clone_strategy,
             checkout_ms=checkout_ms,
             launch_ms=launch_ms,
             agent_prepare_ms=agent_prepare_ms,

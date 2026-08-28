@@ -12,6 +12,8 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.constants import (
+    AGENT_BOOT_BLOBLESS_CLONE_FEATURE_FLAG,
+    AGENT_BOOT_BLOBLESS_CLONE_STATE_KEY,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
@@ -32,6 +34,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     GetTaskProcessingContextInput,
     TaskProcessingContext,
     VmSandboxDecision,
+    _is_agent_boot_blobless_clone_enabled,
     _is_agent_otel_telemetry_enabled,
     _is_agent_proxy_keep_stream_open_enabled,
     _is_burstable_sandbox_resources_enabled,
@@ -48,6 +51,85 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 from products.tasks.backend.temporal.process_task.utils import get_actor_distinct_id
 
 VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_feature_flag_payload"
+
+
+@pytest.mark.parametrize(("flag_result", "expected"), [(True, True), (False, False), (None, False)])
+def test_agent_boot_blobless_clone_uses_rollout_flag(flag_result, expected):
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        return_value=flag_result,
+    ) as feature_enabled_mock:
+        assert (
+            _is_agent_boot_blobless_clone_enabled(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            is expected
+        )
+
+    feature_enabled_mock.assert_called_once_with(
+        AGENT_BOOT_BLOBLESS_CLONE_FEATURE_FLAG,
+        distinct_id="distinct-id",
+        groups={"organization": "organization-id"},
+        group_properties={"organization": {"id": "organization-id"}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+
+
+def test_agent_boot_blobless_clone_fails_closed():
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        side_effect=RuntimeError("flag service failed"),
+    ):
+        assert (
+            _is_agent_boot_blobless_clone_enabled(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            is False
+        )
+
+
+@pytest.mark.parametrize("state_override", [True, False])
+def test_agent_boot_blobless_clone_uses_stable_state_override(state_override):
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled"
+    ) as feature_enabled_mock:
+        assert (
+            _is_agent_boot_blobless_clone_enabled(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                state={AGENT_BOOT_BLOBLESS_CLONE_STATE_KEY: state_override},
+            )
+            is state_override
+        )
+
+    feature_enabled_mock.assert_not_called()
+
+
+def test_agent_boot_blobless_clone_excludes_signal_reports():
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled"
+    ) as feature_enabled_mock:
+        assert (
+            _is_agent_boot_blobless_clone_enabled(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                state={AGENT_BOOT_BLOBLESS_CLONE_STATE_KEY: True},
+            )
+            is False
+        )
+
+    feature_enabled_mock.assert_not_called()
 
 
 @pytest.mark.parametrize(

@@ -12,6 +12,8 @@ from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
+    AGENT_BOOT_BLOBLESS_CLONE_FEATURE_FLAG,
+    AGENT_BOOT_BLOBLESS_CLONE_STATE_KEY,
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
@@ -124,6 +126,7 @@ class TaskProcessingContext:
     # (request == limit). Captured at workflow start so it's stable across activity retries.
     burstable_sandbox_resources_enabled: bool = True
     overlap_clone_boot_enabled: bool = False
+    agent_boot_blobless_clone_enabled: bool = False
     # Captured at workflow start so the warmup decision stays stable across retries.
     desktop_workspace_warm_enabled: bool = False
     # Captured at workflow start so the agent-proxy stream lifetime stays deterministic across retries.
@@ -676,6 +679,35 @@ def _is_overlap_clone_boot_enabled(
         overlap_clone_boot_enabled=enabled,
     )
     return enabled
+
+
+def _is_agent_boot_blobless_clone_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    origin_product: str | None,
+    state: dict | None = None,
+) -> bool:
+    if origin_product == Task.OriginProduct.SIGNAL_REPORT:
+        return False
+    state_override = (state or {}).get(AGENT_BOOT_BLOBLESS_CLONE_STATE_KEY)
+    if isinstance(state_override, bool):
+        return state_override
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                AGENT_BOOT_BLOBLESS_CLONE_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as error:
+        log_with_activity_context("agent_boot_blobless_clone_flag_check_failed", run_id=run_id, error=str(error))
+        return False
 
 
 def _is_desktop_workspace_warm_enabled(
@@ -1231,6 +1263,18 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run",
     )
+    agent_boot_blobless_clone_enabled = _is_agent_boot_blobless_clone_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        origin_product=task.origin_product,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"agent_boot_blobless_clone_enabled: {agent_boot_blobless_clone_enabled} for this task run",
+    )
     desktop_workspace_warm_enabled = _is_desktop_workspace_warm_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
@@ -1374,6 +1418,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
+        agent_boot_blobless_clone_enabled=agent_boot_blobless_clone_enabled,
         desktop_workspace_warm_enabled=desktop_workspace_warm_enabled,
         agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
         custom_image_name=custom_image_name,

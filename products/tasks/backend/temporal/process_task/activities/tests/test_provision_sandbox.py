@@ -348,6 +348,46 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
     )
 
 
+def test_clone_repository_reports_enabled_blobless_shallow_strategy(mocker, activity_environment):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="posthog/posthog",
+        distinct_id="distinct-id",
+        agent_boot_blobless_clone_enabled=True,
+    )
+    sandbox = mocker.Mock()
+    sandbox.clone_repository.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+        return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
+    )
+
+    result = async_to_sync(activity_environment.run)(
+        clone_repository_in_sandbox,
+        CloneRepositoryInSandboxInput(
+            context=context,
+            sandbox_id="sandbox-id",
+            repository="posthog/posthog",
+            github_token="github-token",
+            shallow_clone=True,
+        ),
+    )
+
+    sandbox.clone_repository.assert_called_once_with(
+        "posthog/posthog",
+        github_token="github-token",
+        shallow=True,
+        branch=None,
+        blobless=True,
+    )
+    assert result.clone_strategy == "shallow_blobless"
+
+
 def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(mocker, activity_environment):
     context = TaskProcessingContext(
         task_id="task-id",

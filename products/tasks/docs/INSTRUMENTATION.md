@@ -151,6 +151,7 @@ Tracked after sandbox and agent server are provisioned.
 | `boot_total_ms`                 | `int`  | Infrastructure boot time, excluding setup agent execution |
 | `sandbox_create_ms`             | `int`  | Sandbox creation time                                     |
 | `repo_clone_ms`                 | `int`  | Repository clone time                                     |
+| `repo_clone_strategy`           | `str`  | Clone strategy selected for the run                       |
 | `branch_checkout_ms`            | `int`  | Branch checkout time                                      |
 | `agent_launch_ms`               | `int`  | Agent server launch time                                  |
 | `agent_prepare_ms`              | `int`  | Backend launch configuration time                         |
@@ -208,6 +209,10 @@ Both first-interaction events include:
 | `provider`             | `str` | Model provider                    |
 | `sandbox_backend`      | `str` | Sandbox provider                  |
 | `transport`            | `str` | SSE or sequenced event ingest     |
+
+### Clone strategy rollout
+
+`tasks-agent-boot-blobless-clone` compares the current shallow clone with a shallow blobless clone. The flag is evaluated on the server and fails closed to the current strategy. Use `repo_clone_strategy` to compare boot latency and failure rates between cohorts.
 
 ### Modal VM rollout payload
 

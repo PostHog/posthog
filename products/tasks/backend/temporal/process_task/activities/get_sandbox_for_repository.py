@@ -167,6 +167,7 @@ class GetSandboxForRepositoryOutput:
     # Per-phase boot durations, threaded through to the sandbox_started analytics event.
     create_ms: int | None = None
     clone_ms: int | None = None
+    clone_strategy: str | None = None
     checkout_ms: int | None = None
     launch_ms: int | None = None
     agent_prepare_ms: int | None = None

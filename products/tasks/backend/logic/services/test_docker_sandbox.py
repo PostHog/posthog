@@ -348,6 +348,7 @@ class TestDockerSandboxUnit:
         "shallow,blobless,expected_in_command,not_expected_in_command",
         [
             (True, False, "--depth 1", "--filter=blob:"),
+            (True, True, "--filter=blob:none", "--filter=blob:limit=128k"),
             (False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
             (False, True, "--filter=blob:none", "--filter=blob:limit=128k"),
         ],

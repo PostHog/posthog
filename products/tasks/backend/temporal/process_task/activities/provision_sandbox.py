@@ -162,6 +162,7 @@ class CreateSandboxForRepositoryOutput:
 @dataclass
 class CloneRepositoryInSandboxOutput:
     clone_ms: int | None = None
+    clone_strategy: str | None = None
 
 
 @dataclass
@@ -316,7 +317,6 @@ def _prewarmed_resume_needs_fresh_agent(
 def _is_blobless_signals_clone_enabled(ctx: TaskProcessingContext) -> bool:
     if ctx.origin_product != Task.OriginProduct.SIGNAL_REPORT:
         return False
-
     try:
         return bool(
             posthoganalytics.feature_enabled(
@@ -1006,7 +1006,13 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
 @asyncify
 def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRepositoryInSandboxOutput:
     ctx = input.context
-    blobless_clone = _is_blobless_signals_clone_enabled(ctx)
+    blobless_clone = _is_blobless_signals_clone_enabled(ctx) or (
+        input.shallow_clone and ctx.agent_boot_blobless_clone_enabled
+    )
+    if input.shallow_clone:
+        clone_strategy = "shallow_blobless" if blobless_clone else "shallow"
+    else:
+        clone_strategy = "blobless" if blobless_clone else "limited_blob"
 
     with log_activity_execution(
         "clone_repository_in_sandbox",
@@ -1070,7 +1076,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         if not will_checkout_later:
             _prepare_posthog_desktop_cloud_task(ctx, sandbox, input.repository)
 
-        return CloneRepositoryInSandboxOutput(clone_ms=clone_timer.elapsed_ms)
+        return CloneRepositoryInSandboxOutput(clone_ms=clone_timer.elapsed_ms, clone_strategy=clone_strategy)
 
 
 def _is_missing_remote_branch_clone_error(result: ExecutionResult) -> bool:

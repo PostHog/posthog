@@ -465,8 +465,10 @@ class SandboxBase(ABC):
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""
         blob_filter = ""
-        if not shallow:
-            blob_filter = " --filter=blob:none" if blobless else " --filter=blob:limit=128k"
+        if blobless:
+            blob_filter = " --filter=blob:none"
+        elif not shallow:
+            blob_filter = " --filter=blob:limit=128k"
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "

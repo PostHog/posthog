@@ -209,6 +209,8 @@ STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
 DESKTOP_WORKSPACE_WARM_FEATURE_FLAG = "task-cloud-desktop-workspace-warm"
 TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG = "task-signals-cloning-blobless"
+AGENT_BOOT_BLOBLESS_CLONE_FEATURE_FLAG = "tasks-agent-boot-blobless-clone"
+AGENT_BOOT_BLOBLESS_CLONE_STATE_KEY = "agent_boot_blobless_clone_enabled"
 # Kill switch: rtk command-output compression is on by default in cloud sandboxes;
 # enabling this flag disables it fleet-wide — over any per-run override — without
 # an image rebuild.
