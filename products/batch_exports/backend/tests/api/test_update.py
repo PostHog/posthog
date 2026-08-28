@@ -56,8 +56,6 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -91,7 +89,6 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
     # We should be able to update if we specify all fields
     new_destination_data = {**destination_data}
     new_destination_data["config"]["bucket_name"] = "my-new-production-s3-bucket"
-    new_destination_data["config"]["aws_secret_access_key"] = "new-secret"
     new_batch_export_data_2: dict[str, t.Any] = {
         "name": "my-production-s3-bucket-destination",
         "destination": new_destination_data,
@@ -119,7 +116,9 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
     decoded_payload = async_to_sync(encryption_codec.decode)(new_schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
     assert args["bucket_name"] == "my-new-production-s3-bucket"
-    assert args["aws_secret_access_key"] == "new-secret"
+    # Credentials are resolved from the integration at run time, never carried in the schedule.
+    assert args["integration_id"] == aws_s3_integration.id
+    assert args.get("aws_secret_access_key") is None
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"])
@@ -136,8 +135,6 @@ def test_can_patch_config(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -432,8 +429,6 @@ def test_can_patch_schedule_configuration(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -506,16 +501,15 @@ def test_can_patch_schedule_configuration(
 @pytest.mark.django_db
 @pytest.mark.parametrize("interval", ["hour", "day"])
 def test_can_patch_config_with_invalid_old_values(
-    client: HttpClient, encryption_codec, interval, temporal, organization, team, user
+    client: HttpClient, encryption_codec, interval, temporal, organization, team, user, aws_s3_integration
 ):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
+        "integration": aws_s3_integration,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
             "invalid_key": "invalid_value",
         },
     }
@@ -540,7 +534,8 @@ def test_can_patch_config_with_invalid_old_values(
     # We should be able to update the destination config, even if there is an invalid config
     # in the existing keys.
     new_destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-new-production-s3-bucket",
             "region": "us-east-1",
@@ -587,8 +582,6 @@ def test_patch_rejects_destination_type_change(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -640,8 +633,6 @@ def test_put_rejects_destination_type_change(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -687,8 +678,6 @@ def test_can_patch_hogql_query(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -779,8 +768,6 @@ def test_patch_returns_error_on_unsupported_hogql_query(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 

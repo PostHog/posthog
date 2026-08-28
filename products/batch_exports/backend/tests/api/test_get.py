@@ -47,8 +47,6 @@ def test_can_get_exports_for_your_organizations(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -106,8 +104,6 @@ def test_cannot_get_exports_for_other_organizations(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -146,8 +142,6 @@ def test_batch_exports_are_partitioned_by_team(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 

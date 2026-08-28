@@ -35,8 +35,6 @@ def test_pause_and_unpause_batch_export(client: HttpClient, temporal, organizati
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
     # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
@@ -85,8 +83,6 @@ def test_cannot_pause_and_unpause_batch_exports_of_other_organizations(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
     # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
@@ -151,8 +147,6 @@ def test_pause_and_unpause_are_partitioned_by_team_id(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
     # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
@@ -211,8 +205,6 @@ def test_pause_batch_export_that_is_already_paused(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
     # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
@@ -263,8 +255,6 @@ def test_unpause_batch_export_that_is_already_unpaused(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
     # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
@@ -304,8 +294,6 @@ def test_pause_non_existent_batch_export(client: HttpClient, temporal, organizat
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
     # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.
@@ -343,8 +331,6 @@ def test_unpause_can_trigger_a_backfill(client: HttpClient, temporal, organizati
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
     # We create an empty schedule so nothing will run and we can pause/unpause as much as we want.

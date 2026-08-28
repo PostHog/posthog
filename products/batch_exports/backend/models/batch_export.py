@@ -28,10 +28,6 @@ TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 # Includes the legacy "S3" alias for backwards compatibility.
 S3_FAMILY_TYPES: frozenset[str] = frozenset({"S3", "AwsS3", "S3Compatible"})
 
-# S3-family types that can be created via the API. The legacy "S3" type is excluded:
-# existing rows keep working, but new destinations must use "AwsS3" or "S3Compatible".
-S3_CREATABLE_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
-
 
 class DayOfWeek(IntEnum):
     """Day of the week enum for batch export schedules.
@@ -84,6 +80,9 @@ class BatchExportDestination(UUIDTModel):
         NOOP = "NoOp"
         FILE_DOWNLOAD = "FileDownload"
 
+    # S3-family exports read their credentials from an Integration, but rows migrated off inline
+    # credentials still hold them in `config`. These entries keep those stale values out of API
+    # responses until a follow-up strips them from stored config.
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
         "AwsS3": {"aws_access_key_id", "aws_secret_access_key"},

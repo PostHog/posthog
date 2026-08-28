@@ -54,9 +54,6 @@ def test_create_batch_export_with_interval_schedule(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-            "endpoint_url": "https://localhost:9000",
             "use_virtual_style_addressing": True,
         },
         "integration": s3_compatible_integration.id,
@@ -80,10 +77,6 @@ def test_create_batch_export_with_interval_schedule(
 
     data = response.json()
 
-    # We should not get the aws_access_key_id or aws_secret_access_key back, so
-    # remove that from the data we expect.
-    batch_export_data["destination"]["config"].pop("aws_access_key_id")
-    batch_export_data["destination"]["config"].pop("aws_secret_access_key")
     assert data["destination"] == batch_export_data["destination"]
 
     # We should match on top level fields.
@@ -114,9 +107,11 @@ def test_create_batch_export_with_interval_schedule(
     assert args["bucket_name"] == "my-production-s3-bucket"
     assert args["region"] == "us-east-1"
     assert args["prefix"] == "posthog-events/"
-    assert args["aws_access_key_id"] == "abc123"
-    assert args["aws_secret_access_key"] == "secret"
     assert args["use_virtual_style_addressing"]
+    # Credentials are resolved from the integration at run time, never carried in the schedule.
+    assert args["integration_id"] == s3_compatible_integration.id
+    assert args.get("aws_access_key_id") is None
+    assert args.get("aws_secret_access_key") is None
 
     # Temporal UI metadata should be set on the schedule's action
     assert schedule.schedule.action.static_summary is not None
@@ -191,8 +186,6 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -347,8 +340,6 @@ def test_cannot_create_a_batch_export_for_another_organization(client: HttpClien
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -432,8 +423,6 @@ def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -498,8 +487,6 @@ def test_create_batch_export_with_custom_schema(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -614,8 +601,6 @@ def test_create_batch_export_fails_with_invalid_query(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -661,8 +646,6 @@ def test_create_batch_export_fails_with_invalid_query(
                 "bucket_name": "my-s3-bucket",
                 "region": "us-east-1",
                 "prefix": "posthog-events/",
-                "aws_access_key_id": "abc123",
-                "aws_secret_access_key": "secret",
                 "hello": 123,  # Unknown field
                 "hello2": 123,  # Another unknown field
             },
@@ -726,8 +709,6 @@ _S3_FILTER_TEST_CONFIG = {
     "bucket_name": "my-s3-bucket",
     "region": "us-east-1",
     "prefix": "posthog-events/",
-    "aws_access_key_id": "abc123",
-    "aws_secret_access_key": "secret",
 }
 
 

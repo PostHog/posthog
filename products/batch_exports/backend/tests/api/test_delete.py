@@ -40,8 +40,6 @@ def test_delete_batch_export(client: HttpClient, temporal, organization, team, u
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
     batch_export_data = {
@@ -101,8 +99,6 @@ def test_delete_batch_export_cancels_backfills(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
     batch_export_data = {
@@ -161,8 +157,6 @@ def test_cannot_delete_export_of_other_organizations(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
     batch_export_data = {
@@ -197,8 +191,6 @@ def test_deletes_are_partitioned_by_team_id(client: HttpClient, temporal, organi
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
     batch_export_data = {
@@ -234,8 +226,6 @@ def test_delete_batch_export_even_without_underlying_schedule(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
     batch_export_data = {

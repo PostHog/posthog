@@ -1,14 +1,10 @@
-import typing as t
-
 import pytest
 
-from django.test import override_settings
 from django.test.client import Client as HttpClient
 
 from rest_framework import status
 from temporalio.client import ScheduleActionStartWorkflow
 
-from products.batch_exports.backend.models.batch_export import S3_CREATABLE_TYPES
 from products.batch_exports.backend.tests.api.conftest import describe_schedule
 from products.batch_exports.backend.tests.api.operations import create_batch_export
 
@@ -17,12 +13,12 @@ pytestmark = [
     pytest.mark.usefixtures("temporal_worker", "cleanup"),
 ]
 
+_S3_FAMILY_TYPES = ["AwsS3", "S3Compatible"]
+
 _S3_FAMILY_BASE_CONFIG = {
     "bucket_name": "my-bucket",
     "region": "us-east-1",
     "prefix": "events/",
-    "aws_access_key_id": "key",
-    "aws_secret_access_key": "secret",
 }
 
 
@@ -31,8 +27,8 @@ _S3_FAMILY_BASE_CONFIG = {
     [
         # Refined AwsS3 (with AWS-only encryption field)
         ("AwsS3", "aws_s3_integration", {"encryption": "AES256"}, "AwsS3"),
-        # Refined S3Compatible (accepts an inline endpoint_url alongside the integration's)
-        ("S3Compatible", "s3_compatible_integration", {"endpoint_url": "https://localhost:9000"}, "S3Compatible"),
+        # Refined S3Compatible (with its addressing-style field)
+        ("S3Compatible", "s3_compatible_integration", {"use_virtual_style_addressing": True}, "S3Compatible"),
     ],
 )
 def test_create_s3_family_batch_export(
@@ -67,23 +63,19 @@ def test_create_s3_family_batch_export(
     assert response.json()["destination"]["type"] == expected_persisted_type
 
 
-@pytest.mark.parametrize("destination_type", sorted(S3_CREATABLE_TYPES))
+@pytest.mark.parametrize("destination_type", _S3_FAMILY_TYPES)
 def test_create_s3_family_batch_export_requires_an_integration(
     client: HttpClient, temporal, organization, team, user, destination_type
 ):
-    """Inline credentials are no longer enough to create an S3-family export: an Integration is required."""
+    """An S3-family export cannot be created without an Integration to authenticate through."""
     client.force_login(user)
-    config = {**_S3_FAMILY_BASE_CONFIG}
-    if destination_type == "S3Compatible":
-        config["endpoint_url"] = "https://localhost:9000"
-
     response = create_batch_export(
         client,
         team.pk,
         {
             "name": "my-export",
             "interval": "hour",
-            "destination": {"type": destination_type, "config": config},
+            "destination": {"type": destination_type, "config": {**_S3_FAMILY_BASE_CONFIG}},
         },
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
@@ -126,8 +118,6 @@ def test_create_s3_family_batch_export_validates_empty_inputs(
     integration = request.getfixturevalue(integration_fixture)
     client.force_login(user)
     config = {**_S3_FAMILY_BASE_CONFIG, "bucket_name": "", "region": ""}
-    if destination_type == "S3Compatible":
-        config["endpoint_url"] = "https://localhost:9000"
 
     response = create_batch_export(
         client,
@@ -143,43 +133,52 @@ def test_create_s3_family_batch_export_validates_empty_inputs(
 
 
 @pytest.mark.parametrize(
-    "destination_type,missing_field",
+    "destination_type,integration_fixture,credential_field",
     [
-        *((dt, field) for dt in sorted(S3_CREATABLE_TYPES) for field in ("aws_access_key_id", "aws_secret_access_key")),
-        # `endpoint_url` is required only for S3Compatible.
-        ("S3Compatible", "endpoint_url"),
+        ("AwsS3", "aws_s3_integration", "aws_access_key_id"),
+        ("AwsS3", "aws_s3_integration", "aws_secret_access_key"),
+        ("S3Compatible", "s3_compatible_integration", "aws_access_key_id"),
+        ("S3Compatible", "s3_compatible_integration", "aws_secret_access_key"),
+        # `endpoint_url` is an S3Compatible-only field; AwsS3 rejects it as unknown instead.
+        ("S3Compatible", "s3_compatible_integration", "endpoint_url"),
     ],
 )
-def test_create_s3_family_batch_export_validates_missing_required_inputs(
+def test_create_s3_family_batch_export_rejects_inline_credentials(
     client: HttpClient,
     temporal,
     organization,
     team,
     user,
     destination_type,
-    missing_field,
+    integration_fixture,
+    credential_field,
+    request,
 ):
-    """Missing required fields are rejected for every S3-family destination."""
+    """Credentials and the provider endpoint belong to the integration, so config may not carry them.
+
+    An accepted value here would be persisted in `config` and copied into the export's Temporal
+    schedule arguments.
+    """
+    integration = request.getfixturevalue(integration_fixture)
     client.force_login(user)
-    config = {**_S3_FAMILY_BASE_CONFIG}
-    if destination_type == "S3Compatible":
-        # S3Compatible requires `endpoint_url` to be present; include it in the
-        # base so only `missing_field` is missing after the pop below.
-        config["endpoint_url"] = "https://localhost:9000"
-
-    config.pop(missing_field, None)
-
     response = create_batch_export(
         client,
         team.pk,
         {
             "name": "my-export",
             "interval": "hour",
-            "destination": {"type": destination_type, "config": config},
+            "destination": {
+                "type": destination_type,
+                "config": {**_S3_FAMILY_BASE_CONFIG, credential_field: "https://localhost:9000"},
+                "integration": integration.id,
+            },
         },
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert f"missing required field: '{missing_field}'" in response.json()["detail"]
+    assert response.json()["detail"] == (
+        f"{destination_type} batch exports authenticate through their integration. "
+        f"Remove these fields from the configuration: ['{credential_field}']"
+    )
 
 
 @pytest.mark.parametrize(
@@ -293,56 +292,8 @@ def test_create_s3_batch_export_validates_file_format_and_compression(
         assert response.json()["detail"] == expected_error_message
 
 
-@pytest.mark.parametrize(
-    "destination_type",
-    # Only creatable types that accept `endpoint_url` reach the SSRF check.
-    ["S3Compatible"],
-)
-@pytest.mark.parametrize(
-    "endpoint_url",
-    [
-        "https://192.168.1.1",
-        "http://127.0.0.1",
-        "http://[::1]/",
-        "http://10.0.0.1:9000/",
-        "http://169.254.0.0:8080/data",
-        "http://localhost",
-    ],
-)
-def test_creating_s3_family_batch_export_fails_if_using_invalid_endpoint_url(
-    client: HttpClient, temporal, organization, team, user, destination_type, endpoint_url, s3_compatible_integration
-):
-    """Test that creating an S3 batch export fails if passing an internal IP as endpoint URL.
-
-    Last time I checked, we are not S3.
-    """
-
-    destination_data = {
-        "type": destination_type,
-        "config": {
-            **_S3_FAMILY_BASE_CONFIG,
-            "use_virtual_style_addressing": True,
-            "endpoint_url": endpoint_url,
-        },
-        "integration": s3_compatible_integration.id,
-    }
-
-    batch_export_data: dict[str, t.Any] = {
-        "name": "my-export",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-    client.force_login(user)
-
-    with override_settings(TEST=0, DEBUG=0):
-        response = create_batch_export(
-            client,
-            team.pk,
-            batch_export_data,
-        )
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert f"Invalid endpoint_url: '{endpoint_url}'" in response.json()["detail"]
+# The endpoint URL now lives on the s3-compatible integration, which SSRF-checks it on creation
+# (see `test_create_rejects_invalid_endpoint_url` in posthog/api/test/test_integration.py).
 
 
 @pytest.mark.parametrize(
