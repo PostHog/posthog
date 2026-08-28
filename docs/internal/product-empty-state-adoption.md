@@ -56,7 +56,7 @@ Rows marked "in review" are not on `master` yet. See "Regenerating the lists" fo
 | Metrics                | `products/metrics/frontend/MetricsScene.tsx`                                        | on master             |
 | Surveys                | `frontend/src/scenes/surveys/Surveys.tsx`                                           | on master             |
 | Session replay         | `frontend/src/scenes/session-recordings/SessionRecordings.tsx`                      | on master             |
-| Web vitals             | `frontend/src/scenes/web-analytics/WebAnalyticsScene.tsx`                           | in review             |
+| Web vitals             | `frontend/src/scenes/web-analytics/WebAnalyticsScene.tsx`                           | on master             |
 | Data warehouse sources | `products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene.tsx`             | in review             |
 | Workflows              | `products/workflows/frontend/WorkflowsScene.tsx`                                    | in review             |
 | Marketing analytics    | `frontend/src/scenes/marketing-analytics/MarketingAnalyticsScene.tsx`               | in review             |
