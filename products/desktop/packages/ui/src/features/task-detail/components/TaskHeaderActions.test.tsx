@@ -50,6 +50,11 @@ vi.mock(
 vi.mock("@posthog/ui/features/sessions/components/StopCloudRunButton", () => ({
   StopCloudRunButton: () => <div>stop cloud run</div>,
 }));
+// Resolves the pi session controller from the container, which these renders
+// don't wire up.
+vi.mock("./ArchiveTaskButton", () => ({
+  ArchiveTaskButton: () => <div>archive task</div>,
+}));
 vi.mock("@posthog/ui/features/diff-stats/DiffStatsBadge", () => ({
   DiffStatsBadge: () => null,
 }));
@@ -82,6 +87,8 @@ describe("TaskHeaderActions", () => {
     renderActions();
 
     expect(screen.queryByText("task menu")).not.toBeInTheDocument();
+    // Archiving needs no workspace, so it is the one action that stays.
+    expect(screen.getByText("archive task")).toBeInTheDocument();
   });
 
   it("shows cloud controls for a loaded cloud workspace", () => {

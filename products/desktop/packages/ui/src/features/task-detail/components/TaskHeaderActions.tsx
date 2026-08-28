@@ -16,6 +16,7 @@ import {
   useWorkspaceLoaded,
 } from "@posthog/ui/features/workspace/useWorkspace";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
+import { ArchiveTaskButton } from "./ArchiveTaskButton";
 import { TaskAnalysisButton } from "./TaskAnalysisButton";
 
 function TaskDiffStatsBadge({ task }: { task: Task }) {
@@ -71,6 +72,9 @@ export function TaskHeaderActions({ task }: { task: Task }) {
           <TaskActionsMenu taskId={task.id} isCloud={isCloudTask} />
         </>
       )}
+      {/* Archiving needs nothing from the workspace, so it stays put while the
+          rest of the row is still resolving. */}
+      <ArchiveTaskButton task={task} />
     </div>
   );
 }
