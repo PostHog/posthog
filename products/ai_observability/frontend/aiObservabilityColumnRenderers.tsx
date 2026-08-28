@@ -192,6 +192,28 @@ export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JS
     return <PersonColumnCell person={personData} />
 }
 
+// Users tab variant: resolves the person from its distinct id through the shared
+// lazy loader, so the users query no longer has to drag person properties through
+// its aggregation. The filter button redirects to the traces page for that person.
+export function LazyPersonColumnCellWithRedirect({ distinctId }: { distinctId: string }): JSX.Element {
+    const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
+    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
+
+    const cached = personsCache[distinctId]
+
+    useEffect(() => {
+        if (currentTeamId && cached === undefined) {
+            ensurePersonLoaded(distinctId)
+        }
+    }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
+
+    const personData: PersonData = cached
+        ? { distinct_id: cached.distinct_id, properties: cached.properties }
+        : { distinct_id: distinctId }
+
+    return <PersonColumnCellWithRedirect person={personData} />
+}
+
 // Avatar only (no name) for inline use beside a title; a click still opens the
 // full person popover. Shares the lazy person loader with LazyPersonColumnCell.
 export function LazyPersonAvatar({ distinctId }: { distinctId: string }): JSX.Element {
@@ -597,18 +619,9 @@ export const aiObservabilityColumnRenderers: Record<string, QueryContextColumn> 
     __llm_person: {
         title: 'Person',
         render: ({ value }) => {
-            // User data from HogQL query comes as a tuple [distinct_id, created_at, properties_json]
-            if (Array.isArray(value) && value.length >= 3) {
-                const [distinctId, , propertiesJson] = value
-                let properties: Record<string, unknown> = {}
-
-                try {
-                    properties = typeof propertiesJson === 'string' ? JSON.parse(propertiesJson) : {}
-                } catch {
-                    // Ignore parsing errors
-                }
-
-                return <PersonColumnCellWithRedirect person={{ distinct_id: distinctId, properties }} />
+            // The users query returns the distinct id; the person is resolved lazily.
+            if (typeof value === 'string' && value) {
+                return <LazyPersonColumnCellWithRedirect distinctId={value} />
             }
 
             return <PersonColumnCellWithRedirect person={null} />

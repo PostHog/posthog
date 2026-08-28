@@ -710,10 +710,18 @@ export function isRawServerErrorTitle(title: string, status?: number | null): bo
     return status != null && status >= 500
 }
 
-type InsightErrorKind = 'rate_limit' | 'invalid_query' | 'permission' | 'transient' | 'server' | 'unknown'
+type InsightErrorKind =
+    | 'rate_limit'
+    | 'memory_limit'
+    | 'invalid_query'
+    | 'permission'
+    | 'transient'
+    | 'server'
+    | 'unknown'
 
 const ERROR_HOGGIES: Record<InsightErrorKind, React.ComponentType<{ className?: string }>> = {
     rate_limit: HedgehogTrafficController,
+    memory_limit: HedgehogMagnifyingGlass,
     invalid_query: HedgehogMagnifyingGlass,
     permission: HedgehogStampDenied,
     transient: HedgehogConstruction2,
@@ -729,6 +737,11 @@ function InsightErrorHoggie({ kind }: { kind: InsightErrorKind }): JSX.Element {
 function getInsightErrorKind(status?: number | null): InsightErrorKind {
     if (status === 429) {
         return 'rate_limit'
+    }
+    // 513 is ClickHouseQueryMemoryLimitExceeded: the query ran out of memory, or the failure breaker
+    // is holding it after repeated out-of-memory failures. Both need a "shorten the range" nudge.
+    if (status === 513) {
+        return 'memory_limit'
     }
     if (status === 400 || status === 422) {
         return 'invalid_query'
@@ -750,6 +763,9 @@ function getInsightErrorTitle(
     fallback: string | JSX.Element | null | undefined,
     titleStatus?: number | null
 ): string | JSX.Element {
+    if (kind === 'memory_limit') {
+        return 'This query ran out of memory'
+    }
     if (kind === 'invalid_query') {
         return "We couldn't run this query"
     }
@@ -772,6 +788,8 @@ function getInsightErrorRemediation(kind: InsightErrorKind, retryAfter?: string 
     switch (kind) {
         case 'rate_limit':
             return `Try again ${retryAfter ?? 'later'}.`
+        case 'memory_limit':
+            return 'Try a shorter date range or narrower filters, then run it again.'
         case 'invalid_query':
             return 'Open the query debugger and correct the query.'
         case 'permission':

@@ -129,6 +129,12 @@ describe('insight error states', () => {
 
     it.each([
         { status: 429, expectedCopy: 'Try again in 2 minutes.', retry: true },
+        {
+            status: 513,
+            expectedCopy: 'Try a shorter date range or narrower filters, then run it again.',
+            retry: true,
+            bugReport: false,
+        },
         { status: 400, expectedCopy: 'Open the query debugger and correct the query.', retry: false },
         {
             status: 403,
