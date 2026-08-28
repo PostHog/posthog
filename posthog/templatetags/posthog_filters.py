@@ -12,21 +12,6 @@ register.filter(compact_number)
 
 
 @register.filter
-def percentage(value: Optional[Number], decimals: int = 1) -> str:
-    """
-    Returns a rounded formatted with a specific number of decimal digits and a % sign. Expects a decimal-based ratio.
-    Example:
-      {% percentage 0.2283113 %}
-      =>  "22.8%"
-    """
-
-    if value is None:
-        return "-"
-
-    return "{0:.{decimals}f}%".format(value * 100, decimals=decimals)
-
-
-@register.filter
 def intcomma(value: Optional[Number]) -> str:
     """
     Converts an integer to a string containing commas every three digits.
