@@ -4,13 +4,12 @@ import { useState } from 'react'
 import { LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { ExperimentFlagKeyInput } from 'scenes/experiments/ExperimentFlagKeyInput'
 import { slugifyFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 
 import { Experiment } from '~/types'
 
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
-
-import { ExperimentFlagKeyInput } from './ExperimentFlagKeyInput'
 
 interface DuplicateExperimentModalProps {
     isOpen: boolean
