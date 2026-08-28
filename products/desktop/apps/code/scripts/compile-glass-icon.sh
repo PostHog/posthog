@@ -20,8 +20,8 @@ skip_with_icns_fallback() {
   rm -rf "$TEMP_DIR"
   # Drop any stale catalog so packaging falls back to the .icns icon
   rm -f "$OUTPUT_PATH"
-  if [ -n "${CI:-}" ]; then
-    echo "  CI builds must ship the liquid-glass icon; select an Xcode whose actool can compile .icon bundles"
+  if [ -n "${CI:-}" ] && [ "$(uname -s)" = "Darwin" ]; then
+    echo "  macOS CI builds must ship the liquid-glass icon; select an Xcode whose actool can compile .icon bundles"
     exit 1
   fi
   echo "  Skipping compilation (app will use standard .icns icon)"
