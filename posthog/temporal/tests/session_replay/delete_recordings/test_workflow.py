@@ -497,6 +497,9 @@ async def test_delete_recordings_certificate_with_mixed_results():
                 task_queue=task_queue_name,
             )
 
+    # Failed shreds leave live keys, and retrying them needs the metadata rows: no sweep.
+    assert swept_teams == []
+
     certificate = DeletionCertificate.model_validate(result)
     assert certificate.workflow_type == "team"
     assert certificate.team_id == TEST_TEAM_ID

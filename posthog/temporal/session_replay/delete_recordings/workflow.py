@@ -192,8 +192,11 @@ class DeleteRecordingsWithTeamWorkflow(PostHogWorkflow):
                 # The session loader hides expired and already-marked sessions, so the shred
                 # alone leaves their metadata rows in ClickHouse, and the table has no TTL.
                 # Sweep the whole team once every key is shredded. Ordering matters: the
-                # loader reads these rows, so the sweep must stay after the last page.
-                if workflow.patched("delete-team-metadata") and not input.config.dry_run:
+                # loader reads these rows, so the sweep must stay after the last page, and
+                # a failed shred must skip it — the failed sessions' keys are still alive,
+                # and a retry needs these rows to find them.
+                shred_is_clean = not input.config.dry_run and progress.total_failed == 0
+                if workflow.patched("delete-team-metadata") and shred_is_clean:
                     await workflow.execute_activity(
                         delete_team_metadata,
                         DeleteTeamMetadataInput(team_id=input.team_id),
@@ -202,6 +205,10 @@ class DeleteRecordingsWithTeamWorkflow(PostHogWorkflow):
                             maximum_attempts=3,
                             initial_interval=timedelta(minutes=1),
                         ),
+                    )
+                elif progress.total_failed > 0:
+                    workflow.logger.warning(
+                        "Skipping team metadata sweep: %d recordings failed to shred", progress.total_failed
                     )
                 return _build_certificate(
                     "team",
