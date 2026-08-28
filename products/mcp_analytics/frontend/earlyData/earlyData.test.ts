@@ -21,6 +21,7 @@ const stats = (overrides: Partial<EarlyStats>): EarlyStats => ({
 describe('early data derivations', () => {
     it('starts the expandable MCP activity feed at 100 rows with room to load more', () => {
         expect(DEFAULT_MCP_ACTIVITY_QUERY).toMatchObject({
+            embedded: false,
             expandable: true,
             showCount: true,
             showDateRange: true,

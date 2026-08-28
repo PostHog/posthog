@@ -28,7 +28,7 @@ export const DEFAULT_MCP_ACTIVITY_QUERY: DataTableNode = {
         orderBy: ['timestamp DESC'],
         limit: MCP_ACTIVITY_PAGE_SIZE,
     },
-    embedded: true,
+    embedded: false,
     expandable: true,
     showActions: true,
     showCount: true,
