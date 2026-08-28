@@ -284,7 +284,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/authoring-ci-workflows` — adding or editing any `.github/workflows` workflow, composite action, or reusable workflow
 - `/reviewing-personhog-protocol` — any personhog coordination-protocol change (leases, fencing, handoffs, supervisors, budgets, warming, changelog semantics), and any request for an exhaustive review of personhog code
 - `/gating-production-deploys` — any workflow that builds and pushes a production image or dispatches a deploy
-- `/splitting-oversized-modules` — splitting a Python module into a package, or deciding whether to propose splitting one before you work in it; propose, and land the move as a stacked base PR rather than inside your feature diff
+- `/splitting-oversized-modules` — splitting a Python module into a package, or deciding whether to propose splitting one before you work in it, including before you restructure code inside a module over roughly a thousand lines; propose, and land the move as a stacked base PR rather than inside your feature diff
 - `/auditing-llm-gateway-parity` — changing either gateway's auth, attribution, billing, endpoints, providers, models, routing, or metadata contract; reviewing a `services/llm-gateway` change; or refreshing `services/llm-gateway/PARITY.md`
 - `/finding-llm-gateway-migration-candidates` — finding, auditing, or ranking callers that could move from `services/llm-gateway` to `PostHog/ai-gateway`, including requests for the next or lowest-risk migration candidate
 - `/migrating-llm-gateway-callers` — adding an LLM gateway caller or migrating an existing caller from `services/llm-gateway` to `PostHog/ai-gateway`, including shared client and gateway setting changes made for that migration

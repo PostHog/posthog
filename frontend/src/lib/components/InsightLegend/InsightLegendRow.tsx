@@ -5,6 +5,7 @@ import { getSeriesBackgroundColor } from 'lib/colors'
 import { captureLegendMenuAction } from 'lib/components/ChartLegendSeriesMenu/captureLegendMenuAction'
 import { ChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/ChartLegendSeriesMenu'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -16,7 +17,6 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ChartDisplayType } from '~/types'
 
 type InsightLegendRowProps = {
     item: IndexedTrendResult
@@ -112,7 +112,7 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
                     disabledReason={!canEditInsight ? 'You need editor access to modify this insight.' : undefined}
                 />
             </div>
-            {display === ChartDisplayType.ActionsPie && (
+            {display && PIE_DISPLAY_TYPES.includes(display) && (
                 <div className="text-secondary grow-0">
                     {formatAggregationAxisValue(trendsFilter, item.aggregated_value, baseCurrency)}
                 </div>
