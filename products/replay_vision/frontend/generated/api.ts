@@ -816,10 +816,10 @@ export const getVisionScannersDuplicateCreateUrl = (projectId: string, id: strin
 /**
  * Copy a scanner into a new disabled scanner named "<name> (copy)".
  *
- * Copies the stored model row rather than the serializer's read representation, which
- * redacts a query that no longer validates and an experiment the caller can't view;
- * duplicating through the create endpoint would silently drop both. Unlike create, no
- * digest is provisioned: the copy starts disabled and unreviewed.
+ * Copies the stored model row rather than the serializer's read representation, so a query
+ * that no longer validates survives the copy; duplicating through the create endpoint would
+ * silently drop it. Experiment targeting is the exception and follows the read path instead.
+ * Unlike create, no digest is provisioned: the copy starts disabled and unreviewed.
  */
 export const visionScannersDuplicateCreate = async (
     projectId: string,
