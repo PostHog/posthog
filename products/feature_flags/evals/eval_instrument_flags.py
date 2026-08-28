@@ -36,8 +36,9 @@ The pair is a baseline, not a quality bar: it measures whether the description
 fires on the right request, not whether the workflow the skill teaches is good.
 Both cases are ``SandboxedPrivateEval`` so they run without a Braintrust key.
 
-To run, first overlay the context-mill skills into the built dist dir (the guard
-below prints this command), then:
+To run, invoke the command below once. It builds the local skill cache, then the
+guard prints the overlay command. Apply that overlay and run the command again: the
+second run reuses the cache, so the overlay survives.
     flox activate -- bash -c "hogli evals eval_instrument_flags"
 """
 
@@ -63,7 +64,10 @@ _BUILT_SKILLS_DIR = Path("products/posthog_ai/dist/skills")
 _OVERLAY_HINT = f"""\
 '{SKILL_NAME}' is not in {_BUILT_SKILLS_DIR}, so the sandbox would run without the
 skill this suite grades. It ships from PostHog/context-mill, and only CI overlays it
-(.github/workflows/cd-sandbox-base-image.yml). Overlay it locally first:
+(.github/workflows/cd-sandbox-base-image.yml). The eval rebuilds the local skill
+cache at startup when it is stale or unbuilt, which wipes an overlay applied before
+it. The cache is up to date now, so apply the overlay and re-run. Startup then
+reuses the cache and the overlay survives:
 
   curl -fsSL -o /tmp/cm.zip \\
     https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip
@@ -71,7 +75,8 @@ skill this suite grades. It ships from PostHog/context-mill, and only CI overlay
   unzip -q -o /tmp/cm/omnibus-{SKILL_NAME}.zip -d {_BUILT_SKILLS_DIR}/{SKILL_NAME}
   perl -pi -e 's/^(name: *)omnibus-/$1/' {_BUILT_SKILLS_DIR}/{SKILL_NAME}/SKILL.md
 
-Re-running `hogli build:skills` wipes the overlay, so redo it after a skill edit."""
+Editing any products/*/skills/ file invalidates the cache, so the next run rebuilds
+and wipes the overlay again. Re-apply it after that run, not before."""
 
 
 def require_instrument_skill(context: CustomPromptSandboxContext) -> dict[str, Any]:
