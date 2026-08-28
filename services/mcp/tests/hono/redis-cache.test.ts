@@ -43,6 +43,8 @@ function createMockRedis(): MockRedis {
             return ['0', matching] as [string, string[]]
         }),
         ...makeRedisRateLimitStubs(),
+        // Override the trivial stub with a spy so TTL-renewal calls are assertable.
+        expire: vi.fn(async () => 1),
         _store: store,
     }
 }
@@ -151,6 +153,16 @@ describe('RedisCache', () => {
             await cache.setMany({})
 
             expect(await cache.get('mcpClientName')).toBe('claude-code')
+        })
+    })
+
+    describe('refreshTtl', () => {
+        it('renews the TTL on the given keys using the cache TTL', async () => {
+            const sessionCache = new RedisCache<TestState>('sess', mockRedis, 'session', 3600)
+            await sessionCache.refreshTtl(['projectId', 'orgId'])
+
+            expect(mockRedis.expire).toHaveBeenCalledWith('mcp:session:sess:projectId', 3600)
+            expect(mockRedis.expire).toHaveBeenCalledWith('mcp:session:sess:orgId', 3600)
         })
     })
 
