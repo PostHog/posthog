@@ -82,6 +82,31 @@ class TierDecision:
         return self.previous_tier != self.new_tier
 
 
+@frozen
+class SesTenantState:
+    """AWS's own view of the team's SES tenant, synced by the tenant-state tasks.
+
+    This complements our internal rates rather than duplicating them: AWS measures the complaint
+    rate against mail sent to FBL-providing domains only, while our rate divides by all sends, so
+    ours reads systematically lower for teams whose audience skews toward non-FBL domains. A team
+    can look clean to us while AWS is about to pause its tenant.
+    """
+
+    sending_status: str = ""
+    reputation_impact: str = ""
+
+    @property
+    def is_paused(self) -> bool:
+        # SendingStatusAggregate folds AWS-managed and customer-managed pauses; REINSTATED is a
+        # re-enabled grace state and must not read as paused.
+        return self.sending_status.strip().upper() == "DISABLED"
+
+    @property
+    def impact(self) -> str:
+        # Empty string means never synced, which reads the same as NONE.
+        return self.reputation_impact.strip().upper()
+
+
 def highest_qualifying_tier(daily_sends: dict[str, int], *, since: Optional[datetime] = None) -> int:
     """
     Highest tier the team's send volume has earned.
@@ -112,6 +137,7 @@ def decide_tier(
     tier_updated_at: Optional[datetime],
     suspended: bool,
     recent_history: Optional[TeamSendingHistory] = None,
+    tenant_state: Optional[SesTenantState] = None,
     now: Optional[datetime] = None,
     require_time_at_tier: bool = True,
     single_step: bool = True,
@@ -124,6 +150,10 @@ def decide_tier(
     short window, while promotion still requires the full window to be clean. Callers with a
     single window (the backfill) omit `recent_history`.
 
+    `tenant_state` carries AWS's per-tenant verdict, which sees the FBL-correct complaint rate
+    our internal metrics dilute (see SesTenantState). A paused tenant drops to the bottom, a
+    HIGH reputation impact demotes, and any non-clean impact blocks promotion.
+
     `require_time_at_tier` and `single_step` are both off for the backfill, which reads a long
     history at once and must land an established sender on its real tier immediately instead of
     walking it up one step per run.
@@ -131,6 +161,7 @@ def decide_tier(
     now = now or timezone.now()
     top = max_email_sending_tier()
     recent = recent_history or history
+    tenant = tenant_state or SesTenantState()
 
     if suspended:
         return TierDecision(
@@ -140,7 +171,18 @@ def decide_tier(
             reason="staff_suspension",
         )
 
-    if recent.auto_paused or not recent.rates_are_clean:
+    if tenant.is_paused:
+        # AWS stopped this tenant's sends over its reputation, which is a stronger verdict than
+        # anything our internal rates can produce. The tier sets how fast the team may send once
+        # the tenant is re-enabled, so it must restart from the bottom.
+        return TierDecision(
+            team_id=history.team_id,
+            previous_tier=current_tier,
+            new_tier=MIN_EMAIL_SENDING_TIER,
+            reason="ses_tenant_paused",
+        )
+
+    if recent.auto_paused or not recent.rates_are_clean or tenant.impact == "HIGH":
         # One incident stays inside the demotion window for days and the sweep runs daily, so
         # without a cooldown the same incident would demote the team again on every run and
         # cascade it to the bottom. One step per cooldown period keeps the response proportionate.
@@ -152,11 +194,17 @@ def decide_tier(
                 new_tier=current_tier,
                 reason="demotion_cooldown",
             )
+        if recent.auto_paused:
+            demotion_reason = "workflow_auto_paused"
+        elif not recent.rates_are_clean:
+            demotion_reason = "rates_above_threshold"
+        else:
+            demotion_reason = "ses_reputation_high"
         return TierDecision(
             team_id=history.team_id,
             previous_tier=current_tier,
             new_tier=max(MIN_EMAIL_SENDING_TIER, current_tier - 1),
-            reason="workflow_auto_paused" if recent.auto_paused else "rates_above_threshold",
+            reason=demotion_reason,
         )
 
     decay_days = settings.WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS
@@ -188,6 +236,16 @@ def decide_tier(
         # so a team does not climb while its long-run rates are still over the threshold.
         return TierDecision(
             team_id=history.team_id, previous_tier=current_tier, new_tier=current_tier, reason="rates_recovering"
+        )
+
+    if tenant.impact not in ("", "NONE"):
+        # AWS sees a reputation problem our diluted internal rates may not. LOW is not worth a
+        # demotion, but a team must not climb while AWS flags its tenant.
+        return TierDecision(
+            team_id=history.team_id,
+            previous_tier=current_tier,
+            new_tier=current_tier,
+            reason="ses_reputation_not_clean",
         )
 
     if require_time_at_tier:
@@ -350,6 +408,10 @@ def recompute_email_sending_tiers(team_ids: Optional[list[int]] = None) -> list[
             current_tier=config.email_sending_tier,
             tier_updated_at=config.email_sending_tier_updated_at or config.team.created_at,
             suspended=config.email_sending_suspended_at is not None,
+            tenant_state=SesTenantState(
+                sending_status=config.ses_tenant_sending_status,
+                reputation_impact=config.ses_tenant_reputation_impact,
+            ),
         )
         if apply_tier_decision(config, decision):
             decisions.append(decision)

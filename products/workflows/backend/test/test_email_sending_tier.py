@@ -11,6 +11,7 @@ from parameterized import parameterized
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.email_sending_tier import (
     SendingHistoryWindows,
+    SesTenantState,
     TeamSendingHistory,
     decide_tier,
     highest_qualifying_tier,
@@ -173,6 +174,31 @@ class TestEmailSendingTierDecision(BaseTest):
             current_tier=2,
             tier_updated_at=timezone.now() - timedelta(days=30),
             suspended=False,
+        )
+        assert decision.new_tier == expected_tier
+        assert decision.reason == expected_reason
+
+    # AWS measures the complaint rate against FBL-domain sends only, while our rate divides by all
+    # sends and reads lower. The tenant verdict must therefore override a clean internal history:
+    # a paused tenant restarts at the bottom, HIGH impact demotes, LOW blocks the climb.
+    @parameterized.expand(
+        [
+            ("aws paused tenant drops to the bottom", "DISABLED", "", 0, "ses_tenant_paused"),
+            ("high impact demotes despite clean internal rates", "ENABLED", "HIGH", 1, "ses_reputation_high"),
+            ("low impact blocks promotion but does not demote", "ENABLED", "LOW", 2, "ses_reputation_not_clean"),
+            ("reinstated tenant with no impact still promotes", "REINSTATED", "NONE", 3, "clean_and_used"),
+        ]
+    )
+    def test_the_ses_tenant_verdict_overrides_clean_internal_rates(
+        self, _name: str, sending_status: str, impact: str, expected_tier: int, expected_reason: str
+    ) -> None:
+        used = clean_days(5, TIER_DAILY_CAPS[2])
+        decision = decide_tier(
+            history=history(sent=sum(used.values()), daily_sends=used),
+            current_tier=2,
+            tier_updated_at=timezone.now() - timedelta(days=30),
+            suspended=False,
+            tenant_state=SesTenantState(sending_status=sending_status, reputation_impact=impact),
         )
         assert decision.new_tier == expected_tier
         assert decision.reason == expected_reason

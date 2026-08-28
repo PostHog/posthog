@@ -12,6 +12,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.email_sending_tier import (
+    SesTenantState,
     TeamSendingHistory,
     TierDecision,
     build_sending_histories,
@@ -77,7 +78,14 @@ class Command(BaseCommand):
         if team_ids is not None:
             configs = configs.filter(team_id__in=team_ids)
         state_by_team = {
-            row["team_id"]: row for row in configs.values("team_id", "email_sending_tier", "email_sending_tier_pinned")
+            row["team_id"]: row
+            for row in configs.values(
+                "team_id",
+                "email_sending_tier",
+                "email_sending_tier_pinned",
+                "ses_tenant_sending_status",
+                "ses_tenant_reputation_impact",
+            )
         }
 
         decisions: list[TierDecision] = []
@@ -95,6 +103,10 @@ class Command(BaseCommand):
                 current_tier=state["email_sending_tier"] if state else MIN_EMAIL_SENDING_TIER,
                 tier_updated_at=None,
                 suspended=False,
+                tenant_state=SesTenantState(
+                    sending_status=state["ses_tenant_sending_status"] if state else "",
+                    reputation_impact=state["ses_tenant_reputation_impact"] if state else "",
+                ),
                 require_time_at_tier=False,
                 single_step=False,
             )
