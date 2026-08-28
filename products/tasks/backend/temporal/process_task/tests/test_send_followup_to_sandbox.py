@@ -114,7 +114,12 @@ class TestRefreshSandboxMcp:
 
         mock_oauth.assert_called_once_with(task_run.task, task_run.state, scopes="read_only")
         mock_ph_configs.assert_called_once_with(
-            token="fresh-token", project_id=7, scopes="read_only", interaction_origin=None, task_id="task-1"
+            token="fresh-token",
+            project_id=7,
+            scopes="read_only",
+            interaction_origin=None,
+            task_id="task-1",
+            origin_product="support_reply",
         )
         mock_user_configs.assert_called_once_with(
             token="fresh-token",
