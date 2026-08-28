@@ -274,10 +274,10 @@ async fn raw_proxy_update_person_properties_routes_to_leader() {
 }
 
 /// A lifecycle fence is the one refusal whose holder the caller can act
-/// on: ingestion recognises its own merge's op id and drives it to
-/// completion. The router exhausts the bounce into its own UNAVAILABLE, so
-/// unless the fence keys ride along, the one fact the caller needs is
-/// discarded in transit.
+/// on, by recognising its own merge's op id and driving it to completion.
+/// The router exhausts the bounce into its own UNAVAILABLE, so unless the
+/// fence keys ride along, the one fact the caller needs is discarded in
+/// transit.
 #[tokio::test]
 async fn raw_proxy_exhausted_person_fence_bounce_names_the_holder() {
     let test_person = create_test_person();

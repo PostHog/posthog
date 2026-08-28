@@ -69,6 +69,8 @@ impl HarnessClient {
                 person_id,
                 op_id: op_id.to_string(),
                 op_type: LifecycleOpType::Delete.into(),
+                // Delete ops carry no creator event; the field is advisory.
+                creator_event_uuid: String::new(),
             })
             .await
             .context("FencePerson failed")

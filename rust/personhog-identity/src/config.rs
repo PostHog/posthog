@@ -121,9 +121,9 @@ pub struct Config {
 
     /// How long one lifecycle call — MergePersons or DeletePersons — keeps
     /// driving (or waiting on another driver's lease) before returning
-    /// UNAVAILABLE (seconds); checked between steps. The ingestion client's
-    /// merge deadline (PERSONHOG_MERGE_TIMEOUT_MS, Node) must exceed this
-    /// value or it cancels drives mid-lease; raise both together.
+    /// UNAVAILABLE (seconds); checked between steps. A caller's own deadline
+    /// must exceed this value, or it cancels drives mid-lease and every
+    /// follow-up waits the abandoned lease out.
     #[envconfig(default = "30")]
     pub lifecycle_execute_timeout_secs: u64,
 
@@ -149,11 +149,9 @@ pub struct Config {
 
     /// How long completed op rows are retained for op_id idempotency before
     /// GC (hours); the durable deletion shield is the person tombstone row,
-    /// not the op row. The ingestion memo's destroyed-person marks last 25
-    /// hours to outlive this window (personhog-person-memo.ts,
-    /// destroyedRetentionMs) — raising this past 25 re-opens the
-    /// replayed-verdict resurrection those marks close, so change both
-    /// together.
+    /// not the op row. A completed op's verdict replays for this long, so a
+    /// client that caches which persons a merge destroyed must hold those
+    /// marks longer than this window or a replay can resurrect one.
     #[envconfig(default = "24")]
     pub lifecycle_op_retention_hours: u64,
 }
