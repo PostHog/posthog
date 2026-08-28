@@ -3,15 +3,6 @@
 
 database "posthog" {
 
-  patch_table "log_attributes2" {
-    partition_by = "toDate(time_bucket)"
-    ttl = "time_bucket + toIntervalDay(15)"
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/logs/{shard}/log_attributes34"
-      replica_name = "{replica}"
-    }
-  }
-
   patch_table "log_attributes_distributed" {
     engine "distributed" {
       cluster_name    = "logs"

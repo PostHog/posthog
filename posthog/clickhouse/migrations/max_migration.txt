@@ -1,1 +1,1 @@
-0304_logs34_pattern_columns
+0305_drop_log_attributes2
