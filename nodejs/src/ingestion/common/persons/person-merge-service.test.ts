@@ -8,7 +8,7 @@ import { InternalPerson, Team } from '~/types'
 
 import { PersonContext } from './person-context'
 import { MergeFoldPlan } from './person-merge-fold'
-import { PersonMergeService, mergeFoldFallbackCounter } from './person-merge-service'
+import { PersonMergeService, mergeFoldFallbackCounter, mergeSettledFailureCounter } from './person-merge-service'
 import {
     PersonMergeCallFailedError,
     PersonMergeLimitExceededError,
@@ -20,6 +20,11 @@ import {
 } from './person-merge-types'
 import { MergePersonsOutcome, MergePersonsResult } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
+
+async function counterTotal(counter: { get(): Promise<{ values: { value: number }[] }> }): Promise<number> {
+    const metric = await counter.get()
+    return metric.values.reduce((sum, v) => sum + v.value, 0)
+}
 
 describe('PersonMergeService store-owned merges', () => {
     const timestamp = DateTime.fromMillis(3_600_000, { zone: 'utc' })
@@ -88,6 +93,16 @@ describe('PersonMergeService store-owned merges', () => {
         outputs = { queueMessages: jest.fn().mockResolvedValue(undefined) }
     })
 
+    it('clamps a pre-epoch event timestamp so the person stays mergeable', async () => {
+        // Events stamped before 1970 exist, and the saga rejects a negative
+        // created_at; get-or-create accepts them, so without the clamp every
+        // merge for such a person fails forever.
+        const service = makeService()
+        await service.merge('anon-1', 'd1', 1, DateTime.fromMillis(-86_400_000, { zone: 'utc' }))
+
+        expect(store.mergePersons).toHaveBeenCalledWith(expect.objectContaining({ createdAtMs: 0 }))
+    })
+
     it('sends the store one request carrying the event identity and policy', async () => {
         const service = makeService()
         const mergeResult = await service.merge('anon-1', 'd1', 1, timestamp)
@@ -97,7 +112,7 @@ describe('PersonMergeService store-owned merges', () => {
                 teamId: 1,
                 targetDistinctId: 'd1',
                 sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
-                opId: 'event-uuid',
+                eventUuid: 'event-uuid',
                 allowIdentifiedSources: false,
                 createdAtMs: 3_600_000,
                 eventOps: expect.objectContaining({
@@ -300,6 +315,48 @@ describe('PersonMergeService store-owned merges', () => {
                 .filter((entry: any) => entry?.value)
                 .map((entry: any) => parseJSON(Buffer.from(entry.value).toString()).type)
             expect(warned).toContain('merge_move_limit_exceeded')
+        })
+
+        it.each([
+            ['skipped_illegal', 'cannot_merge_with_illegal_distinct_id'],
+            ['skipped_conflict', 'merge_race_condition'],
+            ['skipped_race', 'merge_race_condition'],
+            ['skipped_already_identified', 'cannot_merge_already_identified'],
+        ])('warns on a %s source the fold skipped', async (outcome, warningType) => {
+            store.mergePersons.mockResolvedValue({
+                survivor,
+                results: [
+                    { sourceDistinctId: 'anon-1', outcome: 'merged' },
+                    { sourceDistinctId: 'anon-2', outcome },
+                ],
+            })
+            const service = makeService('$identify', makePlan())
+
+            await service.handleIdentifyOrAlias()
+
+            const warned = outputs.queueMessages.mock.calls
+                .flat(3)
+                .filter((entry: any) => entry?.value)
+                .map((entry: any) => parseJSON(Buffer.from(entry.value).toString()).type)
+            expect(warned).toContain(warningType)
+        })
+
+        it('counts a source the fold settled as failed', async () => {
+            // The warning type is limiter-debounced across tests, so the
+            // settled-loss counter is the stable observable.
+            const before = await counterTotal(mergeSettledFailureCounter)
+            store.mergePersons.mockResolvedValue({
+                survivor,
+                results: [
+                    { sourceDistinctId: 'anon-1', outcome: 'merged' },
+                    { sourceDistinctId: 'anon-2', outcome: 'error' },
+                ],
+            })
+            const service = makeService('$identify', makePlan())
+
+            await service.handleIdentifyOrAlias()
+
+            expect(await counterTotal(mergeSettledFailureCounter)).toBe(before + 1)
         })
 
         it('a later event of an executed plan short-circuits without a store call', async () => {
