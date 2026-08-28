@@ -704,26 +704,12 @@ export class ApiClient {
                     hidden?: boolean
                 }
             }): Promise<Result<ApiEventDefinition>> => {
-                try {
-                    const createUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/`
+                const createUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/`
 
-                    const response = await this.fetch(createUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name: eventName, ...data }),
-                    })
-
-                    if (!response.ok) {
-                        const body = await response.text()
-                        throw new Error(`Failed to create event definition: ${response.statusText} ${body}`)
-                    }
-
-                    const responseData = (await response.json()) as ApiEventDefinition
-
-                    return { success: true, data: responseData }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
+                return this.fetchJson<ApiEventDefinition>(createUrl, {
+                    method: 'POST',
+                    body: JSON.stringify({ name: eventName, ...data }),
+                })
             },
 
             updateEventDefinition: async ({

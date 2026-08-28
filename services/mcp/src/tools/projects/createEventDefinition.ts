@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { wrapError } from '@/lib/errors'
 import type { ApiEventDefinition } from '@/schema/api'
 import { EventDefinitionCreateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
@@ -23,7 +24,10 @@ export const createEventDefinitionHandler: ToolBase<typeof schema, Result>['hand
     })
 
     if (!result.success) {
-        throw new Error(`Failed to create event definition: ${result.error.message}`)
+        // Preserve the typed API error as `cause` so `handleToolError` can
+        // classify a recoverable failure (e.g. a duplicate-name validation
+        // error) instead of counting it as an internal fault.
+        throw wrapError(`Failed to create event definition: ${result.error.message}`, result.error)
     }
 
     return {
