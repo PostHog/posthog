@@ -393,7 +393,15 @@ function InsightCardInternal(
                     />
                 )
             }
-            return <InsightErrorState />
+            return (
+                <InsightErrorState
+                    queryId={queryId}
+                    query={insight.query}
+                    excludeActions={sharedView}
+                    placement={placement}
+                    onRetry={sharedView ? undefined : refresh}
+                />
+            )
         }
 
         if (timedOut) {

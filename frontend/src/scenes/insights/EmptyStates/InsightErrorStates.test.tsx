@@ -47,13 +47,21 @@ describe('insight error states', () => {
         })
     })
 
-    it('reports "insight error message shown" when a server error renders', () => {
-        render(<InsightErrorState title="A server error occurred." queryId="test-query-id" />)
+    // The resolved error kind must reach telemetry, so rate limits, permission denials, and unknown
+    // failures no longer all report as 'server'.
+    it.each([
+        [undefined, 'unknown'],
+        [429, 'rate_limit'],
+        [403, 'permission'],
+        [503, 'transient'],
+        [500, 'server'],
+    ])('reports error_type %s as "%s"', (status, expectedType) => {
+        render(<InsightErrorState title="A server error occurred." titleStatus={status} queryId="test-query-id" />)
 
         const shownCalls = captureSpy.mock.calls.filter((call) => call[0] === 'insight error message shown')
         expect(shownCalls).toHaveLength(1)
         expect(shownCalls[0][1]).toEqual({
-            error_type: 'server',
+            error_type: expectedType,
             query_kind: null,
             query_id: 'test-query-id',
         })
