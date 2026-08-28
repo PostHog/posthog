@@ -10,7 +10,7 @@ import { enumDesc, fileDesc, messageDesc, serviceDesc } from '@bufbuild/protobuf
 export const file_ingestion_worker_v1_worker: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'CiBpbmdlc3Rpb24vd29ya2VyL3YxL3dvcmtlci5wcm90bxITaW5nZXN0aW9uLndvcmtlci52MSKDAQoTSW5nZXN0U3RyZWFtUmVxdWVzdBIxCgVoZWxsbxgBIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3RyZWFtSGVsbG9IABIyCglzdWJfYmF0Y2gYAiABKAsyHS5pbmdlc3Rpb24ud29ya2VyLnYxLlN1YkJhdGNoSABCBQoDbXNnIjgKC1N0cmVhbUhlbGxvEhMKC2NvbnN1bWVyX2lkGAEgASgJEhQKDHN0cmVhbV9lcG9jaBgCIAEoBCKIAQoIU3ViQmF0Y2gSCwoDc2VxGAEgASgEEhAKCGJhdGNoX2lkGAIgASgJEjMKCG1lc3NhZ2VzGAMgAygLMiEuaW5nZXN0aW9uLndvcmtlci52MS5LYWZrYU1lc3NhZ2USDgoGcmVwbGF5GAQgASgIEhgKEGFzc2lnbm1lbnRfZXBvY2gYBSABKAQi/AEKDEthZmthTWVzc2FnZRINCgV0b3BpYxgBIAEoCRIRCglwYXJ0aXRpb24YAiABKAUSDgoGb2Zmc2V0GAMgASgDEhEKCXRpbWVzdGFtcBgEIAEoAxIQCgNrZXkYBSABKAlIAIgBARISCgV2YWx1ZRgGIAEoCUgBiAEBEj8KB2hlYWRlcnMYByADKAsyLi5pbmdlc3Rpb24ud29ya2VyLnYxLkthZmthTWVzc2FnZS5IZWFkZXJzRW50cnkaLgoMSGVhZGVyc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCBgoEX2tleUIICgZfdmFsdWUigQEKFEluZ2VzdFN0cmVhbVJlc3BvbnNlEjEKBXJlYWR5GAEgASgLMiAuaW5nZXN0aW9uLndvcmtlci52MS5TdHJlYW1SZWFkeUgAEi8KA2FjaxgCIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3ViQmF0Y2hBY2tIAEIFCgNtc2ciDQoLU3RyZWFtUmVhZHkicAoLU3ViQmF0Y2hBY2sSCwoDc2VxGAEgASgEEjMKBnN0YXR1cxgCIAEoDjIjLmluZ2VzdGlvbi53b3JrZXIudjEuU3ViQmF0Y2hTdGF0dXMSEAoIYWNjZXB0ZWQYAyABKA0SDQoFZXJyb3IYBCABKAkqgwEKDlN1YkJhdGNoU3RhdHVzEiAKHFNVQl9CQVRDSF9TVEFUVVNfVU5TUEVDSUZJRUQQABIXChNTVUJfQkFUQ0hfU1RBVFVTX09LEAESGwoXU1VCX0JBVENIX1NUQVRVU19GQUlMRUQQAhIZChVTVUJfQkFUQ0hfU1RBVFVTX0JVU1kQAzJ3CgxXb3JrZXJJbmdlc3QSZwoMSW5nZXN0U3RyZWFtEiguaW5nZXN0aW9uLndvcmtlci52MS5Jbmdlc3RTdHJlYW1SZXF1ZXN0GikuaW5nZXN0aW9uLndvcmtlci52MS5Jbmdlc3RTdHJlYW1SZXNwb25zZSgBMAFiBnByb3RvMw'
+        'CiBpbmdlc3Rpb24vd29ya2VyL3YxL3dvcmtlci5wcm90bxITaW5nZXN0aW9uLndvcmtlci52MSKDAQoTSW5nZXN0U3RyZWFtUmVxdWVzdBIxCgVoZWxsbxgBIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3RyZWFtSGVsbG9IABIyCglzdWJfYmF0Y2gYAiABKAsyHS5pbmdlc3Rpb24ud29ya2VyLnYxLlN1YkJhdGNoSABCBQoDbXNnIjgKC1N0cmVhbUhlbGxvEhMKC2NvbnN1bWVyX2lkGAEgASgJEhQKDHN0cmVhbV9lcG9jaBgCIAEoBCKgAQoIU3ViQmF0Y2gSCwoDc2VxGAEgASgEEhAKCGJhdGNoX2lkGAIgASgJEjMKCG1lc3NhZ2VzGAMgAygLMiEuaW5nZXN0aW9uLndvcmtlci52MS5LYWZrYU1lc3NhZ2USDgoGcmVwbGF5GAQgASgIEhgKEGFzc2lnbm1lbnRfZXBvY2gYBSABKAQSFgoOc29mdF9idWRnZXRfbXMYBiABKAQi/AEKDEthZmthTWVzc2FnZRINCgV0b3BpYxgBIAEoCRIRCglwYXJ0aXRpb24YAiABKAUSDgoGb2Zmc2V0GAMgASgDEhEKCXRpbWVzdGFtcBgEIAEoAxIQCgNrZXkYBSABKAlIAIgBARISCgV2YWx1ZRgGIAEoCUgBiAEBEj8KB2hlYWRlcnMYByADKAsyLi5pbmdlc3Rpb24ud29ya2VyLnYxLkthZmthTWVzc2FnZS5IZWFkZXJzRW50cnkaLgoMSGVhZGVyc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCBgoEX2tleUIICgZfdmFsdWUigQEKFEluZ2VzdFN0cmVhbVJlc3BvbnNlEjEKBXJlYWR5GAEgASgLMiAuaW5nZXN0aW9uLndvcmtlci52MS5TdHJlYW1SZWFkeUgAEi8KA2FjaxgCIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3ViQmF0Y2hBY2tIAEIFCgNtc2ciDQoLU3RyZWFtUmVhZHkigwEKC1N1YkJhdGNoQWNrEgsKA3NlcRgBIAEoBBIzCgZzdGF0dXMYAiABKA4yIy5pbmdlc3Rpb24ud29ya2VyLnYxLlN1YkJhdGNoU3RhdHVzEhAKCGFjY2VwdGVkGAMgASgNEg0KBWVycm9yGAQgASgJEhEKCXRpbWVkX291dBgFIAMoDSqhAQoOU3ViQmF0Y2hTdGF0dXMSIAocU1VCX0JBVENIX1NUQVRVU19VTlNQRUNJRklFRBAAEhcKE1NVQl9CQVRDSF9TVEFUVVNfT0sQARIbChdTVUJfQkFUQ0hfU1RBVFVTX0ZBSUxFRBACEhkKFVNVQl9CQVRDSF9TVEFUVVNfQlVTWRADEhwKGFNVQl9CQVRDSF9TVEFUVVNfUEFSVElBTBAEMncKDFdvcmtlckluZ2VzdBJnCgxJbmdlc3RTdHJlYW0SKC5pbmdlc3Rpb24ud29ya2VyLnYxLkluZ2VzdFN0cmVhbVJlcXVlc3QaKS5pbmdlc3Rpb24ud29ya2VyLnYxLkluZ2VzdFN0cmVhbVJlc3BvbnNlKAEwAWIGcHJvdG8z'
     )
 
 /**
@@ -126,6 +126,18 @@ export type SubBatch = Message<'ingestion.worker.v1.SubBatch'> & {
      * @generated from field: uint64 assignment_epoch = 5;
      */
     assignmentEpoch: bigint
+
+    /**
+     * Time allowance for processing this sub-batch, milliseconds. The worker
+     * derives its budget from this field alone; it has no sizing config of its
+     * own. 0 = unlimited — which is also what a consumer predating the field
+     * sends, so compatibility is automatic. Soft: past it the worker stops
+     * starting new work but never interrupts a running step, so the consumer's
+     * ack watchdog stays the hard limit.
+     *
+     * @generated from field: uint64 soft_budget_ms = 6;
+     */
+    softBudgetMs: bigint
 }
 
 /**
@@ -273,6 +285,13 @@ export type SubBatchAck = Message<'ingestion.worker.v1.SubBatchAck'> & {
      * @generated from field: string error = 4;
      */
     error: string
+
+    /**
+     * Indices into SubBatch.messages the budget cut off. Set only on PARTIAL.
+     *
+     * @generated from field: repeated uint32 timed_out = 5;
+     */
+    timedOut: number[]
 }
 
 /**
@@ -320,6 +339,14 @@ export enum SubBatchStatus {
      * @generated from enum value: SUB_BATCH_STATUS_BUSY = 3;
      */
     BUSY = 3,
+
+    /**
+     * Some messages were processed and acked; the rest timed out and must be
+     * redelivered. `SubBatchAck.timed_out` lists them.
+     *
+     * @generated from enum value: SUB_BATCH_STATUS_PARTIAL = 4;
+     */
+    PARTIAL = 4,
 }
 
 /**
