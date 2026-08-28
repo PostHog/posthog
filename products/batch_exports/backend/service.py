@@ -269,20 +269,18 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     and on the worker side deserializes into `S3BatchExportInputs`, with any
     missing fields falling through to the defaults declared here.
 
+    Credentials and the provider endpoint are never carried here: the activity resolves them from
+    the linked Integration at run time (see `integration_id`).
+
     Attributes:
         bucket_name: The S3 bucket we are exporting to.
         region: The AWS region where the bucket is located.
         prefix: A prefix for the file name to be created in S3.
-        aws_access_key_id: Access key id used to authenticate with S3. Optional; integration-backed
-            exports resolve credentials from the linked Integration at run time (see `integration_id`),
-            while legacy exports carry them inline.
-        aws_secret_access_key: Secret access key used to authenticate with S3. See `aws_access_key_id`.
         compression: Compression algorithm to apply to exported files (e.g. "gzip", "brotli"), or None.
         file_format: File format of exported objects (e.g. "JSONLines", "Parquet"). Defaults to JSONLines.
         max_file_size_mb: The maximum file size in MB for each file to be uploaded.
         encryption: Server-side encryption algorithm to apply (e.g. "AES256", "aws:kms"), or None. AWS-only.
         kms_key_id: KMS key id to use when `encryption == "aws:kms"`, or None. AWS-only.
-        endpoint_url: Override endpoint for S3-compatible providers (e.g. MinIO, R2). None for AWS.
         use_virtual_style_addressing: Whether to use virtual-hosted-style
             addressing rather than path-style. None for AWS.
     """
@@ -290,14 +288,11 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     bucket_name: str
     region: str
     prefix: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
-    endpoint_url: str | None = None
     use_virtual_style_addressing: bool = False
 
 
@@ -305,16 +300,14 @@ class S3BatchExportInputs(BaseBatchExportInputs):
 class S3FamilyBaseInputs(BaseBatchExportInputs):
     """Shared fields for every S3-family destination.
 
-    Per-destination dataclasses extend this with provider-specific fields. Credentials are optional:
-    integration-backed exports resolve them from the linked Integration at run time (see
-    `integration_id`), while legacy exports carry them inline.
+    Per-destination dataclasses extend this with provider-specific fields. Credentials are never
+    carried here: the activity resolves them from the linked Integration at run time (see
+    `integration_id`).
     """
 
     bucket_name: str
     region: str
     prefix: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
@@ -333,11 +326,10 @@ class S3CompatibleBatchExportInputs(S3FamilyBaseInputs):
     """Inputs for a non-AWS S3-compatible batch export.
 
     Covers providers like DigitalOcean Spaces, Cloudflare R2, Hetzner, OVH, Backblaze, etc.
-    `endpoint_url` is resolved from the linked Integration at run time when `integration_id` is set,
-    otherwise carried inline (legacy).
+    `endpoint_url` lives on the linked Integration alongside the credentials, so it is resolved at
+    run time rather than configured per export.
     """
 
-    endpoint_url: str | None = None
     use_virtual_style_addressing: bool = False
 
 

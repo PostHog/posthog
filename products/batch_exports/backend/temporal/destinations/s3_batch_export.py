@@ -184,25 +184,21 @@ async def _get_s3_integration(
 
 @dataclasses.dataclass(frozen=False, kw_only=True)
 class S3InsertInputs(BatchExportInsertInputs):
-    """Inputs for S3 exports."""
+    """Inputs for S3 exports.
 
-    # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
-    # to keep track of where credentials are being stored and increases the
-    # attach surface for credential leaks.
+    No credentials are carried here. Customer exports resolve them from the Integration named by
+    `integration_id`; the internal file download export passes a `refresh_credentials` coroutine.
+    """
 
     bucket_name: str
     region: str
     prefix: str
-    # When set, credentials (and endpoint_url for S3-compatible) are resolved from this Integration
-    # at run time; otherwise the inline credentials below are used (legacy path).
+    # Optional only so payloads written before it still deserialize. The activity requires either
+    # this or `refresh_credentials`, and fails without retrying when it has neither.
     integration_id: int | None = None
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = dataclasses.field(default=None, repr=False)
-    aws_session_token: str | None = dataclasses.field(default=None, repr=False)
     compression: str | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
-    endpoint_url: str | None = None
     # TODO: In Python 3.11, this could be a enum.StrEnum.
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
@@ -348,9 +344,6 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             prefix=inputs.prefix,
             team_id=inputs.team_id,
             integration_id=inputs.integration_id,
-            aws_access_key_id=inputs.aws_access_key_id,
-            aws_secret_access_key=inputs.aws_secret_access_key,
-            endpoint_url=inputs.endpoint_url or None,
             data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval.end.isoformat(),
             compression=inputs.compression,
@@ -623,7 +616,8 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
         # Customer exports resolve credentials from their linked integration. The internal
         # file-download export instead passes a `refresh_credentials` coroutine that mints
         # scoped credentials for PostHog's own bucket. One of the two must be present.
-        endpoint_url = inputs.endpoint_url
+        # Only S3-compatible providers need an endpoint; AWS and our own bucket use the default.
+        endpoint_url = None
         refresh_credentials = inputs.refresh_credentials
 
         if inputs.integration_id is not None:
