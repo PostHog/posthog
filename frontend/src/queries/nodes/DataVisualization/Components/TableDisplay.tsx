@@ -33,6 +33,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
         [ChartDisplayType.BoldNumber]: 'Big number',
         [ChartDisplayType.Metric]: 'Metric',
         [ChartDisplayType.ActionsPie]: 'Pie chart',
+        [ChartDisplayType.ActionsDonut]: 'Donut chart',
         [ChartDisplayType.ActionsBarValue]: 'Value chart',
         [ChartDisplayType.ActionsTable]: 'Table',
         [ChartDisplayType.WorldMap]: 'World map',

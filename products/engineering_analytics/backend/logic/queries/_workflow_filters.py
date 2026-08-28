@@ -81,6 +81,49 @@ def run_started_floor_constant(window_start: datetime) -> ast.Constant:
     return ast.Constant(value=(window_start - timedelta(days=1)).strftime("%Y-%m-%d"))
 
 
+# How far below a window start the jobs-scan floor sits, by what the window actually filters.
+#
+# ON_JOB_CREATED: the query bounds the job's own created_at, so the floor only has to absorb the
+# timezone offset between the window's zone and the UTC strings GitHub lands — one day, exactly like
+# run_started_floor_constant.
+#
+# ON_RUN_STARTED: the query bounds the RUN's start instead, and the two clocks come apart on a re-run.
+# The runs snapshot upserts by id, so a re-run carries only its NEWEST attempt's run_started_at while
+# its earlier attempts' job rows were created back when those attempts ran — and those are the rows
+# that actually executed (a later attempt mostly re-lists them; see the workflow_jobs builder). A
+# one-day floor would cut exactly those, silently under-reporting the re-run's cost. A week covers
+# realistic re-run latency ("re-run on Monday what failed on Friday") and still turns an all-time jobs
+# scan into a bounded one. It is a bound, not a proof: a re-run older than this loses its earlier
+# attempts from the window's cost, which is the coarseness the floor trades for the scan.
+#
+# The same wide floor applies to any query that EXCLUDES re-run copies, whichever clock it windows:
+# the copy is only recognisable while its original attempt is inside the scan, so a tight floor under a
+# late re-run would turn the copy back into an execution. Queries that keep copies (red/green reads)
+# can use the tight floor.
+_JOB_FLOOR_SLACK_ON_JOB_CREATED = timedelta(days=1)
+_JOB_FLOOR_SLACK_ON_RUN_STARTED = timedelta(days=7)
+
+
+def _date_floor(window_start: datetime, slack: timedelta) -> ast.Constant:
+    """A date-only string ``slack`` below the window start. Date-only on purpose: it compares
+    lexicographically below every in-window ISO timestamp ('2026-07-11' < '2026-07-11T...')."""
+    return ast.Constant(value=(window_start - slack).strftime("%Y-%m-%d"))
+
+
+def job_created_floor_constant(window_start: datetime) -> ast.Constant:
+    """Raw-string scan floor for the jobs builder's {job_created_floor} placeholder, for a query that
+    windows the job's own ``created_at``. See ``_JOB_FLOOR_SLACK_ON_JOB_CREATED``."""
+    return _date_floor(window_start, _JOB_FLOOR_SLACK_ON_JOB_CREATED)
+
+
+def run_windowed_job_created_floor_constant(window_start: datetime) -> ast.Constant:
+    """Raw-string scan floor for the jobs builder's {job_created_floor} placeholder, for a query that
+    windows the RUN's start (every cost surface does). Wider than the job-created floor because a
+    re-run's earlier attempts were created before its run_started_at — see
+    ``_JOB_FLOOR_SLACK_ON_RUN_STARTED``."""
+    return _date_floor(window_start, _JOB_FLOOR_SLACK_ON_RUN_STARTED)
+
+
 def branch_filter_clause(
     branch: str | None, placeholders: dict[str, ast.Expr], *, column: str = "r.head_branch"
 ) -> str:

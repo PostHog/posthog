@@ -42,14 +42,6 @@ def _cleanup_branches(inputs: SymbolSetCleanupInputs) -> list[Q]:
     return query_branches
 
 
-def _cleanup_filter(inputs: SymbolSetCleanupInputs) -> Q:
-    query_filters = _cleanup_branches(inputs)
-    query_filter = query_filters[0]
-    for additional_filter in query_filters[1:]:
-        query_filter |= additional_filter
-    return query_filter
-
-
 def _row(*expressions: F | models.Expression) -> models.Func:
     return models.Func(*expressions, function="", template="(%(expressions)s)", output_field=models.Field())
 
@@ -67,26 +59,30 @@ def _after_cursor(cursor: tuple[datetime.datetime | None, datetime.datetime, UUI
     )
 
 
+def _bucket_queryset(*, query_filter: Q, bucket: int) -> models.QuerySet[ErrorTrackingSymbolSet]:
+    return (
+        ErrorTrackingSymbolSet.objects.using(_cleanup_read_database())
+        .alias(cleanup_bucket=symbol_set_cleanup_bucket_expression())
+        .filter(query_filter, cleanup_bucket=bucket)
+        .order_by(
+            "cleanup_bucket",
+            F("last_used").asc(nulls_last=True),
+            "created_at",
+            "id",
+        )
+    )
+
+
 def _cleanup_queryset(
     *,
     query_filter: Q,
     bucket: int,
     cursor: tuple[datetime.datetime | None, datetime.datetime, UUID] | None,
 ) -> models.QuerySet[ErrorTrackingSymbolSet]:
-    queryset = (
-        ErrorTrackingSymbolSet.objects.using(_cleanup_read_database())
-        .alias(cleanup_bucket=symbol_set_cleanup_bucket_expression())
-        .filter(query_filter, cleanup_bucket=bucket)
-    )
+    queryset = _bucket_queryset(query_filter=query_filter, bucket=bucket)
     if cursor is not None:
         queryset = queryset.filter(_after_cursor(cursor))
-
-    return queryset.order_by(
-        "cleanup_bucket",
-        F("last_used").asc(nulls_last=True),
-        "created_at",
-        "id",
-    )
+    return queryset
 
 
 def _assigned_buckets(inputs: SymbolSetCleanupInputs) -> list[int]:
@@ -135,14 +131,24 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
     """Delete stale symbol sets in bounded batches, preserving model delete behavior."""
     # Temporal workers are long-lived, so refresh any stale Django DB connection before querying.
     close_old_connections()
-    query_filter = _cleanup_filter(inputs)
+    cleanup_branches = _cleanup_branches(inputs)
 
     if inputs.dry_run:
-        eligible_symbol_sets = ErrorTrackingSymbolSet.objects.using(_cleanup_read_database()).filter(query_filter)
-        eligible_count = eligible_symbol_sets.count()
+        buckets = _assigned_buckets(inputs)
+        branch_querysets = [
+            _bucket_queryset(query_filter=query_filter, bucket=bucket)
+            for bucket in buckets
+            for query_filter in cleanup_branches
+        ]
+        eligible_count = sum(queryset.count() for queryset in branch_querysets)
         # Dry runs only log a bounded sample; never log more rows than the real run would process.
         sample_size = min(inputs.batch_size, inputs.total_per_run, eligible_count)
-        for symbol_set in eligible_symbol_sets[:sample_size]:
+        candidates: list[ErrorTrackingSymbolSet] = []
+        for queryset in branch_querysets:
+            candidates.extend(queryset[: sample_size - len(candidates)])
+            if len(candidates) == sample_size:
+                break
+        for symbol_set in candidates:
             logger.info(
                 "error_tracking.symbol_set_cleanup.dry_run_candidate",
                 symbol_set_id=str(symbol_set.id),
@@ -166,7 +172,6 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
     total_deleted = 0
     total_db_failed = 0
     total_storage_failed = 0
-    cleanup_branches = _cleanup_branches(inputs)
 
     for bucket in _assigned_buckets(inputs):
         for query_filter in cleanup_branches:
