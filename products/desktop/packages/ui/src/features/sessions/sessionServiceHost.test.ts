@@ -55,15 +55,6 @@ const mockTrpcSkills = vi.hoisted(() => ({
   resolveDependencies: { query: vi.fn() },
 }));
 
-const mockTrpcHandoff = vi.hoisted(() => ({
-  preflightToCloud: { query: vi.fn() },
-  executeToCloud: { mutate: vi.fn() },
-}));
-
-const mockTrpcOs = vi.hoisted(() => ({
-  openExternal: { mutate: vi.fn() },
-}));
-
 const mockSessionStoreSetters = vi.hoisted(() => ({
   setSession: vi.fn(),
   removeSession: vi.fn(),
@@ -280,6 +271,7 @@ const mockFeatureFlags = vi.hoisted(() => ({
 
 const mockSettingsState = vi.hoisted(() => ({
   customInstructions: "",
+  codexModelAccess: "posthog-gateway" as "posthog-gateway" | "own-subscription",
   spokenNotifications: false,
   syncCustomInstructionsFromFile: false,
   syncedCustomInstructions: null as {
@@ -341,8 +333,6 @@ vi.mock("@posthog/di/container", () => ({
         cloudTask: mockTrpcCloudTask,
         fs: mockTrpcFs,
         skills: mockTrpcSkills,
-        handoff: mockTrpcHandoff,
-        os: mockTrpcOs,
       };
     }
     if (token === Symbol.for("posthog.ui.ImperativeQueryClient")) {
@@ -442,11 +432,11 @@ vi.mock("@posthog/core/sessions/sessionEvents", async () => {
     ),
     promptReferencesAbsoluteFolder: actual.promptReferencesAbsoluteFolder,
     selectEchoedOptimisticItemIds: actual.selectEchoedOptimisticItemIds,
+    selectUnseededPendingFollowups: actual.selectUnseededPendingFollowups,
     shellExecutesToContextBlocks: vi.fn(() => []),
   };
 });
 
-import { toast } from "@posthog/ui/primitives/toast";
 import {
   getSessionService,
   resetSessionService,
@@ -496,6 +486,7 @@ describe("SessionService", () => {
     mockHasSessionPromptEventForTaskRun.mockReturnValue(false);
     resetSessionService();
     mockSettingsState.customInstructions = "";
+    mockSettingsState.codexModelAccess = "posthog-gateway";
     mockSettingsState.spokenNotifications = false;
     mockFeatureFlags.isEnabled.mockReturnValue(false);
     mockSettingsState.syncCustomInstructionsFromFile = false;
@@ -550,14 +541,6 @@ describe("SessionService", () => {
     mockTrpcSkills.resolveDependencies.query.mockImplementation(
       async (refs: unknown) => refs,
     );
-    mockTrpcHandoff.preflightToCloud.query.mockResolvedValue({
-      canHandoff: true,
-    });
-    mockTrpcHandoff.executeToCloud.mutate.mockResolvedValue({
-      success: true,
-      logEntryCount: 0,
-    });
-    mockTrpcOs.openExternal.mutate.mockResolvedValue(undefined);
     mockAuthenticatedClient.prepareTaskRunArtifactUploads.mockResolvedValue([]);
     mockAuthenticatedClient.finalizeTaskRunArtifactUploads.mockResolvedValue(
       [],
@@ -886,6 +869,40 @@ describe("SessionService", () => {
 
       expect(mockTrpcAgent.start.mutate).toHaveBeenCalledWith(
         expect.objectContaining({ customInstructions: "synced from file" }),
+      );
+    });
+
+    it("starts Codex with the access selected for the task", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
+      mockBuildAuthenticatedClient.mockReturnValue({
+        ...mockAuthenticatedClient,
+        createTaskRun: vi.fn().mockResolvedValue({ id: "run-789" }),
+        appendTaskRunLog: vi.fn(),
+      });
+      mockTrpcAgent.start.mutate.mockResolvedValue({
+        channel: "test-channel",
+        configOptions: [],
+      });
+
+      await service.connectToTask({
+        task: createMockTask(),
+        repoPath: "/repo",
+        adapter: "codex",
+        codexModelAccess: "own-subscription",
+      });
+
+      expect(mockTrpcAgent.start.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "codex",
+          codexModelAccess: "own-subscription",
+        }),
+      );
+      expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "codex",
+          codexModelAccess: "own-subscription",
+        }),
       );
     });
 
@@ -9403,12 +9420,13 @@ describe("SessionService", () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
 
-      await service.setSessionConfigOption(
+      const result = await service.setSessionConfigOption(
         "task-123",
         "model",
         "claude-3-sonnet",
       );
 
+      expect(result).toBe(false);
       expect(mockTrpcAgent.setConfigOption.mutate).not.toHaveBeenCalled();
     });
 
@@ -9455,12 +9473,13 @@ describe("SessionService", () => {
         }),
       );
 
-      await service.setSessionConfigOption(
+      const result = await service.setSessionConfigOption(
         "task-123",
         "model",
         "claude-3-sonnet",
       );
 
+      expect(result).toBe(true);
       // Optimistic update
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
         "run-123",
@@ -9518,8 +9537,13 @@ describe("SessionService", () => {
         new Error("Failed"),
       );
 
-      await service.setSessionConfigOption("task-123", "mode", "acceptEdits");
+      const result = await service.setSessionConfigOption(
+        "task-123",
+        "mode",
+        "acceptEdits",
+      );
 
+      expect(result).toBe(false);
       expect(currentSession.configOptions).toEqual([
         expect.objectContaining({
           id: "mode",
@@ -9631,8 +9655,13 @@ describe("SessionService", () => {
         }),
       );
 
-      await service.setSessionConfigOption("task-123", "mode", "acceptEdits");
+      const result = await service.setSessionConfigOption(
+        "task-123",
+        "mode",
+        "acceptEdits",
+      );
 
+      expect(result).toBe(false);
       expect(mockTrpcAgent.setConfigOption.mutate).not.toHaveBeenCalled();
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledTimes(1);
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
@@ -10027,43 +10056,6 @@ describe("SessionService", () => {
       await expect(
         service.clearSessionError("task-123", "/repo"),
       ).resolves.not.toThrow();
-    });
-  });
-
-  describe("handoffToCloud", () => {
-    it("starts GitHub reauth when cloud handoff needs user authorization", async () => {
-      const service = getSessionService();
-      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
-        createMockSession(),
-      );
-      mockTrpcHandoff.executeToCloud.mutate.mockResolvedValue({
-        success: false,
-        code: "github_authorization_required",
-        error: "Connect GitHub in your browser, then retry Continue in cloud.",
-      });
-
-      await service.handoffToCloud("task-123", "/repo/path");
-
-      expect(
-        mockAuthenticatedClient.startGithubUserIntegrationConnect,
-      ).toHaveBeenCalledWith(123);
-      expect(mockTrpcOs.openExternal.mutate).toHaveBeenCalledWith({
-        url: "https://github.com/login/oauth/authorize",
-      });
-      expect(toast.info).toHaveBeenCalledWith(
-        "Connect GitHub to continue in cloud",
-        "Complete the authorization in your browser, then click Continue again.",
-      );
-      expect(toast.error).not.toHaveBeenCalledWith(
-        expect.stringContaining("github_authorization_required"),
-      );
-      expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
-        "run-123",
-        {
-          handoffInProgress: false,
-          status: "disconnected",
-        },
-      );
     });
   });
 

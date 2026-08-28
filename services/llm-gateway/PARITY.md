@@ -48,6 +48,11 @@ Existing Django callers should use `build_openai_client`, `build_async_openai_cl
 
 For PostHog Desktop, the Python gateway maps Django credential rejections to generic access denials. Transport, server, and malformed-response failures remain retryable service errors.
 
+Flag-gated open-weight models added to the Python gateway under the freeze stay there for the same reason.
+`zai-org/glm-5.3-flash` is Baseten-exclusive, gated by the `posthog-code-glm-53-flash-model` flag, and reachable only by the `posthog_code` and `review_hog` products.
+Its callers are PostHog Desktop and PostHog Code, so the model depends on the OAuth application allowlists, the request-selected project validated against OAuth scope and live organization membership, the billing policy, and the per-model access flags named in the first row above.
+The Go catalog serves GLM 5.2 only, and Baseten on Go still depends on the provider deployment check below.
+
 ### 🔎 Verify before switching
 
 These are compatibility checks, not automatic blockers:
@@ -73,7 +78,7 @@ These are compatibility checks, not automatic blockers:
 | OpenAI APIs                  | Chat Completions, Responses, bare Responses alias, and normalized router chat.                                                                                                    | Audio transcription and broader LiteLLM translation.                                                                                                                                                                    |
 | Anthropic APIs               | Messages and token counting, including Bedrock-hosted models.                                                                                                                     | OpenAI models exposed through the Anthropic shape and Python-specific Bedrock opt-in behavior.                                                                                                                          |
 | Providers                    | OpenAI, Anthropic, Azure OpenAI, Bedrock, and configured Modal, Fireworks, and Baseten hosts.                                                                                     | OpenRouter and Cloudflare Workers AI.                                                                                                                                                                                   |
-| Models                       | Gateway-owned catalog, canonical IDs and aliases, capability checks, router categories, and OpenRouter-shaped pricing.                                                            | Broader LiteLLM model acceptance, Python product allowlists, and product-scoped model pricing.                                                                                                                          |
+| Models                       | Gateway-owned catalog, canonical IDs and aliases, capability checks, router categories, and OpenRouter-shaped pricing.                                                            | Broader LiteLLM model acceptance, Python product allowlists, per-model access flags, and product-scoped model pricing.                                                                                                  |
 | Routing and failure behavior | Operator-managed provider plans, health-aware ordering, circuit breakers, hosted-provider failover, and strict provider pinning.                                                  | Caller opt-in Bedrock fallback and provider-specific Python routing.                                                                                                                                                    |
 | Event metadata               | One `X-PostHog-Properties` JSON object plus dedicated product, user, obo, distinct ID, trace ID, and provider headers.                                                            | `X-POSTHOG-PROPERTY-*` and `X-POSTHOG-FLAG-*` headers.                                                                                                                                                                  |
 | Session attribution          | `X-PostHog-Session-Id` is recorded as the gateway-owned `$ai_session_id`.                                                                                                         | The per-key property header can also emit `$ai_session_id`.                                                                                                                                                             |
@@ -92,10 +97,10 @@ Run `/migrating-llm-gateway-callers` to inventory and convert a caller.
 
 Run `/auditing-llm-gateway-parity` after either gateway changes auth, attribution, billing, endpoints, providers, models, routing, or event metadata. The skill audits implementation sources in both repositories and updates this file without migrating callers.
 
-Last verified on 2026-08-25 against:
+Last verified on 2026-08-27 against:
 
-- `PostHog/posthog` working tree compared with master at `c22b95e0009c54388fd1b199d3248f48aba019e2`
-- `PostHog/ai-gateway` main at `d7545e0979ff38d7df1ce73779253897c99c3c46`
+- `PostHog/posthog` working tree compared with master at `88997b515b337b2482814df60c132f60d5de5be4`
+- `PostHog/ai-gateway` main at `37ee8bca725a13bca71e40b36f916765f625f939`
 
 ## References
 

@@ -13,7 +13,7 @@
     "@pierre/diffs": "^1.2.10",
     "@posthog/brand": "0.9.0",
     "@posthog/shared": "workspace:*",
-    "posthog-js": "^1.420.0",
+    "posthog-js": "^1.422.3",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "zod": "^4.4.3"
