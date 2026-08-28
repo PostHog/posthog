@@ -28,8 +28,6 @@ const SIGNIFICANCE_LABELS = {
   insufficient_data: "Insufficient data",
 } as const;
 
-// `--success` and `--destructive` are surface tokens, so text has to use the
-// paired foreground tokens to stay readable.
 function directionClass(isImprovement: boolean | null): string {
   if (isImprovement === true) return "text-success-foreground";
   if (isImprovement === false) return "text-destructive-foreground";
@@ -73,7 +71,6 @@ function SignificanceBadge({
   );
 }
 
-/** One-line verdict for a collapsed metric row: its strongest variant. */
 function BestVariantLine({
   metric,
 }: {
@@ -231,10 +228,6 @@ function MetricDetail({
   );
 }
 
-/**
- * Hover cards get a read-only headline per metric. Nothing expands there: the
- * full page owns the variant tables.
- */
 function CompactMetricRow({
   metric,
 }: {

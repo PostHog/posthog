@@ -10,8 +10,6 @@ export interface ExperimentResultsSummaryProps {
   results: ExperimentResultsPresentation | null | undefined;
 }
 
-// Hover cards show the headline metrics only and leave the rest to the full
-// page, so a metric-heavy experiment stays a short scannable list.
 const MAX_COMPACT_METRICS = 3;
 
 export function ExperimentResultsSummary({
@@ -56,8 +54,6 @@ export function ExperimentResultsSummary({
   }
 
   const allMetrics = [...results.primaryMetrics, ...results.secondaryMetrics];
-  // Hover cards lead with the primary metrics, and fall back to the secondary
-  // ones when an experiment has no primary metric at all.
   const headlineMetrics =
     results.primaryMetrics.length > 0
       ? results.primaryMetrics

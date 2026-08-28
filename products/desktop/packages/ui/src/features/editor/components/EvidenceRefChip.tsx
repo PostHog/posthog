@@ -154,10 +154,6 @@ export function EvidenceSparkline({
   );
 }
 
-/**
- * The hover card, presentation only. `preview` is the live lookup result.
- * `loadState` keeps failed and missing lookups distinct when there is no data.
- */
 export function EvidenceHoverCard({
   target,
   children,
