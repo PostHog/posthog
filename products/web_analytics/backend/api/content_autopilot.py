@@ -13,11 +13,15 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.egress.public_web import PublicWebFetchError
 from posthog.models.integration.github import is_safe_github_ref
+from posthog.rate_limit import (
+    ContentAutopilotDiscoveryBurstRateThrottle,
+    ContentAutopilotDiscoverySustainedRateThrottle,
+)
 
 from products.web_analytics.backend.content_autopilot.delivery import (
     ContentAutopilotDeliveryError,
@@ -44,6 +48,7 @@ from products.web_analytics.backend.models import (
     ContentAutopilotRun,
     ContentAutopilotSiteProfile,
 )
+from products.web_analytics.backend.public_url_fetch import PublicUrlFetchError
 
 CONTENT_AUTOPILOT_FEATURE_FLAGS = (
     "web-analytics-page-performance",
@@ -289,7 +294,7 @@ class ContentAutopilotSiteProfileSerializer(serializers.ModelSerializer):
             parsed_source = urlparse(str(source_url))
             try:
                 same_origin = has_same_public_origin(str(source_url), domain)
-            except (ValueError, PublicWebFetchError):
+            except (ValueError, PublicUrlFetchError):
                 same_origin = False
             if (
                 parsed_source.fragment
@@ -601,6 +606,14 @@ class ContentAutopilotSiteProfileViewSet(ContentAutopilotViewSetMixin, viewsets.
     queryset = ContentAutopilotSiteProfile.objects.unscoped()
     http_method_names = ["get", "post", "put", "patch", "head", "options"]
 
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "discover":
+            return [
+                ContentAutopilotDiscoveryBurstRateThrottle(),
+                ContentAutopilotDiscoverySustainedRateThrottle(),
+            ]
+        return super().get_throttles()
+
     def safely_get_queryset(
         self, queryset: QuerySet[ContentAutopilotSiteProfile]
     ) -> QuerySet[ContentAutopilotSiteProfile]:
@@ -618,7 +631,7 @@ class ContentAutopilotSiteProfileViewSet(ContentAutopilotViewSetMixin, viewsets.
     def discover(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         try:
             result = discover_site(request.validated_data["domain"])
-        except (ValueError, PublicWebFetchError) as error:
+        except (ValueError, PublicUrlFetchError) as error:
             raise ValidationError({"domain": str(error)}) from error
         return Response(ContentAutopilotSiteDiscoveryResponseSerializer(instance=result).data)
 
