@@ -74,6 +74,7 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team
 from posthog.models.filters import Filter
@@ -1936,10 +1937,22 @@ def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, 
 SENDING_ALLOWANCE_CACHE_SECONDS = 60
 
 
-def _team_email_sending_allowance(team_id: int) -> dict[str, Any]:
-    """
-    The project's sending tier, what it allows, and how much of it has been used.
+@frozen
+class EmailSendingAllowance:
+    """A project's sending tier, what it allows, and how much of that it has used."""
 
+    tier: int
+    max_tier: int
+    emails_per_hour: int
+    emails_per_day: int
+    max_batch_audience: int
+    emails_sent_last_hour: int
+    emails_sent_last_day: int
+    enforced: bool
+
+
+def _team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
+    """
     Usage comes from the send metrics rather than the worker's token buckets, so the numbers match
     what the rest of this page reports. Cached briefly because the endpoint reloads on every search
     keystroke while these two aggregations do not depend on the search.
@@ -1951,16 +1964,16 @@ def _team_email_sending_allowance(team_id: int) -> dict[str, Any]:
 
     resolved = resolve_team_email_sending_tier(team_id)
     now = timezone.now()
-    allowance = {
-        "tier": resolved.tier,
-        "max_tier": max_email_sending_tier(),
-        "emails_per_hour": resolved.limits.per_hour,
-        "emails_per_day": resolved.limits.per_day,
-        "max_batch_audience": resolved.limits.max_batch_audience,
-        "emails_sent_last_hour": _team_email_sends_since(team_id, now - timedelta(hours=1)),
-        "emails_sent_last_day": _team_email_sends_since(team_id, now - timedelta(days=1)),
-        "enforced": resolved.enforced,
-    }
+    allowance = EmailSendingAllowance(
+        tier=resolved.tier,
+        max_tier=max_email_sending_tier(),
+        emails_per_hour=resolved.limits.per_hour,
+        emails_per_day=resolved.limits.per_day,
+        max_batch_audience=resolved.limits.max_batch_audience,
+        emails_sent_last_hour=_team_email_sends_since(team_id, now - timedelta(hours=1)),
+        emails_sent_last_day=_team_email_sends_since(team_id, now - timedelta(days=1)),
+        enforced=resolved.enforced,
+    )
     cache.set(cache_key, allowance, SENDING_ALLOWANCE_CACHE_SECONDS)
     return allowance
 
