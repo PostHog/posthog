@@ -4,12 +4,24 @@ import type { Task } from "@posthog/shared/domain-types";
 import { CANVAS_DRAG_TYPE } from "@posthog/ui/features/canvas/canvasDrag";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
+  beginSidebarPeek,
+  cancelSidebarPeek,
+  endSidebarPeek,
+  useSidebarPeekStore,
+} from "@posthog/ui/features/sidebar/sidebarPeekStore";
+import {
   TASK_DRAG_TYPE,
   TASK_IDS_DRAG_TYPE,
 } from "@posthog/ui/features/sidebar/taskDrag";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { Theme } from "@radix-ui/themes";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -408,6 +420,29 @@ describe("ChannelItemRow", () => {
 
     for (const label of MENU_ITEMS) {
       expect(screen.getByRole("menuitem", { name: label })).not.toBeNull();
+    }
+  });
+
+  it("keeps the hover sidebar open while the context menu is open", () => {
+    vi.useFakeTimers();
+    try {
+      beginSidebarPeek();
+      renderWithMenu({});
+
+      fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+      endSidebarPeek(0);
+      act(() => vi.runAllTimers());
+
+      expect(useSidebarPeekStore.getState().peek).toBe(true);
+
+      fireEvent.keyDown(document, { key: "Escape" });
+      act(() => vi.runAllTimers());
+
+      expect(useSidebarPeekStore.getState().peek).toBe(false);
+    } finally {
+      cleanup();
+      cancelSidebarPeek();
+      vi.useRealTimers();
     }
   });
 
