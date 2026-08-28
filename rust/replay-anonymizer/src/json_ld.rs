@@ -9,6 +9,7 @@ use crate::json::{as_array, as_object, as_str, key};
 // Keep this policy aligned with posthog-js/packages/browser/src/extensions/replay/external/json-ld.ts.
 const MAX_JSON_LD_LENGTH: usize = 100_000;
 const MAX_JSON_LD_OUTPUT_LENGTH: usize = 20_000;
+const MAX_JSON_LD_TYPE_LENGTH: usize = 100;
 const SCHEMA_CONTEXT: &str = "https://schema.org";
 const TYPE_INDEPENDENT_LEAF_PROPERTIES: &str =
     "actionStatus availability bestRating contentRating encodingFormat eventAttendanceMode eventStatus highPrice inLanguage isAccessibleForFree isFamilyFriendly itemCondition itemListOrder lowPrice maximumAttendeeCapacity nonprofitStatus numberOfItems offerCount position price priceCurrency priceValidUntil publicAccess ratingCount ratingValue reviewCount smokingAllowed worstRating";
@@ -206,7 +207,9 @@ fn entity_types(value: Option<&Value<'_>>) -> Vec<String> {
     values
         .into_iter()
         .map(normalize_entity_type)
-        .filter(|entity_type| !entity_type.is_empty())
+        .filter(|entity_type| {
+            !entity_type.is_empty() && entity_type.encode_utf16().count() <= MAX_JSON_LD_TYPE_LENGTH
+        })
         .map(str::to_string)
         .collect()
 }
@@ -313,7 +316,7 @@ fn sanitize_root<'v>(value: &Value<'v>) -> Option<Value<'v>> {
 }
 
 fn sanitize_json_ld<'v>(value: &Value<'v>) -> Option<Value<'v>> {
-    if value.encode().len() > MAX_JSON_LD_LENGTH {
+    if value.encode().encode_utf16().count() > MAX_JSON_LD_LENGTH {
         return None;
     }
 
@@ -327,7 +330,7 @@ fn sanitize_json_ld<'v>(value: &Value<'v>) -> Option<Value<'v>> {
         sanitize_root(value)?
     };
 
-    (sanitized.encode().len() <= MAX_JSON_LD_OUTPUT_LENGTH).then_some(sanitized)
+    (sanitized.encode().encode_utf16().count() <= MAX_JSON_LD_OUTPUT_LENGTH).then_some(sanitized)
 }
 
 pub(crate) fn scrub_json_ld_payload<'v>(data: &mut Object<'v>) -> bool {
@@ -353,117 +356,114 @@ mod tests {
         let mut bytes =
             serde_json::to_vec(&json!({ "tag": "$json_ld", "payload": payload })).unwrap();
         let mut data = parse_untrusted(&mut bytes).unwrap();
-        assert!(scrub_json_ld_payload(as_object_mut(&mut data).unwrap()));
+        scrub_json_ld_payload(as_object_mut(&mut data).unwrap());
         serde_json::from_str(&data.encode()).unwrap()
     }
 
     #[test]
     fn matches_posthog_js_json_ld_sanitization() {
-        let cases = [
-            (
-                json!({
-                    "@context": "https://schema.org",
-                    "@type": "Product",
-                    "@id": "https://example.com/products/camera#camera",
-                    "name": "Camera",
-                    "email": "viewer@example.com",
-                    "offers": {
-                        "@type": "Offer",
-                        "@id": "https://example.com/offers/1",
-                        "price": 100,
-                        "seller": {
-                            "@type": "Person",
-                            "@id": "#person-id",
-                            "name": "Example Viewer"
-                        }
-                    }
-                }),
-                json!({
-                    "tag": "$json_ld",
-                    "payload": {
-                        "@context": "https://schema.org",
-                        "@type": "Product",
-                        "@id": "camera",
-                        "name": "Camera",
-                        "offers": {
-                            "@type": "Offer",
-                            "price": 100,
-                            "seller": { "@type": "Person", "@id": "person-id" }
-                        }
-                    }
-                }),
-            ),
-            (
-                json!({
-                    "@context": "http://schema.org/",
-                    "@graph": [
-                        {
-                            "@type": "WebSite",
-                            "datePublished": "2026-08-25",
-                            "email": "viewer@example.com",
-                            "potentialAction": {
-                                "@type": "SearchAction",
-                                "actionStatus": "https://schema.org/PotentialActionStatus",
-                                "target": "https://example.com/search?q=private"
-                            }
-                        },
-                        {
-                            "@type": "PrivateType",
-                            "ratingValue": 4.5,
-                            "email": "viewer@example.com",
-                            "private@example.com": { "priceCurrency": "GBP" }
-                        }
-                    ]
-                }),
-                json!({
-                    "tag": "$json_ld",
-                    "payload": {
-                        "@context": "https://schema.org",
-                        "@graph": [
-                            {
-                                "@type": "WebSite",
-                                "datePublished": "2026-08-25",
-                                "potentialAction": {
-                                    "@type": "SearchAction",
-                                    "actionStatus": "https://schema.org/PotentialActionStatus"
-                                }
-                            },
-                            {
-                                "@type": "PrivateType",
-                                "ratingValue": 4.5
-                            }
-                        ]
-                    }
-                }),
-            ),
-            (
-                json!({
-                    "@context": "https://schema.org",
-                    "@type": ["https://schema.org/Product", "Car", "PrivateType", 42],
-                    "name": ["Camera", 2, true, null],
-                    "color": ["black", { "value": "private" }]
-                }),
-                json!({
-                    "tag": "$json_ld",
-                    "payload": {
-                        "@context": "https://schema.org",
-                        "@type": ["Product", "Car", "PrivateType"],
-                        "name": ["Camera", 2, true, null]
-                    }
-                }),
-            ),
-            (
-                json!({ "@context": "https://example.com", "@type": "Product", "name": "Camera" }),
-                json!({ "tag": "$json_ld" }),
-            ),
-            (
-                json!({ "@context": "https://schema.org", "@type": "Product", "name": "x".repeat(20_001) }),
-                json!({ "tag": "$json_ld" }),
-            ),
-        ];
+        let contract: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/json-ld-sanitization-v1.json"
+        ))
+        .unwrap();
+        assert_eq!(contract["schemaVersion"], 1);
 
-        for (payload, expected) in cases {
-            assert_eq!(scrub(payload), expected);
+        for case in contract["cases"].as_array().unwrap() {
+            let expected = match &case["expected"] {
+                serde_json::Value::Null => json!({ "tag": "$json_ld" }),
+                expected => json!({ "tag": "$json_ld", "payload": expected }),
+            };
+            assert_eq!(scrub(case["input"].clone()), expected, "{}", case["name"]);
         }
+    }
+
+    #[test]
+    fn enforces_posthog_js_json_ld_limits() {
+        let contract: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/json-ld-sanitization-v1.json"
+        ))
+        .unwrap();
+        let max_type_length = contract["limits"]["maxTypeLength"].as_u64().unwrap() as usize;
+        let max_source_length = contract["limits"]["maxSourceLength"].as_u64().unwrap() as usize;
+        let max_payload_length = contract["limits"]["maxPayloadLength"].as_u64().unwrap() as usize;
+
+        let root = |entity_type: String, name: Option<String>| {
+            json!({
+                "@context": "https://schema.org",
+                "@type": entity_type,
+                "name": name
+            })
+        };
+        let without_name = |value: serde_json::Value| {
+            let mut value = value;
+            value.as_object_mut().unwrap().remove("name");
+            value
+        };
+
+        let type_at_limit = without_name(root("T".repeat(max_type_length), None));
+        assert_eq!(
+            scrub(type_at_limit.clone()),
+            json!({ "tag": "$json_ld", "payload": type_at_limit })
+        );
+        assert_eq!(
+            scrub(without_name(root("T".repeat(max_type_length + 1), None))),
+            json!({ "tag": "$json_ld" })
+        );
+        assert!(scrub(without_name(root("😀".repeat(50), None)))
+            .get("payload")
+            .is_some());
+        assert_eq!(
+            scrub(without_name(root("😀".repeat(51), None))),
+            json!({ "tag": "$json_ld" })
+        );
+
+        let empty_source = json!({
+            "@context": "https://schema.org",
+            "@type": "Product",
+            "private": ""
+        });
+        let empty_source_length = serde_json::to_string(&empty_source)
+            .unwrap()
+            .encode_utf16()
+            .count();
+        let source_at_limit = json!({
+            "@context": "https://schema.org",
+            "@type": "Product",
+            "private": "x".repeat(max_source_length - empty_source_length)
+        });
+        assert_eq!(
+            scrub(source_at_limit),
+            json!({
+                "tag": "$json_ld",
+                "payload": { "@context": "https://schema.org", "@type": "Product" }
+            })
+        );
+        let source_over_limit = json!({
+            "@context": "https://schema.org",
+            "@type": "Product",
+            "private": "x".repeat(max_source_length - empty_source_length + 1)
+        });
+        assert_eq!(scrub(source_over_limit), json!({ "tag": "$json_ld" }));
+
+        let empty_payload = root("Product".to_string(), Some(String::new()));
+        let empty_payload_length = serde_json::to_string(&empty_payload)
+            .unwrap()
+            .encode_utf16()
+            .count();
+        let payload_at_limit = root(
+            "Product".to_string(),
+            Some("x".repeat(max_payload_length - empty_payload_length)),
+        );
+        assert_eq!(
+            scrub(payload_at_limit.clone()),
+            json!({ "tag": "$json_ld", "payload": payload_at_limit })
+        );
+        assert_eq!(
+            scrub(root(
+                "Product".to_string(),
+                Some("x".repeat(max_payload_length - empty_payload_length + 1))
+            )),
+            json!({ "tag": "$json_ld" })
+        );
     }
 }

@@ -1,0 +1,176 @@
+{
+    "schemaVersion": 1,
+    "limits": {
+        "maxTypeLength": 100,
+        "maxSourceLength": 100000,
+        "maxPayloadLength": 20000
+    },
+    "cases": [
+        {
+            "name": "product with nested offer and identifiers",
+            "capturedDomIds": ["product-id", "person-id"],
+            "input": {
+                "@context": "http://schema.org/",
+                "@type": "Product",
+                "@id": "https://example.com/products/123#product-id",
+                "name": "Camera",
+                "email": "private@example.com",
+                "private@example.com": {
+                    "@type": "CustomMetadata",
+                    "ratingValue": 4.5
+                },
+                "offers": {
+                    "@type": "Offer",
+                    "@id": "https://example.com/offers/1",
+                    "price": 100,
+                    "priceCurrency": "GBP",
+                    "seller": {
+                        "@type": "Person",
+                        "@id": "#person-id",
+                        "name": "Private name"
+                    }
+                }
+            },
+            "expected": {
+                "@context": "https://schema.org",
+                "@type": "Product",
+                "@id": "product-id",
+                "name": "Camera",
+                "offers": {
+                    "@type": "Offer",
+                    "price": 100,
+                    "priceCurrency": "GBP",
+                    "seller": {
+                        "@type": "Person",
+                        "@id": "person-id"
+                    }
+                }
+            }
+        },
+        {
+            "name": "root graph with unknown entity type",
+            "capturedDomIds": [],
+            "input": {
+                "@context": "https://schema.org",
+                "@graph": [
+                    {
+                        "@type": "WebSite",
+                        "datePublished": "2026-08-25",
+                        "email": "private@example.com",
+                        "potentialAction": {
+                            "@type": "SearchAction",
+                            "actionStatus": "https://schema.org/PotentialActionStatus",
+                            "target": "https://example.com/search?q=private"
+                        }
+                    },
+                    {
+                        "@type": "PrivateType",
+                        "ratingValue": 4.5,
+                        "email": "private@example.com",
+                        "customMetadata": {
+                            "priceCurrency": "GBP"
+                        }
+                    },
+                    "private@example.com"
+                ]
+            },
+            "expected": {
+                "@context": "https://schema.org",
+                "@graph": [
+                    {
+                        "@type": "WebSite",
+                        "datePublished": "2026-08-25",
+                        "potentialAction": {
+                            "@type": "SearchAction",
+                            "actionStatus": "https://schema.org/PotentialActionStatus"
+                        }
+                    },
+                    {
+                        "@type": "PrivateType",
+                        "ratingValue": 4.5
+                    }
+                ]
+            }
+        },
+        {
+            "name": "type arrays and scalar arrays",
+            "capturedDomIds": [],
+            "input": {
+                "@context": "https://schema.org",
+                "@type": ["https://schema.org/Product", "Car", "PrivateType", 42],
+                "name": ["Camera", 2, true, null],
+                "color": [
+                    "black",
+                    {
+                        "value": "private"
+                    }
+                ]
+            },
+            "expected": {
+                "@context": "https://schema.org",
+                "@type": ["Product", "Car", "PrivateType"],
+                "name": ["Camera", 2, true, null]
+            }
+        },
+        {
+            "name": "root and nested entity arrays",
+            "capturedDomIds": ["person-id"],
+            "input": [
+                {
+                    "@context": "https://schema.org",
+                    "@type": "Product",
+                    "name": "Camera",
+                    "offers": [
+                        {
+                            "@type": "Offer",
+                            "price": 100,
+                            "email": "private@example.com"
+                        },
+                        {
+                            "@type": "Person",
+                            "@id": "person-id",
+                            "name": "Private name"
+                        }
+                    ]
+                },
+                {
+                    "@context": "https://schema.org",
+                    "@type": "Organization",
+                    "name": "Acme"
+                }
+            ],
+            "expected": [
+                {
+                    "@context": "https://schema.org",
+                    "@type": "Product",
+                    "name": "Camera",
+                    "offers": [
+                        {
+                            "@type": "Offer",
+                            "price": 100
+                        },
+                        {
+                            "@type": "Person",
+                            "@id": "person-id"
+                        }
+                    ]
+                },
+                {
+                    "@context": "https://schema.org",
+                    "@type": "Organization",
+                    "name": "Acme"
+                }
+            ]
+        },
+        {
+            "name": "invalid schema context",
+            "capturedDomIds": [],
+            "input": {
+                "@context": "https://example.com",
+                "@type": "Product",
+                "name": "Camera"
+            },
+            "expected": null
+        }
+    ]
+}
