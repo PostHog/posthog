@@ -1,0 +1,12 @@
+{
+    "id": "KA5",
+    "file": "products/tasks/backend/facade/api.py",
+    "lines": "501-503",
+    "priority": "should_fix",
+    "title": "An unscoped lookup can hide the matching team run",
+    "problem": "`find_task_run` searches all teams and returns one matching run. The later team check returns `None` if that run belongs to another team. It does not continue to the valid run for the requested team.",
+    "suggestion": "Pass `team_ids=[team_id]` into `find_task_run`. This keeps the lookup scoped before it selects the first result.",
+    "cluster": 39,
+    "cluster_issue": "find_task_run queries TaskRun unscoped and enforces the tenant boundary only via post-hoc run.team_id recheck",
+    "cluster_verified": "1/6"
+}

@@ -572,6 +572,7 @@ class TaskRunDetailDTO:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
+    preview_available: bool = False
 
 
 @dataclass(frozen=True)
@@ -827,3 +828,10 @@ class TaskRunStateMetricsDTO:
     oldest_open_age_seconds: list[TaskRunGaugeRow] = Field(default_factory=list)
     created_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
     terminal_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
+
+
+class ComputeQuotaDenialReason(StrEnum):
+    """Why a compute request was refused. The value is the denial code the API returns."""
+
+    COMPUTE_QUOTA_EXHAUSTED = "posthog_code_billing_limit_exceeded"
+    ORGANIZATION_DEACTIVATED = "organization_deactivated"

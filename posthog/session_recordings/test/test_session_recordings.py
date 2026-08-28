@@ -448,6 +448,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "activity_score": ANY,
                 "external_references": [],
                 "matches_filters": True,
+                "total_size": None,
+                "event_count": None,
             },
         ]
 
@@ -799,7 +801,27 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "activity_score": None,
             "external_references": [],
             "matches_filters": True,
+            "total_size": 0,
+            "event_count": 0,
         }
+
+    def test_single_session_recording_clamps_negative_inactive_seconds(self):
+        create_person(team=self.team, distinct_ids=["d1"], properties={"email": "bob@bob.com"})
+        session_recording_id = str(uuid7())
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_recording_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=(base_time + relativedelta(seconds=20)).isoformat(),
+            distinct_id="d1",
+            active_milliseconds=100 * 1000,  # more active time than the 20 second span
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["inactive_seconds"] == 0
 
     @parameterized.expand(
         [
