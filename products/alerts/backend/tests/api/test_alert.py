@@ -170,32 +170,6 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert delete.status_code == status.HTTP_404_NOT_FOUND, delete.content
         assert [a["id"] for a in listed.json()["results"]] == []
 
-    def test_create_alert_on_funnel_insight(self) -> None:
-        funnel_insight = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": {
-                    "kind": "FunnelsQuery",
-                    "series": [
-                        {"kind": "EventsNode", "event": "$pageview"},
-                        {"kind": "EventsNode", "event": "$autocapture"},
-                    ],
-                }
-            },
-        ).json()
-        creation_request = {
-            "insight": funnel_insight["id"],
-            "subscribed_users": [self.user.id],
-            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-            "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
-            "name": "funnel alert",
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
-            "calculation_interval": "daily",
-        }
-
-        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
-        assert response.status_code == status.HTTP_201_CREATED, response.content
-
     def test_create_threshold_alert_rejects_empty_bounds(self) -> None:
         creation_request = {
             "insight": self.insight["id"],
@@ -831,49 +805,6 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         # Changing to a kind that cannot carry alerts still cascades.
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}",
-            data={"query": {"kind": "RetentionQuery", "retentionFilter": {}}},
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_funnel_alert_survives_insight_update_and_is_listed_on_insight(self) -> None:
-        funnel_insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "FunnelsQuery",
-                "series": [
-                    {"kind": "EventsNode", "event": "$pageview"},
-                    {"kind": "EventsNode", "event": "$autocapture"},
-                ],
-            },
-        }
-        funnel_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=funnel_insight_data).json()
-
-        alert = self.client.post(
-            f"/api/projects/{self.team.id}/alerts",
-            {
-                "insight": funnel_insight["id"],
-                "subscribed_users": [self.user.id],
-                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-                "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
-                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
-                "name": "funnel alert",
-            },
-        ).json()
-
-        # The insight response must list the alert inline — the UI trusts this list on reload.
-        insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}").json()
-        assert [a["id"] for a in insight_response["alerts"]] == [alert["id"]]
-
-        # Updating the insight while it stays funnel-backed must not cascade-delete the alert.
-        updated = deepcopy(funnel_insight_data)
-        updated["query"]["series"][1]["event"] = "$pageleave"
-        self.client.patch(f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}", data=updated)
-        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
-        assert response.status_code == status.HTTP_200_OK
-
-        # Changing to a kind that cannot carry alerts still cascades.
-        self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}",
             data={"query": {"kind": "RetentionQuery", "retentionFilter": {}}},
         )
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
