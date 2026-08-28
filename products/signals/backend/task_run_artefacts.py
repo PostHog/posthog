@@ -162,18 +162,45 @@ def _live_implementation_exists(*, team_id: int, report_id: str, exclude_task_id
     runs_by_task: dict[str, list[tuple[str | None, object]]] = {}
     for task_id, status, pr_url in rows:
         runs_by_task.setdefault(str(task_id), []).append((status, pr_url))
-    for runs in runs_by_task.values():
-        has_runs = any(run_status is not None for run_status, _run_pr_url in runs)
-        if not has_runs:
+    return any(_runs_claim_implementation_slot(runs) for runs in runs_by_task.values())
+
+
+def _runs_claim_implementation_slot(runs: list[tuple[str | None, object]]) -> bool:
+    """Whether one implementation task's runs still claim its slot.
+
+    A task with no runs yet still claims the slot; a live (non-terminal) run or a run that
+    shipped a GitHub PR claims it; a task whose runs all ended failed/cancelled without a PR
+    has released it. `runs` is that task's `(status, pr_url)` rows; an empty status marks a task
+    row with no runs joined.
+    """
+    has_runs = any(run_status is not None for run_status, _run_pr_url in runs)
+    if not has_runs:
+        return True
+    for run_status, run_pr_url in runs:
+        if run_status is None:
+            continue
+        if run_status not in _TERMINAL_NO_PR_RUN_STATUSES:
             return True
-        for run_status, run_pr_url in runs:
-            if run_status is None:
-                continue
-            if run_status not in _TERMINAL_NO_PR_RUN_STATUSES:
-                return True
-            if isinstance(run_pr_url, str) and run_pr_url.startswith(_GITHUB_PR_URL_PREFIX):
-                return True
+        if isinstance(run_pr_url, str) and run_pr_url.startswith(_GITHUB_PR_URL_PREFIX):
+            return True
     return False
+
+
+def _task_holds_implementation_slot(*, team_id: int, report_id: str, task_id: str) -> bool:
+    """Whether this one implementation task still claims the report's slot.
+
+    Same per-task rule as `_live_implementation_exists`, scoped to a single task. A rerun of a
+    task that shipped a GitHub PR or holds a live run continues its own work, so a fresher
+    `already_addressed` verdict (which may name that very PR) must not block it.
+    """
+    rows = list(
+        SignalReportTask.objects.filter(
+            team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+        .exclude(task__deleted=True)
+        .values_list("task__runs__status", "task__runs__output__pr_url")
+    )
+    return _runs_claim_implementation_slot(rows)
 
 
 def _report_already_addressed_at(*, report_id: str) -> datetime | None:
@@ -247,12 +274,15 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     lets a second implementation be created for the report — and then running the first one again
     would put two live implementations on it, spending unbilled inference twice over.
 
-    A re-run also loses to a fresher verdict: if the report's latest `actionability_judgment`
-    now says the fix is already addressed, re-running the old task would open a competing PR, so
-    the re-run is refused. Otherwise only another task holding the slot blocks — a task reclaiming
-    the slot it released is the ordinary "my run failed, try again" path and stays allowed.
-    Non-implementation tasks are unaffected, since the discussion cap counts tasks rather than
-    runs and conversation inside one is deliberately unlimited.
+    A re-run of a *released* task also loses to a fresher verdict: if the task shipped no PR and
+    holds no live run, and the report's latest `actionability_judgment` now says the fix is
+    already addressed, re-running it would open a competing PR, so the re-run is refused. A task
+    that still holds its slot is continuing its own work (fixing CI, answering review on the PR it
+    opened), and the verdict may be naming that very PR, so it stays allowed. Otherwise only
+    another task holding the slot blocks — a task reclaiming the slot it released is the ordinary
+    "my run failed, try again" path and stays allowed. Non-implementation tasks are unaffected,
+    since the discussion cap counts tasks rather than runs and conversation inside one is
+    deliberately unlimited.
 
     Must be called inside an open transaction: it locks the report row, the same lock creation
     and auto-start take. That lock only serializes for as long as the caller's transaction stays
@@ -273,15 +303,20 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
     if report is None:
         return
-    addressed_at = _report_already_addressed_at(report_id=report_id)
-    if addressed_at is not None:
-        raise ReportTaskCapExceeded(
-            kind=TASK_RUN_TYPE_IMPLEMENTATION,
-            detail=(
-                f"This report was judged already addressed on {addressed_at.date().isoformat()}; "
-                "check the existing work instead of starting another."
-            ),
-        )
+    # Only a task that released its slot can open a competing PR; a task that still holds its slot
+    # (it shipped a PR or has a live run) is continuing its own work, and the verdict that judged
+    # the report addressed may be naming that very PR. So re-check the verdict only for a released
+    # task, mirroring the `exclude_task_id` allowance the slot check below already makes.
+    if not _task_holds_implementation_slot(team_id=team_id, report_id=report_id, task_id=task_id):
+        addressed_at = _report_already_addressed_at(report_id=report_id)
+        if addressed_at is not None:
+            raise ReportTaskCapExceeded(
+                kind=TASK_RUN_TYPE_IMPLEMENTATION,
+                detail=(
+                    f"This report was judged already addressed on {addressed_at.date().isoformat()}; "
+                    "check the existing work instead of starting another."
+                ),
+            )
     if _live_implementation_exists(team_id=team_id, report_id=report_id, exclude_task_id=task_id):
         raise ReportTaskCapExceeded(
             kind=TASK_RUN_TYPE_IMPLEMENTATION,

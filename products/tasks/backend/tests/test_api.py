@@ -2185,23 +2185,26 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            # A fresher verdict says the fix is already in flight, so rerunning would open a
-            # competing PR — refuse even though the failed runs released the slot.
-            ("already_addressed_now", True, True),
+            # A released task (all runs failed, no PR) rerun would open a competing PR when a
+            # fresher verdict says the fix is already in flight, so refuse.
+            ("released_and_already_addressed", [("failed", None), ("failed", None)], True, True),
             # The latest verdict is still open, so the ordinary "my run failed, try again" stands.
-            ("still_open", False, False),
+            ("released_but_still_open", [("failed", None), ("failed", None)], False, False),
+            # A task that shipped a PR still holds its slot, so rerunning continues that PR
+            # (fixing CI, answering review). The verdict may be naming that very PR, so it must
+            # not block the rerun.
+            ("shipped_pr_and_already_addressed", [("failed", "https://github.com/acme/web/pull/1")], True, False),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_rerunning_a_failed_implementation_rechecks_the_actionability_verdict(
-        self, _name, already_addressed, expect_refused, mock_workflow
+    def test_rerunning_an_implementation_rechecks_the_verdict_only_for_a_released_slot(
+        self, _name, run_specs, already_addressed, expect_refused, mock_workflow
     ):
         from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice
         from products.signals.backend.models import SignalReport, SignalReportArtefact
 
         report = SignalReport.objects.create(team=self.team)
-        # Every run failed without a PR, so the slot check alone would allow the rerun.
-        task = self._create_implementation_task_with_runs(report, [("failed", None), ("failed", None)])
+        task = self._create_implementation_task_with_runs(report, run_specs)
         SignalReportArtefact.objects.create(
             team=self.team,
             report=report,
