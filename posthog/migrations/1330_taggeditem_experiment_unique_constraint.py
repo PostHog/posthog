@@ -2,7 +2,7 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1328_taggeditem_experiment_indexes")]
+    dependencies = [("posthog", "1329_taggeditem_experiment_indexes")]
 
     operations = [
         migrations.RunSQL(
@@ -10,8 +10,8 @@ class Migration(migrations.Migration):
                 ALTER TABLE "posthog_taggeditem" ADD CONSTRAINT "posthog_taggeditem_tag_id_dashboard_id_insi_experiment_uniq"
                 UNIQUE USING INDEX "posthog_taggeditem_tag_id_dashboard_id_insi_experiment_uniq"; -- existing-table-constraint-ignore
             """,
-            # The reverse restores the replay-scanner-wide constraint that 1327 dropped with a noop
-            # reverse. It must build the index itself: this migration unapplies before 1328, so
+            # The reverse restores the replay-scanner-wide constraint that 1328 dropped with a noop
+            # reverse. It must build the index itself: this migration unapplies before 1329, so
             # nothing else has.
             reverse_sql="""
                 ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_experiment_uniq";

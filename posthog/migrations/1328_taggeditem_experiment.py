@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
         # Only the new relation's target needs pinning (matching the endpoint precedent in 1179);
         # the other TaggedItem FK columns already exist in state via their own earlier migrations.
         ("experiments", "0029_experiment_repository"),
-        ("posthog", "1326_drop_legacy_provisioning_columns"),
+        ("posthog", "1327_untrack_cimd_metadata_url"),
     ]
 
     state_operations = [
