@@ -1308,6 +1308,10 @@ snapshots:
         hash: v1.k794b7964.b933911885203330331bde8bd799fd74fcd4e5964ba7fba4538dd075f07e32dc.QhPFXSfVCoIMya1xKmHLdyh3P9dJf-zNL4_zLUNqgqU
     components-markdown-editor-rich--with-markdown--light:
         hash: v1.k794b7964.98bef7667e05e7a86864149a5db5c24b3d4733bcef7d413ab6faf3053c79fba8.evR63xGwLPTzXw6Hi35ROggl2AHmH_y5lT5p05kFGTg
+    components-markdown-notebook--canvas-header--dark:
+        hash: v1.k794b7964.608a0ac08314f9ca439ce83d605b5b7068699aefcdc3ec64d2ea9850b78383a5.6uhW10xIiflrvLM9jcnT-l6on-ERqLyloX1KosD6EnA
+    components-markdown-notebook--canvas-header--light:
+        hash: v1.k794b7964.16b2968666f9d437cd7a6563d7e5c729a63c312b6d45e19763676adb10be5d50.XdkGvKh9l6Osw19D13Y_VwwD_dhRQl9TUIS257ov4CY
     components-markdown-notebook--component-catalog--dark:
         hash: v1.k794b7964.8d4bc1ec68c46621e7f0fa8d9ab9c83fc4a5c214fbba1dec162e9bb086643758.kBJyYgTMXU0MN-WCD6K4BcTw4Dne_Y5LCut3zY83OuU
     components-markdown-notebook--component-catalog--light:
