@@ -7,6 +7,7 @@ import { aiObservabilityEmptyState } from 'products/ai_observability/frontend/em
 import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptyState/llmPromptsEmptyState'
 import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
+import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
 import { endpointsEmptyState } from 'products/endpoints/frontend/emptyState/endpointsEmptyState'
@@ -190,6 +191,15 @@ export const AnnotationsNeedsSetup: ProductEmptyStateStory = productEmptyStateSt
     'needs-setup',
     { mocks: annotationsMocks }
 )
+
+// Cohorts detection lists cohorts on mount - answer "none yet".
+const cohortsMocks = {
+    get: { '/api/projects/:team_id/cohorts/': [200, { count: 0, results: [] }] },
+} as const
+
+export const CohortsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(cohortsEmptyState, 'needs-setup', {
+    mocks: cohortsMocks,
+})
 
 // Error tracking detection asks the issues-exists API on mount - answer "none yet".
 const errorTrackingMocks = {
