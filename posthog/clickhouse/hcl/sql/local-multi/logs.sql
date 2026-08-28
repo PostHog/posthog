@@ -39,21 +39,6 @@ CREATE TABLE posthog.log_attributes (
   INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
   INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.log_attributes', '{replica}-{shard}') ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value) PARTITION BY toDate(original_expiry_time_bucket) SETTINGS deduplicate_merge_projection_mode = 'drop', index_granularity = 8192, storage_policy = 'default';
-CREATE TABLE posthog.log_attributes2 (
-  team_id Int32,
-  time_bucket DateTime64(0),
-  service_name LowCardinality(String),
-  resource_fingerprint UInt64 DEFAULT 0,
-  attribute_key LowCardinality(String),
-  attribute_value String CODEC(ZSTD(5)),
-  attribute_count SimpleAggregateFunction(sum, UInt64),
-  attribute_type LowCardinality(String) DEFAULT 'log',
-  original_expiry_time_bucket DateTime DEFAULT now(),
-  INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.log_attributes2', '{replica}-{shard}') ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS deduplicate_merge_projection_mode = 'drop', index_granularity = 8192;
 CREATE TABLE posthog.log_attributes3 (
   team_id Int32,
   time_bucket DateTime64(0),
