@@ -236,6 +236,28 @@ def resolve_trunk_merge_queue_table(team: Team, user_access_control: "UserAccess
     return None
 
 
+TRUNK_QUARANTINED_TESTS_SCHEMA = "QuarantinedTests"
+
+
+def resolve_trunk_quarantined_tests_table(
+    team: Team, user_access_control: "UserAccessControl | None" = None
+) -> str | None:
+    """The synced Trunk quarantined-tests table's warehouse name, or None.
+
+    Same resolution rules as ``resolve_trunk_merge_queue_table``: team-level, oldest synced source
+    wins, per-user warehouse RBAC applied, and None degrades the consumer to an honest
+    ``available: false`` rather than an error.
+    """
+    for source in _accessible_sources(team, ExternalDataSourceType.TRUNKIO, user_access_control):
+        for schema in _synced_schemas(team=team, source=source):
+            if schema.name != TRUNK_QUARANTINED_TESTS_SCHEMA:
+                continue
+            table = schema.table
+            if table is not None and not table.deleted and _IDENTIFIER.match(table.name):
+                return table.name
+    return None
+
+
 # Listing the team's connected sources is its own concern (no curated read handle): it threads the
 # requesting user's access control so the picker can't enumerate sources the user can't access.
 def build_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:

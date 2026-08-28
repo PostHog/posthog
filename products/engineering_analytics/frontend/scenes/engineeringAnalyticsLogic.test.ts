@@ -14,6 +14,7 @@ import {
     engineeringAnalyticsQuarantine,
     engineeringAnalyticsQuarantineRequest,
     engineeringAnalyticsSources,
+    engineeringAnalyticsTrunkQuarantine,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
 import type {
@@ -54,6 +55,7 @@ jest.mock('../generated/api', () => ({
     engineeringAnalyticsQuarantine: jest.fn(),
     engineeringAnalyticsQuarantineRequest: jest.fn(),
     engineeringAnalyticsSources: jest.fn(),
+    engineeringAnalyticsTrunkQuarantine: jest.fn(),
     engineeringAnalyticsWorkflowHealth: jest.fn(),
 }))
 
@@ -69,6 +71,9 @@ const mockQuarantineRequest = engineeringAnalyticsQuarantineRequest as jest.Mock
     typeof engineeringAnalyticsQuarantineRequest
 >
 const mockSources = engineeringAnalyticsSources as jest.MockedFunction<typeof engineeringAnalyticsSources>
+const mockTrunkQuarantine = engineeringAnalyticsTrunkQuarantine as jest.MockedFunction<
+    typeof engineeringAnalyticsTrunkQuarantine
+>
 
 function apiQuarantineEntry(overrides: Partial<QuarantineEntryApi> = {}): QuarantineEntryApi {
     return {
@@ -255,6 +260,7 @@ describe('engineeringAnalyticsLogic', () => {
         })
         // Most tests are single- or no-source; the picker tests override with SOURCES.
         mockSources.mockResolvedValue([])
+        mockTrunkQuarantine.mockResolvedValue({ available: true, ttl_days: 30, teams: [], tests: [] })
     })
 
     afterEach(() => {
@@ -826,6 +832,58 @@ describe('engineeringAnalyticsLogic', () => {
         })
         expect(logic.values.quarantineOwnerOptions).toEqual(['@team/x', '@team/y', '@team/z'])
         expect(logic.values.quarantineLoadFailed).toBe(false)
+    })
+
+    it('maps the trunk quarantine endpoint and filters the tests by team', async () => {
+        mockTrunkQuarantine.mockResolvedValue({
+            available: true,
+            ttl_days: 30,
+            teams: [{ owner_team: 'team-replay', test_count: 1, overdue_count: 1, oldest_age_days: 44 }],
+            tests: [
+                {
+                    runner: 'pytest',
+                    nodeid: 'a.py::TestA::test_a',
+                    file: 'a.py',
+                    owner_team: 'team-replay',
+                    status: 'FLAKY',
+                    quarantine_setting: 'AUTO_QUARANTINE',
+                    quarantined_at: '2026-05-19T08:00:00Z',
+                    age_days: 44,
+                    overdue: true,
+                },
+                {
+                    runner: 'jest',
+                    nodeid: 'b.test.tsx::renders',
+                    file: 'b.test.tsx',
+                    owner_team: 'unowned',
+                    status: 'FLAKY',
+                    quarantine_setting: 'AUTO_QUARANTINE',
+                    quarantined_at: '2026-06-23T08:00:00Z',
+                    age_days: 9,
+                    overdue: false,
+                },
+            ],
+        })
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadTrunkQuarantineSuccess'])
+
+        expect(logic.values.trunkQuarantine?.ttlDays).toBe(30)
+        expect(logic.values.trunkQuarantine?.tests[0]).toEqual({
+            runner: 'pytest',
+            nodeid: 'a.py::TestA::test_a',
+            file: 'a.py',
+            ownerTeam: 'team-replay',
+            status: 'FLAKY',
+            quarantineSetting: 'AUTO_QUARANTINE',
+            quarantinedAt: '2026-05-19T08:00:00Z',
+            ageDays: 44,
+            overdue: true,
+        })
+        expect(Object.keys(logic.values.trunkQuarantineTestsByTeam)).toEqual(['team-replay', 'unowned'])
+        expect(logic.values.trunkQuarantineTestsByTeam['team-replay'].map((test) => test.nodeid)).toEqual([
+            'a.py::TestA::test_a',
+        ])
     })
 
     it('quarantine cards toggle the lifecycle and mode lens and back', async () => {

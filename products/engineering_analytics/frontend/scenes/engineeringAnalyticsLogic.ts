@@ -18,20 +18,18 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils/objects'
-import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import {
     engineeringAnalyticsCiCards,
-    engineeringAnalyticsFlakyTests,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
     engineeringAnalyticsQuarantineRequest,
     engineeringAnalyticsSources,
+    engineeringAnalyticsTrunkQuarantine,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
 import type {
-    FlakyTestItemClassificationEnumApi,
     GitHubSourceApi,
     PullRequestListItemApi,
     PushCISampleApi,
@@ -49,9 +47,6 @@ export const PR_TABLE_LIMIT = 1000
 
 // Mirrors `workflow_health.py` `_LIMIT` (top workflows by run count).
 export const WORKFLOW_HEALTH_LIMIT = 100
-
-// Mirrors the endpoint's maximum so the UI can paginate every returned queue row.
-export const FLAKY_TEST_LIMIT = 200
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -443,10 +438,6 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
     return { ...counts, pastExpiry: counts.inGrace + counts.overdue }
 }
 
-/** Test-health windows the UI offers; the endpoint accepts any window up to 30 days. */
-export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
-export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
-export type FlakyTestClassification = FlakyTestItemClassificationEnumApi
 export type TestRunner = NonNullable<QuarantineRequestApi['runner']>
 export const TEST_RUNNERS: readonly TestRunner[] = ['pytest', 'jest', 'playwright']
 
@@ -454,27 +445,31 @@ export function isTestRunner(runner: string): runner is TestRunner {
     return TEST_RUNNERS.some((candidate) => candidate === runner)
 }
 
-export interface FlakyTestRow {
-    runner: TestRunner
-    /** Runner-specific test identity (the CI span name): a stable grouping/display key. */
+export interface TrunkQuarantinedTestRow {
+    runner: string
     nodeid: string
-    /** Runnable selector for the quarantine action; exact when the CI reporter emitted it. */
-    selector: string
-    classification: FlakyTestClassification
-    /** Runs where one commit both failed and passed the test (re-run attempt or in-job retry): the flake proof. */
-    sameCommitRecoveryRunCount: number
-    failedRunCount: number
-    failedPrCount: number
-    masterFailedRunCount: number
-    quarantinedFailedRunCount: number
-    lastSignalAt: string
+    file: string
+    ownerTeam: string
+    status: string
+    quarantineSetting: string
+    quarantinedAt: string
+    ageDays: number
+    overdue: boolean
 }
 
-export interface FlakyTestsData {
-    rows: FlakyTestRow[]
-    /** True when more tests qualified than the cap; rows are the highest-ranked `limit`. */
-    truncated: boolean
-    limit: number
+export interface TrunkQuarantineTeamRow {
+    ownerTeam: string
+    testCount: number
+    overdueCount: number
+    oldestAgeDays: number
+}
+
+export interface TrunkQuarantineData {
+    /** False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error. */
+    available: boolean
+    ttlDays: number
+    teams: TrunkQuarantineTeamRow[]
+    tests: TrunkQuarantinedTestRow[]
 }
 
 export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
@@ -504,26 +499,6 @@ export interface QuarantineModalState {
     mode: QuarantineMode
     /** Glanceable confirm presentation for prefilled openers (queue rows); 'Edit details' switches to the form. */
     confirm?: boolean
-}
-
-/** Data-backed quarantine reason from a queue row: the evidence is the reason; the
- *  cause is unknown until someone investigates, which is the tracking issue's job. */
-export function flakyEvidenceReason(row: FlakyTestRow, window: FlakyTestWindow): string {
-    const windowLabel = { '-7d': '7 days', '-14d': '14 days', '-30d': '30 days' }[window]
-    const parts: string[] = []
-    if (row.sameCommitRecoveryRunCount > 0) {
-        parts.push(`recovered on the same commit in ${pluralize(row.sameCommitRecoveryRunCount, 'run')}`)
-    }
-    if (row.failedRunCount > 0) {
-        parts.push(`failed in ${pluralize(row.failedRunCount, 'run')}`)
-    }
-    if (row.failedPrCount > 0) {
-        parts.push(`hit ${pluralize(row.failedPrCount, 'PR')}`)
-    }
-    if (row.masterFailedRunCount > 0) {
-        parts.push(`broke master in ${pluralize(row.masterFailedRunCount, 'run')}`)
-    }
-    return `CI evidence: ${parts.join(', ')} in the last ${windowLabel}`
 }
 
 /** Suggest an owning team from a product-scoped selector; '' when the selector isn't product-scoped. */
@@ -584,10 +559,6 @@ export interface engineeringAnalyticsLogicValues {
     filteredQuarantineEntries: QuarantineEntryRow[]
     filteredWorkflowHealth: WorkflowHealthRow[]
     filters: PullRequestFilters
-    flakyTestWindow: FlakyTestWindow
-    flakyTests: FlakyTestsData | null
-    flakyTestsLoading: boolean
-    flakyTestsStatus: LoaderStatus
     fleetSummary: FleetSummary
     fleetTruncated: boolean
     githubSources: GitHubSourceApi[]
@@ -630,6 +601,10 @@ export interface engineeringAnalyticsLogicValues {
     tableTruncated: boolean
     thrashCount: number
     thrashOnly: boolean
+    trunkQuarantine: TrunkQuarantineData | null
+    trunkQuarantineLoading: boolean
+    trunkQuarantineStatus: LoaderStatus
+    trunkQuarantineTestsByTeam: Record<string, TrunkQuarantinedTestRow[]>
     workflowCostAvailable: boolean
     workflowFilters: WorkflowFilters
     workflowHealth: WorkflowHealthRow[]
@@ -664,21 +639,6 @@ export interface engineeringAnalyticsLogicActions {
         payload?: any
     ) => {
         cards: CardsData
-        payload?: any
-    }
-    loadFlakyTests: () => any
-    loadFlakyTestsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadFlakyTestsSuccess: (
-        flakyTests: FlakyTestsData,
-        payload?: any
-    ) => {
-        flakyTests: FlakyTestsData
         payload?: any
     }
     loadGithubSources: () => any
@@ -726,6 +686,21 @@ export interface engineeringAnalyticsLogicActions {
         quarantine: QuarantineData
         payload?: any
     }
+    loadTrunkQuarantine: () => any
+    loadTrunkQuarantineFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadTrunkQuarantineSuccess: (
+        trunkQuarantine: TrunkQuarantineData,
+        payload?: any
+    ) => {
+        trunkQuarantine: TrunkQuarantineData
+        payload?: any
+    }
     loadWorkflowHealth: () => any
     loadWorkflowHealthFailure: (
         error: string,
@@ -761,9 +736,6 @@ export interface engineeringAnalyticsLogicActions {
     }
     setCiStatusFilter: (ciStatus: CIStatusFilter) => {
         ciStatus: CIStatusFilter
-    }
-    setFlakyTestWindow: (window: FlakyTestWindow) => {
-        window: FlakyTestWindow
     }
     setQuarantineLifecycleFilter: (lifecycle: QuarantineLifecycleFilter) => {
         lifecycle: QuarantineLifecycleFilter
@@ -893,6 +865,9 @@ export interface engineeringAnalyticsLogicMeta {
         ) => QuarantineEntryRow[]
         quarantineCounts: (quarantine: QuarantineData | null) => QuarantineCounts
         quarantineOwnerOptions: (quarantine: QuarantineData | null) => string[]
+        trunkQuarantineTestsByTeam: (
+            trunkQuarantine: TrunkQuarantineData | null
+        ) => Record<string, TrunkQuarantinedTestRow[]>
         activeQuarantineCard: (
             quarantineLifecycleFilter: QuarantineLifecycleFilter,
             quarantineModeFilter: QuarantineModeFilter
@@ -956,7 +931,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             resetQuarantineFilters: true,
             openQuarantineModal: (state: QuarantineModalState) => ({ state }),
             closeQuarantineModal: true,
-            setFlakyTestWindow: (window: FlakyTestWindow) => ({ window }),
             refresh: true,
         }),
 
@@ -1064,33 +1038,38 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     },
                 },
             ],
-            flakyTests: [
-                null as FlakyTestsData | null,
+            trunkQuarantine: [
+                null as TrunkQuarantineData | null,
                 {
-                    loadFlakyTests: async (): Promise<FlakyTestsData> => {
-                        const data = await engineeringAnalyticsFlakyTests(projectId(), {
-                            date_from: values.flakyTestWindow,
-                            limit: FLAKY_TEST_LIMIT,
+                    loadTrunkQuarantine: async (): Promise<TrunkQuarantineData> => {
+                        const data = await engineeringAnalyticsTrunkQuarantine(projectId(), {
                             source_id: values.sourceId ?? undefined,
                             repo: values.scopeRepo ?? undefined,
                         })
                         return {
-                            rows: data.items.map(
-                                (it): FlakyTestRow => ({
-                                    runner: it.runner,
-                                    nodeid: it.nodeid,
-                                    selector: it.selector,
-                                    classification: it.classification,
-                                    sameCommitRecoveryRunCount: it.same_commit_recovery_run_count,
-                                    failedRunCount: it.failed_run_count,
-                                    failedPrCount: it.failed_pr_count,
-                                    masterFailedRunCount: it.master_failed_run_count,
-                                    quarantinedFailedRunCount: it.quarantined_failed_run_count,
-                                    lastSignalAt: it.last_signal_at,
+                            available: data.available,
+                            ttlDays: data.ttl_days,
+                            teams: data.teams.map(
+                                (it): TrunkQuarantineTeamRow => ({
+                                    ownerTeam: it.owner_team,
+                                    testCount: it.test_count,
+                                    overdueCount: it.overdue_count,
+                                    oldestAgeDays: it.oldest_age_days,
                                 })
                             ),
-                            truncated: data.truncated,
-                            limit: data.limit,
+                            tests: data.tests.map(
+                                (it): TrunkQuarantinedTestRow => ({
+                                    runner: it.runner,
+                                    nodeid: it.nodeid,
+                                    file: it.file,
+                                    ownerTeam: it.owner_team,
+                                    status: it.status,
+                                    quarantineSetting: it.quarantine_setting,
+                                    quarantinedAt: it.quarantined_at,
+                                    ageDays: it.age_days,
+                                    overdue: it.overdue,
+                                })
+                            ),
                         }
                     },
                 },
@@ -1229,19 +1208,14 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadQuarantineFailure: () => true,
                 },
             ],
-            // Test-health window; transient like the other lenses (no persisted UI in this phase).
-            flakyTestWindow: [
-                DEFAULT_FLAKY_TEST_WINDOW as FlakyTestWindow,
-                { setFlakyTestWindow: (_, { window }) => window },
-            ],
             // Same tri-state as the other loaders: 'notConnected' (no source) defers to the tab-level
-            // "connect a source" gate; only a real 'error' surfaces the queue's own banner.
-            flakyTestsStatus: [
+            // "connect a source" gate; only a real 'error' surfaces the board's own banner.
+            trunkQuarantineStatus: [
                 'ok' as LoaderStatus,
                 {
-                    loadFlakyTests: () => 'ok',
-                    loadFlakyTestsSuccess: () => 'ok',
-                    loadFlakyTestsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
+                    loadTrunkQuarantine: () => 'ok',
+                    loadTrunkQuarantineSuccess: () => 'ok',
+                    loadTrunkQuarantineFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
             quarantineModal: [
@@ -1434,6 +1408,16 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (quarantine: QuarantineData | null): string[] =>
                     Array.from(new Set((quarantine?.entries ?? []).map((entry) => entry.owner).filter(Boolean))).sort(),
             ],
+            trunkQuarantineTestsByTeam: [
+                (s) => [s.trunkQuarantine],
+                (trunkQuarantine: TrunkQuarantineData | null): Record<string, TrunkQuarantinedTestRow[]> => {
+                    const byTeam: Record<string, TrunkQuarantinedTestRow[]> = {}
+                    for (const test of trunkQuarantine?.tests ?? []) {
+                        ;(byTeam[test.ownerTeam] ??= []).push(test)
+                    }
+                    return byTeam
+                },
+            ],
             activeQuarantineCard: [
                 (s) => [s.quarantineLifecycleFilter, s.quarantineModeFilter],
                 (lifecycle: QuarantineLifecycleFilter, mode: QuarantineModeFilter): QuarantineCard | null => {
@@ -1536,9 +1520,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadPullRequests()
                 actions.loadWorkflowHealth()
                 actions.loadQuarantine()
-                actions.loadFlakyTests()
+                actions.loadTrunkQuarantine()
             },
-            setFlakyTestWindow: () => actions.loadFlakyTests(),
             setSourceId: () => actions.refresh(),
             setScope: () => actions.refresh(),
             [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {

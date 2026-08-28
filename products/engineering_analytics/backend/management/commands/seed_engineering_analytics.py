@@ -52,6 +52,7 @@ from products.engineering_analytics.backend.logic.sources import (
     ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
+    TRUNK_QUARANTINED_TESTS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
 )
@@ -60,6 +61,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     TEAM_MEMBERS_COLUMNS,
+    TRUNK_QUARANTINED_TESTS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -83,6 +85,8 @@ RUN_DATE_FIELDS = ("created_at", "run_started_at", "updated_at")
 
 # Marks the GitHub source this command owns, so re-seeding never clobbers a real source.
 SEED_SOURCE_ID = "engineering_analytics_seed"
+# The TrunkIo sibling backing the Trunk quarantine debt scoreboard.
+TRUNK_SEED_SOURCE_ID = "engineering_analytics_seed_trunkio"
 # Matches the fixtures' repository.full_name; without it the UI's repo header/picker fall back to
 # placeholders (a real source stores the repo in job_inputs at connect time).
 SEED_REPOSITORY = "PostHog/posthog"
@@ -776,6 +780,63 @@ def _selector(module_dir: str, test_class: str, test_name: str) -> str:
     return f"{module_dir}/{test_name}.py::{test_class}::{test_name}"
 
 
+def _trunk_quarantined_rows() -> list[dict[str, Any]]:
+    """Trunk-quarantined rows for the debt scoreboard, reusing the span roster so owner attribution
+    resolves through the seeded spans. Ages are staggered on both sides of the TTL, and two rows
+    (one of them jest) name tests outside the roster so the 'unowned' bucket renders."""
+    anchor = timezone.now().replace(microsecond=0)
+    rows: list[dict[str, Any]] = []
+
+    def add(*, file: str, name: str, classname: str, parent: str, age_days: int) -> None:
+        quarantined_at = (anchor - timedelta(days=age_days, hours=len(rows))).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        rows.append(
+            {
+                "file": file,
+                "name": name,
+                "labels": "[]",
+                "parent": parent,
+                "status": "FLAKY",
+                "variant": "",
+                "classname": classname,
+                "codeowners": "[]",
+                "test_case_id": f"engseed-trunk-{len(rows):03d}",
+                "quarantined_at": quarantined_at,
+                "quarantine_setting": "AUTO_QUARANTINE",
+                "status_last_updated_at": quarantined_at,
+            }
+        )
+
+    age = 2
+    for _owner_team, module_dir, tests in _SPAN_TEAMS:
+        # Quarantine the first two roster tests per team; module = test_name (the span seed's rule).
+        for test_class, test_name, _prior, _current in tests[:2]:
+            module_path = f"{module_dir}/{test_name}.py"
+            add(
+                file=module_path,
+                name=test_name,
+                classname=f"{module_path[:-3].replace('/', '.')}.{test_class}",
+                parent="pytest",
+                age_days=age,
+            )
+            # Walks 2..44 in 7-day steps across the roster, landing rows on both sides of the TTL.
+            age = (age + 7) % 45
+    add(
+        file="posthog/api/test/test_signup.py",
+        name="test_social_signup_ratelimit",
+        classname="posthog.api.test.test_signup.TestSignup",
+        parent="pytest",
+        age_days=41,
+    )
+    add(
+        file="frontend/src/lib/components/ActivityLog/activityLogLogic.test.tsx",
+        name="the activity log logic humanizes flag changes",
+        classname="",
+        parent="frontend/src/lib/components/ActivityLog/activityLogLogic.test.tsx",
+        age_days=9,
+    )
+    return rows
+
+
 def _seed_trace_spans(team: Team) -> int:
     anchor = timezone.now().replace(microsecond=0)
     rows: list[str] = []
@@ -1034,6 +1095,18 @@ class Command(BaseCommand):
             self._upsert_schema_table(
                 team, source, credential, prefix, ISSUE_EVENTS_SCHEMA, ISSUE_EVENTS_COLUMNS, issue_events
             )
+            # A TrunkIo sibling source backs the Trunk quarantine debt scoreboard.
+            trunk_source = self._get_or_create_trunk_seed_source(team, prefix)
+            self._upsert_schema_table(
+                team,
+                trunk_source,
+                credential,
+                prefix,
+                TRUNK_QUARANTINED_TESTS_SCHEMA,
+                TRUNK_QUARANTINED_TESTS_COLUMNS,
+                _trunk_quarantined_rows(),
+                source_kind="trunkio",
+            )
 
         # Per-test CI spans back the flaky-test leaderboard and the team CI health surfaces.
         # Best-effort: a dev stack without the traces table still gets the warehouse seed.
@@ -1111,6 +1184,24 @@ class Command(BaseCommand):
             source.save(update_fields=[*update_fields, "updated_at"])
         return source
 
+    def _get_or_create_trunk_seed_source(self, team: Team, prefix: str) -> ExternalDataSource:
+        source = ExternalDataSource.objects.filter(
+            team=team, source_id=TRUNK_SEED_SOURCE_ID, source_type=ExternalDataSourceType.TRUNKIO
+        ).first()
+        if source is None:
+            return ExternalDataSource.objects.create(
+                team=team,
+                source_id=TRUNK_SEED_SOURCE_ID,
+                connection_id=TRUNK_SEED_SOURCE_ID,
+                status=ExternalDataSourceStatus.COMPLETED,
+                source_type=ExternalDataSourceType.TRUNKIO,
+                prefix=prefix,
+            )
+        if source.prefix != prefix:
+            source.prefix = prefix
+            source.save(update_fields=["prefix", "updated_at"])
+        return source
+
     def _upsert_schema_table(
         self,
         team: Team,
@@ -1120,10 +1211,11 @@ class Command(BaseCommand):
         schema_name: str,
         columns: dict[str, dict[str, str]],
         rows: Any,
+        source_kind: str = "github",
     ) -> None:
         records = list(rows)
-        # The materialized table name is exactly what a real sync produces: <prefix>github_<endpoint>.
-        table_name = f"{prefix}github_{schema_name}"
+        # The materialized table name is exactly what a real sync produces: <prefix><kind>_<endpoint>.
+        table_name = f"{prefix}{source_kind}_{schema_name.lower() if source_kind != 'github' else schema_name}"
         headers = list(columns.keys())
         output = StringIO()
         writer = csv.writer(output)

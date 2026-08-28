@@ -32,6 +32,7 @@ from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
     resolve_github_tables,
     resolve_trunk_merge_queue_table,
+    resolve_trunk_quarantined_tests_table,
 )
 from products.engineering_analytics.backend.logic.views import (
     deployments,
@@ -40,6 +41,7 @@ from products.engineering_analytics.backend.logic.views import (
     pull_requests,
     team_members,
     trunk_merge_queue,
+    trunk_quarantined_tests,
     workflow_jobs,
     workflow_runs,
 )
@@ -141,6 +143,8 @@ class CuratedGitHubSource:
         self._user_access_control = user_access_control
         self._trunk_table: str | None = None
         self._trunk_table_resolved = False
+        self._trunk_quarantine_table: str | None = None
+        self._trunk_quarantine_table_resolved = False
 
     @property
     def team(self) -> Team:
@@ -205,6 +209,17 @@ class CuratedGitHubSource:
         if self._trunk_table is None:
             return None
         return f"({trunk_merge_queue.build_query(self._trunk_table)})"
+
+    def trunk_quarantined_tests_source(self) -> str | None:
+        """Curated Trunk quarantined-tests ``SELECT`` subquery, or None when no TrunkIo source has
+        the QuarantinedTests endpoint synced or the requesting user can't access one; consumers
+        degrade to ``available: false``. Lazily resolved and cached like the merge-queue sibling."""
+        if not self._trunk_quarantine_table_resolved:
+            self._trunk_quarantine_table = resolve_trunk_quarantined_tests_table(self._team, self._user_access_control)
+            self._trunk_quarantine_table_resolved = True
+        if self._trunk_quarantine_table is None:
+            return None
+        return f"({trunk_quarantined_tests.build_query(self._trunk_quarantine_table)})"
 
     def members_source(self) -> str | None:
         """Curated team-membership ``SELECT`` subquery, or None when the optional table isn't synced."""
