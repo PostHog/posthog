@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     column itself in a later release, once no deployed code references it.
     """
 
-    dependencies = [("posthog", "1325_organizationmembernotificationlock")]
+    dependencies = [("posthog", "1326_drop_legacy_provisioning_columns")]
 
     operations = [
         migrations.SeparateDatabaseAndState(

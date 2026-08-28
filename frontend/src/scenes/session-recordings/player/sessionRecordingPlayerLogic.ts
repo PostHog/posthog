@@ -541,6 +541,7 @@ export interface sessionRecordingPlayerLogicValues {
     createExportJSON: () => ExportedSessionRecordingFileV2 // sessionRecordingDataCoordinatorLogic
     customRRWebEvents: customEvent[] // sessionRecordingDataCoordinatorLogic
     fullyLoaded: boolean // sessionRecordingDataCoordinatorLogic
+    hasOversizedMutations: boolean // sessionRecordingDataCoordinatorLogic
     recordingTooLargeToPlay: boolean // sessionRecordingDataCoordinatorLogic
     sessionPlayerData: SessionPlayerData // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaData: SessionRecordingType | null // sessionRecordingDataCoordinatorLogic
@@ -1163,6 +1164,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'fullyLoaded',
                 'trackedWindow',
                 'recordingTooLargeToPlay',
+                'hasOversizedMutations',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
@@ -2614,6 +2616,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.retrySnapshotLoading()
         },
         setPlay: () => {
+            // Clicking or pressing space on the "unable to play" card must not start the load anyway
+            if (values.recordingTooLargeToPlay || values.hasOversizedMutations) {
+                return
+            }
             if (!values.snapshotsLoaded) {
                 actions.loadSnapshots()
             }
@@ -3277,6 +3283,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
 
     subscriptions(({ actions, values }) => ({
+        hasOversizedMutations: (detected: boolean) => {
+            if (detected) {
+                actions.setPause()
+                actions.setPlayerError('recordingTooLarge')
+            }
+        },
         sessionPlayerData: (value, oldValue) => {
             const hasSnapshotChanges = value?.snapshotsByWindowId !== oldValue?.snapshotsByWindowId
 
