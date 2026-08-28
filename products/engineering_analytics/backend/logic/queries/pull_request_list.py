@@ -29,10 +29,11 @@ _LIMIT = 1000
 _PUSH_HISTORY_LIMIT = 20
 
 
-def _visible_prs_where(prefix: str, author_clause: str) -> str:
+def _visible_prs_where(prefix: str, author: str | None) -> str:
     """The list's row predicate, buildable against the ``pr`` alias (outer WHERE) or
     unqualified curated PR columns (the runs-rollup scope) — one definition so the
     rollup scope can never drift narrower than the rows it must serve."""
+    author_clause = f"AND {prefix}author_handle = {{author}}" if author else ""
     return f"""(
             {prefix}state = 'open'
             OR {prefix}merged_at >= {{date_from}}
@@ -144,18 +145,14 @@ def query_pull_request_list(
     if author:
         placeholders["author"] = ast.Constant(value=author)
 
-    def visible_where(prefix: str) -> str:
-        author_clause = f"AND {prefix}author_handle = {{author}}" if author else ""
-        return _visible_prs_where(prefix, author_clause)
-
     ready = curated.ready_to_merge_sql()
     select = (
         _SELECT.replace("__READY_TO_MERGE__", f"{ready.expr} AS ready_to_merge_seconds")
         .replace("__READY_JOIN__", ready.join)
-        .replace("__VISIBLE_PRS__", visible_where("pr."))
+        .replace("__VISIBLE_PRS__", _visible_prs_where("pr.", author))
     )
     response = curated.run(
-        curated.pr_list_rollup_query(select, pr_scope_where=visible_where("")),
+        curated.pr_list_rollup_query(select, pr_scope_where=_visible_prs_where("", author)),
         query_type="engineering_analytics.pull_request_list",
         placeholders=placeholders,
     )
