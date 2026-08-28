@@ -27,11 +27,15 @@ export function isCampaignPayload(value: unknown): value is CampaignPayload {
     )
 }
 
-export interface ProductPushDisplay {
+/** Everything a card hero renders, minus the copy - so non-product ads can have one too. */
+export interface AdHeroDisplay {
     /** Hoggie illustration shown in the promo card's hero image (a PNG, via `pngHoggie`) */
     Hoggie: React.ComponentType<AssetSvgProps>
-    /** Product brand color driving the hero's geometric background */
+    /** Brand color driving the hero's geometric background */
     accentColor: string
+}
+
+export interface ProductPushDisplay extends AdHeroDisplay {
     /** Default promo copy, used when the campaign has no custom reason text */
     tagline: string
 }
@@ -98,9 +102,9 @@ function GeometricPattern(): JSX.Element {
 }
 
 /**
- * Presentational product "hog + text" hero: a Hoggie illustration over the product's brand-tinted
- * geometric background, with a title and blurb below. Shared by the nav advertisement card and the
- * welcome dialog's flagship-products showcase so both read as one visual. ``topRight`` is an optional
+ * Presentational "hog + text" hero: a Hoggie illustration over a brand-tinted geometric background,
+ * with a title and blurb below. Shared by the nav advertisement cards and the welcome dialog's
+ * flagship-products showcase so they all read as one visual. ``topRight`` is an optional
  * slot for an overlay control (e.g. a dismiss button); the welcome showcase leaves it empty.
  */
 export function ProductHogHero({
@@ -109,7 +113,7 @@ export function ProductHogHero({
     text,
     topRight,
 }: {
-    hero: ProductPushDisplay
+    hero: AdHeroDisplay
     title: string
     text: React.ReactNode
     topRight?: JSX.Element
@@ -145,7 +149,7 @@ export function AdvertisementCard({
     emojiLabel?: string
     title: string
     text: React.ReactNode
-    hero?: ProductPushDisplay
+    hero?: AdHeroDisplay
     onClose?: () => void
 }): JSX.Element {
     const { hideAdvertisement } = useActions(navPanelAdvertisementLogic)

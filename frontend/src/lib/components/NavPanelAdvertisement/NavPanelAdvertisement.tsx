@@ -4,6 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -12,6 +13,8 @@ import { CampaignPayload, isCampaignPayload } from './navPanelAdShared'
 import { navPanelAdvertisementRecommendedLogic } from './navPanelAdvertisementRecommendedLogic'
 import { NavPanelCampaignAd } from './NavPanelCampaignAd'
 import { NavPanelCmdKAd } from './NavPanelCmdKAd'
+import { NavPanelHedgehogCoffeeAd } from './NavPanelHedgehogCoffeeAd'
+import { donationWindowIndex } from './navPanelHedgehogCoffeeLogic'
 import { NavPanelProductPushAd } from './NavPanelProductPushAd'
 import { navPanelProductPushLogic } from './navPanelProductPushLogic'
 import { NavPanelRecommendationAd } from './NavPanelRecommendationAd'
@@ -26,6 +29,7 @@ export function NavPanelAdvertisement(): JSX.Element | null {
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const campaignFlagPayload = getFeatureFlagPayload('nav-panel-campaign') as CampaignPayload | undefined
@@ -54,9 +58,19 @@ export function NavPanelAdvertisement(): JSX.Element | null {
         return <NavPanelProductPushAd campaign={activeCampaign} />
     }
 
-    if (!oldestRecommendedProduct) {
-        return null
+    if (oldestRecommendedProduct) {
+        return <NavPanelRecommendationAd recommendedProduct={oldestRecommendedProduct} />
     }
 
-    return <NavPanelRecommendationAd recommendedProduct={oldestRecommendedProduct} />
+    // The charity nudge is the least time-sensitive thing we run here, so it only takes the slot
+    // when nothing revenue- or sales-led wants it. Going last also means dismissing it can never
+    // leave the slot empty for an ad above it - the chain picks an arm before that arm knows it's
+    // been dismissed. Eligibility beyond org age (free plan, under allowance) is checked inside the
+    // arm, so the billing payload is only read for orgs that are old enough to see it.
+    const donationWindow = donationWindowIndex(currentOrganization?.created_at, dayjs())
+    if (currentOrganization && donationWindow !== null) {
+        return <NavPanelHedgehogCoffeeAd orgId={currentOrganization.id} windowIndex={donationWindow} />
+    }
+
+    return null
 }
