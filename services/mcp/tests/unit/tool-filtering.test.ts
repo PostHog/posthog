@@ -21,12 +21,9 @@ import type { Context } from '@/tools/types'
  * Tests use this to assert that filtered results never drop these tools,
  * without hard-coding the exact set (which grows as utility tools are added).
  */
-const collectAlwaysAvailableToolNames = (featureFlags: EvaluatedFlags = {}): string[] =>
+const collectAlwaysAvailableToolNames = (): string[] =>
     Object.entries(getToolDefinitions())
-        .filter(
-            ([_, def]: [string, ToolDefinition]) =>
-                def.always_available === true && toolPassesFlagGate(def, featureFlags)
-        )
+        .filter(([_, def]: [string, ToolDefinition]) => def.always_available === true)
         .map(([name]) => name)
 
 describe('Tool Filtering - Features', () => {
@@ -185,23 +182,6 @@ describe('Tool Filtering - Tools Allowlist', () => {
             // present whether or not any feature flags are evaluated.
             expect(getToolsForFeatures({})).toContain('agent-feedback')
             expect(getToolsForFeatures({ featureFlags: {} })).toContain('agent-feedback')
-        })
-
-        it('should gate missing-capability tools behind mcp analytics', () => {
-            const enabledTools = getToolsForFeatures({ featureFlags: { 'mcp-analytics': true } })
-            expect(enabledTools).toContain('get-more-tools')
-            expect(enabledTools).toContain('mcp-missing-capability-report')
-
-            const disabledTools = getToolsForFeatures({ featureFlags: {} })
-            expect(disabledTools).not.toContain('get-more-tools')
-            expect(disabledTools).not.toContain('mcp-missing-capability-report')
-
-            const allowlistedTools = getToolsForFeatures({
-                tools: ['nonexistent-tool'],
-                featureFlags: { 'mcp-analytics': true },
-            })
-            expect(allowlistedTools).toContain('get-more-tools')
-            expect(allowlistedTools).not.toContain('mcp-missing-capability-report')
         })
 
         it('should union with features (OR) when both are provided', () => {

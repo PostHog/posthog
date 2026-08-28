@@ -161,7 +161,8 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == field
 
-    def test_create_missing_capability_submission_defaults_blocked(self) -> None:
+    @patch("products.mcp_analytics.backend.presentation.views.report_user_action")
+    def test_create_missing_capability_submission_defaults_blocked(self, mock_report_user_action: MagicMock) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_analytics/missing_capabilities/",
             {
@@ -178,6 +179,25 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert data["kind"] == MCPAnalyticsSubmission.Kind.MISSING_CAPABILITY
         assert data["blocked"] is True
         assert data["attempted_tool"] == "survey_get"
+
+        mock_report_user_action.assert_called_once()
+        args, kwargs = mock_report_user_action.call_args
+        assert args[1] == "$mcp_missing_capability"
+        assert args[2] == {
+            "submission_id": data["id"],
+            "kind": MCPAnalyticsSubmission.Kind.MISSING_CAPABILITY,
+            "attempted_tool": "survey_get",
+            "mcp_client_name": "",
+            "mcp_session_id_present": False,
+            "mcp_trace_id_present": False,
+            "$mcp_intent": "I need a tool that explains survey eligibility for a specific user.",
+            "$mcp_intent_source": "context_parameter",
+            "$mcp_resource_name": "mcp-missing-capability-report",
+            "missing_capability_goal": "debug why my survey is not showing",
+            "missing_capability_blocked": True,
+            "missing_capability_attempted_tool": "survey_get",
+        }
+        assert kwargs["team"] == self.team
 
     @parameterized.expand(
         [

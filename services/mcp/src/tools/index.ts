@@ -13,7 +13,6 @@ import experimentListDeprecated from './experiments/listDeprecated'
 // Feature flags (get-definition-by-key is hand-written; get-definition-by-id is codegen)
 import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
 // Feedback
-import getMoreTools, { GET_MORE_TOOLS_TOOL_NAME } from './feedback/getMoreTools'
 import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
@@ -116,7 +115,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'loops-review': loopsReview,
 
     // Feedback
-    [GET_MORE_TOOLS_TOOL_NAME]: getMoreTools,
     'agent-feedback': submitFeedback,
 
     // Current-task comments. The model never supplies a task id; the host-stamped MCP context does.

@@ -19,6 +19,7 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.mcp_analytics.backend import logic
+from products.mcp_analytics.backend.constants import MCP_MISSING_CAPABILITY_EVENT
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
@@ -105,17 +106,20 @@ class BaseMCPAnalyticsSubmissionViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         report_user_action(
             cast(User, request.user),
             self.user_action_name,
-            {
-                "submission_id": str(submission.id),
-                "kind": submission.kind,
-                "attempted_tool": submission.attempted_tool,
-                "mcp_client_name": submission.mcp_client_name,
-                "mcp_session_id_present": bool(submission.mcp_session_id),
-                "mcp_trace_id_present": bool(submission.mcp_trace_id),
-            },
+            self._submission_event_properties(submission),
             team=self.team,
             request=request,
         )
+
+    def _submission_event_properties(self, submission: contracts.Submission) -> dict[str, Any]:
+        return {
+            "submission_id": str(submission.id),
+            "kind": submission.kind,
+            "attempted_tool": submission.attempted_tool,
+            "mcp_client_name": submission.mcp_client_name,
+            "mcp_session_id_present": bool(submission.mcp_session_id),
+            "mcp_trace_id_present": bool(submission.mcp_trace_id),
+        }
 
     def _list_response(self, request: Request, kind: enums.SubmissionKind) -> Response:
         paginator = self.pagination_class()
@@ -356,7 +360,18 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):
-    user_action_name = "mcp analytics missing capability reported"
+    user_action_name = MCP_MISSING_CAPABILITY_EVENT
+
+    def _submission_event_properties(self, submission: contracts.Submission) -> dict[str, Any]:
+        return {
+            **super()._submission_event_properties(submission),
+            "$mcp_intent": submission.summary,
+            "$mcp_intent_source": "context_parameter",
+            "$mcp_resource_name": "mcp-missing-capability-report",
+            "missing_capability_goal": submission.goal,
+            "missing_capability_blocked": submission.blocked,
+            "missing_capability_attempted_tool": submission.attempted_tool,
+        }
 
     @validated_request(
         request_serializer=MCPMissingCapabilityCreateSerializer,
