@@ -200,8 +200,10 @@ def apply_source_edits(
         asset = operation.get("asset")
         if asset is not None:
             assets[path] = {"encoding": "objectRef", **asset}
+            project["files"].pop(path, None)
         elif content is not None:
             project["files"][path] = content
+            assets.pop(path, None)
         elif path in project["files"]:
             del project["files"][path]
         elif path in assets:
@@ -651,6 +653,17 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
     assets = project.get("assets") or {}
     if project.get("entryHtml") not in files:
         diagnostics.append(diagnostic("error", "missing_entry", "entryHtml must name a file present in files"))
+    for path in sorted(set(files) & set(assets)):
+        # The builder resolves files before assets, so an overlap would silently
+        # serve the file and ignore the asset. A path holds one kind, never both.
+        diagnostics.append(
+            diagnostic(
+                "error",
+                "path_conflict",
+                f"{path} is set as both a file and an asset — a path may hold only one",
+                path=path,
+            )
+        )
     capabilities = project.get("capabilities") or {}
     network_origins = (capabilities.get("network") or {}).get("origins") or []
     for origin in network_origins:

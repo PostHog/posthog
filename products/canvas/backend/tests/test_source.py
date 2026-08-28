@@ -9,6 +9,7 @@ from products.canvas.backend.source import (
     CANVAS_COMPONENT_PATH,
     CANVAS_ENTRY_HTML,
     MAX_CONFIG_SCHEMA_DEPTH,
+    apply_source_edits,
     has_errors,
     synthetic_source_project,
     validate_source_project,
@@ -215,12 +216,60 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 ),
                 "assets_too_large",
             ),
+            (
+                "file_and_asset_share_a_path",
+                project(
+                    files={CANVAS_COMPONENT_PATH: CODE, "assets/logo.png": "stale"},
+                    assets={
+                        "assets/logo.png": {
+                            "encoding": "objectRef",
+                            "contentType": "image/png",
+                            "sha256": "ab" * 32,
+                            "sizeBytes": 8,
+                        }
+                    },
+                ),
+                "path_conflict",
+            ),
         ]
     )
     def test_invalid_projects_produce_error_diagnostics(self, _name, candidate, expected_code):
         diagnostics = validate_source_project(candidate)
         self.assertTrue(has_errors(diagnostics), diagnostics)
         self.assertIn(expected_code, [d["code"] for d in diagnostics])
+
+    @parameterized.expand(
+        [
+            (
+                "asset_over_file",
+                {
+                    "path": "assets/logo.png",
+                    "asset": {"sha256": "ab" * 32, "contentType": "image/png", "sizeBytes": 8},
+                },
+                "assets",
+            ),
+            ("content_over_asset", {"path": "assets/logo.png", "content": "now a file"}, "files"),
+        ]
+    )
+    def test_edit_switching_a_paths_kind_clears_the_counterpart(self, _name, operation, surviving):
+        # Start with both kinds at one path, then switch it. Only the new kind
+        # may remain — a leftover counterpart is silently served by the builder.
+        base = project(
+            files={CANVAS_COMPONENT_PATH: CODE, "assets/logo.png": "stale file"},
+            assets={
+                "assets/logo.png": {
+                    "encoding": "objectRef",
+                    "contentType": "image/png",
+                    "sha256": "cd" * 32,
+                    "sizeBytes": 8,
+                }
+            },
+        )
+        edited, diagnostics = apply_source_edits(base, [operation])
+        other = "files" if surviving == "assets" else "assets"
+        self.assertEqual(diagnostics, [])
+        self.assertIn("assets/logo.png", edited[surviving])
+        self.assertNotIn("assets/logo.png", edited.get(other, {}))
 
     def test_object_ref_assets_do_not_count_against_the_source_cap(self):
         # 2.5 MB per reference is over the whole-project source cap but inside
