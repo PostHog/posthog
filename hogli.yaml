@@ -837,6 +837,16 @@ quality:
     lint:python:fix:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues
+    format:html:
+        # djlint exits 1 when it rewrites a file and 2 on a real error, so only 2 should fail
+        cmd: uv tool run --from djlint==1.44.2 djlint --reformat "${@:-posthog/templates/email}" || [ $? -eq 1 ]
+        description: Format Django templates
+    format:html:check:
+        cmd: uv tool run --from djlint==1.44.2 djlint --check "${@:-posthog/templates/email}"
+        description: Check Django template formatting without writing
+    lint:html:
+        cmd: uv tool run --from djlint==1.44.2 djlint --lint "${@:-posthog/templates/email}"
+        description: Lint Django templates
     format:markdown:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
             "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"

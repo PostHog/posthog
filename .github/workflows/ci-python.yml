@@ -192,6 +192,14 @@ jobs:
                     shell: bash
                     run: ruff format --check --diff .
 
+                  - name: Check Django template formatting
+                    shell: bash
+                    run: ./bin/hogli format:html:check
+
+                  - name: Lint Django templates
+                    shell: bash
+                    run: ./bin/hogli lint:html
+
                   - name: Check hogli manifest completeness
                     shell: bash
                     run: ./bin/hogli meta:check

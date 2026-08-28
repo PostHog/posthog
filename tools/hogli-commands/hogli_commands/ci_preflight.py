@@ -148,6 +148,15 @@ DIFF_CHECKS: list[DiffCheck] = [
         advice="a type error costs a full CI re-run — consider `uv run mypy --cache-fine-grained .` (what CI runs)",
     ),
     DiffCheck(
+        key="django-template-format",
+        label="Django template formatting (djlint)",
+        triggers=["posthog/templates/email/*.html"],
+        # Mirrors lint-staged's `format:html`, which agents bypass via --no-verify.
+        verify=["hogli", "format:html:check"],
+        fix=["hogli", "format:html"],
+        takes_files=True,
+    ),
+    DiffCheck(
         key="markdown-format",
         label="markdown formatting (oxfmt)",
         triggers=["*.md", "*.mdx"],

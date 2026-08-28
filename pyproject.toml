@@ -446,6 +446,15 @@ section-order = [
 "posthog" = ["posthog"]
 "products" = ["products"]
 
+[tool.djlint]
+profile = "django"
+extension = "html"
+indent = 4
+# H021 inline styles and H023 entity references are how HTML email has to be written:
+# mail clients strip stylesheets and render bare characters inconsistently.
+# H016 title and H030 meta description are page rules that mean nothing in an email.
+ignore = "H021,H023,H016,H030"
+
 [tool.dagster]
 python_version = "3.13"
 

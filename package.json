@@ -108,6 +108,10 @@
             "bin/hogli format:python",
             "uv run --no-sync ty check"
         ],
+        "posthog/templates/email/*.html": [
+            "bin/hogli format:html",
+            "bin/hogli lint:html"
+        ],
         "*.{md,mdx}": "bin/hogli format:markdown"
     },
     "browserslist": {
