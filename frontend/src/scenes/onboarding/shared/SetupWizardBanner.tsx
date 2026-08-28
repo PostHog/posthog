@@ -5,6 +5,7 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 import { useWizardCommand } from './useWizardCommand'
+import { WizardFrameworkBadges } from './wizard-sync/WizardModeShell'
 
 const SetupWizardBanner = ({
     integrationName,
@@ -25,11 +26,20 @@ const SetupWizardBanner = ({
             <LemonBanner type="info" hideIcon={true}>
                 <h3 className="pb-1">AI setup wizard</h3>
                 <div className="flex flex-col p-2">
-                    <p className="font-normal pb-1">Try using the AI setup wizard to automatically install PostHog.</p>
+                    <p className="font-normal pb-1">
+                        The setup wizard detects your framework, installs the SDK, and sets up event capture.
+                    </p>
+                    <p className="font-normal pb-1">
+                        It is a Node command-line tool that you run with npx. It supports many frameworks and languages,
+                        not only JavaScript ones.
+                    </p>
                     <p className="font-normal pb-2">
-                        Run the following command from the root of your {integrationName} project.
+                        Run this command from the root of your {integrationName} project.
                     </p>
                     <CodeSnippet language={Language.Bash}>{wizardCommand}</CodeSnippet>
+                    <div className="pt-3">
+                        <WizardFrameworkBadges />
+                    </div>
                 </div>
             </LemonBanner>
             <LemonDivider label="OR" />
