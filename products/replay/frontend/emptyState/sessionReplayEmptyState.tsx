@@ -33,14 +33,17 @@ export const sessionReplayEmptyState: SceneProductEmptyState = {
                 lead: 'New sessions start recording as users visit your site. The first replays usually show up here a few minutes after a visit.',
             },
         },
+        // Recording is already on in `waiting-for-data`, so the opt-in only belongs on the setup screen.
         primaryAction: {
-            label: 'Enable session recording',
-            onClick: () => {
-                teamLogic.findMounted()?.actions.updateCurrentTeam({ session_recording_opt_in: true })
-            },
-            accessControl: {
-                resourceType: AccessControlResourceType.SessionRecording,
-                minAccessLevel: AccessControlLevel.Editor,
+            'needs-setup': {
+                label: 'Enable session recording',
+                onClick: () => {
+                    teamLogic.findMounted()?.actions.updateCurrentTeam({ session_recording_opt_in: true })
+                },
+                accessControl: {
+                    resourceType: AccessControlResourceType.SessionRecording,
+                    minAccessLevel: AccessControlLevel.Editor,
+                },
             },
         },
         docsUrl: 'https://posthog.com/docs/session-replay',
