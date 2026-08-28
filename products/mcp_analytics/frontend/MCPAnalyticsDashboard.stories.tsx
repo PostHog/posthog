@@ -732,3 +732,11 @@ export const IntentClustering: Story = {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
     },
 }
+
+// The intent view is no longer linked from the tab, so this story is the only thing keeping
+// it rendered. Without it the cluster list could break unnoticed.
+export const IntentClusteringByIntent: Story = {
+    parameters: {
+        pageUrl: `${urls.mcpAnalyticsIntentClustering()}?view=intents`,
+    },
+}

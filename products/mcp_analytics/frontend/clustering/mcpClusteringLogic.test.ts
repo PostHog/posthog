@@ -514,7 +514,7 @@ describe('mcpClusteringLogic category scope', () => {
         expect(mockQuery.mock.calls.length - before).toBe(2)
 
         logic.actions.selectTool('b')
-        router.actions.push(urls.mcpAnalyticsIntentClustering(), { view: 'tools' })
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), { view: 'intents' })
         await expectLogic(logic).toFinishAllListeners()
         expect(mockQuery.mock.calls.length - before).toBe(2)
     })
@@ -581,7 +581,7 @@ describe('mcpClusteringLogic category scope', () => {
 
         logic.actions.selectCluster(SPREAD_ID)
         logic.actions.selectTool('b')
-        router.actions.push(urls.mcpAnalyticsIntentClustering(), { view: 'tools' })
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), { view: 'intents' })
 
         expect(mockQuery.mock.calls.length).toBe(before)
     })
@@ -600,6 +600,54 @@ describe('mcpClusteringLogic category scope', () => {
 
         expect(mockQuery).not.toHaveBeenCalled()
         expect(logic.values.availableCategories).toEqual([])
+    })
+})
+
+// The intent view is no longer offered in the tab: clustering barely groups the intents it
+// samples, so the cluster list says little. The tab opens on the tool view, and only an
+// explicit `?view=intents` brings the cluster list back.
+describe('mcpClusteringLogic view mode', () => {
+    let logic: ReturnType<typeof mcpClusteringLogic.build>
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        initKeaTests()
+        mockRetrieve.mockResolvedValue(SNAPSHOT)
+        mockQuery.mockResolvedValue({ results: [] })
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    // `view=tools` is the param links carried while the intent view was still the default,
+    // so it has to keep resolving to the tool view rather than to whatever is left over.
+    it.each([
+        ['no view param to the tool view', {}, 'tools'],
+        ['a legacy view=tools link to the tool view', { view: 'tools' }, 'tools'],
+        ['an explicit view=intents link to the intent view', { view: 'intents' }, 'intents'],
+    ])('resolves %s', async (_label, searchParams, expected) => {
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), searchParams)
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.viewMode).toBe(expected)
+    })
+
+    // Only the view that is no longer the default gets written, so a link copied off the tab
+    // stays clean while a link to the intent view still reopens it.
+    it('writes only the intent view to the url', async () => {
+        router.actions.push(urls.mcpAnalyticsIntentClustering())
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setViewMode('intents')
+        expect(router.values.searchParams.view).toBe('intents')
+
+        logic.actions.setViewMode('tools')
+        expect(router.values.searchParams.view).toBeUndefined()
     })
 })
 

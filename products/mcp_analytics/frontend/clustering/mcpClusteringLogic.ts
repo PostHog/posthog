@@ -484,8 +484,11 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
                 setToolSortKey: (_, { toolSortKey }) => toolSortKey,
             },
         ],
+        // The tool view is the only one the tab offers. A run still splits the sampled intents
+        // almost one to one into clusters, so the cluster list reads as individual intents
+        // rather than themes. It stays reachable at `?view=intents` until that improves.
         viewMode: [
-            'intents' as ClusteringViewMode,
+            'tools' as ClusteringViewMode,
             {
                 setViewMode: (_, { viewMode }) => viewMode,
             },
@@ -893,7 +896,7 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             const { currentLocation } = router.values
             const searchParams = { ...currentLocation.searchParams }
             const params: Record<string, string | null> = {
-                view: values.viewMode === 'tools' ? 'tools' : null,
+                view: values.viewMode === 'intents' ? 'intents' : null,
                 cluster: values.selectedClusterId === null ? null : String(values.selectedClusterId),
                 tool: values.selectedToolName,
             }
@@ -924,7 +927,9 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             if (!values.categoryMapRequested && values.categoryMapAttempts < MAX_CATEGORY_MAP_ATTEMPTS) {
                 actions.loadCategoryMap()
             }
-            const viewMode: ClusteringViewMode = searchParams.view === 'tools' ? 'tools' : 'intents'
+            // Anything other than an explicit `intents` lands on the tool view, so the
+            // `view=tools` links written while the intent view was the default still work.
+            const viewMode: ClusteringViewMode = searchParams.view === 'intents' ? 'intents' : 'tools'
             if (viewMode !== values.viewMode) {
                 actions.setViewMode(viewMode)
             }

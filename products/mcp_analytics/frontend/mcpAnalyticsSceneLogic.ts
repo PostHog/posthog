@@ -21,7 +21,7 @@ export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
     sessions: 'Sessions where users interacted with your MCP tools.',
     'tool-quality': 'Understand how reliably your MCP tools support user workflows.',
     'intent-clustering':
-        'Cluster semantically similar user intents and see which tools each cluster routes to. Highlights inconsistent routing.',
+        'See which intents each of your tools serves, how often agents discover it, and which tools compete for the same work.',
     notifications:
         'Recurring summaries of what agents are doing, plus instant alerts for the things you need to know about right away.',
 }
