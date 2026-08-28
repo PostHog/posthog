@@ -13,16 +13,6 @@ from products.canvas.backend.source import has_errors, synthetic_source_project,
 
 _READ_FRAME_RE = re.compile(r"\bph\s*\.\s*readFrame\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 _NETWORK_DIAGNOSTICS = {"network_fetch", "network_xhr"}
-_NAVIGATION_RE = re.compile(
-    r"(?:\b(?:window\s*\.\s*)?location(?:\s*\.\s*(?:href|assign|replace))?\s*(?:=|\()"
-    r"|\b(?:window|globalThis)\s*\.\s*open\s*\(|\bnavigation\s*\.\s*navigate\s*\("
-    r"|\bhistory\s*\.\s*(?:back|forward|go|pushState|replaceState)\s*\(|<\s*a(?=\s|/?>))",
-    re.IGNORECASE,
-)
-_COMPUTED_NAVIGATION_RE = re.compile(
-    r"\b(?:window|globalThis|self|top|parent)\s*\[\s*[\"'](?:location|open|navigation|history)[\"']\s*\]",
-    re.IGNORECASE,
-)
 _LEGACY_FRAME_BRIDGE_START = "/* __POSTHOG_NOTEBOOK_BRIDGE_START__ */"
 _LEGACY_FRAME_BRIDGE_END = "/* __POSTHOG_NOTEBOOK_BRIDGE_END__ */"
 
@@ -122,14 +112,6 @@ def validate_notebook_canvas_source(source: str, input_names: list[str]) -> list
         {**diagnostic, "severity": "error"} if diagnostic.get("code") in _NETWORK_DIAGNOSTICS else diagnostic
         for diagnostic in diagnostics
     ]
-    if _NAVIGATION_RE.search(source) or _COMPUTED_NAVIGATION_RE.search(source):
-        diagnostics.append(
-            {
-                "severity": "error",
-                "code": "notebook_navigation_not_allowed",
-                "message": "Notebook widgets cannot navigate or open browser windows.",
-            }
-        )
     for match in _READ_FRAME_RE.finditer(source):
         frame_name = match.group(1)
         if frame_name is None:

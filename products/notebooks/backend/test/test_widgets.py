@@ -312,40 +312,6 @@ class TestWidgetGeneration(SimpleTestCase):
 
         assert not [item for item in diagnostics if item.get("severity") == "error"]
 
-    @parameterized.expand(
-        [
-            ("location_assignment", 'window.location = "https://example.com"'),
-            ("location_method", 'location.replace("https://example.com")'),
-            ("computed_location", 'globalThis["location"]["href"] = "https://example.com"'),
-            ("window_open", 'window.open("https://example.com")'),
-            ("anchor_element", 'return <a href="https://example.com">Leave</a>'),
-        ]
-    )
-    def test_canvas_validation_rejects_navigation(self, _name: str, statement: str) -> None:
-        diagnostics = validate_notebook_canvas_source(
-            f"export default function Canvas() {{ {statement}; return null }}",
-            [],
-        )
-
-        error_codes = {item.get("code") for item in diagnostics if item.get("severity") == "error"}
-        assert "notebook_navigation_not_allowed" in error_codes
-
-    def test_canvas_validation_allows_browser_terms_without_navigation(self) -> None:
-        diagnostics = validate_notebook_canvas_source(
-            "export default function Canvas() { return <div>Open document history</div> }",
-            [],
-        )
-
-        assert not [item for item in diagnostics if item.get("severity") == "error"]
-
-    def test_canvas_validation_allows_less_than_comparisons_with_a_variables(self) -> None:
-        diagnostics = validate_notebook_canvas_source(
-            "export default function Canvas() { const a = [1]; return <div>{0 < a.length ? 'yes' : 'no'}</div> }",
-            [],
-        )
-
-        assert not [item for item in diagnostics if item.get("severity") == "error"]
-
     def test_canvas_source_keeps_the_trusted_bridge_out_of_generated_code(self) -> None:
         generated_source = "export default function Canvas() { return <div /> }"
         project = _source_project(generated_source)
