@@ -9,7 +9,7 @@ from posthog.models.team import Team
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 
-TIER_BATCH_CAPS = [1000, 3000, 10000, 30000, 100000, 300000, 1000000]
+TIER_BATCH_CAPS = [100, 1000, 3000, 10000, 30000, 100000, 300000, 1000000]
 
 
 class TestGetHogflowBatchTriggerLimit(TestCase):
