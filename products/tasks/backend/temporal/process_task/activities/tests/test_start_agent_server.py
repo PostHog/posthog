@@ -385,7 +385,7 @@ def test_prepare_launch_ignores_the_loop_allowlist_for_a_service_account_run(moc
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_user_mcp_server_configs",
         return_value=[],
     )
-    state_with_empty_snapshot = {"config_snapshot": {"connectors": {"mcp_installation_ids": []}}}
+    state_with_empty_snapshot: dict = {"config_snapshot": {"connectors": {"mcp_installation_ids": []}}}
 
     _prepare_launch(_context(state=state_with_empty_snapshot), mocker.Mock(), "sandbox-id")
 
