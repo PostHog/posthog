@@ -43789,6 +43789,8 @@ export namespace Schemas {
       email?: string | null;
       /** When the recording ends in ISO format. */
       end_time: string;
+      /** Number of captured rrweb events in the recording. Only present once metadata is loaded. */
+      event_count?: number | null;
       /** When the recording expires, in ISO format. */
       expiry_time?: string | null;
       /** External references to third party issues. */
@@ -43818,6 +43820,8 @@ export namespace Schemas {
       start_time: string;
       start_url?: string | null;
       summary?: string | null;
+      /** Total stored size of the recording's snapshot data in bytes. Only present once metadata is loaded. */
+      total_size?: number | null;
       /** Whether this recording has been viewed by you already. */
       viewed: boolean;
       /** user ids of other users who have viewed this recording */
@@ -49385,7 +49389,8 @@ export namespace Schemas {
       display_name?: string;
       /** @maxLength 2048 */
       url?: string;
-      description?: string;
+      /** Installation description, falling back to the linked template description. */
+      readonly description: string;
       auth_type?: MCPAuthTypeEnum;
       is_enabled?: boolean;
       readonly scope: MCPServerInstallationScopeEnum;
@@ -52321,6 +52326,106 @@ export namespace Schemas {
          * @nullable
          */
       github_login: string | null;
+    }
+
+    /**
+     * * `discussions_mentioned` - discussions_mentioned
+     * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+     * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+     * * `materialized_view_sync_failed` - materialized_view_sync_failed
+     * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+     * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+     * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+     * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+     * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+     * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled
+     */
+    export type SettingEnum = typeof SettingEnum[keyof typeof SettingEnum];
+
+
+    export const SettingEnum = {
+      DiscussionsMentioned: 'discussions_mentioned',
+      ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
+      ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
+      MaterializedViewSyncFailed: 'materialized_view_sync_failed',
+      MaterializedViewSyncFailedDaily: 'materialized_view_sync_failed_daily',
+      MaterializedViewSyncFailedImmediate: 'materialized_view_sync_failed_immediate',
+      OrganizationMemberJoinEmailDisabled: 'organization_member_join_email_disabled',
+      PipelineNotificationsDisabled: 'pipeline_notifications_disabled',
+      ProjectWeeklyDigestDisabled: 'project_weekly_digest_disabled',
+      WebAnalyticsWeeklyDigestProjectEnabled: 'web_analytics_weekly_digest_project_enabled',
+    } as const;
+
+    export interface OrganizationNotificationLock {
+      /** Notification setting this rule enforces.
+       *
+       * * `discussions_mentioned` - discussions_mentioned
+       * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+       * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+       * * `materialized_view_sync_failed` - materialized_view_sync_failed
+       * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+       * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+       * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+       * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+       * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+       * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled */
+      setting: SettingEnum;
+      /** What the setting applies to: a project ID or an organization ID. Empty for a setting that is a single switch. */
+      scope_id: string;
+      /** The value the organization enforces. */
+      locked_value: boolean;
+    }
+
+    export interface OrganizationNotificationLockChange {
+      /** Member this rule applies to. */
+      user_id: number;
+      /** Notification setting to lock or unlock.
+       *
+       * * `discussions_mentioned` - discussions_mentioned
+       * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+       * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+       * * `materialized_view_sync_failed` - materialized_view_sync_failed
+       * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+       * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+       * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+       * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+       * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+       * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled */
+      setting: SettingEnum;
+      /** Project ID for a setting that breaks down by project, organization ID for the member-join email, empty for a single switch. */
+      scope_id?: string;
+      /**
+         * Value to enforce, or null to remove the rule and give the member their own setting back.
+         * @nullable
+         */
+      locked_value: boolean | null;
+    }
+
+    export interface OrganizationNotificationLockBulkUpdate {
+      /**
+         * Only the entries you changed. Anything left out keeps whatever it had.
+         * @maxItems 2000
+         */
+      changes: OrganizationNotificationLockChange[];
+    }
+
+    export interface OrganizationNotificationMember {
+      /** Numeric ID of the member, used as the key when saving changes. */
+      user_id: number;
+      /** Stable public identifier of the member. */
+      uuid: string;
+      /** Member's first name, for display. */
+      first_name: string;
+      /** Member's last name, for display. */
+      last_name: string;
+      /** Member's email address, which is where these notifications go. */
+      email: string;
+      /** Member's organization membership level: 1 for member, 8 for admin, 15 for owner. */
+      organization_membership_level: number;
+      /** False when the member's membership level is above yours, which means you cannot change their settings. */
+      editable: boolean;
+      /** Rules in force for this member. */
+      locks: OrganizationNotificationLock[];
     }
 
     /**
@@ -55411,6 +55516,16 @@ export namespace Schemas {
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
       readonly matches_filters: boolean;
+      /**
+         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly total_size: number | null;
+      /**
+         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly event_count: number | null;
     }
 
     export interface PaginatedSessionRecordingList {
@@ -58034,6 +58149,8 @@ export namespace Schemas {
       readonly is_email_verified: boolean | null;
       /** Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is. */
       notification_settings?: UserNotificationSettings;
+      /** Notification settings an organization admin enforces on this user. The matching controls are read-only, and `notification_settings` still holds the user's own choice underneath. Read-only. */
+      readonly notification_locks: readonly OrganizationNotificationLock[];
       /**
          * Whether PostHog should anonymize events captured for this user when identified.
          * @nullable
@@ -64930,6 +65047,16 @@ export namespace Schemas {
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
       readonly matches_filters?: boolean;
+      /**
+         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly total_size?: number | null;
+      /**
+         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly event_count?: number | null;
     }
 
     /**
@@ -66787,6 +66914,8 @@ export namespace Schemas {
       readonly is_email_verified?: boolean | null;
       /** Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is. */
       notification_settings?: PatchedUserNotificationSettings;
+      /** Notification settings an organization admin enforces on this user. The matching controls are read-only, and `notification_settings` still holds the user's own choice underneath. Read-only. */
+      readonly notification_locks?: readonly OrganizationNotificationLock[];
       /**
          * Whether PostHog should anonymize events captured for this user when identified.
          * @nullable
