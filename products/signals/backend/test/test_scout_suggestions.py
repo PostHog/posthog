@@ -1,4 +1,5 @@
 import random
+import asyncio
 from datetime import timedelta
 
 import pytest
@@ -15,6 +16,7 @@ from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
@@ -32,6 +34,7 @@ from products.signals.backend.scout_harness.suggestions import (
     visible_items,
 )
 from products.signals.backend.scout_harness.suggestions_runner import arun_scout_suggestions, validate_suggestion_items
+from products.tasks.backend.models import Task
 
 CANONICAL = {"signals-scout-general", "signals-scout-error-tracking"}
 
@@ -152,6 +155,14 @@ class TestSuggestionPersistence(BaseTest):
         )
         self.assertEqual([record["skill_name"] for record in visible_items(row)], ["signals-scout-checkout-drop"])
 
+    def test_dismissing_a_compacted_tombstone_again_is_not_found(self):
+        row = persist_suggestion_batch(self.team.id, [_custom()], task_run_id=None, model=None, fleet_snapshot=[])
+        suggestion_id = row.items[0]["id"]
+        dismiss_suggestion(self.team.id, suggestion_id, user_id=self.user.id)
+        persist_suggestion_batch(self.team.id, [_item()], task_run_id=None, model=None, fleet_snapshot=[])
+        # The tombstone keeps the id but has no item fields left to serialize.
+        self.assertIsNone(dismiss_suggestion(self.team.id, suggestion_id, user_id=self.user.id))
+
     def test_omitted_tombstone_drops_the_draft_body_it_no_longer_needs(self):
         row = persist_suggestion_batch(
             self.team.id, [_custom(draft_body="b" * 5_000)], task_run_id=None, model=None, fleet_snapshot=[]
@@ -165,6 +176,11 @@ class TestSuggestionPersistence(BaseTest):
     def test_batch_generated_against_a_moved_fleet_is_stored_stale(self):
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-general", enabled=True)
         row = persist_suggestion_batch(self.team.id, [_item()], task_run_id=None, model=None, fleet_snapshot=[])
+        self.assertEqual(row.status, SignalScoutSuggestionSet.Status.STALE)
+
+    def test_empty_batch_generated_against_a_moved_fleet_is_stale(self):
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-general", enabled=True)
+        row = persist_suggestion_batch(self.team.id, [], task_run_id=None, model=None, fleet_snapshot=[])
         self.assertEqual(row.status, SignalScoutSuggestionSet.Status.STALE)
 
     def test_visible_items_hides_scouts_enabled_since_generation(self):
@@ -422,6 +438,43 @@ async def test_runner_records_a_failure_anywhere_after_the_gates(asuggestion_tea
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_runner_fails_a_batch_that_validates_down_to_nothing(asuggestion_team):
+    # Every suggestion names an unknown canonical scout, so validation drops the lot. Storing that
+    # as an empty success would reset the breaker and buy a whole refresh window.
+    batch = ScoutSuggestionBatch(suggestions=[_item(skill_name="signals-scout-not-canonical")])
+    with (
+        patch(f"{_RUNNER}.MultiTurnSession.start", new_callable=AsyncMock, return_value=(_fake_session(), batch)),
+        patch(f"{_RUNNER}.get_or_create_signals_sandbox_env", return_value="env"),
+        patch(f"{_RUNNER}.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.scout_harness.suggestions.discover_canonical_skills", return_value=()),
+    ):
+        result = await arun_scout_suggestions(asuggestion_team.id)
+
+    assert result.status == "failed"
+    row = await database_sync_to_async(SignalScoutSuggestionSet.all_teams.get)(team=asuggestion_team)
+    assert (row.status, row.consecutive_failures) == (SignalScoutSuggestionSet.Status.FAILED, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_runner_records_a_cancelled_scan_as_a_failure(asuggestion_team):
+    # The activity deadline cancels with a BaseException, which the runner's `except Exception`
+    # would miss; the coordinator has already stamped the request either way.
+    with (
+        patch(f"{_RUNNER}.MultiTurnSession.start", new_callable=AsyncMock, side_effect=asyncio.CancelledError()),
+        patch(f"{_RUNNER}.get_or_create_signals_sandbox_env", return_value="env"),
+        patch(f"{_RUNNER}.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.scout_harness.suggestions.discover_canonical_skills", return_value=()),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await arun_scout_suggestions(asuggestion_team.id)
+
+    row = await database_sync_to_async(SignalScoutSuggestionSet.all_teams.get)(team=asuggestion_team)
+    assert (row.status, row.consecutive_failures) == (SignalScoutSuggestionSet.Status.FAILED, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_runner_skips_unapproved_org_before_any_spend(asuggestion_team):
     organization = asuggestion_team.organization
     organization.is_ai_data_processing_approved = False
@@ -537,3 +590,28 @@ class TestScoutSuggestionsAPI(APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/signals/scout/suggestions/refresh/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_start.assert_not_called()
+
+
+class TestSuggestionScanGitHubPosture(BaseTest):
+    @parameterized.expand(
+        [
+            ("suggestion_scan", Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS, None),
+            ("scout_run", Task.OriginProduct.SIGNALS_SCOUT, "posthog/posthog"),
+        ]
+    )
+    def test_only_a_repo_less_suggestion_scan_gets_no_github_integration(self, _name, origin_product, expected_repo):
+        # `github_read_access=False` downscopes nothing on its own: it selects the read-only branch
+        # in credential refresh, so leaving the integration attached hands the scan the ordinary
+        # write-capable token. The scan must carry no integration at all.
+        Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+
+        task = Task.create_without_run(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=origin_product,
+            user_id=self.user.id,
+            repository=expected_repo,
+        )
+
+        self.assertEqual(task.github_integration_id is None, expected_repo is None)

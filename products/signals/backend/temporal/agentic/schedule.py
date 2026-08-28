@@ -81,6 +81,9 @@ async def create_scout_suggestions_coordinator_schedule(client: Client) -> None:
             asdict(SuggestionsCoordinatorInput()),
             id=SUGGESTIONS_COORDINATOR_SCHEDULE_ID,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            # One whole interval, like the scout coordinator: `SKIP` means an execution that never
+            # ends would silently starve every later tick.
+            execution_timeout=timedelta(minutes=SUGGESTIONS_COORDINATOR_INTERVAL_MINUTES),
         ),
         spec=ScheduleSpec(
             intervals=[ScheduleIntervalSpec(every=timedelta(minutes=SUGGESTIONS_COORDINATOR_INTERVAL_MINUTES))]

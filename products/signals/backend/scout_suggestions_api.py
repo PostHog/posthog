@@ -219,13 +219,14 @@ class SignalScoutSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 detail="You've reached today's limit for suggestion refreshes. Try again tomorrow."
             )
 
-        # Deferred for the same reason as the scout manual-run endpoint: keep the Signals Temporal
-        # graph off the route-load path.
-        from products.signals.backend.temporal.agentic.scout_suggestions import (  # noqa: PLC0415
-            start_manual_scout_suggestions_run,
-        )
-
         try:
+            # Deferred for the same reason as the scout manual-run endpoint: keep the Signals
+            # Temporal graph off the route-load path. Inside the try so an import error refunds
+            # the attempt rather than spending one of the day's three on nothing.
+            from products.signals.backend.temporal.agentic.scout_suggestions import (  # noqa: PLC0415
+                start_manual_scout_suggestions_run,
+            )
+
             workflow_id = start_manual_scout_suggestions_run(sync_connect(), team_id=team.id)
         except WorkflowAlreadyStartedError:
             # Nothing was dispatched, so the attempt goes back: retries against a running scan

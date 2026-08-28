@@ -8,6 +8,7 @@ for the HTTP surface and the config receivers.
 from __future__ import annotations
 
 import time
+import asyncio
 from collections.abc import Collection
 from typing import Literal
 
@@ -228,9 +229,10 @@ async def arun_scout_suggestions(
             # Reads only: the scan never writes, and `read_only` still carries `llm_skill:read` for
             # the authoring-scouts skill and `signal_scout:read` for the fleet and recent runs.
             posthog_mcp_scopes="read_only",
-            # No GitHub: the scan grounds itself in project data a member can write, so a
-            # repository token here would let planted text pull private source into a suggestion
-            # field the API hands back.
+            # No GitHub at all: `Task._build_task` leaves this origin's `github_integration`
+            # unset, so no token is minted. The scan grounds itself in project data a member can
+            # write, and a repository token would let planted text pull private source into a
+            # suggestion field the API hands back.
             github_read_access=False,
             model=runtime.model,
             runtime_adapter=runtime.runtime_adapter,
@@ -264,6 +266,10 @@ async def arun_scout_suggestions(
             canonical_names=canonical_names,
             reserved_names=fleet.reserved_names,
         )
+        if batch.suggestions and not items:
+            # The model produced only unusable output. Persisting that as an empty success would
+            # reset the breaker and buy it a whole refresh window on the strength of nothing.
+            raise ValueError(f"every suggestion in a batch of {len(batch.suggestions)} failed validation")
         await database_sync_to_async(persist_suggestion_batch, thread_sensitive=False)(
             team.id,
             items,
@@ -271,6 +277,13 @@ async def arun_scout_suggestions(
             model=runtime.model,
             fleet_snapshot=list(fleet.enabled_skill_names),
         )
+    except asyncio.CancelledError:
+        # The activity deadline cancels the coroutine with a BaseException, which the handler
+        # below would not see. The coordinator has already stamped `last_requested_at`, so an
+        # unrecorded cancellation would suppress the project for a whole refresh window.
+        logger.warning("scout_suggestions: generation cancelled", team_id=team.id, exc_info=True)
+        await database_sync_to_async(mark_generation_failed, thread_sensitive=False)(team.id, task_run_id=task_run_id)
+        raise
     except Exception as error:
         logger.warning("scout_suggestions: generation failed", team_id=team.id, error=str(error), exc_info=True)
         await database_sync_to_async(mark_generation_failed, thread_sensitive=False)(team.id, task_run_id=task_run_id)

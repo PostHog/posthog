@@ -47,7 +47,7 @@ from products.signals.backend.models import (
 from products.signals.backend.scout_harness.lazy_seed import CanonicalSkillParseError, discover_canonical_skills
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
-from products.signals.backend.scout_harness.team_limits import read_flag_payload
+from products.signals.backend.scout_harness.team_limits import read_flag_payload, withheld_skills_for_team
 from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
@@ -465,7 +465,14 @@ def fleet_context(team_id: int) -> FleetContext:
     except CanonicalSkillParseError:
         canonical = ()
     enabled_set = set(enabled)
-    available = tuple((skill.name, skill.description) for skill in canonical if skill.name not in enabled_set)
+    # A held-back canonical scout is not seeded by the sync path and the config API refuses to
+    # enable it, so offering it would surface an unreleased scout behind a Create that must fail.
+    withheld = withheld_skills_for_team(resolve_effective_team_id(team_id))
+    available = tuple(
+        (skill.name, skill.description)
+        for skill in canonical
+        if skill.name not in enabled_set and skill.name not in withheld
+    )
     reserved = set(SignalScoutConfig.objects.for_team(team_id).values_list("skill_name", flat=True))
     reserved.update(
         LLMSkill.objects.filter(
@@ -524,6 +531,11 @@ def _item_record(item: ScoutSuggestionItem, *, prior: dict[str, Any] | None) -> 
     return record
 
 
+def _is_tombstone(record: dict[str, Any]) -> bool:
+    """A record `_tombstone` compacted: dismissal bookkeeping with none of the item fields left."""
+    return "kind" not in record
+
+
 def _tombstone(record: dict[str, Any]) -> dict[str, Any]:
     """A dismissed suggestion the new batch dropped, reduced to what a later batch needs to know.
     Carrying the whole record would keep a 20,000-character draft body in the row forever, and
@@ -576,10 +588,12 @@ def persist_suggestion_batch(
         row.fleet_snapshot = sorted(fleet_snapshot)
         # The fleet can move while the scan runs; a batch generated against the old fleet is
         # stored, but reported as stale, the same as the config receiver would flag it later.
-        if not items:
-            row.status = SignalScoutSuggestionSet.Status.EMPTY
-        elif enabled_skill_names(row.team_id) != row.fleet_snapshot:
+        # Fleet first: "nothing to suggest" reached against a fleet that has since moved is as
+        # stale as any other conclusion, and nothing would revisit it before the next refresh.
+        if enabled_skill_names(row.team_id) != row.fleet_snapshot:
             row.status = SignalScoutSuggestionSet.Status.STALE
+        elif not items:
+            row.status = SignalScoutSuggestionSet.Status.EMPTY
         else:
             row.status = SignalScoutSuggestionSet.Status.FRESH
         row.generated_at = now
@@ -651,7 +665,9 @@ def _update_item(team_id: int, suggestion_id: str, changes: dict[str, Any]) -> d
         updated: dict[str, Any] | None = None
         items = []
         for record in row.items or []:
-            if isinstance(record, dict) and record.get("id") == suggestion_id:
+            # A compacted tombstone keeps its id but is no longer a suggestion, so a duplicate
+            # dismiss of one reads as gone rather than returning a record with no item fields.
+            if isinstance(record, dict) and record.get("id") == suggestion_id and not _is_tombstone(record):
                 record = {**record, **changes}
                 updated = record
             items.append(record)
@@ -679,7 +695,10 @@ def mark_stale_if_fleet_changed(team_id: int) -> None:
     marked stale so the UI can say so; regeneration waits for the normal refresh."""
     with transaction.atomic():
         row = _lock_row(team_id, create=False)
-        if row is None or row.status != SignalScoutSuggestionSet.Status.FRESH:
+        if row is None or row.status not in (
+            SignalScoutSuggestionSet.Status.FRESH,
+            SignalScoutSuggestionSet.Status.EMPTY,
+        ):
             return
         if enabled_skill_names(team_id) != list(row.fleet_snapshot or []):
             row.status = SignalScoutSuggestionSet.Status.STALE

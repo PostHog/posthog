@@ -849,7 +849,11 @@ class Task(DeletedMetaFields, models.Model):
         )
 
         github_integration = None
-        if repository or origin_product not in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+        if repository or origin_product not in (
+            Task.OriginProduct.SIGNALS_CHAT,
+            Task.OriginProduct.SIGNAL_REPORT,
+            Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+        ):
             github_integration = (
                 Integration.objects.filter(team=team, kind="github")
                 .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
