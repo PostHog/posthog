@@ -1,5 +1,3 @@
-import hashlib
-
 from rest_framework.request import Request
 from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
@@ -10,8 +8,7 @@ class _WidgetFrameThrottle(UserRateThrottle):
         user_id = getattr(request.user, "pk", None)
         if user_id is None:
             return None
-        path = hashlib.sha256(request.path.encode()).hexdigest()
-        return self.cache_format % {"scope": self.scope, "ident": f"{user_id}:{path}"}
+        return self.cache_format % {"scope": self.scope, "ident": user_id}
 
 
 class WidgetFrameBurstThrottle(_WidgetFrameThrottle):

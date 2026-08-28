@@ -510,17 +510,20 @@ class TestWidgetData(APIBaseTest):
             )
         assert error.exception.code == "frame_not_allowed"
 
-    def test_frame_endpoint_rate_limits_repeated_widget_requests(self) -> None:
+    def test_frame_endpoint_rate_limits_widget_requests_across_paths(self) -> None:
         self._run()
         self._mapping()
         url = (
             f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/"
             f"{self.NODE_ID}/frames/{self.INPUT_NAME}/"
         )
+        other_url = (
+            f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/other-widget/frames/other-input/"
+        )
 
         with patch.object(WidgetFrameBurstThrottle, "rate", "1/minute"):
             assert self.client.get(url).status_code == 200
-            response = self.client.get(url)
+            response = self.client.get(other_url)
 
         assert response.status_code == 429
 
