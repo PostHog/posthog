@@ -164,7 +164,9 @@ Other products read as sources:
 
 **Freshness caveat:** a run's `conclusion` settles via the `workflow_run` webhook, which can lag or miss deliveries; the read layer surfaces `status` honestly rather than implying a settled conclusion.
 
-Lifecycle data the snapshots can't hold and `github_issue_events` doesn't carry (reviews/approvals, deploys, DORA) needs immutable timestamped events (GitHub webhooks → PostHog events, PR as group type). That is the only thing the deferred events destination is for. See README → "The data boundary".
+- `github_deployments` + `github_deployment_statuses`: deploy requests and their status history (webhook-fed; statuses append one row per transition, with a bounded reconciliation fan-out for the `inactive` transitions GitHub never webhooks). The DORA substrate. Optional at the source, so reads must degrade gracefully when unsynced.
+
+Lifecycle data the snapshots can't hold and no synced endpoint records needs immutable timestamped events (GitHub webhooks → PostHog events, PR as group type). That is the only thing the deferred events destination is for. Reviews and approvals are not in that bucket: the GitHub `reviews` endpoint already syncs review submissions with their timestamps — only the reads stay deferred until a wedge tool needs them (README → Locked decisions). Deploys and DORA left the deferral the same way: `github_deployment_statuses` already holds the immutable transition history, so those reads run on the warehouse like everything else. See README → "The data boundary".
 
 ## 8. Reference reading
 

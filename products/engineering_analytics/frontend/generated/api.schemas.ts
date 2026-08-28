@@ -201,6 +201,133 @@ export interface CurrentBranchHealthApi {
     failing_workflow_names: string[]
 }
 
+export interface DeploymentFrequencyBucketApi {
+    /** Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). */
+    bucket_start: string
+    /** Deployments whose first success status landed in this bucket, within the environment scope. Zero-filled: 0 means nothing shipped. */
+    deployment_count: number
+}
+
+export interface MergeToDeployBucketApi {
+    /** Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). Keyed on deploy time: a PR lands in the bucket its first post-merge deploy succeeded in. */
+    bucket_start: string
+    /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). */
+    deployed_pr_count: number
+    /**
+     * Fastest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+     * @nullable
+     */
+    min_seconds: number | null
+    /**
+     * 25th percentile merge-to-deploy seconds. Null when nothing deployed.
+     * @nullable
+     */
+    p25_seconds: number | null
+    /**
+     * Median merge-to-deploy seconds. Null when nothing deployed.
+     * @nullable
+     */
+    p50_seconds: number | null
+    /**
+     * Mean merge-to-deploy seconds. Null when nothing deployed.
+     * @nullable
+     */
+    mean_seconds: number | null
+    /**
+     * 75th percentile merge-to-deploy seconds. Null when nothing deployed.
+     * @nullable
+     */
+    p75_seconds: number | null
+    /**
+     * Slowest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+     * @nullable
+     */
+    max_seconds: number | null
+}
+
+export interface DoraOverviewApi {
+    /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
+    deployment_frequency_series: DeploymentFrequencyBucketApi[]
+    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
+    merge_to_deploy_series: MergeToDeployBucketApi[]
+    /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
+    deploy_data_available: boolean
+    /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
+    environment_scope: string
+    /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
+    environments: string[]
+    /** True when the optional team-membership snapshot is synced. When false, a github_team filter cannot be honored and the merge-to-deploy figures go empty rather than silently unfiltered. */
+    has_membership_data: boolean
+    /** Distinct GitHub team slugs from the membership snapshot, sorted — the team picker's options. Empty when membership isn't synced. */
+    github_teams: string[]
+    /** Deployments whose first success status landed in the window, within the environment scope. */
+    deployment_count: number
+    /** Same count over the equal-length window before date_from. */
+    deployment_count_prev: number
+    /**
+     * deployment_count normalized by the window length in days. Null only when the deploy tables aren't synced.
+     * @nullable
+     */
+    deployments_per_day: number | null
+    /**
+     * Previous-window twin of deployments_per_day. Null only when the deploy tables aren't synced.
+     * @nullable
+     */
+    deployments_per_day_prev: number | null
+    /**
+     * Median seconds from a PR's merge to the first successful deployment containing it (bots/drafts excluded; narrowed by github_team when given). Containment is resolved through the deploy's head commit, not the deploy's success time. Keyed on deploy time. This is merge-to-deploy, not full commit-to-deploy DORA lead time. Null when nothing deployed in the window.
+     * @nullable
+     */
+    median_merge_to_deploy_seconds: number | null
+    /**
+     * Previous-window twin of median_merge_to_deploy_seconds.
+     * @nullable
+     */
+    median_merge_to_deploy_seconds_prev: number | null
+    /** PRs first deployed in the window — the population behind the merge-to-deploy median and box plot. */
+    deployed_pr_count: number
+    /** Previous-window twin of deployed_pr_count. */
+    deployed_pr_count_prev: number
+    /** Deployments with at least one failure/error status, keyed on the first failure time. */
+    failed_deployment_count: number
+    /** Previous-window twin of failed_deployment_count. */
+    failed_deployment_count_prev: number
+    /**
+     * Failed deployments over deployments that reached any outcome (success or failure). A change-failure proxy: no incident data is linked, so a deploy that succeeded but broke production is not counted. Null when nothing reached an outcome.
+     * @nullable
+     */
+    failed_deployment_share: number | null
+    /**
+     * Previous-window twin of failed_deployment_share.
+     * @nullable
+     */
+    failed_deployment_share_prev: number | null
+    /**
+     * Median seconds from a deployment's first failure status to the next successful deployment in the same environment. A time-to-restore proxy: recovery by anything other than a deploy is invisible, and failures not yet recovered are excluded. Null when no failed deploy recovered in the window.
+     * @nullable
+     */
+    median_failed_deploy_to_next_success_seconds: number | null
+    /**
+     * Previous-window twin of median_failed_deploy_to_next_success_seconds.
+     * @nullable
+     */
+    median_failed_deploy_to_next_success_seconds_prev: number | null
+    /** PRs merged in the window (bots and drafts excluded; narrowed by github_team when given) — the denominator behind unattributed_merged_pr_share. */
+    merged_pr_count: number
+    /**
+     * Share of merged_pr_count no successful in-scope deployment attributed: recent merges still waiting for their deploy, plus merges whose deploy the scope or scan bounds miss. Null when nothing merged in the window.
+     * @nullable
+     */
+    unattributed_merged_pr_share: number | null
+    /**
+     * The newest deployment status row synced, any environment — how fresh the deploy data is. Windows ending after this instant undercount. Null when the deploy tables are empty.
+     * @nullable
+     */
+    latest_deploy_status_at: string | null
+    /** Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'. */
+    series_granularity: string
+}
+
 /**
  * * `pytest` - PYTEST
  * * `jest` - JEST
@@ -1446,6 +1573,33 @@ export type EngineeringAnalyticsCiFailureLogsParams = {
 }
 
 export type EngineeringAnalyticsCurrentBranchHealthParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsDoraParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Exact deploy environment to scope to (from the response's `environments` list). Omit to scope to production-marked deployments, falling back to every persistent (non-transient) environment when none are marked production.
+     */
+    environment?: string
+    /**
+     * GitHub team slug (from the response's `github_teams` list) to narrow the PR-scoped merge-to-deploy figures to that team's authors. Deploy counts stay repo-wide. Needs the team-membership snapshot synced; without it the merge-to-deploy figures return empty rather than silently unfiltered.
+     */
+    github_team?: string
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
