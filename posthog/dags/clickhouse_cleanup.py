@@ -33,11 +33,18 @@ from posthog.clickhouse.cleanup_snapshots import (
     CLEANUP_REVIVED_PERSONS_TABLE,
     CLEANUP_SNAPSHOT_TABLES,
 )
-from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
+from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner, MutationWaiter, NodeRole
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dags.common import JobOwners
 from posthog.dags.common.common import settings_with_log_comment
+from posthog.dags.common.dictionaries import Dictionary
+from posthog.dags.common.staged_dictionary import (
+    StagedDictionary,
+    create_on_every_cluster,
+    load_and_verify_on_every_cluster,
+)
+from posthog.dataclasses import frozen
 from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE
 
@@ -314,9 +321,15 @@ class RevivedDistinctIdsTable(SnapshotTable):
         return self.count(client)
 
 
-@dataclass(frozen=True, kw_only=True)
-class SnapshotDictionary:
-    """A cluster-wide dictionary over one run's rows in a worklist, minus anything since revived."""
+@frozen
+class SnapshotDictionary(Dictionary):
+    """A cluster-wide dictionary over one run's rows in a worklist, minus anything since revived.
+
+    The inherited checksum hashes every declared column, which here includes max_version: the
+    delete mutation reads it from each host's local dictionary, so hosts agreeing on keys but
+    not on the version bound would delete different version sets per replica and diverge the
+    table.
+    """
 
     source: SnapshotTable
     # Keys recorded here are anti-joined out of the dictionary, which is how a checkpoint
@@ -334,8 +347,12 @@ class SnapshotDictionary:
         return f"{self.source.table_name}_{self.source.run_id}_dictionary"
 
     @property
-    def qualified_name(self) -> str:
-        return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
+    def schema(self) -> str:
+        return self.source.dictionary_types
+
+    @property
+    def primary_key(self) -> str:
+        return self.key_columns
 
     @property
     def query(self) -> str:
@@ -350,70 +367,20 @@ class SnapshotDictionary:
             GROUP BY {self.key_columns}
         """
 
-    def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
+    @property
+    def credentials(self) -> ClickHouseCredentials:
         # The source reads as the low-privilege dict_reader user, which falls back to the default
-        # user's credentials where dict_reader is not provisioned. Credentials are query parameters
-        # so they stay out of the traced statement.
-        creds = get_clickhouse_creds(ClickHouseUser.DICT_READER)
-        client.execute(
-            f"""
-            CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} ({self.source.dictionary_types})
-            PRIMARY KEY {self.key_columns}
-            SOURCE(CLICKHOUSE(DB %(database)s USER %(user)s PASSWORD %(password)s QUERY %(query)s))
-            LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
-            LIFETIME(0)
-            SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "user": creds.user,
-                "password": creds.password,
-                "query": self.query,
-            },
+        # user's credentials where dict_reader is not provisioned.
+        return get_clickhouse_creds(ClickHouseUser.DICT_READER)
+
+    def staged(self) -> StagedDictionary:
+        # A staged copy is a static object. The revival checkpoints exclude keys by reloading this
+        # dictionary so its source query re-runs against the live exclusion table, and a reload
+        # of a staged copy on another cluster would keep every revived key in the delete set.
+        # The sweep only mutates replicated tables on the cluster in hand, so it never needs one.
+        raise NotImplementedError(
+            f"{self.name} cannot be staged: its contents change during the run, and a staged copy would not"
         )
-
-    def drop(self, client: Client) -> None:
-        client.execute(f"DROP DICTIONARY IF EXISTS {self.qualified_name} SYNC")
-
-    def is_loaded(self, client: Client) -> bool:
-        results = client.execute(
-            "SELECT status, last_exception FROM system.dictionaries WHERE database = %(database)s AND name = %(name)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
-        )
-        if not results:
-            raise Exception(f"{self.qualified_name} does not exist")
-        [[status, last_exception]] = results
-        if status == "LOADED":
-            return True
-        if status in {"LOADING", "FAILED_AND_RELOADING", "LOADED_AND_RELOADING"}:
-            return False
-        if status == "FAILED":
-            raise Exception(f"{self.qualified_name} failed to load: {last_exception}")
-        raise Exception(f"{self.qualified_name} in unexpected status: {status}")
-
-    def load(self, client: Client, timeout_seconds: int) -> int:
-        client.execute(f"SYSTEM RELOAD DICTIONARY {self.qualified_name}")
-
-        # The reload is asynchronous, so the mutation would read a half-populated dictionary
-        # without this wait. A dictionary wedged in LOADING would otherwise hold the run open
-        # forever, and a weekly job nobody is watching is exactly where that goes unnoticed.
-        deadline = time.monotonic() + timeout_seconds
-        while not self.is_loaded(client):
-            if time.monotonic() > deadline:
-                raise Exception(f"{self.qualified_name} still not loaded after {timeout_seconds}s")
-            time.sleep(5.0)
-
-        return self.checksum(client)
-
-    def checksum(self, client: Client) -> int:
-        # XOR is order independent, so hosts that hold the same entries agree regardless of read
-        # order. max_version is hashed along with the keys because the delete mutation reads it
-        # from each host's local dictionary: hosts agreeing on keys but not on the version bound
-        # would delete different version sets per replica and diverge the table.
-        [[checksum]] = client.execute(
-            f"SELECT groupBitXor(cityHash64({self.key_columns}, max_version)) FROM {self.qualified_name}"
-        )
-        return checksum
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -469,36 +436,32 @@ class CleanupRun:
 
     @property
     def persons_dictionary(self) -> SnapshotDictionary:
-        return SnapshotDictionary(source=self.persons, excluded=self.revived)
+        return SnapshotDictionary(source=self.persons, excluded=self.revived, load_timeout=self.dictionary_load_timeout)
 
     @property
     def orphaned_dictionary(self) -> SnapshotDictionary:
-        return SnapshotDictionary(source=self.orphaned, excluded=self.revived_distinct_ids)
-
-
-def _load_and_verify(cluster: ClickhouseCluster, dictionary: SnapshotDictionary, timeout_seconds: int) -> None:
-    """Load on every host and require them to agree.
-
-    The delete predicate probes whichever host runs the mutation, so hosts holding different key
-    sets would delete different rows. Every load goes through here, including the reloads a
-    checkpoint issues after recording a revival.
-    """
-    checksums = cluster.map_all_hosts(partial(dictionary.load, timeout_seconds=timeout_seconds), concurrency=1).result()
-    assert len(set(checksums.values())) == 1, f"{dictionary.name} differs across hosts: {checksums}"
+        return SnapshotDictionary(
+            source=self.orphaned, excluded=self.revived_distinct_ids, load_timeout=self.dictionary_load_timeout
+        )
 
 
 def _create_dictionary(
-    cluster: ClickhouseCluster, dictionary: SnapshotDictionary, run: CleanupRun
+    context: dagster.OpExecutionContext,
+    cluster: ClickhouseCluster,
+    dictionary: SnapshotDictionary,
+    run: CleanupRun,
 ) -> SnapshotDictionary:
-    cluster.map_all_hosts(
-        partial(
-            dictionary.create,
-            shards=run.shards,
-            max_execution_time=run.max_execution_time,
-            max_memory_usage=run.max_memory_usage,
-        )
-    ).result()
-    _load_and_verify(cluster, dictionary, run.dictionary_load_timeout)
+    # Only the cluster in hand: the sweep's tables are replicated there and nowhere else, and
+    # SnapshotDictionary refuses staging, so a second cluster would fail here rather than diverge.
+    create_on_every_cluster(
+        context,
+        [cluster],
+        dictionary,
+        shards=run.shards,
+        max_execution_time=run.max_execution_time,
+        max_memory_usage=run.max_memory_usage,
+    )
+    load_and_verify_on_every_cluster([cluster], dictionary)
     return dictionary
 
 
@@ -554,13 +517,13 @@ def snapshot_orphaned_distinct_ids(
     run: CleanupRun,
 ) -> CleanupRun:
     """Resolve which distinct ids belong to the snapshotted persons, or tombstoned themselves."""
-    _create_dictionary(cluster, run.persons_dictionary, run)
+    _create_dictionary(context, cluster, run.persons_dictionary, run)
 
     cluster.any_host_by_role(
         partial(run.orphaned.populate, persons_dictionary=run.persons_dictionary), NodeRole.DATA
     ).result()
     cluster.map_all_hosts(run.orphaned.sync_replica).result()
-    _create_dictionary(cluster, run.orphaned_dictionary, run)
+    _create_dictionary(context, cluster, run.orphaned_dictionary, run)
 
     count = cluster.any_host_by_role(run.orphaned.distinct_key_count, NodeRole.DATA).result()
     context.add_output_metadata({"orphaned_distinct_ids": dagster.MetadataValue.int(count)})
@@ -629,7 +592,7 @@ def recheck_revived_persons(name: str) -> dagster.OpDefinition:
             revived_ids,
         )
         for dictionary in (run.persons_dictionary, run.orphaned_dictionary):
-            _load_and_verify(cluster, dictionary, run.dictionary_load_timeout)
+            load_and_verify_on_every_cluster([cluster], dictionary)
         return run
 
     return checkpoint
