@@ -104,14 +104,17 @@ export function shouldStaggerVizMount({
  * Gates when a canvas viz actually mounts. Cheap DOM/SVG vizes render at once. Canvas vizes wait for a
  * scheduler slot, so a burst of tiles entering view together doesn't mount every chart in the same frame.
  */
-function useStaggeredVizMount(eligible: boolean, staggered: boolean): boolean {
+export function useStaggeredVizMount(eligible: boolean, staggered: boolean): boolean {
     const [ready, setReady] = useState(false)
 
     useEffect(() => {
+        // Clear any released slot up front. The card keeps its viewport observer while offscreen, so this
+        // state survives a viewport exit; without the reset a stale `ready` would let the viz mount without a
+        // slot the instant the tile re-enters view, then unmount and remount once the real slot arrives.
+        setReady(false)
         if (!eligible || !staggered) {
             return
         }
-        setReady(false)
         return requestInsightVizMount(() => setReady(true))
     }, [eligible, staggered])
 

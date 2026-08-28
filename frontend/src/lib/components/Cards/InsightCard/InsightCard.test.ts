@@ -1,7 +1,17 @@
+import { act, renderHook } from '@testing-library/react'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, DashboardPlacement, QueryBasedInsightModel } from '~/types'
 
-import { shouldRenderInsightCardViz, shouldStaggerVizMount } from './InsightCard'
+import { shouldRenderInsightCardViz, shouldStaggerVizMount, useStaggeredVizMount } from './InsightCard'
+import { requestInsightVizMount } from './insightVizMountScheduler'
+
+jest.mock('./insightVizMountScheduler', () => ({
+    requestInsightVizMount: jest.fn(),
+    setDashboardDragActive: jest.fn(),
+}))
+
+const mockRequestInsightVizMount = requestInsightVizMount as jest.Mock
 
 const tableQuery = { kind: NodeKind.DataTableNode } as QueryBasedInsightModel['query']
 const autoSqlQuery = {
@@ -119,5 +129,49 @@ describe('InsightCard', () => {
         },
     ])('$name', ({ input, expected }) => {
         expect(shouldStaggerVizMount(input)).toBe(expected)
+    })
+
+    describe('useStaggeredVizMount', () => {
+        let release: (() => void) | undefined
+        const cancel = jest.fn()
+
+        beforeEach(() => {
+            release = undefined
+            cancel.mockClear()
+            mockRequestInsightVizMount.mockReset()
+            mockRequestInsightVizMount.mockImplementation((request: () => void) => {
+                release = request
+                return cancel
+            })
+        })
+
+        it('waits for a fresh scheduler slot when a canvas tile re-enters the viewport', () => {
+            const renders: boolean[] = []
+            const { rerender } = renderHook(
+                ({ eligible }) => {
+                    const shown = useStaggeredVizMount(eligible, true)
+                    renders.push(shown)
+                    return shown
+                },
+                { initialProps: { eligible: true } }
+            )
+
+            // Nothing mounts until the scheduler releases a slot.
+            expect(renders.at(-1)).toBe(false)
+            act(() => release?.())
+            expect(renders.at(-1)).toBe(true)
+
+            // The tile scrolls offscreen and its viz unmounts.
+            rerender({ eligible: false })
+            expect(renders.at(-1)).toBe(false)
+
+            // Back in view it must not mount from stale readiness — it waits for a new slot.
+            const reentry = renders.length
+            rerender({ eligible: true })
+            expect(renders.slice(reentry).some(Boolean)).toBe(false)
+
+            act(() => release?.())
+            expect(renders.at(-1)).toBe(true)
+        })
     })
 })
