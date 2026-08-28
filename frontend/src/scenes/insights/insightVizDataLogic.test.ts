@@ -927,6 +927,24 @@ describe('insightVizDataLogic', () => {
         })
     })
 
+    describe('erroredQueryId', () => {
+        it('surfaces the query id of a real failure', async () => {
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadDataFailure('Server error', { status: 500, queryId: 'query-1' })
+            }).toMatchValues({
+                erroredQueryId: 'query-1',
+            })
+        })
+
+        it('ignores an aborted request so it does not leave a stuck error banner', async () => {
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadDataFailure('AbortError', { name: 'AbortError', queryId: 'query-2' })
+            }).toMatchValues({
+                erroredQueryId: null,
+            })
+        })
+    })
+
     describe('hasRenderableResults', () => {
         it('tracks whether the loaded response contains results', async () => {
             await expectLogic(builtInsightVizDataLogic).toMatchValues({ hasRenderableResults: false })

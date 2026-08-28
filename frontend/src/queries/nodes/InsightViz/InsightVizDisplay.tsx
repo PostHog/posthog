@@ -18,7 +18,6 @@ import {
     InsightErrorState,
     InsightLoadingState,
     InsightRefreshDataHint,
-    InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
 import {
@@ -158,7 +157,6 @@ export function InsightVizDisplay({
         insightDataLoading,
         hasRenderableResults,
         erroredQueryId,
-        timedOutQueryId,
         vizSpecificOptions,
         query,
         querySource,
@@ -279,9 +277,6 @@ export function InsightVizDisplay({
                 />
             )
         }
-        if (timedOutQueryId) {
-            return <InsightTimeoutState queryId={timedOutQueryId} />
-        }
 
         // On a dashboard, users sometimes see an empty chart even though the insight is valid—often because
         // they navigated away while numbers were still loading, or nothing was cached yet. Prompt them to
@@ -395,14 +390,7 @@ export function InsightVizDisplay({
     }
 
     function renderTable(): JSX.Element | null {
-        if (
-            isFunnels &&
-            erroredQueryId === null &&
-            timedOutQueryId === null &&
-            isFunnelWithEnoughSteps &&
-            hasFunnelResults &&
-            !disableTable
-        ) {
+        if (isFunnels && erroredQueryId === null && isFunnelWithEnoughSteps && hasFunnelResults && !disableTable) {
             const funnelTable =
                 funnelVizType === FunnelVizType.TimeToConvert ? (
                     <FunnelTimeToConvertTable />

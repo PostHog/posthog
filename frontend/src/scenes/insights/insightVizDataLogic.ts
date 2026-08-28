@@ -1,5 +1,4 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -14,13 +13,13 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isAbortedRequest } from 'lib/utils/requests'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { AggregationType } from 'scenes/insights/views/InsightsTable/insightsTableDataLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
@@ -151,8 +150,6 @@ import type {
 import type { PathsV2Query } from '../../queries/schema/schema-general'
 import type { AnyPropertyFilter, GroupTypeIndex, PropertyGroupFilter } from '../../types'
 
-const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
-
 // Trends/stickiness displays whose chart renders the in-chart quill legend (line/area/cumulative,
 // bar layouts, and pie). Lifecycle always renders it regardless of display.
 export const DISPLAYS_WITH_IN_CHART_LEGEND = [
@@ -266,7 +263,6 @@ export interface insightVizDataLogicValues {
     supportsResultCustomizationBy: boolean
     supportsValueOnSeries: boolean
     theme: DataColorTheme | null
-    timedOutQueryId: string | null
     timezone: any
     trendsFilter: TrendsFilter | null | undefined
     usesInChartLegend: boolean
@@ -401,9 +397,6 @@ export interface insightVizDataLogicActions {
     }
     setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => {
         isIntervalManuallySet: boolean
-    }
-    setTimedOutQueryId: (id: string | null) => {
-        id: string | null
     }
     toggleFormulaMode: () => {
         value: true
@@ -1316,7 +1309,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
-        setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
         toggleFormulaMode: true,
         removeFormulaNode: (formulas: TrendsFormulaNode[]) => ({ formulas }),
@@ -1327,13 +1319,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     }),
 
     reducers({
-        timedOutQueryId: [
-            null as null | string,
-            {
-                setTimedOutQueryId: (_, { id }) => id,
-            },
-        ],
-
         isIntervalManuallySet: [
             false,
             {
@@ -2420,7 +2405,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         erroredQueryId: [
             (s) => [s.insightDataError],
             (insightDataError: Record<string, any> | null) => {
-                return insightDataError?.queryId || null
+                // A superseded or cancelled request aborts, it does not fail. Switching a chart
+                // display or navigating away leaves an in-flight query aborted, so don't show the
+                // error banner for it.
+                if (!insightDataError || isAbortedRequest(insightDataError)) {
+                    return null
+                }
+                return insightDataError.queryId || null
             },
         ],
         validationError: [
@@ -2707,27 +2698,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             } as Node)
         },
 
-        // data loading side effects i.e. displaying loading screens for queries with longer duration
-        loadData: async ({ queryId }, breakpoint) => {
-            actions.setTimedOutQueryId(null)
-
-            await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER) // By timeout we just mean long loading time here
-
-            if (values.insightDataLoading) {
-                actions.setTimedOutQueryId(queryId)
-                const tags = {
-                    kind: values.querySource?.kind,
-                    scene: sceneLogic.isMounted() ? sceneLogic.values.activeSceneId : null,
-                }
-                posthog.capture('insight timeout message shown', tags)
-            }
-        },
-        loadDataSuccess: () => {
-            actions.setTimedOutQueryId(null)
-        },
-        loadDataFailure: () => {
-            actions.setTimedOutQueryId(null)
-        },
         toggleFormulaMode: () => {
             // Only if formula mode is already open should we trigger a query.
             if (values.hasFormula) {
