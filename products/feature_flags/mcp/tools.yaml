@@ -206,6 +206,32 @@ tools:
             Add, remove, or replace tags on multiple feature flags in one call. Provide `ids` (up to 500), an `action`
             ('add', 'remove', or 'set'), and a list of tag names. Returns `updated` (per-flag final tag list) and
             `skipped` (flags missing or without edit permission, with reason).
+    feature-flags-copy-dependencies-check:
+        operation: feature_flags_copy_flags_dependency_requirements_create
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Check whether a flag's dependencies can be copied
+        description: >
+            Preview what a cross-project copy would do to a flag's transitive flag dependencies. Copies nothing and
+            changes nothing. Provide `feature_flag_key`, `from_project` (the source project ID) and
+            `target_project_ids`. Returns `can_copy_dependencies`, `dependency_count`, `copied_dependency_keys`
+            (dependencies missing from a target project, which a copy would create), `reused_dependency_keys`
+            (dependencies that already have an active same-key flag in every target project), plus `warnings` and a
+            human-readable `reason`. A false `can_copy_dependencies` does not always mean the copy is blocked: it is
+            also false when there is nothing to copy, because the flag has no dependencies or every dependency is
+            already satisfied in each target project. Read `warnings` to tell the two apart and report a problem only
+            when it is non-empty. Call this before `feature-flags-copy-flags-create` whenever the flag has dependencies,
+            then set that tool's `copy_dependencies` from the result. Requires write scope because it checks the same
+            copy eligibility and edit permissions the copy itself enforces.
+        include_params:
+            - feature_flag_key
+            - from_project
+            - target_project_ids
     feature-flags-copy-flags-create:
         operation: feature_flags_copy_flags_create
         enabled: true
@@ -223,9 +249,6 @@ tools:
             existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left
             untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of
             successful and failed copies.
-    feature-flags-copy-flags-dependency-requirements-create:
-        operation: feature_flags_copy_flags_dependency_requirements_create
-        enabled: false
     feature-flags-create-static-cohort-for-flag-create:
         operation: feature_flags_create_static_cohort_for_flag_create
         enabled: false
@@ -378,7 +401,32 @@ tools:
             optionally a group_type_index to see how many users would be affected relative to the total user count.
     feature-flags-versions-retrieve:
         operation: feature_flags_versions_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a feature flag at an earlier version
+        description: >
+            Reconstruct one feature flag as it was at a given version, so an earlier definition can be compared against
+            the current one before a rollback. The response carries the release conditions, variants and payloads
+            (`filters`), the `active` and `deleted` state, the flag's other settings, and the reconstruction metadata
+            `is_historical`, `version_timestamp` and `modified_by`. Use `feature-flag-get-definition` for the current
+            state and `feature-flags-activity-retrieve` to see which versions exist. Three failures are expected and not
+            retryable: 400 when the flag stores encrypted payloads, which are never returned from history; 404 when the
+            flag ID or the version number does not exist; 422 when the activity log no longer holds enough history to
+            rebuild that version.
+        param_overrides:
+            id:
+                description: Numeric ID of the feature flag to reconstruct. Not the string key used in code.
+                cast: string-int
+            version_number:
+                description:
+                    Version to reconstruct, counting up from 1. The flag's current `version` field is the highest available;
+                    asking for it returns the live definition with `is_historical` false.
+                cast: string-int
     flag-value-values-retrieve:
         operation: flag_value_values_retrieve
         enabled: false

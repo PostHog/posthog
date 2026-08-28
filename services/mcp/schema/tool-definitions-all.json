@@ -4958,6 +4958,20 @@
             "readOnlyHint": false
         }
     },
+    "feature-flags-copy-dependencies-check": {
+        "description": "Preview what a cross-project copy would do to a flag's transitive flag dependencies. Copies nothing and changes nothing. Provide `feature_flag_key`, `from_project` (the source project ID) and `target_project_ids`. Returns `can_copy_dependencies`, `dependency_count`, `copied_dependency_keys` (dependencies missing from a target project, which a copy would create), `reused_dependency_keys` (dependencies that already have an active same-key flag in every target project), plus `warnings` and a human-readable `reason`. A false `can_copy_dependencies` does not always mean the copy is blocked: it is also false when there is nothing to copy, because the flag has no dependencies or every dependency is already satisfied in each target project. Read `warnings` to tell the two apart and report a problem only when it is non-empty. Call this before `feature-flags-copy-flags-create` whenever the flag has dependencies, then set that tool's `copy_dependencies` from the result. Requires write scope because it checks the same copy eligibility and edit permissions the copy itself enforces.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Check whether a flag's dependencies can be copied",
+        "title": "Check whether a flag's dependencies can be copied",
+        "required_scopes": ["feature_flag:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "feature-flags-copy-flags-create": {
         "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Set copy_dependencies only when the user explicitly wants missing transitive flag dependencies copied too; existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of successful and failed copies.",
         "category": "Feature flags",
@@ -5048,6 +5062,20 @@
         "feature": "flags",
         "summary": "Get user blast radius",
         "title": "Get user blast radius",
+        "required_scopes": ["feature_flag:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-versions-retrieve": {
+        "description": "Reconstruct one feature flag as it was at a given version, so an earlier definition can be compared against the current one before a rollback. The response carries the release conditions, variants and payloads (`filters`), the `active` and `deleted` state, the flag's other settings, and the reconstruction metadata `is_historical`, `version_timestamp` and `modified_by`. Use `feature-flag-get-definition` for the current state and `feature-flags-activity-retrieve` to see which versions exist. Three failures are expected and not retryable: 400 when the flag stores encrypted payloads, which are never returned from history; 404 when the flag ID or the version number does not exist; 422 when the activity log no longer holds enough history to rebuild that version.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get a feature flag at an earlier version",
+        "title": "Get a feature flag at an earlier version",
         "required_scopes": ["feature_flag:read"],
         "annotations": {
             "destructiveHint": false,

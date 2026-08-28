@@ -9,6 +9,7 @@ import {
     FeatureFlagsBulkKeysRetrieveBody,
     FeatureFlagsBulkUpdateTagsCreateBody,
     FeatureFlagsCopyFlagsCreateBody,
+    FeatureFlagsCopyFlagsDependencyRequirementsCreateBody,
     FeatureFlagsCreateBody,
     FeatureFlagsDependentFlagsListParams,
     FeatureFlagsDestroyParams,
@@ -22,6 +23,7 @@ import {
     FeatureFlagsTestEvaluationCreateBody,
     FeatureFlagsTestEvaluationCreateParams,
     FeatureFlagsUserBlastRadiusCreateBody,
+    FeatureFlagsVersionsRetrieveParams,
     ScheduledChangesCreateBody,
     ScheduledChangesDestroyParams,
     ScheduledChangesListQueryParams,
@@ -290,6 +292,35 @@ const featureFlagsBulkUpdateTagsCreate = (): ToolBase<
     },
 })
 
+const FeatureFlagsCopyDependenciesCheckSchema = FeatureFlagsCopyFlagsDependencyRequirementsCreateBody
+
+const featureFlagsCopyDependenciesCheck = (): ToolBase<
+    typeof FeatureFlagsCopyDependenciesCheckSchema,
+    Schemas.CopyFlagsDependencyRequirementsResponse
+> => ({
+    name: 'feature-flags-copy-dependencies-check',
+    schema: FeatureFlagsCopyDependenciesCheckSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsCopyDependenciesCheckSchema>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const body: Record<string, unknown> = {}
+        if (params.feature_flag_key !== undefined) {
+            body['feature_flag_key'] = params.feature_flag_key
+        }
+        if (params.from_project !== undefined) {
+            body['from_project'] = params.from_project
+        }
+        if (params.target_project_ids !== undefined) {
+            body['target_project_ids'] = params.target_project_ids
+        }
+        const result = await context.api.request<Schemas.CopyFlagsDependencyRequirementsResponse>({
+            method: 'POST',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/feature_flags/copy_flags/dependency_requirements/`,
+            body,
+        })
+        return result
+    },
+})
+
 const FeatureFlagsCopyFlagsCreateSchema = FeatureFlagsCopyFlagsCreateBody
 
 const featureFlagsCopyFlagsCreate = (): ToolBase<
@@ -470,6 +501,37 @@ const featureFlagsUserBlastRadiusCreate = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/user_blast_radius/`,
             body,
+        })
+        return result
+    },
+})
+
+const FeatureFlagsVersionsRetrieveSchema = FeatureFlagsVersionsRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(
+        castStringToInt,
+        FeatureFlagsVersionsRetrieveParams.shape['id'].describe(
+            'Numeric ID of the feature flag to reconstruct. Not the string key used in code.'
+        )
+    ),
+    version_number: z.preprocess(
+        castStringToInt,
+        FeatureFlagsVersionsRetrieveParams.shape['version_number'].describe(
+            "Version to reconstruct, counting up from 1. The flag's current `version` field is the highest available; asking for it returns the live definition with `is_historical` false."
+        )
+    ),
+})
+
+const featureFlagsVersionsRetrieve = (): ToolBase<
+    typeof FeatureFlagsVersionsRetrieveSchema,
+    Schemas.FeatureFlagVersionResponse
+> => ({
+    name: 'feature-flags-versions-retrieve',
+    schema: FeatureFlagsVersionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsVersionsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FeatureFlagVersionResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/versions/${encodeURIComponent(String(params.version_number))}/`,
         })
         return result
     },
@@ -695,6 +757,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flags-bulk-delete-create': featureFlagsBulkDeleteCreate,
     'feature-flags-bulk-keys-retrieve': featureFlagsBulkKeysRetrieve,
     'feature-flags-bulk-update-tags-create': featureFlagsBulkUpdateTagsCreate,
+    'feature-flags-copy-dependencies-check': featureFlagsCopyDependenciesCheck,
     'feature-flags-copy-flags-create': featureFlagsCopyFlagsCreate,
     'feature-flags-dependent-flags-retrieve': featureFlagsDependentFlagsRetrieve,
     'feature-flags-evaluation-reasons-retrieve': featureFlagsEvaluationReasonsRetrieve,
@@ -702,6 +765,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flags-status-retrieve': featureFlagsStatusRetrieve,
     'feature-flags-test-evaluation-create': featureFlagsTestEvaluationCreate,
     'feature-flags-user-blast-radius-create': featureFlagsUserBlastRadiusCreate,
+    'feature-flags-versions-retrieve': featureFlagsVersionsRetrieve,
     'scheduled-changes-create': scheduledChangesCreate,
     'scheduled-changes-delete': scheduledChangesDelete,
     'scheduled-changes-get': scheduledChangesGet,

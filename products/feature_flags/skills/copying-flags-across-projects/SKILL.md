@@ -55,6 +55,12 @@ Default to the safest combination and ask the user to override only if they expl
 
 If the user says "promote it as-is" or "turn it on in prod", switch `disable_copied_flag` to `false`. If they say "include the rollout schedule" or "with the scheduled rollout", switch `copy_schedule` to `true`.
 
+### 4a. Check dependency requirements
+
+If the source flag depends on other flags, call `posthog:feature-flags-copy-dependencies-check` with `feature_flag_key`, `from_project`, and `target_project_ids` before copying. It copies nothing. Read `copied_dependency_keys` (dependencies a copy would create in a target), `reused_dependency_keys` (dependencies a target already satisfies), and `warnings`. Present those to the user and set `copy_dependencies` on the copy call from their answer.
+
+A false `can_copy_dependencies` does not always mean the copy is blocked. It is also false when there is nothing to copy. Report a problem only when `warnings` is non-empty.
+
 ### 5. Execute the copy
 
 Call `posthog:feature-flags-copy-flags-create` with:
@@ -104,7 +110,8 @@ If any targets failed, ask the user whether to retry the failed ones, skip them,
 
 ## Available tools
 
-- `posthog:feature-flags-copy-flags-create` — performs the copy. Required fields: `feature_flag_key`, `from_project`, `target_project_ids`. Optional: `disable_copied_flag`, `copy_schedule`.
+- `posthog:feature-flags-copy-flags-create` — performs the copy. Required fields: `feature_flag_key`, `from_project`, `target_project_ids`. Optional: `disable_copied_flag`, `copy_schedule`, `copy_dependencies`.
+- `posthog:feature-flags-copy-dependencies-check` — previews what a copy would do to the flag's transitive flag dependencies. Copies nothing. Call it before the copy whenever the source flag has dependencies.
 - `posthog:feature-flag-get-all` — find a flag by key/name in a given project when the user only gave a friendly name.
 - `posthog:feature-flag-get-definition` — fetch the full source flag (filters, variants, cohort references, encryption flags) so you can preview before copying.
 - `posthog:projects-get` — list projects in the active organization, used to resolve and validate target project ids.
