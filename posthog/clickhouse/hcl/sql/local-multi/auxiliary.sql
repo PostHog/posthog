@@ -381,7 +381,7 @@ CREATE TABLE posthog.sharded_marketing_sessions_dimensional_preaggregated (
   entry_pathname String,
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.marketing_sessions_dimensional_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, person_id, start_timestamp, session_id) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) + toIntervalDay(1) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.marketing_sessions_dimensional_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, person_id, start_timestamp, session_id) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_marketing_touchpoints_preaggregated (
   team_id Int64,
   job_id UUID,

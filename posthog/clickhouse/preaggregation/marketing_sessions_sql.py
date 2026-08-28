@@ -69,7 +69,7 @@ def SHARDED_MARKETING_SESSIONS_TABLE_SQL():
         + """
 PARTITION BY toYYYYMMDD(expires_at)
 ORDER BY (team_id, job_id, person_id, start_timestamp, session_id)
-TTL toDateTime(expires_at) + INTERVAL 1 DAY
+TTL toDateTime(expires_at)
 SETTINGS ttl_only_drop_parts = 1, index_granularity = 8192
 """
     ).format(

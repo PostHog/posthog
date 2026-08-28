@@ -2063,7 +2063,7 @@ database "posthog" {
   table "sharded_marketing_sessions_dimensional_preaggregated" {
     order_by     = ["team_id", "job_id", "person_id", "start_timestamp", "session_id"]
     partition_by = "toYYYYMMDD(expires_at)"
-    ttl          = "toDateTime(expires_at) + toIntervalDay(1)"
+    ttl          = "toDateTime(expires_at)"
     settings = {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
