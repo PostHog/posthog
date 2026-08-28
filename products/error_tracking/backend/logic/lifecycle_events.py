@@ -59,13 +59,13 @@ def assignee_property(assignee: dict[str, Any]) -> str:
 
 
 def _current_assignee_property(issue: ErrorTrackingIssue) -> Optional[str]:
-    assignment = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).values("user_id", "role_id").first()
+    assignment = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).only("user_id", "role_id").first()
     if assignment is None:
         return None
-    if assignment["user_id"] is not None:
-        return assignee_property({"type": "user", "id": assignment["user_id"]})
-    if assignment["role_id"] is not None:
-        return assignee_property({"type": "role", "id": assignment["role_id"]})
+    if assignment.user_id:
+        return assignee_property({"type": "user", "id": assignment.user_id})
+    if assignment.role_id:
+        return assignee_property({"type": "role", "id": assignment.role_id})
     return None
 
 
