@@ -63,7 +63,7 @@ describe("TaskPendingView hydration gate", () => {
       promptText: "Create a task",
       attachments: [],
     });
-    render(
+    const { unmount } = render(
       <Theme>
         <TaskPendingView pendingTaskKey="pending-key" />
       </Theme>,
@@ -75,5 +75,13 @@ describe("TaskPendingView hydration gate", () => {
 
     expect(screen.getByText("pending-chat")).toBeInTheDocument();
     expect(screen.queryByText(UNAVAILABLE_TEXT)).not.toBeInTheDocument();
+
+    unmount();
+    render(
+      <Theme>
+        <TaskPendingView pendingTaskKey="pending-key" />
+      </Theme>,
+    );
+    expect(screen.getByText(UNAVAILABLE_TEXT)).toBeInTheDocument();
   });
 });
