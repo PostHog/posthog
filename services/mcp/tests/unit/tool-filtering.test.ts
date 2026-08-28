@@ -187,13 +187,21 @@ describe('Tool Filtering - Tools Allowlist', () => {
             expect(getToolsForFeatures({ featureFlags: {} })).toContain('agent-feedback')
         })
 
-        it('should include get-more-tools across allowlists only when mcp analytics is enabled', () => {
-            expect(
-                getToolsForFeatures({ tools: ['nonexistent-tool'], featureFlags: { 'mcp-analytics': true } })
-            ).toContain('get-more-tools')
-            expect(getToolsForFeatures({ tools: ['nonexistent-tool'], featureFlags: {} })).not.toContain(
-                'get-more-tools'
-            )
+        it('should gate missing-capability tools behind mcp analytics', () => {
+            const enabledTools = getToolsForFeatures({ featureFlags: { 'mcp-analytics': true } })
+            expect(enabledTools).toContain('get-more-tools')
+            expect(enabledTools).toContain('mcp-missing-capability-report')
+
+            const disabledTools = getToolsForFeatures({ featureFlags: {} })
+            expect(disabledTools).not.toContain('get-more-tools')
+            expect(disabledTools).not.toContain('mcp-missing-capability-report')
+
+            const allowlistedTools = getToolsForFeatures({
+                tools: ['nonexistent-tool'],
+                featureFlags: { 'mcp-analytics': true },
+            })
+            expect(allowlistedTools).toContain('get-more-tools')
+            expect(allowlistedTools).not.toContain('mcp-missing-capability-report')
         })
 
         it('should union with features (OR) when both are provided', () => {

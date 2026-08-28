@@ -7662,6 +7662,21 @@
         },
         "feature_flag": "mcp-analytics"
     },
+    "mcp-missing-capability-report": {
+        "description": "Deprecated compatibility tool for reporting that the current MCP tools are insufficient for the user's goal. Prefer get-more-tools for new calls. Existing callers can continue using this tool while they migrate.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Report missing capability",
+        "title": "Report missing capability",
+        "required_scopes": ["mcp_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "mcp-analytics"
+    },
     "metric-names-list": {
         "description": "List the distinct metric names this project has ingested, with each metric's OTel type (`gauge`, `sum`, `histogram`, `summary`, `exponential_histogram`). Names are ordered by recent activity and exact matches float to the top.\n\nALWAYS call this before `query-metrics` unless you already know the exact metric name — metric queries match names exactly, so a guessed name silently returns no data.\n\nUse `value` for a case-insensitive substring search (e.g. `value: \"lag\"` finds `metrics_rate_limiter_message_lag_seconds`). The metric's type tells you which aggregations make sense:\n\n- `sum` (counters, usually `_total`-suffixed): use `rate` or `increase`\n- `gauge`: use `avg`, `p95`, or `sum`\n- `histogram`: use `histogram_quantile` with a `quantile`",
         "category": "Metrics",

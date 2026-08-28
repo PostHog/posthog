@@ -138,7 +138,7 @@ tools:
         enabled: false
     mcp-missing-capability-report:
         operation: mcp_analytics_missing_capabilities_create
-        enabled: false
+        enabled: true
         scopes:
             - mcp_analytics:write
         annotations:
@@ -147,8 +147,8 @@ tools:
             idempotent: false
         title: Report missing capability
         description: >
-            Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool,
-            missing workflow support, or missing explanation blocks progress.
+            Deprecated compatibility tool for reporting that the current MCP tools are insufficient for the user's
+            goal. Prefer get-more-tools for new calls. Existing callers can continue using this tool while they migrate.
         include_params:
             - goal
             - missing_capability

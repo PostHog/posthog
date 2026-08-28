@@ -485,6 +485,35 @@
             },
             "required": ["summary", "feedback_type", "sentiment"]
         },
+        "GetMoreToolsSchema": {
+            "type": "object",
+            "properties": {
+                "goal": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000,
+                    "description": "What the user is trying to accomplish."
+                },
+                "missing_capability": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000,
+                    "description": "The tool or workflow capability that would materially help accomplish the goal."
+                },
+                "blocked": {
+                    "type": "boolean",
+                    "description": "Whether the missing capability prevents completing the task."
+                },
+                "attempted_tool": {
+                    "description": "The closest available tool that was attempted, when applicable.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                }
+            },
+            "required": ["goal", "missing_capability", "blocked"],
+            "additionalProperties": false
+        },
         "InsightQueryInputSchema": {
             "type": "object",
             "properties": {
