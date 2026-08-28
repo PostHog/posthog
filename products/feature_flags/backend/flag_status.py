@@ -83,9 +83,14 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
     `test_filters_stale` covers that case.
 
     Compose it by chaining `.filter()`, and keep the result a top-level queryset. The raw
-    predicate hard-codes the `posthog_featureflag` table name, so wrapping the result in
-    `Exists()`, `Subquery()`, or `pk__in=<queryset>` aliases the table and Postgres rejects the
-    query, because the raw text still reads `posthog_featureflag.filters`.
+    predicate hard-codes the `posthog_featureflag` table name. Nesting the result aliases the
+    inner table, so the raw text resolves against the outer row instead.
+
+    `pk__in=<queryset>` survives that, because `id IN (...)` ties the inner row to the outer
+    row. A correlated `Exists()` or `Subquery()` joined on anything else, such as `team_id`,
+    does not. The config branch then tests the outer flag's `filters` while the inner query
+    ranges over the team's other flags, and returns a wrong set of flags with no error.
+    Postgres rejects the query only when the outer scope holds no `posthog_featureflag`.
     """
     # Get stale flags using the best available signal:
     # 1. If last_called_at exists: flag hasn't been called in 30+ days

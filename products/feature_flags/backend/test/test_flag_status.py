@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 from posthog.test.base import BaseTest
 
@@ -100,15 +101,17 @@ class TestFilterFlagsByActiveParam(BaseTest):
         }
         assert self._filter(False) == {"disabled"}
 
-    def _checker_stale(self):
+    def _checker_stale(self) -> set[str]:
         return {
             flag.key
             for flag in FeatureFlag.objects.filter(team=self.team)
             if FeatureFlagStatusChecker(feature_flag=flag).get_status()[0] == FeatureFlagStatus.STALE
         }
 
-    # (flag key, extra FeatureFlag kwargs, whether the flag is stale). The stale shapes live in
-    # setUp, which every case also sweeps through the parity assertion below.
+    # (flag key, extra FeatureFlag kwargs, whether that flag is stale). Each case creates its
+    # flag, then asserts the filter and the checker agree across the whole team, so setUp's four
+    # stale flags are re-checked on every case. Most cases add a shape that must not be stale,
+    # because setUp already covers the stale ones.
     @parameterized.expand(
         [
             (
@@ -179,17 +182,40 @@ class TestFilterFlagsByActiveParam(BaseTest):
                 },
                 False,
             ),
+            # Only case that reaches the usage branch's `active=True` guard, because every
+            # other disabled case leaves `last_called_at` NULL and stops at the config branch.
+            (
+                "disabled_flag_with_old_last_called_at",
+                {
+                    "active": False,
+                    "last_called_at": timezone.now() - timedelta(days=35),
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+                },
+                False,
+            ),
+            # Only case that reaches the config branch's last OR arm, where `filters` being
+            # non-nullable makes `= '{}'` the whole test.
+            (
+                "empty_filters_object",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {},
+                },
+                True,
+            ),
         ]
     )
-    def test_stale_filter_agrees_with_status_checker(self, key, flag_kwargs, expected_stale):
+    def test_stale_filter_agrees_with_status_checker(
+        self, key: str, flag_kwargs: dict[str, Any], expected_stale: bool
+    ) -> None:
         FeatureFlag.objects.create(team=self.team, key=key, created_by=self.user, **flag_kwargs)
 
         filter_stale = self._filter("STALE")
         assert filter_stale == self._checker_stale()
         assert (key in filter_stale) is expected_stale
 
-    def test_stale_filter_query_count_does_not_grow_with_candidate_count(self):
-        def evaluate():
+    def test_stale_filter_query_count_does_not_grow_with_candidate_count(self) -> None:
+        def evaluate() -> list[FeatureFlag]:
             return list(filter_stale_flags(FeatureFlag.objects.filter(team=self.team)))
 
         with self.assertNumQueries(1):
