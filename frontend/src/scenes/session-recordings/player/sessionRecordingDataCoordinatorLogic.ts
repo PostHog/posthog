@@ -14,7 +14,7 @@ import {
 } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
-import { EventType, customEvent, eventWithTime } from 'posthog-js/rrweb-types'
+import { EventType, IncrementalSource, customEvent, eventWithTime } from 'posthog-js/rrweb-types'
 
 import {
     getHrefFromSnapshot,
@@ -62,6 +62,8 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 // mutations); most large recordings are ordinary small events and play fine, so both must trip
 export const OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES = 30 * 1024 * 1024
 export const OVERSIZED_RECORDING_AVG_EVENT_BYTES = 100 * 1024
+export const OVERSIZED_MUTATION_MIN_ADDED_NODES = 2000
+export const OVERSIZED_MUTATION_STORM_EVENT_COUNT = 3
 
 export interface SessionRecordingDataCoordinatorLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -124,6 +126,7 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     fullyLoaded: boolean
     isOldAndInvalid: boolean
     isRecentAndInvalid: boolean
+    mutationStormDetected: boolean
     processedSnapshots: RecordingSnapshot[]
     recordingTooLargeToPlay: boolean
     reportedLoaded: boolean
@@ -325,6 +328,10 @@ export interface sessionRecordingDataCoordinatorLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         recordingTooLargeToPlay: (
             sessionPlayerMetaData: SessionRecordingType | null,
+            featureFlags: FeatureFlagsSet
+        ) => boolean
+        mutationStormDetected: (
+            snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
             featureFlags: FeatureFlagsSet
         ) => boolean
         snapshots: (processedSnapshots: import('@posthog/replay-shared').RecordingSnapshot[]) => RecordingSnapshot[]
@@ -691,6 +698,31 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     eventCount > 0 &&
                     totalSize / eventCount > OVERSIZED_RECORDING_AVG_EVENT_BYTES
                 )
+            },
+        ],
+
+        // Catches storm recordings the metadata gate cannot see: ClickHouse only stores
+        // sum and count, so a short burst of giant mutations hides under a small average
+        mutationStormDetected: [
+            (s) => [s.snapshots, s.featureFlags],
+            (snapshots: RecordingSnapshot[], featureFlags: FeatureFlagsSet): boolean => {
+                if (!featureFlags[FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]) {
+                    return false
+                }
+                let stormEvents = 0
+                for (const snapshot of snapshots) {
+                    if (
+                        snapshot.type === EventType.IncrementalSnapshot &&
+                        snapshot.data.source === IncrementalSource.Mutation &&
+                        snapshot.data.adds.length >= OVERSIZED_MUTATION_MIN_ADDED_NODES
+                    ) {
+                        stormEvents += 1
+                        if (stormEvents >= OVERSIZED_MUTATION_STORM_EVENT_COUNT) {
+                            return true
+                        }
+                    }
+                }
+                return false
             },
         ],
 
