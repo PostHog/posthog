@@ -802,6 +802,41 @@ describe('maxThreadLogic', () => {
             expect(toastSpy).toHaveBeenCalledWith('You can only queue two messages at a time.')
         })
 
+        it('guards message length before enqueueing', async () => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue')
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.askMax('x'.repeat(40001))
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(enqueueSpy).not.toHaveBeenCalled()
+            expect(toastSpy).toHaveBeenCalledWith(
+                'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+            )
+        })
+
+        it('shows the length message and does not capture on a 400 content error while enqueueing', async () => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(jest.fn())
+            jest.spyOn(api.conversations.queue, 'enqueue').mockRejectedValue(
+                new ApiError('Bad Request', 400, undefined, { attr: 'content', detail: 'Content too long' })
+            )
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.enqueueQueuedMessage({ content: 'Queued prompt', contextualTools: {} })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(toastSpy).toHaveBeenCalledWith(
+                'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+            )
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+        })
+
         it('updates queued messages from the API', async () => {
             const queueMessage = {
                 id: 'queue-1',

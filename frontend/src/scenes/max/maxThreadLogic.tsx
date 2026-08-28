@@ -127,6 +127,11 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     status: 'completed',
 }
 
+// Server rejects a message with content longer than this (see max_length on `content` in
+// ee/api/conversation.py). Keep the two in sync.
+const MAX_MESSAGE_LENGTH = 40000
+const MESSAGE_TOO_LONG = `Oops! Your message is too long. Ensure it has no more than ${MAX_MESSAGE_LENGTH} characters.`
+
 export interface MaxThreadLogicProps {
     panelId?: string // identifies the MaxLogic instance backing this panel (scene tab id or side panel)
     conversationId: string
@@ -1536,8 +1541,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                             // Validation exception for the content length
                             if (e.data?.attr === 'content') {
-                                relevantErrorMessage.content =
-                                    'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+                                relevantErrorMessage.content = MESSAGE_TOO_LONG
                             } else if (e.detail) {
                                 relevantErrorMessage.content = e.detail
                             }
@@ -1831,12 +1835,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
-                posthog.captureException(error)
                 actions.setQueuedMessages(values.queuedMessages)
                 if (error instanceof ApiError && error.status === 409) {
                     lemonToast.error('You can only queue two messages at a time.')
                     return
                 }
+                // A too-long message is an expected validation failure, not a crash. Show the
+                // length message and don't report it to error tracking.
+                if (error instanceof ApiError && error.status === 400 && error.data?.attr === 'content') {
+                    lemonToast.error(MESSAGE_TOO_LONG)
+                    return
+                }
+                posthog.captureException(error)
                 lemonToast.error(error?.data?.detail || 'Failed to queue the message.')
             }
         },
@@ -1857,6 +1867,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages(queue.messages)
                 actions.setQueueLimit(queue.max_queue_messages)
             } catch (error: any) {
+                if (error instanceof ApiError && error.status === 400 && error.data?.attr === 'content') {
+                    lemonToast.error(MESSAGE_TOO_LONG)
+                    return
+                }
                 posthog.captureException(error)
                 lemonToast.error(error?.data?.detail || 'Failed to update the queued message.')
             }
@@ -1941,6 +1955,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 !canCreateSupportTicket(values.billing, values.isCurrentOrganizationNew)
             ) {
                 showTicketIneligibleToast()
+                return
+            }
+            // Guard the length client-side so an over-limit message never makes the round trip only
+            // to come back as a generic failure. The server enforces the same cap.
+            if (typeof prompt === 'string' && prompt.length > MAX_MESSAGE_LENGTH) {
+                lemonToast.error(MESSAGE_TOO_LONG)
                 return
             }
             if (isPiTaskRuntime(values.conversation?.task?.runtime)) {
