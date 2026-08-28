@@ -50,6 +50,8 @@ import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhook
 import { MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from './utils/cdp-fetch'
 import { configureValkeyReads } from './utils/dual-store'
 import { EncryptedFields } from './utils/encryption-utils'
+import { PosthogJwtAudience } from './utils/jwt-utils'
+import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 
 /** Union of every output name resolved by `createCdpOutputsRegistry()`. */
 export type CdpOutput = AppMetricsOutput | LogEntriesOutput | HogInvocationResultsOutput | WarehouseSourceWebhooksOutput
@@ -110,7 +112,12 @@ export interface CdpCoreServices {
 
 export type CdpCoreServicesConfig = Pick<
     CommonConfig,
-    'REDIS_URL' | 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE' | 'ENCRYPTION_SALT_KEYS' | 'SITE_URL'
+    | 'REDIS_URL'
+    | 'REDIS_POOL_MIN_SIZE'
+    | 'REDIS_POOL_MAX_SIZE'
+    | 'ENCRYPTION_SALT_KEYS'
+    | 'SITE_URL'
+    | 'INTERNAL_API_BASE_URL'
 > &
     UsageIngestionConfig &
     Pick<
@@ -150,6 +157,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_UNTRACKED_CONFIGURATION_SET'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
+        | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
@@ -456,9 +464,14 @@ export function createCdpCoreServices(
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
             siteUrl: config.SITE_URL,
+            internalApiBaseUrl: config.INTERNAL_API_BASE_URL,
         },
         {
             teamManager: deps.teamManager,
+            conversationsTicketsJwt: new ScopedServiceJwt(
+                PosthogJwtAudience.CONVERSATIONS_TICKETS,
+                config.CONVERSATIONS_TICKETS_JWT_SECRET
+            ),
             hogInputsService,
             emailService,
             recipientTokensService,

@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("posthog", "1325_organizationmembernotificationlock"),
+        ("posthog", "1327_untrack_cimd_metadata_url"),
     ]
 
     operations = [

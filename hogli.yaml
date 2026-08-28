@@ -1045,10 +1045,6 @@ tools:
     ci:preflight:
         click: hogli_commands.ci_preflight:ci_preflight
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
-    review:
-        click: hogli_commands.review:review
-        description: One local Greptile review of the branch before opening the PR (skips when HEAD is already reviewed; --force, --instructions, --check)
-        needs_secrets: true
 desktop:
     desktop:dev:
         cmd: pnpm --dir products/desktop dev
