@@ -299,17 +299,20 @@ def _mock_github_integration(mocker, pr_base: str | None):
 
 
 @pytest.mark.parametrize(
-    "internal,expected",
+    "internal,service_account_id,expected",
     [
         # Internal/autonomous runs (support reply, signals) get shared team
         # connections only — never a resolved member's personal MCP creds.
-        (True, False),
+        (True, None, False),
         # User-initiated Code runs get shared + the creator's personal installs.
-        (False, True),
+        (False, None, True),
+        # A service-account run never pulls the creator's personal installs,
+        # even when the run was otherwise user-initiated.
+        (False, "account-id", False),
     ],
 )
-def test_include_personal_mcp_for_task(mocker, internal, expected) -> None:
-    task = mocker.Mock(internal=internal)
+def test_include_personal_mcp_for_task(mocker, internal, service_account_id, expected) -> None:
+    task = mocker.Mock(internal=internal, mcp_service_account_id=service_account_id)
     assert _include_personal_mcp_for_task(task) is expected
 
 
@@ -351,6 +354,42 @@ def test_prepare_launch_relabels_only_non_transient_token_errors(mocker, raised,
 
     with pytest.raises(expected):
         _prepare_launch(_context(), mocker.Mock(), "sandbox-id")
+
+
+def test_prepare_launch_ignores_the_loop_allowlist_for_a_service_account_run(mocker) -> None:
+    # A workflow task's snapshot always stores an empty mcp_installation_ids list for a
+    # service-account run (see create_workflow_task), and loop_mcp_installation_allowlist
+    # fails closed to [] once any snapshot exists. Passing that [] through as
+    # allowed_installation_ids would intersect the account's resolved grants down to
+    # nothing, so a service-account run must bypass the loop allowlist entirely.
+    task = mocker.Mock(internal=False, mcp_service_account_id="account-id")
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
+    ).return_value.get.return_value = task
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_task_run_credential_user",
+        return_value=None,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token_for_run",
+        return_value="oauth-token",
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.objects.filter",
+    ).return_value.first.return_value = mocker.Mock(state={}, imported_mcp_servers=None)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_ph_mcp_configs",
+        return_value=[],
+    )
+    get_user_mcp_configs = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_user_mcp_server_configs",
+        return_value=[],
+    )
+    state_with_empty_snapshot = {"config_snapshot": {"connectors": {"mcp_installation_ids": []}}}
+
+    _prepare_launch(_context(state=state_with_empty_snapshot), mocker.Mock(), "sandbox-id")
+
+    assert get_user_mcp_configs.call_args.kwargs["allowed_installation_ids"] is None
 
 
 @pytest.mark.parametrize(

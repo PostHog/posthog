@@ -416,7 +416,11 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         user_id=actor_user.id if actor_user else None,
         include_personal=include_personal,
         interaction_origin=ctx.interaction_origin,
-        allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
+        # A service-account run's mounts come entirely from the account's own grants,
+        # resolved fresh by the facade; the loop allowlist is a different, unrelated
+        # narrowing (an owner's chosen subset of their own shared connectors) and its
+        # workflow-run snapshot is always an empty list, which would otherwise mount nothing.
+        allowed_installation_ids=None if task.mcp_service_account_id else loop_mcp_installation_allowlist(ctx.state),
         origin_product=task.origin_product,
         task_agent_key=task.mcp_builtin_agent_key,
         task_service_account_id=task.mcp_service_account_id,

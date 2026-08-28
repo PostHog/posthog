@@ -253,10 +253,15 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
     def test_rejects_a_built_in_agent_as_service_account(self) -> None:
-        from products.mcp_store.backend.agents import sync_built_in_agents
+        from products.mcp_store.backend.models import MCPServiceAccount
 
-        support_agent = next(
-            account for account in sync_built_in_agents(self.team) if account.handle == "posthog-support"
+        support_agent = MCPServiceAccount.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="Support agent",
+            handle="posthog-support",
+            kind="built_in",
+            status="active",
+            token_hash="test-token-hash-support",
         )
 
         response = self._post({"service_account": str(support_agent.id)})

@@ -740,7 +740,12 @@ def _refresh_sandbox_mcp(
         user_id=actor_user.id,
         include_personal=not task_run.task.internal and task_run.task.mcp_service_account_id is None,
         interaction_origin=(state or {}).get("interaction_origin"),
-        allowed_installation_ids=loop_mcp_installation_allowlist(state),
+        # See the matching comment in start_agent_server.py: a service-account run's
+        # mounts come from the account's own grants, not the loop allowlist, whose
+        # workflow-run snapshot is always an empty list.
+        allowed_installation_ids=(
+            None if task_run.task.mcp_service_account_id else loop_mcp_installation_allowlist(state)
+        ),
         origin_product=task_run.task.origin_product,
         task_agent_key=task_run.task.mcp_builtin_agent_key,
         task_service_account_id=task_run.task.mcp_service_account_id,
