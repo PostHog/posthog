@@ -277,7 +277,10 @@ def handle_account_set_properties(request: Request, team: Team) -> Response:
     if result.values is None:
         return _custom_properties_error_response(result)
 
-    return Response(
+    # Hand-built payload, deliberately: neither wrapping route is in the OpenAPI spec (plain
+    # APIViews without scope_object), so the schema-drift risk behind the rule cannot occur,
+    # and the wire shape must stay identical while the worker migrates between the routes.
+    return Response(  # nosemgrep: api-response-must-match-schema
         {
             "external_id": external_id,
             "values": [{"definition_id": str(v.definition_id), "value": v.value} for v in result.values],
