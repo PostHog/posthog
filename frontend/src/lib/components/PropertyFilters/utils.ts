@@ -179,11 +179,13 @@ export function formatPropertyLabel(
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[resolvedType]
 
     const isSingleEmptyString = Array.isArray(value) && value.length === 1 && value[0] === ''
+    const relativeDateValue =
+        typeof value === 'string' ? value : Array.isArray(value) && value.length === 1 ? value[0] : undefined
     const formattedValue =
         (resolvedType === PropertyFilterType.Account || resolvedType === PropertyFilterType.AccountCustomProperty) &&
         isOperatorDate(resolvedOperator) &&
-        typeof value === 'string'
-            ? formatRelativeDateValue(value)
+        typeof relativeDateValue === 'string'
+            ? formatRelativeDateValue(relativeDateValue)
             : undefined
 
     if (resolvedType === PropertyFilterType.Cohort) {
