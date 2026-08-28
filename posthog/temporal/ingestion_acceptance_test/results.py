@@ -1,6 +1,6 @@
 """Test result types and reporters for alerting integration."""
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -35,7 +35,7 @@ class CapturedEventRef:
     distinct_id: str
 
 
-@dataclass
+@frozen
 class TestResult:
     """Result of a single test execution."""
 
@@ -74,7 +74,7 @@ def classify_failure(result: TestResult) -> FailureClass | None:
     return "person_missing" if message.startswith("Person") else "event_missing"
 
 
-@dataclass
+@frozen
 class TestSuiteResult:
     """Result of a full test suite execution."""
 
