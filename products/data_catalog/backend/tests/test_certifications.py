@@ -68,6 +68,15 @@ def _view(team: Team, name: str = "revenue_view") -> DataWarehouseSavedQuery:
     return DataWarehouseSavedQuery.objects.create(team=team, name=name, query={"kind": "HogQLQuery"})
 
 
+_CHECK_ACCESS = (
+    "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object"
+)
+
+
+def _deny_warehouse_targets(obj: Any = None, *args: Any, **kwargs: Any) -> bool:
+    return type(obj).__name__ not in ("DataWarehouseTable", "DataWarehouseSavedQuery")
+
+
 class TestTableCertificationModel(BaseTest):
     def test_requires_exactly_one_target(self) -> None:
         table = _table(self.team)
@@ -156,19 +165,56 @@ class TestCertificationLogic(BaseTest):
         candidates = error.exception.extra["candidates"]
         assert {candidate["id"] for candidate in candidates} == {str(first_table.id), str(second_table.id)}
         assert {candidate["name"] for candidate in candidates} == {"stripe_subscriptions"}
-        assert {candidate["source_id"] for candidate in candidates} == {"stripe-first", "stripe-second"}
+        assert {candidate["source_id"] for candidate in candidates} == {str(first_source.id), str(second_source.id)}
         assert {candidate["source_prefix"] for candidate in candidates} == {None}
 
-    def test_ambiguous_view_name_returns_candidates(self) -> None:
-        first_view = _view(self.team, name="dupe")
-        second_view = _view(self.team, name="dupe")
+    @parameterized.expand(
+        [("table_id", "table"), ("table_name", "table"), ("saved_query_id", "view"), ("view_name", "view")]
+    )
+    def test_denied_target_reads_as_missing(self, selector: str, target_type: str) -> None:
+        target = _table(self.team) if target_type == "table" else _view(self.team)
+        selector_kwargs: dict[str, Any] = {selector: str(target.id) if selector.endswith("_id") else target.name}
 
-        with self.assertRaises(CatalogConflict) as error:
-            propose_certification(team=self.team, user=self.user, view_name="dupe")
+        with patch(_CHECK_ACCESS, side_effect=_deny_warehouse_targets):
+            with self.assertRaises(ValidationError):
+                propose_certification(team=self.team, user=self.user, **selector_kwargs)
 
-        candidates = error.exception.extra["candidates"]
-        assert {candidate["id"] for candidate in candidates} == {str(first_view.id), str(second_view.id)}
-        assert {candidate["name"] for candidate in candidates} == {"dupe"}
+        assert not TableCertification.objects.for_team(self.team.id).exists()
+
+    def test_mixed_visibility_dotted_name_resolves_to_visible_candidate(self) -> None:
+        visible = _table(
+            self.team, name="stripe_subscriptions", external_data_source=_external_source(self.team, source_id="a")
+        )
+        hidden = _table(
+            self.team, name="stripe_subscriptions", external_data_source=_external_source(self.team, source_id="b")
+        )
+
+        with patch(_CHECK_ACCESS, side_effect=lambda obj=None, *a, **k: getattr(obj, "id", None) != hidden.id):
+            certification = propose_certification(team=self.team, user=self.user, table_name="stripe.subscriptions")
+
+        assert certification.table_id == visible.id
+
+    def test_all_denied_dotted_candidates_read_as_missing(self) -> None:
+        for source_id in ("a", "b"):
+            _table(
+                self.team,
+                name="stripe_subscriptions",
+                external_data_source=_external_source(self.team, source_id=source_id),
+            )
+
+        with patch(_CHECK_ACCESS, side_effect=_deny_warehouse_targets):
+            with self.assertRaises(ValidationError) as error:
+                propose_certification(team=self.team, user=self.user, table_name="stripe.subscriptions")
+
+        assert "table_name" in error.exception.detail
+
+    def test_system_caller_bypasses_object_access(self) -> None:
+        table = _table(self.team)
+
+        with patch(_CHECK_ACCESS, side_effect=AssertionError("system callers must skip the access check")):
+            certification = propose_certification(team=self.team, user=None, table_id=str(table.id))
+
+        assert certification.table_id == table.id
 
     @parameterized.expand([("table_id", "table"), ("saved_query_id", "view")])
     def test_duplicate_target_conflicts(self, selector: str, target_type: str) -> None:
@@ -418,6 +464,30 @@ class TestCertificationAPI(APIBaseTest):
             response = self.client.post(f"{self.url}{cert.id}/{act}/", HTTP_AUTHORIZATION=f"Bearer {raw}")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("table_with_read", "table", ["data_catalog:write", "warehouse_table:read"], status.HTTP_201_CREATED),
+            ("table_without_read", "table", ["data_catalog:write"], status.HTTP_403_FORBIDDEN),
+            ("table_wrong_read", "table", ["data_catalog:write", "warehouse_view:read"], status.HTTP_403_FORBIDDEN),
+            ("view_with_read", "view", ["data_catalog:write", "warehouse_view:read"], status.HTTP_201_CREATED),
+            ("view_without_read", "view", ["data_catalog:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_create_requires_selector_read_scope(
+        self, _name: str, target_type: str, scopes: list[str], expected_status: int
+    ) -> None:
+        target = _table(self.team) if target_type == "table" else _view(self.team)
+        selector = "table_id" if target_type == "table" else "saved_query_id"
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            self.url, {selector: str(target.id)}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+
+        assert response.status_code == expected_status, response.content
 
     @parameterized.expand([("put",), ("patch",)])
     def test_update_methods_not_allowed(self, method: str) -> None:
