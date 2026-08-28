@@ -29,6 +29,10 @@ from posthog.temporal.ai_observability.metrics import (
 from posthog.temporal.ai_observability.model_resolution import model_spec
 from posthog.temporal.common.utils import close_db_connections
 
+from products.ai_observability.backend.input_transformations import (
+    apply_input_transformations,
+    compile_input_transformations,
+)
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
@@ -39,10 +43,6 @@ from products.ai_observability.backend.llm.errors import (
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
-)
-from products.ai_observability.backend.input_transformations import (
-    apply_input_transformations,
-    compile_input_transformations,
 )
 from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
 

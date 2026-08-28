@@ -6,8 +6,8 @@ and content blocks. Supports multiple provider formats (OpenAI, Anthropic, etc.)
 with truncation and interactive markers for frontend display.
 """
 
-import base64
 import json
+import base64
 from typing import Any, TypedDict
 
 from products.ai_observability.backend.input_transformations import (

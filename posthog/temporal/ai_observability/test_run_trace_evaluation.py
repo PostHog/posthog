@@ -420,9 +420,7 @@ class TestExecuteTraceLLMJudgeActivity:
                             setup_data,
                             evaluation_config={
                                 "prompt": "Did the agent resolve the user's request?",
-                                "input_transformations": [
-                                    {"pattern": "2\\+2", "replacement": "[first calculation]"}
-                                ],
+                                "input_transformations": [{"pattern": "2\\+2", "replacement": "[first calculation]"}],
                             },
                         ),
                         team_id=setup_data["team"].id,
