@@ -308,3 +308,42 @@ class TestTeardownSchemaSyncs:
         assert second.batches_failed == 0
         assert second.jobs_finalized == 0
         assert mock_cancel.call_count == 1
+
+    def test_queue_connect_failure_still_finalizes_job_and_cancels_workflow(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.sync_teardown.psycopg.connect",
+                side_effect=OSError("queue down"),
+            ),
+            patch("products.data_warehouse.backend.facade.api.cancel_external_data_workflow") as mock_cancel,
+            pytest.raises(RuntimeError),
+        ):
+            teardown_schema_syncs(team_id=team.pk, schema_id=str(schema.id), reason="stopped for test")
+
+        # The connect failure raises for retry, but the job and its workflow are still
+        # cleaned up so the run stops producing work meanwhile.
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.FAILED
+        mock_cancel.assert_called_once_with(job.workflow_id)
+
+    def test_workflow_cancel_failure_is_counted_and_raised(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        run_uuid = str(uuid4())
+        _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid)
+
+        with (
+            patch(
+                "products.data_warehouse.backend.facade.api.cancel_external_data_workflow",
+                side_effect=Exception("temporal down"),
+            ),
+            pytest.raises(RuntimeError),
+        ):
+            teardown_schema_syncs(team_id=team.pk, schema_id=str(schema.id), reason="stopped for test")
+
+        # Batch and job cleanup run before the cancel step, so a cancel failure only
+        # forces the retry; it does not undo them.
+        assert _failed_status_counts_by_run(queue_conn) == {run_uuid: 2}
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.FAILED
