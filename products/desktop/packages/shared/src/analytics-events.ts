@@ -50,6 +50,7 @@ export type CommandMenuAction =
   | "toggle-theme"
   | "toggle-left-sidebar"
   | "open-review-panel"
+  | "archive-task"
   | "go-back"
   | "go-forward"
   | "open-task"
@@ -100,6 +101,7 @@ export interface TaskCreateProperties {
   /** Worktree mode: repo has a non-empty .worktreeinclude file */
   uses_worktree_include?: boolean;
   adapter?: Adapter;
+  codex_model_access?: "posthog-gateway" | "own-subscription";
 }
 
 export interface TaskViewProperties {
@@ -395,6 +397,19 @@ export interface SessionConfigChangedProperties {
   category: string;
   from_value: string;
   to_value: string;
+}
+
+export interface ModelSwitchWarningShownProperties {
+  task_id?: string;
+  from_model: string;
+  to_model: string;
+  context_tokens?: number;
+}
+
+export interface ModelSwitchWarningActionProperties
+  extends ModelSwitchWarningShownProperties {
+  action: "cancel" | "copy_handoff_summary" | "switch_now";
+  result?: "failed" | "succeeded";
 }
 
 // Tour events
@@ -1372,6 +1387,26 @@ export interface AnnouncementProperties {
   announcement_style: "banner" | "modal";
 }
 
+// Privacy: these events never carry the referenced id, name, query text, or
+// result data. For a hogql reference the id is the SQL itself.
+export interface EvidencePreviewShownProperties {
+  kind: string;
+  cache: "hit" | "miss";
+}
+
+export interface EvidencePreviewReadyProperties {
+  kind: string;
+  source: "hover" | "prefetch";
+  latency_ms: number;
+  has_preview: boolean;
+}
+
+export interface EvidencePreviewFailedProperties {
+  kind: string;
+  source: "hover" | "prefetch";
+  latency_ms: number;
+}
+
 export interface AnnouncementCtaClickedProperties
   extends AnnouncementProperties {
   cta_type: "external" | "deeplink" | "update";
@@ -1451,11 +1486,15 @@ export const ANALYTICS_EVENTS = {
 
   // Session config events
   SESSION_CONFIG_CHANGED: "Session config changed",
+  MODEL_SWITCH_WARNING_SHOWN: "Model switch warning shown",
+  MODEL_SWITCH_WARNING_ACTION: "Model switch warning action",
 
   // Settings events
   SETTING_CHANGED: "Setting changed",
   CUSTOM_SOUND_ADDED: "Custom sound added",
   CUSTOM_SOUND_RECORDING_SILENT: "Custom sound recording silent",
+  CODEX_SUBSCRIPTION_CONNECTED: "Codex subscription connected",
+  CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
 
   // Feedback events
   AI_METRIC: "$ai_metric",
@@ -1563,6 +1602,11 @@ export const ANALYTICS_EVENTS = {
   AUTORESEARCH_RUN_STARTED: "Autoresearch run started",
   TASK_ANALYSIS_REQUESTED: "Task analysis requested",
 
+  // Evidence (insight link) preview events
+  EVIDENCE_PREVIEW_SHOWN: "Evidence preview shown",
+  EVIDENCE_PREVIEW_READY: "Evidence preview ready",
+  EVIDENCE_PREVIEW_FAILED: "Evidence preview failed",
+
   // Remote in-app announcement events
   ANNOUNCEMENT_SHOWN: "Announcement shown",
   ANNOUNCEMENT_DISMISSED: "Announcement dismissed",
@@ -1643,11 +1687,15 @@ export type EventPropertyMap = {
 
   // Session config events
   [ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED]: SessionConfigChangedProperties;
+  [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_SHOWN]: ModelSwitchWarningShownProperties;
+  [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION]: ModelSwitchWarningActionProperties;
 
   // Settings events
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
+  [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;
+  [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT]: never;
 
   // Feedback events
   [ANALYTICS_EVENTS.AI_METRIC]: AiMetricProperties;
@@ -1757,6 +1805,11 @@ export type EventPropertyMap = {
     run_id: string;
     created: boolean;
   };
+
+  // Evidence (insight link) preview events
+  [ANALYTICS_EVENTS.EVIDENCE_PREVIEW_SHOWN]: EvidencePreviewShownProperties;
+  [ANALYTICS_EVENTS.EVIDENCE_PREVIEW_READY]: EvidencePreviewReadyProperties;
+  [ANALYTICS_EVENTS.EVIDENCE_PREVIEW_FAILED]: EvidencePreviewFailedProperties;
 
   // Remote in-app announcement events
   [ANALYTICS_EVENTS.ANNOUNCEMENT_SHOWN]: AnnouncementProperties;

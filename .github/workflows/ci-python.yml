@@ -40,6 +40,10 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
+              env:
+                  # This workflow opts in for the whole repository. It runs on every pull
+                  # request, so one wiring covers every shape the comparison needs to see.
+                  PATHS_FILTER_SHADOW_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}

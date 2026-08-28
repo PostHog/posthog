@@ -42,8 +42,10 @@ export interface CodeCommandInsertContext {
 interface CodeCommand {
   name: string;
   description: string;
-  /** `required` is the message shown when the command is sent without input. */
-  input?: { hint: string; required?: string };
+  /** `required` is the message shown when the command is sent without input.
+   * `maxLength` bounds the input; over-limit submits are rejected pre-submit
+   * so the composer keeps the text. */
+  input?: { hint: string; required?: string; maxLength?: number };
   /** Optional override for the chip attrs inserted when this command is committed. */
   placeholderChip?: Partial<MentionChipAttrs>;
   /** Fires immediately after the chip is inserted into the editor. */
@@ -62,23 +64,15 @@ function makeFeedbackCommand(
   name: string,
   feedbackType: FeedbackType,
   label: string,
-  input: CodeCommand["input"],
+  input: NonNullable<CodeCommand["input"]>,
 ): CodeCommand {
   return {
     name,
     description: `Capture ${label.toLowerCase()} feedback`,
-    input,
+    input: { ...input, maxLength: AI_FEEDBACK_TEXT_MAX_LENGTH },
     execute(args, ctx) {
-      if (input?.required && !args?.trim()) {
+      if (input.required && !args?.trim()) {
         toast.error(input.required);
-        return;
-      }
-      // Reject instead of letting the builder truncate: a silent cut would
-      // drop the tail of the message without the user ever knowing.
-      if ((args?.trim().length ?? 0) > AI_FEEDBACK_TEXT_MAX_LENGTH) {
-        toast.error(
-          `Feedback is limited to ${AI_FEEDBACK_TEXT_MAX_LENGTH.toLocaleString()} characters. Shorten your comment and try again.`,
-        );
         return;
       }
       const { metric, feedback } = buildSlashFeedbackEvents({
@@ -176,15 +170,22 @@ export function getCodeCommand(name: string): CodeCommand | undefined {
 
 /**
  * Message to show instead of sending, when `text` is a code command that
- * requires input and has none. Checked before submit so the composer keeps
- * the text for the user to complete.
+ * requires input and has none, or the input exceeds the command's limit.
+ * Checked before submit so the composer keeps the text for the user to
+ * complete or trim.
  */
 export function getCodeCommandInputError(text: string): string | null {
   const parsed = parseCommandLine(text.trim());
   if (!parsed) return null;
-  const required = commandMap.get(parsed.name)?.input?.required;
-  if (!required || parsed.args?.trim()) return null;
-  return required;
+  const input = commandMap.get(parsed.name)?.input;
+  const args = parsed.args?.trim();
+  if (input?.required && !args) {
+    return input.required;
+  }
+  if (input?.maxLength && args && args.length > input.maxLength) {
+    return `Your comment is ${args.length.toLocaleString()} characters and the limit is ${input.maxLength.toLocaleString()}. Shorten it and try again.`;
+  }
+  return null;
 }
 
 export async function tryExecuteCodeCommand(

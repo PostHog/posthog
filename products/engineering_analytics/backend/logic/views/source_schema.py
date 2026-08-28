@@ -110,6 +110,43 @@ TEAM_MEMBERS_COLUMNS: dict[str, dict[str, str]] = {
     "team_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
 
+# Contract for the ``github_deployments`` warehouse source: one row per deploy request (a SHA
+# aimed at an environment), webhook-fed. The outcome lives on the status children below, so the
+# DORA reads always join the two. Same Nullable/string discipline as above.
+DEPLOYMENTS_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "sha": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "ref": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "task": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "environment": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "original_environment": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "description": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "creator": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "payload": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "production_environment": {"clickhouse": "Nullable(Bool)", "hogql": "BooleanDatabaseField"},
+    "transient_environment": {"clickhouse": "Nullable(Bool)", "hogql": "BooleanDatabaseField"},
+    "created_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "updated_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}
+
+# Contract for the ``github_deployment_statuses`` warehouse source: one row per status transition
+# of a deployment (pending / in_progress / queued / success / failure / error / inactive), with the
+# parent's id injected by the source fan-out. Append-oriented — the transition history is what the
+# DORA change-failure and restore proxies read. Same Nullable/string discipline as above.
+DEPLOYMENT_STATUSES_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "deployment_id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "state": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "creator": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "description": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "environment": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "target_url": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "log_url": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "environment_url": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "created_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "updated_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}
+
 # The Trunk merge-queue snapshot (TrunkIo source, opt-in MergeQueuePullRequests endpoint): one row
 # per queue entry with the state it last reached. Trunk keeps no state history, so
 # ``state_changed_at`` is the entry's last transition, not a timeline. Typed by the trunk_io
