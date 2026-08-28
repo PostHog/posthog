@@ -3942,6 +3942,30 @@ describe('maxThreadLogic', () => {
             ])
         })
 
+        it('drains the sandbox queue even when the combined content exceeds the length limit', async () => {
+            // The length guard must not abort the drain: clearQueuedMessages() has already cleared the
+            // server-side queue, so an abort would lose the messages. Each queued message is within
+            // the limit, but combining them crosses it.
+            jest.spyOn(api.conversations.queue, 'clear').mockResolvedValue({ messages: [], max_queue_messages: 2 })
+            const long = 'x'.repeat(30000)
+
+            const sandboxStreamInstance = await startSandboxTurn()
+            logic.actions.setConversation(MOCK_CONVERSATION)
+            logic.actions.setIsSandboxMode(true)
+            logic.actions.setQueuedMessages([
+                { id: 'queue-1', content: long, created_at: new Date().toISOString() },
+                { id: 'queue-2', content: long, created_at: new Date().toISOString() },
+            ])
+
+            await expectLogic(logic, () => {
+                sandboxStreamInstance.actions.markTurnComplete()
+            }).toDispatchActions([
+                'clearQueuedMessages',
+                (action: any) =>
+                    action.payload?.prompt === `${long}\n\n${long}` && action.payload?.addToThread === false,
+            ])
+        })
+
         it('handleStreamError does NOT drain the sandbox queue (no clearQueuedMessages, no askMax)', async () => {
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([], {

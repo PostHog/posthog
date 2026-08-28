@@ -1961,8 +1961,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // to come back as a generic failure. Count the way the server's CharField does: it trims
             // whitespace, then measures Unicode code points (Python len), not UTF-16 units. So this
             // guard never falsely rejects a message the server would accept, like emoji, which take
-            // two UTF-16 units but one code point each.
-            if (typeof prompt === 'string' && Array.from(prompt.trim()).length > MAX_MESSAGE_LENGTH) {
+            // two UTF-16 units but one code point each. Only guard interactive sends: the sandbox drain
+            // path clears the queue server-side before it calls askMax with addToThread=false, so
+            // aborting there would lose the queued messages.
+            if (addToThread && typeof prompt === 'string' && Array.from(prompt.trim()).length > MAX_MESSAGE_LENGTH) {
                 lemonToast.error(MESSAGE_TOO_LONG)
                 return
             }
