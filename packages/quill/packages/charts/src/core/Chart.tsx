@@ -108,9 +108,8 @@ export interface ChartProps<Meta = unknown> {
     valueRangeSeries?: Series[]
     /** Chart-type seam: rewrite the click payload (e.g. resolve the stacked segment under the
      *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
-     *  Returning `null` suppresses the click (the cursor resolved to no bar or segment). Chart-type
-     *  adapters provide this; consumers do not. */
-    wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta> | null
+     *  Chart-type adapters provide this; consumers do not. */
+    wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
     /** Chart-type seam: given the nearest band index and cursor, return the effective hover index — or
      *  -1 to make the position a dead zone (no tooltip, pointer cursor, highlight, or click). Chart-type
      *  adapters provide this; BarChart uses it for a capped track's blank volume gap. */

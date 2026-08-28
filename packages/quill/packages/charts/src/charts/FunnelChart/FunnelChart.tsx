@@ -227,8 +227,12 @@ export function FunnelChart<Meta = unknown>({
     const handlePointClick = useMemo(
         () =>
             onStepClick
-                ? (data: PointClickData<Meta>): void =>
+                ? (data: PointClickData<Meta>): void => {
+                      if (data.inTrackArea === undefined) {
+                          return
+                      }
                       onStepClick({ ...data, stepIndex: data.dataIndex, converted: !data.inTrackArea })
+                  }
                 : undefined,
         [onStepClick]
     )

@@ -41,18 +41,20 @@ export function StepFooter({
 
     return (
         <div className={clsx('flex flex-wrap items-center gap-2 leading-5', isOptional && 'opacity-60')}>
-            <Tooltip
-                title={getTooltipTitleForConverted(funnelsFilter, aggregationTargetLabel, stepIndex)}
-                placement="bottom"
-            >
-                <ValueInspectorButton onClick={showPersonsModal ? onOpenConverted : undefined}>
-                    <IconTrendingFlat style={{ color: 'var(--success)' }} className="mr-1 text-xl align-bottom" />
-                    <b>{formatConvertedCount(step, aggregationTargetLabel)}</b>
-                    {!isFirstStep && (
-                        <span className="text-secondary ml-1">{`(${formatConvertedPercentage(step)}) completed step`}</span>
-                    )}
-                </ValueInspectorButton>
-            </Tooltip>
+            <span className="grow">
+                <Tooltip
+                    title={getTooltipTitleForConverted(funnelsFilter, aggregationTargetLabel, stepIndex)}
+                    placement="bottom"
+                >
+                    <ValueInspectorButton onClick={showPersonsModal ? onOpenConverted : undefined}>
+                        <IconTrendingFlat style={{ color: 'var(--success)' }} className="mr-1 text-xl align-bottom" />
+                        <b>{formatConvertedCount(step, aggregationTargetLabel)}</b>
+                        {!isFirstStep && (
+                            <span className="text-secondary ml-1">{`(${formatConvertedPercentage(step)}) completed step`}</span>
+                        )}
+                    </ValueInspectorButton>
+                </Tooltip>
+            </span>
             {!isFirstStep && (
                 <Tooltip title={getTooltipTitleForDroppedOff(funnelsFilter, aggregationTargetLabel)} placement="bottom">
                     <ValueInspectorButton onClick={showPersonsModal ? onOpenDroppedOff : undefined}>

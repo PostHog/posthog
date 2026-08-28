@@ -27,8 +27,7 @@ export interface ResolveClickedBarSeriesArgs<Meta> {
  *   - stacked/percent: the segment whose rect contains the cursor on the value axis, walking
  *     every dataIndex in the band so sparse-overlap segments route correctly, and re-reading
  *     the value at that segment's own dataIndex.
- *  Pure so the routing is unit-testable; returns `null` when the cursor resolves to no bar or
- *  segment, so the caller suppresses the click rather than firing it against a guessed series. */
+ *  Pure so the routing is unit-testable; returns `null` to pass `clickData` through unchanged. */
 export function resolveClickedBarSeries<Meta>({
     clickData,
     scales,
@@ -73,7 +72,7 @@ export function resolveClickedBarSeries<Meta>({
             }
             const inTrackArea = cursorOutsideBarFillExtent(bar, cursor, isHorizontal)
             // Beyond a per-bar track ceiling the cursor is in the blank volume gap (funnel compare) —
-            // return null so the caller suppresses the click and it opens nothing.
+            // pass the click through so it opens nothing.
             if (inTrackArea && cursorBeyondTrackCeiling(s, bar, scales, cursor, isHorizontal)) {
                 return null
             }

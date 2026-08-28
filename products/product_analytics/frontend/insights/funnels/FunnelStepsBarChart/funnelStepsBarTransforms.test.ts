@@ -217,9 +217,10 @@ function makeClick(
 }
 
 describe('resolveFunnelStepClick', () => {
-    it.each<[string, boolean, boolean]>([
+    it.each<[string, boolean | undefined, boolean]>([
         ['filled bar (inTrackArea false) opens converted', false, true],
         ['track above the bar (inTrackArea true) opens drop-off', true, false],
+        ['non-grouped click (inTrackArea undefined) falls back to converted', undefined, true],
     ])('%s', (_name, inTrackArea, expectedConverted) => {
         const target = resolveFunnelStepClick(noBreakdownSteps, makeClick({ dataIndex: 1, inTrackArea }))
 
@@ -227,10 +228,6 @@ describe('resolveFunnelStepClick', () => {
         expect(target?.step).toBe(noBreakdownSteps[1])
         expect(target?.series).toBe(noBreakdownSteps[1])
         expect(target?.converted).toBe(expectedConverted)
-    })
-
-    it('returns null when inTrackArea is unresolved so it never defaults to converted', () => {
-        expect(resolveFunnelStepClick(noBreakdownSteps, makeClick({ dataIndex: 1, inTrackArea: undefined }))).toBeNull()
     })
 
     it('resolves the breakdown variant via the series meta breakdownIndex', () => {

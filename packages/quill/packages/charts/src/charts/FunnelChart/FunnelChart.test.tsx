@@ -84,6 +84,20 @@ describe('FunnelChart', () => {
         expect(click.converted).toBe(converted)
     })
 
+    it('does not call onStepClick when the click is in the gap between variant bars', () => {
+        const onStepClick = jest.fn()
+        const { chart } = renderHogChart(
+            <FunnelChart steps={STEPS} series={SERIES} theme={THEME} onStepClick={onStepClick} />
+        )
+        const step = dimensions.plotWidth / STEPS.length
+        fireEvent.mouseMove(chart.element, {
+            clientX: dimensions.plotLeft + step * 1.5,
+            clientY: dimensions.plotTop + dimensions.plotHeight / 2,
+        })
+        fireEvent.click(chart.element)
+        expect(onStepClick).not.toHaveBeenCalled()
+    })
+
     it('renders one step-footer cell per step and hides the axis step labels', async () => {
         const { chart } = renderHogChart(
             <FunnelChart

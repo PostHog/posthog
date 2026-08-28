@@ -72,10 +72,8 @@ interface UseChartInteractionOptions<Meta> {
     labelToCoord?: (label: string) => number | undefined
     /** Chart-type seam: rewrite the click payload (e.g. resolve the stacked segment under the
      *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
-     *  Returning `null` suppresses the click — the cursor resolved to no bar or segment (e.g. a
-     *  funnel drop-off track ceiling), so firing against a guessed series would open the wrong
-     *  actors. Chart-type adapters provide this; consumers do not. */
-    wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta> | null
+     *  Chart-type adapters provide this; consumers do not. */
+    wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
     /** Chart-type seam: given the nearest band index and the cursor, return the effective hover index —
      *  or -1 to treat the position as a dead zone (no tooltip, pointer cursor, highlight, or click).
      *  BarChart uses it to make a capped track's blank volume gap inert. Adapters provide this. */
@@ -387,15 +385,6 @@ export function useChartInteraction<Meta = unknown>({
             let currentIndex = hoverIndexRef.current
             let clickPosition = hoverPositionRef.current
 
-            // wrapClickData may resolve the click to no bar/segment and return null — suppress the
-            // click there instead of firing onPointClick against a guessed series.
-            const fireClick = (clickData: PointClickData<Meta>): void => {
-                const resolved = wrapClickData && scales ? wrapClickData(clickData, scales) : clickData
-                if (resolved) {
-                    onPointClick?.(resolved)
-                }
-            }
-
             if (lastPointerTypeRef.current === 'touch') {
                 const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
                 const position = { x: e.clientX - rect.left, y: e.clientY - rect.top }
@@ -432,7 +421,7 @@ export function useChartInteraction<Meta = unknown>({
                                 position
                             )
                             if (clickData) {
-                                fireClick(clickData)
+                                onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
                                 return
                             }
                         }
@@ -470,7 +459,7 @@ export function useChartInteraction<Meta = unknown>({
                         clickPosition
                     )
                     if (clickData) {
-                        fireClick(clickData)
+                        onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
                         return
                     }
                 }
@@ -481,7 +470,7 @@ export function useChartInteraction<Meta = unknown>({
             if (onPointClick) {
                 const clickData = buildPointClickData(currentIndex, series, labels, resolveValue, clickPosition)
                 if (clickData) {
-                    fireClick(clickData)
+                    onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
                 }
             }
         },

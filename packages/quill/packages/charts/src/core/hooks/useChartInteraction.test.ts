@@ -406,36 +406,6 @@ describe('useChartInteraction — tooltip pinning', () => {
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
     })
 
-    it('suppresses onPointClick when wrapClickData resolves the click to null', () => {
-        // A funnel drop-off click that resolves to no bar/segment must open nothing, not fire
-        // against the band's first series — which would open the wrong (converted) actor set.
-        const onPointClick = jest.fn()
-        const { result } = renderHook(() =>
-            useChartInteraction({
-                scales,
-                dimensions,
-                labels,
-                series,
-                canvasRef: refs.canvasRef,
-                wrapperRef: refs.wrapperRef,
-                showTooltip: true,
-                pinnable: false,
-                onPointClick,
-                resolveValue: (s, i) => s.data[i],
-                wrapClickData: () => null,
-            })
-        )
-
-        act(() => {
-            simulateMouseMove(result.current.handlers, refs, 200, 100)
-        })
-        act(() => {
-            simulateClick(result.current.handlers, refs.wrapperRef.current!)
-        })
-
-        expect(onPointClick).not.toHaveBeenCalled()
-    })
-
     // Series values at Tue (x=200): a=20 -> yPixel 180, b=15 -> yPixel 185.
     it.each<[number, string]>([
         [180, 'a'],
