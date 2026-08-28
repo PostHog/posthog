@@ -14,7 +14,11 @@
 
 use crate::collector::*;
 use crate::config::{LogSource, LogsConfig};
-use crate::logs::{self, fingerprint::fingerprint, parse::*};
+use crate::logs::{
+    self,
+    fingerprint::{fingerprint, redact_literals},
+    parse::*,
+};
 use anyhow::Result;
 use async_trait::async_trait;
 use once_cell::sync::OnceCell;
@@ -297,8 +301,9 @@ struct Outputs {
     events: Vec<Event>,
 }
 
+/// Statement text as stored: literals redacted, then truncated.
 fn text(s: &str) -> Value {
-    Value::Text(s.chars().take(MAX_TEXT).collect())
+    Value::Text(redact_literals(s).chars().take(MAX_TEXT).collect())
 }
 fn opt(s: &Option<String>) -> Value {
     s.as_deref().map(text).unwrap_or(Value::Null)
@@ -401,6 +406,14 @@ impl Outputs {
                         .unwrap_or(Value::Null),
                 );
                 r.insert("query".into(), opt(&query));
+                let mut plan = plan;
+                if let Some(o) = plan.as_object_mut() {
+                    // auto_explain.log_parameter_max_length puts bound values here.
+                    o.remove("Query Parameters");
+                    if let Some(serde_json::Value::String(q)) = o.get_mut("Query Text") {
+                        *q = redact_literals(q);
+                    }
+                }
                 r.insert("plan".into(), Value::Json(plan));
                 self.plans.push(r);
             }
@@ -442,17 +455,17 @@ impl Outputs {
                 if !acquired {
                     self.events.push(Event { kind: "log_lock_wait".into(), subject: subject(e), before: None,
                         after: Some(serde_json::json!({ "at": e.ts, "pid": waiting_pid, "lock_type": lock_type, "target": target, "wait_ms": wait_ms,
-                            "detail": e.detail, "statement": e.statement.as_deref().map(|s| s.chars().take(MAX_TEXT).collect::<String>()), "log_stream": stream })) });
+                            "detail": e.detail, "statement": e.statement.as_deref().map(|s| redact_literals(s).chars().take(MAX_TEXT).collect::<String>()), "log_stream": stream })) });
                 }
             }
             Record::Deadlock => {
                 self.events.push(Event { kind: "log_deadlock".into(), subject: subject(e), before: None,
-                    after: Some(serde_json::json!({ "at": e.ts, "detail": e.detail, "hint": e.hint, "statement": e.statement, "log_stream": stream })) });
+                    after: Some(serde_json::json!({ "at": e.ts, "detail": e.detail.as_deref().map(redact_literals), "hint": e.hint, "statement": e.statement.as_deref().map(redact_literals), "log_stream": stream })) });
                 self.push_error(stream, e, "deadlock");
             }
             Record::Cancel { reason } => {
                 self.events.push(Event { kind: "log_cancel".into(), subject: subject(e), before: None,
-                    after: Some(serde_json::json!({ "at": e.ts, "reason": reason, "statement": e.statement.as_deref().map(|s| s.chars().take(MAX_TEXT).collect::<String>()), "log_stream": stream })) });
+                    after: Some(serde_json::json!({ "at": e.ts, "reason": reason, "statement": e.statement.as_deref().map(|s| redact_literals(s).chars().take(MAX_TEXT).collect::<String>()), "log_stream": stream })) });
                 self.push_error(stream, e, "cancel");
             }
             Record::Error => self.push_error(stream, e, "error"),

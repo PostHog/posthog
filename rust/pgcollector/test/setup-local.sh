@@ -31,4 +31,4 @@ psql -d app -qc "create extension if not exists pg_stat_statements; create table
 docker cp "$(dirname "$0")/aurora_stubs.sql" "$NAME:/tmp/aurora_stubs.sql"
 psql -qf /tmp/aurora_stubs.sql
 psql -qc "create extension if not exists pg_proctab" 2>/dev/null || echo "pg_proctab not available in image (optional)"
-echo "ready: postgres://postgres:test@localhost:$PORT/postgres  logs in $LOG_DIR"
+echo "ready: postgres://postgres:test@localhost:$PORT/postgres?sslmode=disable  (TLS is required unless sslmode=disable)  logs in $LOG_DIR"

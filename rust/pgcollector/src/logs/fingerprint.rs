@@ -25,6 +25,13 @@ pub fn normalize(sql: &str) -> String {
     s.trim().trim_end_matches(';').trim().to_lowercase()
 }
 
+/// Replace string literals with `'?'` and leave everything else intact, so stored
+/// statement text keeps its shape but not the values (credentials, tokens, PII)
+/// that logs and pg_stat_activity carry verbatim.
+pub fn redact_literals(sql: &str) -> String {
+    STRING.replace_all(sql, "'?'").into_owned()
+}
+
 /// FNV-1a 64 of the normalised text, as i64 so it fits a bigint column.
 pub fn fingerprint(sql: &str) -> i64 {
     let mut h: u64 = 0xcbf29ce484222325;
@@ -46,5 +53,14 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(a, c);
         assert_ne!(a, fingerprint("select * from t where id = 1"));
+    }
+
+    #[test]
+    fn redaction_keeps_shape_and_drops_values() {
+        assert_eq!(
+            redact_literals("select * from t where token = 'sk-secret' and n = 42"),
+            "select * from t where token = '?' and n = 42"
+        );
+        assert_eq!(redact_literals("select 'it''s'"), "select '?'");
     }
 }

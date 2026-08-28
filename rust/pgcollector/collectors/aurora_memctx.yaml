@@ -22,7 +22,7 @@ query: |
     FROM aurora_stat_memctx_usage() ORDER BY pid, allocated DESC
   )
   SELECT p.pid, a.backend_start, a.datname, a.usename, a.application_name, a.backend_type, a.state,
-         a.query_id, left(a.query, 500) AS query,
+         a.query_id, regexp_replace(left(a.query, 500), $$'(?:[^']|'')*'$$, '''?''', 'g') AS query,
          p.allocated_bytes, p.used_bytes, p.contexts, t.top_context, t.top_context_bytes
   FROM per_pid p
   JOIN top_ctx t USING (pid)

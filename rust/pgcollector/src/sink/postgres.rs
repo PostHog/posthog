@@ -11,7 +11,6 @@ use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Mutex;
 use tokio_postgres::types::ToSql;
-use tokio_postgres::NoTls;
 
 pub struct PostgresSink {
     pool: Pool,
@@ -55,11 +54,13 @@ const MIGRATIONS: &[(&str, &str)] =
 
 impl PostgresSink {
     pub async fn connect(cfg: &SinkConfig) -> Result<Self> {
-        let pg_cfg: tokio_postgres::Config =
+        let mut pg_cfg: tokio_postgres::Config =
             cfg.database_url.parse().context("parsing sink url")?;
+        // TLS required unless the URL opts out (see pg::tls_policy).
+        pg_cfg.ssl_mode(crate::pg::tls_policy(&cfg.database_url));
         let mgr = Manager::from_config(
             pg_cfg,
-            NoTls,
+            crate::pg::tls_connector(),
             ManagerConfig {
                 recycling_method: RecyclingMethod::Fast,
             },
@@ -193,23 +194,28 @@ impl PostgresSink {
                 let pk: Vec<String> = ["server_id".to_string(), "instance".to_string(), "datname".to_string()].iter()
                     .chain(snap.key.iter().filter(|k| !RESERVED.contains(&k.as_str()))).map(|k| q(k)).collect();
                 format!(
-                    "CREATE TABLE {table} (server_id text NOT NULL, instance text NOT NULL DEFAULT 'writer', datname text NOT NULL DEFAULT '', \
+                    "CREATE TABLE IF NOT EXISTS {table} (server_id text NOT NULL, instance text NOT NULL DEFAULT 'writer', datname text NOT NULL DEFAULT '', \
                      first_seen timestamptz NOT NULL, last_seen timestamptz NOT NULL, {}, PRIMARY KEY ({}))",
                     col_defs.join(", "),
                     pk.join(", ")
                 )
             }
             _ => format!(
-                "CREATE TABLE {table} (server_id text NOT NULL, instance text NOT NULL, datname text, collected_at timestamptz NOT NULL, \
+                "CREATE TABLE IF NOT EXISTS {table} (server_id text NOT NULL, instance text NOT NULL, datname text, collected_at timestamptz NOT NULL, \
                  interval_seconds real, {}) PARTITION BY RANGE (collected_at); \
-                 CREATE INDEX ON {table} (server_id, collected_at);",
+                 CREATE INDEX IF NOT EXISTS {table}_server_time_idx ON {table} (server_id, collected_at);",
                 col_defs.join(", ")
             ),
         };
         tracing::info!(table, "creating table");
-        c.batch_execute(&sql)
-            .await
-            .with_context(|| format!("creating {table}"))?;
+        // Several collector loops can see the same table missing at once (first tick
+        // of every database); serialise the DDL so the losers see IF NOT EXISTS hit.
+        let sql = sql.trim_end().trim_end_matches(';');
+        c.batch_execute(&format!(
+            "BEGIN; SELECT pg_advisory_xact_lock(hashtext('pgcollector:{table}')); {sql}; COMMIT;"
+        ))
+        .await
+        .with_context(|| format!("creating {table}"))?;
         if snap.kind != Kind::Snapshot {
             self.ensure_partitions(c, table).await?;
         }

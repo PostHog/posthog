@@ -15,6 +15,10 @@ cargo run -p pgcollector                        # run forever
 
 Target role: `GRANT pg_monitor TO pgcollector;` — nothing else.
 
+TLS is required for every connection (sink and targets) unless the URL says
+`sslmode=disable` (local dev) or `sslmode=prefer`. Statement text taken from
+logs and `pg_stat_activity` is stored with string literals replaced by `'?'`.
+
 Servers can be declared in TOML or discovered from env vars
 (`PGCOLLECTOR_SERVER_<ID>_URL`, `..._READER_URL`, `..._INSTANCE_<NAME>_URL`) —
 see [docs/deploy.md](docs/deploy.md) for the Helm + Terraform setup.

@@ -233,6 +233,9 @@ async fn run_server(
                 let endpoints: Vec<Endpoint> = if collector.per_instance() {
                     cluster_endpoints.clone()
                 } else if collector.prefers_reader() && server.reader_url.is_some() {
+                    // Reader-preferring database collectors (sizes, schema) read data that is
+                    // identical across the cluster (shared storage / catalog); the reader is
+                    // only used to shed load, so the rows are still labelled as the writer's.
                     vec![Endpoint {
                         instance: WRITER.into(),
                         url: server.reader_url.clone().unwrap(),

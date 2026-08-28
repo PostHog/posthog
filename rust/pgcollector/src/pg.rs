@@ -5,6 +5,30 @@ use anyhow::{Context, Result};
 use std::time::Duration;
 use tokio_postgres::Client;
 
+/// TLS policy for a database URL. TLS is required unless the URL says otherwise:
+/// `sslmode=disable` → plaintext (local dev), `sslmode=prefer` → try TLS, fall back.
+/// RDS/Aurora always offer TLS, so production URLs never need a parameter.
+pub fn tls_policy(url: &str) -> tokio_postgres::config::SslMode {
+    use tokio_postgres::config::SslMode;
+    let lower = url.to_ascii_lowercase();
+    if lower.contains("sslmode=disable") {
+        SslMode::Disable
+    } else if lower.contains("sslmode=prefer") {
+        SslMode::Prefer
+    } else {
+        SslMode::Require
+    }
+}
+
+pub fn tls_connector() -> tokio_postgres_rustls::MakeRustlsConnect {
+    let tls_cfg = rustls::ClientConfig::builder()
+        .with_root_certificates(rustls::RootCertStore {
+            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+        })
+        .with_no_client_auth();
+    tokio_postgres_rustls::MakeRustlsConnect::new(tls_cfg)
+}
+
 pub async fn connect(
     url: &str,
     statement_timeout: Duration,
@@ -16,16 +40,8 @@ pub async fn connect(
     }
     cfg.application_name("pgcollector");
     cfg.connect_timeout(Duration::from_secs(10));
+    cfg.ssl_mode(tls_policy(url));
 
-    let tls_cfg = rustls::ClientConfig::builder()
-        .with_root_certificates(rustls::RootCertStore {
-            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-        })
-        .with_no_client_auth();
-    let tls = tokio_postgres_rustls::MakeRustlsConnect::new(tls_cfg);
-
-    // SslMode::Prefer (the default) tries TLS and falls back for local/dev servers;
-    // RDS always negotiates TLS. Set `?sslmode=require` in the URL to forbid fallback.
     let client = match cfg.get_ssl_mode() {
         tokio_postgres::config::SslMode::Disable => {
             let (client, connection) = cfg
@@ -40,7 +56,7 @@ pub async fn connect(
             client
         }
         _ => {
-            let (client, connection) = cfg.connect(tls).await.context("connecting")?;
+            let (client, connection) = cfg.connect(tls_connector()).await.context("connecting")?;
             tokio::spawn(async move {
                 if let Err(e) = connection.await {
                     tracing::warn!(error = %e, "target connection closed");
@@ -78,8 +94,10 @@ pub async fn connect(
         .await?
         .get(0);
     if pid1 != pid2 || t != format!("{ms}ms") && t != format!("{}s", ms / 1000) {
-        anyhow::bail!("session settings do not persist across statements (backend pid {pid1} -> {pid2}, statement_timeout={t}); \
-                       this looks like a transaction-pooling PgBouncer — point pgcollector at Postgres directly (pgbouncer: false)");
+        anyhow::bail!(
+            "session settings do not persist across statements (backend pid {pid1} -> {pid2}, statement_timeout={t}); \
+             this looks like a transaction-pooling PgBouncer — point pgcollector at Postgres directly (pgbouncer: false)"
+        );
     }
     Ok(client)
 }

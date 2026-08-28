@@ -1,4 +1,5 @@
 [sink]
+# TLS is required unless the URL says sslmode=disable (local dev) or sslmode=prefer.
 database_url = "${PGCOLLECTOR_SINK_URL}"
 retention_days = 14
 
