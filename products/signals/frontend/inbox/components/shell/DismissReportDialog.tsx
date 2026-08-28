@@ -4,6 +4,7 @@ import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import { DISMISSAL_REASON_OPTIONS, DismissalReasonValue } from '../../utils/dismissalReasons'
+import { HotkeyRadio } from './HotkeyRadio'
 
 export interface DismissReportDialogResult {
     reason: DismissalReasonValue
@@ -15,6 +16,8 @@ interface OpenDismissReportDialogParams {
     reportTitle?: string | null
     /** When greater than 1, copy reflects a bulk dismiss of the current selection. */
     selectedCount?: number
+    /** Show a digit keycap on each reason and let 1..9 pick it. On for triage mode, where the whole flow is keyboard-driven. */
+    hotkeys?: boolean
     /** Called with the chosen reason + note once the user confirms. */
     onConfirm: (result: DismissReportDialogResult) => void | Promise<void>
 }
@@ -34,6 +37,7 @@ const REASON_RADIO_OPTIONS: LemonRadioOption<DismissalReasonValue>[] = DISMISSAL
 export function openDismissReportDialog({
     reportTitle,
     selectedCount = 1,
+    hotkeys = false,
     onConfirm,
 }: OpenDismissReportDialogParams): void {
     const isBulk = selectedCount > 1
@@ -52,9 +56,13 @@ export function openDismissReportDialog({
         content: (
             <div className="flex flex-col gap-3">
                 <LemonField name="reason" label="Reason">
-                    {({ value, onChange }) => (
-                        <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
-                    )}
+                    {({ value, onChange }) =>
+                        hotkeys ? (
+                            <HotkeyRadio value={value} onChange={onChange} options={DISMISSAL_REASON_OPTIONS} />
+                        ) : (
+                            <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
+                        )
+                    }
                 </LemonField>
                 <LemonField name="note" label="Note" info="Optional. The agent reads it on its next run.">
                     <LemonTextArea

@@ -370,6 +370,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 }
                 openDismissReportDialog({
                     reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
+                    hotkeys: true,
                     onConfirm: ({ reason, note }) => {
                         // The structured reason plus the user's note, matching the list-card dismiss
                         // path so the dismiss analytics read the same from every surface.
@@ -392,6 +393,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 // Triage walks Needs a PR, so no report here has an open PR to close.
                 openResolveReportDialog({
                     reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
+                    hotkeys: true,
                     onConfirm: ({ reason, note }) => {
                         // Only the structured reason — the free-form note can carry proprietary text.
                         // `resolveReport` still persists it through the state API. Matches the bulk resolve path.

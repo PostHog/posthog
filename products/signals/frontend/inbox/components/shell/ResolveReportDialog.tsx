@@ -4,6 +4,7 @@ import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import { RESOLVE_REASON_OPTIONS, ResolveReasonValue } from '../../utils/dismissalReasons'
+import { HotkeyRadio } from './HotkeyRadio'
 
 export interface ResolveReportDialogResult {
     reason: ResolveReasonValue
@@ -17,6 +18,8 @@ interface OpenResolveReportDialogParams {
     selectedCount?: number
     /** Whether the report has an implementation PR that is still open. Resolving closes it, so the copy says so. */
     hasOpenPr?: boolean
+    /** Show a digit keycap on each reason and let 1..9 pick it. On for triage mode, where the whole flow is keyboard-driven. */
+    hotkeys?: boolean
     /** Called with the chosen reason + note once the user confirms. */
     onConfirm: (result: ResolveReportDialogResult) => void | Promise<void>
 }
@@ -28,14 +31,16 @@ const REASON_RADIO_OPTIONS: LemonRadioOption<ResolveReasonValue>[] = RESOLVE_REA
 
 /**
  * Opens the resolve dialog: pick why the report is done (canonical {@link RESOLVE_REASON_OPTIONS})
- * plus an optional note, then mark it resolved. Same shape as {@link openDismissReportDialog}, so
- * the two verdicts read alike. The caller wires `onConfirm` to the bulk-resolve action or a direct
+ * plus an optional note, then mark it resolved with Enter or the button. Same shape as
+ * {@link openDismissReportDialog}, so the two verdicts read alike. The caller wires `onConfirm` to
+ * the bulk-resolve action or a direct
  * `api.signalReports.setState(id, { state: 'resolved', dismissal_reason, dismissal_note })`.
  */
 export function openResolveReportDialog({
     reportTitle,
     selectedCount = 1,
     hasOpenPr = false,
+    hotkeys = false,
     onConfirm,
 }: OpenResolveReportDialogParams): void {
     const isBulk = selectedCount > 1
@@ -56,9 +61,13 @@ export function openResolveReportDialog({
         content: (
             <div className="flex flex-col gap-3">
                 <LemonField name="reason" label="Reason">
-                    {({ value, onChange }) => (
-                        <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
-                    )}
+                    {({ value, onChange }) =>
+                        hotkeys ? (
+                            <HotkeyRadio value={value} onChange={onChange} options={RESOLVE_REASON_OPTIONS} />
+                        ) : (
+                            <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
+                        )
+                    }
                 </LemonField>
                 <LemonField
                     name="note"
