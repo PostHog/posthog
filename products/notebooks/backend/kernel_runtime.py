@@ -22,6 +22,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team, User
 from posthog.redis import get_client
 
+from products.notebooks.backend.compute_pricing import get_default_compute_preset
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.tasks.backend.facade.sandbox import (
     SandboxBase,
@@ -235,11 +236,12 @@ class KernelRuntimeSession:
 
 
 def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
+    default_preset = get_default_compute_preset()
     sandbox_config = SandboxConfig(
         name=f"notebook-kernel-{notebook.short_id}",
         template=SandboxTemplate.NOTEBOOK_BASE,
-        cpu_cores=1,
-        memory_gb=2,
+        cpu_cores=default_preset.cpu_cores,
+        memory_gb=default_preset.memory_gb,
         ttl_seconds=NOTEBOOK_KERNEL_TTL_SECONDS,
     )
     if notebook.kernel_cpu_cores:

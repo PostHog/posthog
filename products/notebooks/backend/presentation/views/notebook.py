@@ -63,6 +63,12 @@ from products.notebooks.backend.analytics import (
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
+from products.notebooks.backend.compute_pricing import (
+    COMPUTE_PRESETS,
+    DEFAULT_COMPUTE_PRESET_KEY,
+    find_matching_preset,
+    get_compute_rates,
+)
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
@@ -87,6 +93,7 @@ from products.notebooks.backend.sql_v2_references import (
 from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
     MAX_VARIABLES_PER_NOTEBOOK,
+    NotebookComputeOptionsResponseSerializer,
     NotebookKernelConfigResponseSerializer,
     NotebookKernelStatusResponseSerializer,
     NotebookSQLV2InterruptResponseSerializer,
@@ -970,6 +977,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "memory_gb": sandbox_config.memory_gb,
                 "disk_size_gb": sandbox_config.disk_size_gb,
                 "idle_timeout_seconds": sandbox_config.ttl_seconds,
+                "hourly_price": get_compute_rates().hourly_price(
+                    cpu_cores=cpu_cores, memory_gb=sandbox_config.memory_gb
+                ),
+                "preset_key": self._preset_key_for(cpu_cores, sandbox_config.memory_gb),
             }
         )
 
@@ -1001,6 +1012,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if notebook.pk:
             notebook.save(update_fields=update_fields)
 
+        # Price the shape the next sandbox will actually get, so a notebook that leaves one knob
+        # unset is still quoted against the default that fills it in.
+        configured = build_notebook_sandbox_config(notebook)
         return Response(
             {
                 "cpu_cores": notebook.kernel_cpu_cores,
@@ -1011,6 +1025,48 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     notebook_short_id=notebook.short_id,
                     status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
                 ).exists(),
+                "hourly_price": get_compute_rates().hourly_price(
+                    cpu_cores=configured.cpu_cores, memory_gb=configured.memory_gb
+                ),
+                "preset_key": self._preset_key_for(configured.cpu_cores, configured.memory_gb),
+            }
+        )
+
+    @staticmethod
+    def _preset_key_for(cpu_cores: float | None, memory_gb: float | None) -> str | None:
+        preset = find_matching_preset(cpu_cores=cpu_cores, memory_gb=memory_gb)
+        return preset.key if preset else None
+
+    @extend_schema(
+        responses={200: NotebookComputeOptionsResponseSerializer},
+        description=(
+            "Compute rates, presets, and the sizes the kernel config endpoint accepts. Static per region, "
+            "so a client can fetch it once and price any shape a user picks."
+        ),
+    )
+    @action(methods=["GET"], url_path="kernel/compute_options", detail=False, required_scopes=["notebook:read"])
+    def kernel_compute_options(self, request: Request, **kwargs):
+        rates = get_compute_rates()
+        return Response(
+            {
+                "currency": "USD",
+                "cpu_rate_per_core_hour": rates.cpu_per_core_hour,
+                "memory_rate_per_gb_hour": rates.memory_per_gb_hour,
+                "default_preset_key": DEFAULT_COMPUTE_PRESET_KEY,
+                "presets": [
+                    {
+                        "key": preset.key,
+                        "name": preset.name,
+                        "description": preset.description,
+                        "cpu_cores": preset.cpu_cores,
+                        "memory_gb": preset.memory_gb,
+                        "hourly_price": rates.hourly_price(cpu_cores=preset.cpu_cores, memory_gb=preset.memory_gb),
+                    }
+                    for preset in COMPUTE_PRESETS
+                ],
+                "allowed_cpu_cores": ALLOWED_KERNEL_CPU_CORES,
+                "allowed_memory_gb": ALLOWED_KERNEL_MEMORY_GB,
+                "allowed_idle_timeout_seconds": ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS,
             }
         )
 

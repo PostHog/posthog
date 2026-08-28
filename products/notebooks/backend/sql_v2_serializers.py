@@ -472,6 +472,45 @@ class NotebookKernelStatusResponseSerializer(serializers.Serializer):
     idle_timeout_seconds = serializers.IntegerField(
         required=False, allow_null=True, help_text="Seconds of inactivity before the sandbox shuts down."
     )
+    hourly_price = serializers.FloatField(
+        help_text=(
+            "What this sandbox shape costs per hour in USD while it is alive, at this region's rates. "
+            "Charged on the sandbox's lifetime, not on how much of it a cell uses."
+        )
+    )
+    preset_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Compute preset this shape matches, or null when the shape was tuned by hand.",
+    )
+
+
+class NotebookComputePresetSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Stable identifier for the preset, e.g. 'balanced'.")
+    name = serializers.CharField(help_text="Preset name as a person reads it, e.g. 'Balanced'.")
+    description = serializers.CharField(help_text="What this preset suits, in one sentence.")
+    cpu_cores = serializers.FloatField(help_text="CPU cores the preset provisions.")
+    memory_gb = serializers.FloatField(help_text="Memory in GB the preset provisions.")
+    hourly_price = serializers.FloatField(help_text="What this preset costs per hour in USD while it is alive.")
+
+
+class NotebookComputeOptionsResponseSerializer(serializers.Serializer):
+    currency = serializers.CharField(help_text="Currency of every price in this response. Always 'USD'.")
+    cpu_rate_per_core_hour = serializers.FloatField(help_text="Price of one CPU core for one hour, in USD.")
+    memory_rate_per_gb_hour = serializers.FloatField(help_text="Price of one GB of memory for one hour, in USD.")
+    default_preset_key = serializers.CharField(
+        help_text="Preset a sandbox starts with when the notebook sets no compute config."
+    )
+    presets = NotebookComputePresetSerializer(many=True, help_text="Sandbox shapes offered as one-click options.")
+    allowed_cpu_cores = serializers.ListField(
+        child=serializers.FloatField(), help_text="CPU core counts the kernel config endpoint accepts."
+    )
+    allowed_memory_gb = serializers.ListField(
+        child=serializers.FloatField(), help_text="Memory sizes in GB the kernel config endpoint accepts."
+    )
+    allowed_idle_timeout_seconds = serializers.ListField(
+        child=serializers.IntegerField(), help_text="Idle timeouts in seconds the kernel config endpoint accepts."
+    )
 
 
 class NotebookKernelConfigResponseSerializer(serializers.Serializer):
@@ -489,6 +528,17 @@ class NotebookKernelConfigResponseSerializer(serializers.Serializer):
             "True when a kernel is currently active: config applies at sandbox provision time, so the "
             "running kernel keeps its old resources until restarted (restarting loses materialized dataframes)."
         )
+    )
+    hourly_price = serializers.FloatField(
+        help_text=(
+            "What the configured shape costs per hour in USD while the sandbox is alive, at this region's "
+            "rates. Reflects the config just saved, so a running kernel still bills its old shape until restart."
+        )
+    )
+    preset_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Compute preset the configured shape matches, or null when it was tuned by hand.",
     )
 
 
