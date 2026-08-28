@@ -439,12 +439,9 @@ export type surveysLogicType = MakeLogicType<
     surveysLogicMeta
 >
 
-function loadResponseCountsForSurveys(
-    actions: Pick<surveysLogicActions, 'loadResponsesCount'>,
-    surveys: Survey[]
-): void {
+function loadResponseCountsForSurveys(loadResponsesCount: (surveyIds: string[]) => void, surveys: Survey[]): void {
     if (surveys.length > 0) {
-        actions.loadResponsesCount(surveys.map((survey) => survey.id))
+        loadResponsesCount(surveys.map((survey) => survey.id))
     }
 }
 
@@ -493,14 +490,14 @@ export const surveysLogic = kea<surveysLogicType>([
             } as SurveyDataState,
             loadSurveys: async () => {
                 const response = await api.surveys.list(getSurveyListParams(values.filters))
-                loadResponseCountsForSurveys(actions, response.results)
+                loadResponseCountsForSurveys(actions.loadResponsesCount, response.results)
                 return mergeSurveysData(values.data, response)
             },
             loadNextPage: async () => {
                 const offset = values.data.surveys.length
                 const response = await api.surveys.list(getSurveyListParams(values.filters, undefined, offset))
 
-                loadResponseCountsForSurveys(actions, response.results)
+                loadResponseCountsForSurveys(actions.loadResponsesCount, response.results)
                 return mergeSurveysData(values.data, response, true)
             },
             loadSearchResults: async (options: { debounce?: boolean } | undefined, breakpoint) => {
@@ -515,14 +512,14 @@ export const surveysLogic = kea<surveysLogicType>([
                 const response = await api.surveys.list(getSurveyListParams(values.filters, trimmedSearchTerm))
                 breakpoint()
 
-                loadResponseCountsForSurveys(actions, response.results)
+                loadResponseCountsForSurveys(actions.loadResponsesCount, response.results)
                 return mergeSearchSurveysData(values.data, response)
             },
             loadNextSearchPage: async () => {
                 const offset = values.data.searchSurveys.length
                 const response = await api.surveys.list(getSurveyListParams(values.filters, values.searchTerm, offset))
 
-                loadResponseCountsForSurveys(actions, response.results)
+                loadResponseCountsForSurveys(actions.loadResponsesCount, response.results)
                 return mergeSearchSurveysData(values.data, response, true)
             },
             deleteSurvey: async (id) => {
