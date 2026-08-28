@@ -8,13 +8,16 @@ import defusedxml.ElementTree as ET
 from defusedxml.common import DefusedXmlException
 from defusedxml.ElementTree import ParseError as DefusedParseError
 
-from products.web_analytics.backend.public_url_fetch import PublicUrlFetchError, fetch_public_url
+from products.web_analytics.backend.public_url_fetch import (
+    PUBLIC_URL_REDIRECT_STATUSES,
+    PublicUrlFetchError,
+    fetch_public_url,
+)
 
 _MAX_DISCOVERY_BYTES = 512 * 1024
 _MAX_REDIRECTS = 2
 _MAX_SITEMAP_CANDIDATES = 5
 _MAX_DISCOVERY_SECONDS = 20.0
-_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
@@ -68,7 +71,7 @@ def normalize_site_origin(raw_url: str) -> str:
     return urlunparse((scheme, netloc, "", "", "", ""))
 
 
-def _origin_key(url: str) -> tuple[str, str, int] | None:
+def _origin_key(url: str) -> str | None:
     try:
         parsed = urlparse(url)
         scheme = parsed.scheme.lower()
@@ -78,7 +81,7 @@ def _origin_key(url: str) -> tuple[str, str, int] | None:
         return None
     if scheme not in _DEFAULT_PORTS or not hostname or parsed.username or parsed.password:
         return None
-    return scheme, hostname, port if port is not None else _DEFAULT_PORTS[scheme]
+    return f"{scheme}://{hostname}:{port if port is not None else _DEFAULT_PORTS[scheme]}"
 
 
 def has_same_public_origin(first_url: str, second_url: str) -> bool:
@@ -102,7 +105,7 @@ def _fetch_text(url: str, *, deadline: float) -> str:
             connect_timeout_seconds=3.0,
             read_timeout_seconds=5.0,
         )
-        if response.status_code in _REDIRECT_STATUSES:
+        if response.status_code in PUBLIC_URL_REDIRECT_STATUSES:
             location = response.headers.get("location")
             if not location:
                 raise PublicUrlFetchError("read", "The site returned an invalid redirect.")

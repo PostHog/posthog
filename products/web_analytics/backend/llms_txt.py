@@ -4,14 +4,18 @@ import urllib.parse as urlparse
 from posthog.dataclasses import frozen
 from posthog.security.url_validation import strip_userinfo
 
-from products.web_analytics.backend.public_url_fetch import PublicUrlFetchError, PublicUrlFetchFailure, fetch_public_url
+from products.web_analytics.backend.public_url_fetch import (
+    PUBLIC_URL_REDIRECT_STATUSES,
+    PublicUrlFetchError,
+    PublicUrlFetchFailure,
+    fetch_public_url,
+)
 
 LLMS_TXT_MAX_BYTES = 1024 * 1024
 LLMS_TXT_MAX_REDIRECTS = 3
 LLMS_TXT_CONNECT_TIMEOUT_SECONDS = 3.05
 LLMS_TXT_READ_TIMEOUT_SECONDS = 10.0
 LLMS_TXT_TOTAL_BUDGET_SECONDS = 20.0
-LLMS_TXT_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 LLMS_TXT_FETCH_FAILURE_MESSAGES: dict[PublicUrlFetchFailure, str] = {
     "blocked": "Enter a publicly accessible HTTP or HTTPS URL.",
     "compressed": "The URL returned a compressed file. Serve llms.txt as plain text.",
@@ -54,7 +58,7 @@ def fetch_llms_txt(url: str) -> FetchedLlmsTxt:
         except PublicUrlFetchError as error:
             raise LlmsTxtFetchError(LLMS_TXT_FETCH_FAILURE_MESSAGES[error.failure]) from error
 
-        if response.status_code in LLMS_TXT_REDIRECT_STATUSES:
+        if response.status_code in PUBLIC_URL_REDIRECT_STATUSES:
             location = response.headers.get("location")
             if not location:
                 raise LlmsTxtFetchError("The URL redirected without a destination.")

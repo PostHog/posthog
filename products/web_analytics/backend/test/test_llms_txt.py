@@ -56,9 +56,19 @@ def _session(response: Mock) -> Mock:
     return session
 
 
+@pytest.mark.parametrize(
+    "redirect_headers",
+    [
+        {"Location": "/llms-full.txt"},
+        {"Location": "/llms-full.txt", "Content-Encoding": "gzip"},
+        {"Location": "/llms-full.txt", "Content-Length": str(LLMS_TXT_MAX_BYTES + 1)},
+    ],
+)
 @patch("products.web_analytics.backend.public_url_fetch.pinned_session")
-def test_fetch_llms_txt_revalidates_redirect_targets(pinned_session_mock: Mock) -> None:
-    redirect = _response(status_code=302, headers={"Location": "/llms-full.txt"})
+def test_fetch_llms_txt_revalidates_redirect_targets(
+    pinned_session_mock: Mock, redirect_headers: dict[str, str]
+) -> None:
+    redirect = _response(status_code=302, headers=redirect_headers)
     success = _response(chunks=[b"# Example\n", b"- https://example.com/docs"])
     pinned_session_mock.side_effect = [nullcontext(_session(redirect)), nullcontext(_session(success))]
 

@@ -13,6 +13,7 @@ PublicUrlFetchFailure = Literal["blocked", "compressed", "deadline", "read", "to
 
 PUBLIC_URL_READ_CHUNK_BYTES = 64 * 1024
 PUBLIC_URL_ACCEPTED_CONTENT_ENCODINGS = {"", "identity"}
+PUBLIC_URL_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
 class PublicUrlFetchError(Exception):
@@ -83,6 +84,10 @@ def fetch_public_url(
                 stream=True,
             )
             try:
+                headers = {name.lower(): value for name, value in response.headers.items()}
+                if response.status_code in PUBLIC_URL_REDIRECT_STATUSES:
+                    return FetchedPublicUrl(status_code=response.status_code, headers=headers, body=b"")
+
                 content_encoding = response.headers.get("Content-Encoding", "").strip().lower()
                 if content_encoding not in PUBLIC_URL_ACCEPTED_CONTENT_ENCODINGS:
                     raise PublicUrlFetchError("compressed")
@@ -93,7 +98,7 @@ def fetch_public_url(
 
                 return FetchedPublicUrl(
                     status_code=response.status_code,
-                    headers={name.lower(): value for name, value in response.headers.items()},
+                    headers=headers,
                     body=_read_response_body(response, deadline=deadline, max_bytes=max_bytes),
                 )
             finally:
