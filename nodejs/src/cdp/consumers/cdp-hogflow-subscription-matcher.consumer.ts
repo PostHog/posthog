@@ -9,7 +9,7 @@ import {
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
 } from '~/common/config/kafka-topics'
-import { KafkaConsumerInterface, RdKafkaConsumerConfig, createKafkaConsumer } from '~/common/kafka/consumer'
+import { KafkaConsumerInterface, START_AT_LATEST, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -45,7 +45,7 @@ import { counterParseError } from './metrics'
 // volume) topic backlog. Once the group has committed offsets, both consumer impls resume from them
 // regardless of this value — so steady-state recovery is committed-offset resume; latest only governs
 // the first bootstrap and offset-loss edge cases (covered by the deferred lag alerting follow-up).
-const startAtLatest = { ['auto.offset.reset' as keyof RdKafkaConsumerConfig]: 'latest' as never }
+const startAtLatest = START_AT_LATEST
 
 // Expired watchers are not urgent — they have already stopped matching via the expires_at predicate,
 // so this only reclaims space.
