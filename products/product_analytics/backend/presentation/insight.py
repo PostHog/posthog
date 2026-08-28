@@ -1522,7 +1522,16 @@ class MCPInsightSerializer(InsightSerializer):
         # Already-wrapped node → use as-is
         for wrapped_cls in (schema.DataVisualizationNode, schema.InsightVizNode):
             try:
-                return wrapped_cls.model_validate(value).model_dump(exclude_none=True, mode="json")
+                wrapped_node = wrapped_cls.model_validate(value)
+                normalized_query = wrapped_node.model_dump(exclude_none=True, mode="json")
+                if isinstance(wrapped_node, schema.DataVisualizationNode):
+                    box_plot = wrapped_node.chartSettings.boxPlot if wrapped_node.chartSettings else None
+                    if box_plot is not None:
+                        normalized_box_plot = normalized_query.setdefault("chartSettings", {}).setdefault("boxPlot", {})
+                        for field in ("xAxisColumn", "seriesColumn"):
+                            if field in box_plot.model_fields_set and getattr(box_plot, field) is None:
+                                normalized_box_plot[field] = None
+                return normalized_query
             except PydanticValidationError:
                 pass
 

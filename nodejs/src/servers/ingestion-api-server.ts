@@ -1,5 +1,4 @@
 import { Message } from 'node-rdkafka'
-import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { initializePrometheusLabels } from '~/common/api/router'
@@ -70,6 +69,14 @@ import {
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
+import {
+    AcceptedBatch,
+    batchAccepted,
+    batchFailed,
+    batchProcessed,
+    batchRejectedAtCapacity,
+    batchReleased,
+} from '../ingestion/api/batch-metrics'
 import { FeedOrderSentinel } from '../ingestion/api/feed-order-sentinel'
 import { WorkerIngestServer } from '../ingestion/api/grpc-server'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
@@ -129,60 +136,6 @@ export type IngestionApiServerConfig = BaseServerConfig &
         | 'HEALTHCHECK_MAX_STALE_SECONDS'
         | 'KAFKA_HEALTHCHECK_SECONDS'
     >
-
-const batchesProcessed = new Counter({
-    name: 'ingestion_api_batches_processed_total',
-    help: 'Total number of batches processed by the ingestion API',
-})
-
-const batchProcessingDuration = new Histogram({
-    name: 'ingestion_api_batch_processing_duration_ms',
-    help: 'Duration of batch processing in milliseconds',
-    buckets: [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000],
-})
-
-const messagesProcessed = new Counter({
-    name: 'ingestion_api_messages_processed_total',
-    help: 'Total number of messages processed by the ingestion API',
-})
-
-const batchErrors = new Counter({
-    name: 'ingestion_api_batch_errors_total',
-    help: 'Total number of batch processing errors',
-})
-
-const batchCapacityRejections = new Counter({
-    name: 'ingestion_api_batch_capacity_rejections_total',
-    help: 'Total number of batches rejected because the pipeline was at concurrent batch capacity',
-})
-
-const batchesInFlight = new Gauge({
-    name: 'ingestion_api_batches_in_flight',
-    help: 'Number of accepted batches currently being processed by the ingestion API (concurrent batches)',
-})
-
-// Companion to `batchesInFlight`, and the one to autoscale on: batch sizes vary
-// several-fold with consumer batching and routing, so a batch count says little
-// about how much work a pod is holding. Events in flight is invariant to how the
-// consumer slices a batch, which keeps a scaling target stable across dispatcher
-// tuning changes.
-const eventsInFlight = new Gauge({
-    name: 'ingestion_api_events_in_flight',
-    help: 'Number of events in accepted batches currently being processed by the ingestion API',
-})
-
-// The integral of `eventsInFlight` over time, accumulated one batch at a time:
-// a batch holding N events for T seconds contributes N*T. Because
-// integral(in_flight dt) equals sum(events * time in flight), rate() over this
-// counter is the exact time-weighted mean events in flight for the interval,
-// where the gauge above only reports whatever instant the scrape happened to
-// land on. In-flight turns over on a sub-second timescale and scrapes are tens
-// of seconds apart, so the gauge is far too noisy to autoscale on directly.
-// Same relationship as container_cpu_usage_seconds_total and CPU utilization.
-const eventSecondsInFlight = new Counter({
-    name: 'ingestion_api_event_seconds_in_flight_total',
-    help: 'Cumulative event-seconds spent in flight; rate() gives mean events in flight',
-})
 
 /**
  * Ingestion API server that exposes the ingestion pipeline as an HTTP endpoint.
@@ -579,12 +532,9 @@ export class IngestionApiServer implements NodeServer {
             return
         }
 
-        const startTime = Date.now()
-
-        // Event count and acceptance time of this batch once accepted, or null
-        // while it is not. Holding both (rather than a bool) makes the `finally`
-        // credit exactly what was counted, even if `messages` is out of scope.
-        let inFlight: { events: number; acceptedAt: number } | null = null
+        // Set once the pipeline accepts the batch, so the `finally` releases
+        // exactly what was counted.
+        let inFlight: AcceptedBatch | null = null
 
         try {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
@@ -613,7 +563,7 @@ export class IngestionApiServer implements NodeServer {
                 // can't silently downgrade us to a fall-through 500 — which
                 // the Rust transport treats as retriable.
                 if (feedResult.kind === 'at_capacity') {
-                    batchCapacityRejections.inc()
+                    batchRejectedAtCapacity()
                     res.status(503).json({
                         batch_id: batch_id ?? '',
                         status: 'error',
@@ -627,9 +577,7 @@ export class IngestionApiServer implements NodeServer {
 
             // Batch accepted into the pipeline — it now occupies a concurrent
             // slot until processing completes below.
-            batchesInFlight.inc()
-            eventsInFlight.inc(messages.length)
-            inFlight = { events: messages.length, acceptedAt: Date.now() }
+            inFlight = batchAccepted(messages.length)
 
             // The pipeline handles its own side effects (scheduling them on
             // the promise scheduler), so draining results is all that's left
@@ -645,13 +593,11 @@ export class IngestionApiServer implements NodeServer {
             // afterBatch flush step, so it's covered by waitForAll().
             await this.promiseScheduler.waitForAll()
 
-            batchesProcessed.inc()
-            messagesProcessed.inc(messages.length)
-            batchProcessingDuration.observe(Date.now() - startTime)
+            batchProcessed(inFlight)
 
             res.status(200).json({ batch_id, status: 'ok', accepted: messages.length })
         } catch (err) {
-            batchErrors.inc()
+            batchFailed()
             const error = err instanceof Error ? err : new Error(String(err))
             logger.error('💥', 'Ingestion API batch processing failed', { batch_id, error: error.message })
             // A throw here can leave the shared pipeline permanently poisoned, so
@@ -668,9 +614,7 @@ export class IngestionApiServer implements NodeServer {
             res.status(500).json({ batch_id, status: 'error', accepted: 0, error: error.message })
         } finally {
             if (inFlight !== null) {
-                batchesInFlight.dec()
-                eventsInFlight.dec(inFlight.events)
-                eventSecondsInFlight.inc((inFlight.events * (Date.now() - inFlight.acceptedAt)) / 1000)
+                batchReleased(inFlight)
             }
         }
     }

@@ -4,6 +4,8 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
@@ -11,21 +13,33 @@ import type { UserType } from '~/types'
 import { captureInboxReportAction } from '../inboxAnalytics'
 import {
     ACTIONABLE_ACTIONABILITY_VALUES,
+    INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY,
+    INBOX_PRIMARY_REPORT_SECTION_KEY,
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_FOR_YOU,
-    InboxFlatListTabKey,
+    InboxReportSectionKey,
     InboxScope,
     SignalReport,
 } from '../types'
 import type { SignalReportPriority } from '../types'
 import { DismissalReasonValue } from '../utils/dismissalReasons'
+import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
 
 const PAGE_SIZE = 50
 
-/** Fixed, tab-defining server filter (e.g. `{ has_implementation_pr: 'true' }`). */
+/**
+ * How many rows a section shows before "Show more". Sections stack in one column, so each one has
+ * to stay short enough that the sections below it are still reachable without scrolling past a
+ * whole list. Well under the server `PAGE_SIZE`, so the first few "Show more" presses are free.
+ */
+// Annotated rather than inferred: kea-typegen reads a bare `= 5` as the literal type `5` and
+// types the reducer it defaults as `5`, which then rejects the widened value.
+export const SECTION_PAGE_SIZE: number = 5
+
+/** Fixed, section-defining server filter (e.g. `{ has_implementation_pr: 'true' }`). */
 export type ReportListParams = Record<string, string>
 
 /** A list response stamped with the query params and display context that produced it (see the loader). */
@@ -35,26 +49,28 @@ export type ReportListResponse = CountedPaginatedResponse<SignalReport> & {
 }
 
 export interface ReportListLogicProps {
-    tabKey: InboxFlatListTabKey
-    /** The tab's fixed server filter. User-driven chrome (search/sort/source/priority/scope) is layered on top. */
+    sectionKey: InboxReportSectionKey
+    /** The section's fixed server filter. User-driven chrome (search/sort/source/priority/scope) layers on top. */
     listParams: ReportListParams
 }
 
 /**
- * The fixed server filter per flat tab – the single source of truth shared by the tab
- * bodies, the count chips, and the scene. Mirrors the backend filters confirmed in the plan.
+ * The fixed server filter per report section – the single source of truth shared by the section
+ * bodies, the header counts, and the scene.
  */
-export const INBOX_FLAT_TAB_LIST_PARAMS: Record<InboxFlatListTabKey, ReportListParams> = {
-    pulls: { has_implementation_pr: 'true', status: 'ready' },
-    reports: {
+export const INBOX_REPORT_SECTION_LIST_PARAMS: Record<InboxReportSectionKey, ReportListParams> = {
+    // An implementation PR is open, waiting to be reviewed and merged.
+    monitoring: { has_implementation_pr: 'true', status: 'ready' },
+    // Researched and actionable, but no PR has been opened for it yet.
+    'needs-decision': {
         has_implementation_pr: 'false',
         status: 'ready,pending_input',
         actionability: ACTIONABLE_ACTIONABILITY_VALUES.join(','),
     },
+    // Terminal reports: ones resolved by a merged implementation PR (not restorable) and ones
+    // the user archived (suppressed, restorable).
+    resolved: { status: 'suppressed,resolved' },
     'not-actionable': { actionability: 'not_actionable' },
-    // Archive = terminal reports: ones the user dismissed (suppressed, restorable) and ones
-    // resolved by a merged implementation PR (terminal, not restorable).
-    archived: { status: 'suppressed,resolved' },
 }
 
 function teammateUuidFromScope(scope: string): string | undefined {
@@ -81,20 +97,21 @@ function requestContextFromValues(values: {
 
 /**
  * Whether to auto-switch the reviewer scope to Entire project on first load. True only for the
- * Pull requests tab when the user is still on the (default) For-you scope, hasn't chosen a scope
- * themselves, has resolved to a real user, and has zero PRs suggested to them — so a user with
- * nothing assigned doesn't land on an empty view. Pure so the branching is unit-testable without
- * mounting the logic.
+ * primary section (Needs a PR under the redesign, the Pull requests list with the flag off) when
+ * the user is still on the (default) For-you scope, hasn't chosen a scope themselves, has resolved
+ * to a real user, and has zero reports suggested to them — so a user with nothing assigned doesn't
+ * land on an empty inbox. Pure so the branching is unit-testable without mounting the logic.
  */
 export function shouldDefaultToEntireProject(input: {
-    tabKey: InboxFlatListTabKey
+    sectionKey: InboxReportSectionKey
+    primarySectionKey: InboxReportSectionKey
     scope: InboxScope
     hasUserChosenScope: boolean
     hasResolvedUser: boolean
     count: number | null
 }): boolean {
     return (
-        input.tabKey === 'pulls' &&
+        input.sectionKey === input.primarySectionKey &&
         input.scope === INBOX_SCOPE_FOR_YOU &&
         !input.hasUserChosenScope &&
         input.hasResolvedUser &&
@@ -104,6 +121,7 @@ export function shouldDefaultToEntireProject(input: {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface reportListLogicValues {
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     hasUserChosenScope: boolean // inboxFiltersLogic
     priorityFilter: SignalReportPriority[] // inboxFiltersLogic
     scope: InboxScope // inboxFiltersLogic
@@ -116,6 +134,7 @@ export interface reportListLogicValues {
     count: number | null
     countLoading: boolean
     hasMore: boolean
+    hiddenReportCount: number
     isLoaded: boolean
     listApiParams: any
     loadedContext: {
@@ -123,10 +142,14 @@ export interface reportListLogicValues {
         scope: InboxScope
     } | null
     loadedQueryKey: string | null
+    primarySectionKey: InboxReportSectionKey
     reports: SignalReport[]
+    reportsLoadFailed: boolean
     reportsResponse: ReportListResponse | null
     reportsResponseLoading: boolean
     totalCount: number | null
+    visibleCount: number
+    visibleReports: SignalReport[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -139,6 +162,9 @@ export interface reportListLogicActions {
     } // inboxFiltersLogic
     setFilters: (filters: InboxFilterState) => {
         filters: InboxFilterState
+    } // inboxFiltersLogic
+    setPriorityFilter: (priorities: SignalReportPriority[]) => {
+        priorities: SignalReportPriority[]
     } // inboxFiltersLogic
     setScope: (scope: InboxScope) => {
         scope: InboxScope
@@ -237,12 +263,16 @@ export interface reportListLogicActions {
     restoreReport: (reportId: string) => {
         reportId: string
     }
+    showMore: () => {
+        value: true
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface reportListLogicMeta {
-    key: 'archived' | 'not-actionable' | 'pulls' | 'reports'
+    key: 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     __keaTypeGenInternalSelectorTypes: {
+        primarySectionKey: (featureFlags: FeatureFlagsSet) => InboxReportSectionKey
         listApiParams: (
             searchQuery: string,
             sortField: InboxSortField,
@@ -255,6 +285,8 @@ export interface reportListLogicMeta {
             arg: any
         ) => any
         reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
+        visibleReports: (reports: SignalReport[], visibleCount: number) => SignalReport[]
+        hiddenReportCount: (totalCount: number | null, count: number | null, visibleReports: SignalReport[]) => number
         hasMore: (reportsResponse: ReportListResponse | null) => boolean
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
@@ -274,18 +306,19 @@ export type reportListLogicType = MakeLogicType<
 >
 
 /**
- * Keyed per-tab report list. Mounted once per flat tab (pulls / reports / not-actionable),
- * each with its own fixed `listParams`, so every tab is its own filtered request with its
- * own accurate `count` and its own pagination. The shared user chrome (search, sort, source,
- * priority, reviewer scope) is connected from `inboxFiltersLogic` and applied on top.
+ * Keyed per-section report list. Mounted once per Reports section (Review and merge / Needs a PR /
+ * Resolved / Not actionable), each with its own fixed `listParams`, so every section is its own
+ * filtered request with its own accurate `count` and its own pagination. The shared user chrome
+ * (search, sort, source, priority, reviewer scope) is connected from `inboxFiltersLogic` and applied
+ * on top, so one filter row drives all four.
  *
- * `count` loads on mount (cheap `limit=1`) so the tab badge is correct before the contents
- * are fetched. The list itself loads lazily (`ensureLoaded`) only when the tab is rendered.
+ * `count` loads on mount (cheap `limit=1`) so a section header is correct even while collapsed. The
+ * rows load lazily (`ensureLoaded`) only once the section is expanded.
  */
 export const reportListLogic = kea<reportListLogicType>([
-    path((tabKey) => ['scenes', 'inbox', 'logics', 'reportListLogic', tabKey]),
+    path((sectionKey) => ['scenes', 'inbox', 'logics', 'reportListLogic', sectionKey]),
     props({} as ReportListLogicProps),
-    key((props) => props.tabKey),
+    key((props) => props.sectionKey),
 
     connect(() => ({
         values: [
@@ -302,6 +335,8 @@ export const reportListLogic = kea<reportListLogicType>([
             ],
             userLogic,
             ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             inboxFiltersLogic,
@@ -311,6 +346,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 'toggleSourceProduct',
                 'toggleScout',
                 'togglePriority',
+                'setPriorityFilter',
                 'setScope',
                 'applyDefaultScope',
                 'setFilters',
@@ -326,10 +362,11 @@ export const reportListLogic = kea<reportListLogicType>([
         restoreReport: (reportId: string) => ({ reportId }),
         removeReport: (reportId: string) => ({ reportId }),
         refresh: true,
+        showMore: true,
     }),
 
     loaders(({ values }) => ({
-        // Cheap count-only request (limit=1) – populates the tab badge before contents load.
+        // Cheap count-only request (limit=1) – populates the section header before its rows load.
         count: [
             null as number | null,
             {
@@ -386,10 +423,40 @@ export const reportListLogic = kea<reportListLogicType>([
         count: {
             removeReport: (state) => (state != null ? Math.max(0, state - 1) : state),
         },
+        // The first-page load failed. Kea loaders keep `reportsResponse` null on failure, so
+        // `isLoaded` stays false and the section would otherwise show a skeleton forever. Reset when a
+        // load starts or lands, so a retry clears the error. Keyed on the first-page loader only — a
+        // failed `loadMoreReports` keeps the loaded rows, so it must not flag the whole section.
+        reportsLoadFailed: [
+            false,
+            {
+                loadReports: () => false,
+                loadReportsSuccess: () => false,
+                loadReportsFailure: () => true,
+            },
+        ],
+        // How many of the loaded rows this section renders. Reset whenever the list is re-fetched
+        // from the top (first load, refresh, any filter change), so a new query starts short again.
+        visibleCount: [
+            SECTION_PAGE_SIZE,
+            {
+                showMore: (state) => state + SECTION_PAGE_SIZE,
+                loadReports: () => SECTION_PAGE_SIZE,
+            },
+        ],
     }),
 
     selectors({
-        // The tab's fixed filter merged with the user-driven chrome + reviewer scope (server-side).
+        // The section whose For-you count decides the default scope: Needs a PR under the redesign,
+        // the Pull requests list with the flag off (see `shouldDefaultToEntireProject`).
+        primarySectionKey: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): InboxReportSectionKey =>
+                isInboxRedesignEnabled(featureFlags)
+                    ? INBOX_PRIMARY_REPORT_SECTION_KEY
+                    : INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY,
+        ],
+        // The section's fixed filter merged with the user-driven chrome + reviewer scope (server-side).
         listApiParams: [
             (s) => [
                 s.searchQuery,
@@ -430,6 +497,26 @@ export const reportListLogic = kea<reportListLogicType>([
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): SignalReport[] => reportsResponse?.results ?? [],
         ],
+        // The rows the section actually renders.
+        visibleReports: [
+            (s) => [s.reports, s.visibleCount],
+            (reports: SignalReport[], visibleCount: number): SignalReport[] => reports.slice(0, visibleCount),
+        ],
+        /**
+         * How many matching reports this section is holding back — what "Show more" promises. Reads
+         * the loaded response's own total first so it can't disagree with the rows on screen; the
+         * separately-loaded header count is the fallback while the first page is still in flight.
+         * Subtract the rows actually on screen (`visibleReports.length`), not the window size
+         * (`visibleCount`): "Show more" widens the window past the loaded rows before the next page
+         * lands, so a page still in flight or one that failed to load leaves `visibleCount` ahead of
+         * `reports.length`. Using the window size there would drive this to 0 and unmount the button,
+         * stranding the unloaded rows with no way to retry.
+         */
+        hiddenReportCount: [
+            (s) => [s.totalCount, s.count, s.visibleReports],
+            (totalCount: number | null, count: number | null, visibleReports: SignalReport[]): number =>
+                Math.max(0, (totalCount ?? count ?? 0) - visibleReports.length),
+        ],
         hasMore: [
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): boolean =>
@@ -464,14 +551,15 @@ export const reportListLogic = kea<reportListLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        // First For-you count for the Pull requests tab: if the user has no PRs suggested to them,
-        // default to Entire project so they don't land on an empty view. Only when they haven't
+        // First For-you count for the primary section: if the user has no reports suggested to
+        // them, default to Entire project so they don't land on an empty inbox. Only when they haven't
         // picked a scope themselves, and only once the user's uuid has resolved (so the count is
         // genuinely theirs, not an unfiltered project-wide count).
         loadCountSuccess: () => {
             if (
                 shouldDefaultToEntireProject({
-                    tabKey: props.tabKey,
+                    sectionKey: props.sectionKey,
+                    primarySectionKey: values.primarySectionKey,
                     scope: values.scope,
                     hasUserChosenScope: values.hasUserChosenScope,
                     hasResolvedUser: !!values.user?.uuid,
@@ -491,13 +579,26 @@ export const reportListLogic = kea<reportListLogicType>([
                 actions.loadMoreReports()
             }
         },
+        // The reducer has already widened the window. Only reach for another server page when the
+        // window now extends past the rows in hand.
+        showMore: () => {
+            // The reducer already widened the window, so `hidden_count` is what is still held back.
+            captureInboxReportAction({
+                actionType: 'show_more',
+                surface: 'list_row',
+                extra: { section: props.sectionKey, hidden_count: values.hiddenReportCount },
+            })
+            if (values.visibleCount > values.reports.length) {
+                actions.loadMore()
+            }
+        },
         refresh: () => {
             actions.loadCount()
             if (values.isLoaded) {
                 actions.loadReports()
             }
         },
-        // User-driven filter/scope changes re-fetch the count always, and the contents if this tab is loaded.
+        // User-driven filter/scope changes re-fetch the count always, and the rows if this section is loaded.
         setSearchQuery: async (_, breakpoint) => {
             await breakpoint(300)
             actions.refresh()
@@ -506,6 +607,7 @@ export const reportListLogic = kea<reportListLogicType>([
         toggleSourceProduct: () => actions.refresh(),
         toggleScout: () => actions.refresh(),
         togglePriority: () => actions.refresh(),
+        setPriorityFilter: () => actions.refresh(),
         setScope: () => actions.refresh(),
         applyDefaultScope: () => actions.refresh(),
         setFilters: () => actions.refresh(),
@@ -530,7 +632,7 @@ export const reportListLogic = kea<reportListLogicType>([
             }
         },
         // Restore a suppressed report back to the inbox (transition to `potential`). Optimistically
-        // drops it from the Archived list; the report re-enters the pipeline and resurfaces elsewhere.
+        // drops it from Resolved; the report re-enters the pipeline and resurfaces elsewhere.
         restoreReport: async ({ reportId }) => {
             const report = values.reports.find((r) => r.id === reportId)
             actions.removeReport(reportId)
@@ -540,18 +642,18 @@ export const reportListLogic = kea<reportListLogicType>([
                 captureInboxReportAction({ report, actionType: 'restore', surface: 'list_row' })
                 lemonToast.success('Report restored to inbox')
                 // Restore maps through restore_target_status server-side, so a report suppressed while
-                // resolved returns to `resolved` and still belongs in this tab. Reconcile against the
-                // server rather than trusting the optimistic removal, which over-drops those rows.
+                // resolved returns to `resolved` and still belongs in this section. Reconcile against
+                // the server rather than trusting the optimistic removal, which over-drops those rows.
                 actions.refresh()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
                 actions.refresh()
             }
         },
-        // Bulk archive happens in the singleton; refresh this tab once it lands.
+        // Bulk archive happens in the singleton; refresh this section once it lands.
         [inboxBulkActionsLogic.actionTypes.bulkDismissSuccess]: () => actions.refresh(),
-        // A single report archived elsewhere (e.g. the detail pane) – reconcile this tab against
-        // the server so the report leaves Reports/Pull requests and joins Archived, counts included.
+        // A single report archived elsewhere (e.g. the detail pane) – reconcile this section against
+        // the server so the report leaves its section and joins Resolved, counts included.
         [inboxBulkActionsLogic.actionTypes.reportArchived]: () => actions.refresh(),
     })),
 

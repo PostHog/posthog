@@ -185,6 +185,11 @@ out of, so it must not read as GitHub being down.
 
 The three are kept apart on purpose, because each sends the publisher somewhere different. The skill
 is rendered before GitHub is touched, so a skill that has to be edited answers `400` even while the
-App is down. `503` is reserved for an installation GitHub says is absent or refuses the App's
-credentials for; any other failed status while minting the publish token is an outage and answers
-`502`, so a transient failure doesn't read as "this instance can't publish".
+App is down. `503` is reserved for the settings an operator has to change: an installation GitHub says
+is absent, one whose App credentials it refuses, and one that doesn't grant the `contents` and
+`pull_requests` write the mint asks for. Any other failed status while minting the publish token is an
+outage and answers `502`, so a transient failure doesn't read as "this instance can't publish".
+
+The 503 is logged as `llma_skill_publish_to_community_not_configured`, with the team, user and skill.
+Without it an instance meant to have publishing on is indistinguishable from one that never
+configured it, until somebody reports the toast.

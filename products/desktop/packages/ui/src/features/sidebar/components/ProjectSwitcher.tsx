@@ -43,6 +43,7 @@ import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useProjects } from "@posthog/ui/features/projects/useProjects";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import type { SettingsCategory } from "@posthog/ui/features/settings/types";
 import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
 import { useWhatsNewStore } from "@posthog/ui/features/updates/whatsNewStore";
 import {
@@ -59,11 +60,18 @@ import { useMemo, useState } from "react";
 
 interface ProjectSwitcherProps {
   appearance?: "row" | "icon";
+  /**
+   * Settings navigation owned by the embedding shell. The settings dialog on
+   * the consent screen mounts before the router, so it has to move its own
+   * state — a URL change reaches nothing there.
+   */
+  onNavigateToSettings?: (category: SettingsCategory) => void;
 }
 
 /** The account / project / org menu. */
 export function ProjectSwitcher({
   appearance = "row",
+  onNavigateToSettings,
 }: ProjectSwitcherProps = {}) {
   const [popoverOpen, setPopoverOpen] = useState(false);
 
@@ -173,15 +181,18 @@ export function ProjectSwitcher({
     navigateToArchived();
   };
 
-  const handleSettings = () => {
+  const goToSettings = (category: SettingsCategory) => {
     setPopoverOpen(false);
-    openSettings();
+    if (onNavigateToSettings) {
+      onNavigateToSettings(category);
+      return;
+    }
+    openSettings(category);
   };
 
-  const handleKeyboardShortcuts = () => {
-    setPopoverOpen(false);
-    openSettings("shortcuts");
-  };
+  const handleSettings = () => goToSettings("general");
+
+  const handleKeyboardShortcuts = () => goToSettings("shortcuts");
 
   const handleOpenExternal = (url: string) => {
     openExternalUrl(url);
@@ -219,7 +230,7 @@ export function ProjectSwitcher({
           ) : (
             <Item
               size="xs"
-              className="border-transparent bg-fill-hover py-1.5 hover:bg-fill-selected aria-expanded:bg-fill-active"
+              className="border-transparent bg-transparent py-1.5 hover:bg-fill-hover aria-expanded:bg-fill-selected"
             >
               <ItemContent className="select-none gap-0">
                 <ItemTitle>{projectName}</ItemTitle>

@@ -2,6 +2,7 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import type { RepublishReason, UrlDropReason } from './collected-urls-record'
 import type { AttemptOutcome } from './fetch-runner'
+import type { FrontierDeadLetterReason } from './frontier-dead-letter-sink'
 import type { FetchRefusalReason, RequestScheduleBlockReason, TransientFetchOutcome } from './image-fetcher'
 
 /** What the in-flight gauge reads. Narrower than `ConcurrencyController`, so the metrics do not depend on the whole of it. */
@@ -45,7 +46,17 @@ export class ImageFetchConsumerMetrics {
      */
     private static readonly dropped = new Counter({
         name: 'ml_image_fetch_consumer_dropped_total',
-        help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid',
+        help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid. When a dead-letter topic is configured, its Kafka acknowledgement precedes this increment and the source commit',
+        labelNames: ['reason'],
+    })
+    private static readonly deadLettered = new Counter({
+        name: 'ml_image_fetch_consumer_dead_lettered_total',
+        help: 'Rejected frontier records acknowledged by the dead-letter topic before the source offset can advance',
+        labelNames: ['reason'],
+    })
+    private static readonly deadLetterFailed = new Counter({
+        name: 'ml_image_fetch_consumer_dead_letter_failed_total',
+        help: 'Rejected frontier records that could not reach the dead-letter topic. The source batch fails so its offsets remain uncommitted',
         labelNames: ['reason'],
     })
     /**
@@ -99,12 +110,15 @@ export class ImageFetchConsumerMetrics {
         help: 'Wall time per completed poll batch. Read against Kafka max.poll.interval.ms (300s)',
         buckets: [0.01, 0.05, 0.1, 0.5, 1, 5, 15, 30, 60, 120, 240, 300, 600],
     })
-    private static activeBatchStartedAtMs: number | undefined
+    private static readonly activeBatchStartedAtMs = new Map<symbol, number>()
     private static readonly activeBatchElapsed = new Gauge({
         name: 'ml_image_fetch_consumer_active_batch_elapsed_seconds',
         help: 'Elapsed wall time of the active non-empty poll batch, or zero between batches. This exposes a stuck batch before Kafka max.poll.interval.ms revokes it',
         collect() {
-            const startedAtMs = ImageFetchConsumerMetrics.activeBatchStartedAtMs
+            const startedAtMs =
+                ImageFetchConsumerMetrics.activeBatchStartedAtMs.size > 0
+                    ? Math.min(...ImageFetchConsumerMetrics.activeBatchStartedAtMs.values())
+                    : undefined
             this.set(startedAtMs === undefined ? 0 : Math.max(0, performance.now() - startedAtMs) / 1000)
         },
     })
@@ -130,6 +144,12 @@ export class ImageFetchConsumerMetrics {
     public static incDropped(reason: UrlDropReason, count: number): void {
         this.dropped.labels(reason).inc(count)
     }
+    public static incDeadLettered(reason: FrontierDeadLetterReason): void {
+        this.deadLettered.labels(reason).inc()
+    }
+    public static incDeadLetterFailed(reason: FrontierDeadLetterReason): void {
+        this.deadLetterFailed.labels(reason).inc()
+    }
     public static incStoreError(operation: 'read' | 'write', count: number): void {
         this.storeErrors.labels(operation).inc(count)
     }
@@ -150,11 +170,13 @@ export class ImageFetchConsumerMetrics {
         this.observeBatchDistribution('origin', originCounts)
         this.observeBatchDistribution('registrable_domain', registrableDomainCounts)
     }
-    public static startBatch(nowMs = performance.now()): void {
-        this.activeBatchStartedAtMs = nowMs
+    public static startBatch(nowMs = performance.now()): symbol {
+        const batchId = Symbol()
+        this.activeBatchStartedAtMs.set(batchId, nowMs)
+        return batchId
     }
-    public static finishBatch(): void {
-        this.activeBatchStartedAtMs = undefined
+    public static finishBatch(batchId: symbol): void {
+        this.activeBatchStartedAtMs.delete(batchId)
     }
     public static observeRecord(urls: number): void {
         this.urlsPerRecord.observe(urls)

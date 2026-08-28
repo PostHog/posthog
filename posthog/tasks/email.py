@@ -557,6 +557,40 @@ def send_email_verification(
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
+def send_email_verification_code(user_id: int, code: str, target_email: str | None = None) -> None:
+    """Send the 6-digit email-verification code.
+
+    `target_email` pins the recipient to the address the code authorizes, which is the staged
+    address for email changes. Signup sends leave it None."""
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"email-verification-code-{user.uuid}-{timezone.now().timestamp()}",
+        subject="Verify your email address",
+        template_name="email_verification_code",
+        template_context={
+            # Code first so inbox previews and push notifications always show it, even truncated.
+            "preheader": f"{code} is your code.",
+            "code": code,
+            "expiration_minutes": CODE_TTL_SECONDS // 60,
+            # Only email changes set target_email, so it selects the flow. Templates use the
+            # action to pick the footer line.
+            "action": "email_change" if target_email is not None else "signup",
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_user_recipient(user, email_override=target_email)
+    message.send(send_async=False)
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(user.distinct_id),
+            event="verification code sent",
+            groups={"organization": str(user.current_organization.id)},  # type: ignore
+        )
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_code_based_verification(user_id: int, code: str) -> None:
     """Send the 6-digit login verification code."""
     user: User = User.objects.get(pk=user_id)

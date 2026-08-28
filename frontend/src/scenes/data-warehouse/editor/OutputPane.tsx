@@ -80,6 +80,7 @@ import {
     copyTableToMarkdown,
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
+import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { trimRedundantTail } from './syncWarnings'
@@ -587,7 +588,8 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode } = useValues(sqlEditorLogic)
+    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode, metadata, metadataLoading } =
+        useValues(sqlEditorLogic)
     const { setSourceQuery } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -892,6 +894,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
 
     return (
         <div className="OutputPane flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
+            <QueryIndexUsageBar predicates={metadata?.index_usage ?? []} refreshing={metadataLoading} />
             {outputContent}
             <div className="flex justify-between px-2 border-t">
                 <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>

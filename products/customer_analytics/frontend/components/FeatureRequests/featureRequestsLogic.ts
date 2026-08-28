@@ -1,6 +1,9 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import type { Sorting } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
@@ -45,6 +48,7 @@ import { getFeatureRequestBackLabel, getFeatureRequestBackUrl } from './featureR
 import {
     FEATURE_REQUEST_ORDERING_OPTIONS,
     FEATURE_REQUEST_PRIORITY_FILTER_OPTIONS,
+    FeatureRequestEvents,
     FEATURE_REQUEST_STATUS_OPTIONS,
     FeatureRequestArchiveState,
     FeatureRequestOrdering,
@@ -90,9 +94,23 @@ const FILTER_URL_KEYS = [
     'sort',
     'page',
 ] as const
+const FEATURE_REQUEST_SORT_COLUMNS = new Set([
+    'title',
+    'account',
+    'product_area',
+    'status',
+    'priority',
+    'created_by',
+    'evidence_count',
+    'updated_at',
+])
+const persistConfig = {
+    persist: true,
+    prefix: `${window.POSTHOG_APP_CONTEXT?.current_team?.id}_customer_analytics_feature_requests__`,
+}
 const VALID_STATUSES = new Set(FEATURE_REQUEST_STATUS_OPTIONS.map((option) => option.value))
 const VALID_PRIORITIES = new Set(FEATURE_REQUEST_PRIORITY_FILTER_OPTIONS.map((option) => option.value))
-const VALID_ORDERINGS = new Set(FEATURE_REQUEST_ORDERING_OPTIONS.map((option) => option.value))
+const VALID_ORDERINGS = new Set(FEATURE_REQUEST_ORDERING_OPTIONS)
 const VALID_ARCHIVE_STATES = new Set<FeatureRequestArchiveState>(['active', 'archived', 'all'])
 
 export interface FeatureRequestListState {
@@ -144,6 +162,14 @@ export function parseFeatureRequestSearchParams(searchParams: Record<string, any
         requestOrdering,
         featureRequestsPage: Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1,
     }
+}
+
+export function featureRequestOrderingToSorting(ordering: FeatureRequestOrdering): Sorting | null {
+    const columnKey = ordering.replace(/^-/, '')
+    if (!FEATURE_REQUEST_SORT_COLUMNS.has(columnKey)) {
+        return null
+    }
+    return { columnKey, order: ordering.startsWith('-') ? -1 : 1 }
 }
 
 export function featureRequestSearchParams(values: FeatureRequestListState): Record<string, string> {
@@ -305,6 +331,7 @@ export interface featureRequestsLogicValues {
     statusFilter: FeatureRequestStatusEnumApi[]
     submitDisabledReason: string | undefined
     submittingRequest: boolean
+    tableSorting: Sorting | null
     title: string
     uploadingEvidenceImages: boolean
     visibleActiveRequestAccountLinks: FeatureRequestAccountLinkApi[]
@@ -589,6 +616,9 @@ export interface featureRequestsLogicActions {
     setSubmittingRequest: (submittingRequest: boolean) => {
         submittingRequest: boolean
     }
+    setTableSorting: (sorting: Sorting | null) => {
+        sorting: Sorting | null
+    }
     setTitle: (title: string) => {
         title: string
     }
@@ -717,6 +747,7 @@ export interface featureRequestsLogicMeta {
             requestOrdering: FeatureRequestOrdering,
             featureRequestsPage: number
         ) => Record<string, string>
+        tableSorting: (requestOrdering: FeatureRequestOrdering) => Sorting | null
         featureRequestBackLabel: (searchParams: Record<string, any>) => string | null
         featureRequestBackUrl: (listSearchParams: Record<string, string>, searchParams: Record<string, any>) => string
     }
@@ -747,6 +778,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setCreatedByFilter: (createdByFilter: number[]) => ({ createdByFilter }),
         setArchiveState: (archiveState: FeatureRequestArchiveState) => ({ archiveState }),
         setRequestOrdering: (requestOrdering: FeatureRequestOrdering) => ({ requestOrdering }),
+        setTableSorting: (sorting: Sorting | null) => ({ sorting }),
         clearFilters: true,
         openCreateRequest: true,
         closeCreateRequest: true,
@@ -896,6 +928,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         statusFilter: [
             [] as FeatureRequestStatusEnumApi[],
+            persistConfig,
             {
                 toggleStatusFilter: (state, { requestStatus }) => toggleValue(state, requestStatus),
                 setFiltersFromUrl: (_, { filters }) => filters.statusFilter,
@@ -904,6 +937,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         priorityFilter: [
             [] as FeatureRequestPriorityFilter[],
+            persistConfig,
             {
                 togglePriorityFilter: (state, { requestPriority }) => toggleValue(state, requestPriority),
                 setFiltersFromUrl: (_, { filters }) => filters.priorityFilter,
@@ -912,6 +946,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         productAreaFilter: [
             [] as string[],
+            persistConfig,
             {
                 setProductAreaFilter: (_, { productAreaFilter }) => productAreaFilter,
                 setFiltersFromUrl: (_, { filters }) => filters.productAreaFilter,
@@ -920,6 +955,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         accountFilter: [
             [] as string[],
+            persistConfig,
             {
                 setAccountFilter: (_, { accountFilter }) => accountFilter,
                 setFiltersFromUrl: (_, { filters }) => filters.accountFilter,
@@ -937,6 +973,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         createdByFilter: [
             [] as number[],
+            persistConfig,
             {
                 setCreatedByFilter: (_, { createdByFilter }) => createdByFilter,
                 setFiltersFromUrl: (_, { filters }) => filters.createdByFilter,
@@ -945,6 +982,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         archiveState: [
             'active' as FeatureRequestArchiveState,
+            persistConfig,
             {
                 setArchiveState: (_, { archiveState }) => archiveState,
                 setFiltersFromUrl: (_, { filters }) => filters.archiveState,
@@ -953,10 +991,10 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         requestOrdering: [
             '-updated_at' as FeatureRequestOrdering,
+            persistConfig,
             {
                 setRequestOrdering: (_, { requestOrdering }) => requestOrdering,
                 setFiltersFromUrl: (_, { filters }) => filters.requestOrdering,
-                clearFilters: () => '-updated_at',
             },
         ],
         accountSearch: ['', { setAccountSearch: (_, { accountSearch }) => accountSearch }],
@@ -1658,6 +1696,11 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                     featureRequestsPage,
                 }),
         ],
+        tableSorting: [
+            (selectors) => [selectors.requestOrdering],
+            (requestOrdering: FeatureRequestOrdering): Sorting | null =>
+                featureRequestOrderingToSorting(requestOrdering),
+        ],
         featureRequestBackLabel: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, any>): string | null => getFeatureRequestBackLabel(searchParams.origin),
@@ -1682,6 +1725,19 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setCreatedByFilter: () => actions.loadFeatureRequests(),
         setArchiveState: () => actions.loadFeatureRequests(),
         setRequestOrdering: () => actions.loadFeatureRequests(),
+        setTableSorting: ({ sorting }) => {
+            if (!sorting) {
+                return
+            }
+            const requestOrdering = `${sorting.order === -1 ? '-' : ''}${sorting.columnKey}` as FeatureRequestOrdering
+            if (VALID_ORDERINGS.has(requestOrdering)) {
+                posthog.capture(FeatureRequestEvents.Sorted, {
+                    column: sorting.columnKey,
+                    direction: sorting.order === -1 ? 'desc' : 'asc',
+                })
+                actions.setRequestOrdering(requestOrdering)
+            }
+        },
         clearFilters: () => actions.loadFeatureRequests(),
         openCreateRequest: () => {
             actions.setIdempotencyKey(newIdempotencyKey())
@@ -2040,6 +2096,20 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
     urlToAction(({ actions, values }) => {
         const applyFromUrl = (_: unknown, searchParams: Record<string, any>): void => {
             const parsed = parseFeatureRequestSearchParams(searchParams)
+            const hasFiltersInUrl = FILTER_URL_KEYS.some((key) => key !== 'page' && searchParams[key] !== undefined)
+            const filters = hasFiltersInUrl
+                ? parsed
+                : {
+                      searchQuery: parsed.searchQuery,
+                      statusFilter: values.statusFilter,
+                      priorityFilter: values.priorityFilter,
+                      productAreaFilter: values.productAreaFilter,
+                      accountFilter: values.accountFilter,
+                      createdByFilter: values.createdByFilter,
+                      archiveState: values.archiveState,
+                      requestOrdering: values.requestOrdering,
+                      featureRequestsPage: parsed.featureRequestsPage,
+                  }
             const current = featureRequestSearchParams({
                 searchQuery: values.searchQuery,
                 statusFilter: values.statusFilter,
@@ -2051,8 +2121,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 requestOrdering: values.requestOrdering,
                 featureRequestsPage: values.featureRequestsPage,
             })
-            if (JSON.stringify(current) !== JSON.stringify(featureRequestSearchParams(parsed))) {
-                actions.setFiltersFromUrl(parsed)
+            if (JSON.stringify(current) !== JSON.stringify(featureRequestSearchParams(filters))) {
+                actions.setFiltersFromUrl(filters)
             }
         }
         return {

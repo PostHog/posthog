@@ -39,7 +39,7 @@ export function GitHubIntegrationSection({
   showBottomBorder = true,
 }: GitHubIntegrationSectionProps) {
   const borderClass = showBottomBorder
-    ? "border-(--gray-5) border-b border-dashed pb-4"
+    ? "border-border border-b border-dashed pb-4"
     : "";
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const { isAdmin } = useIsOrgAdmin();

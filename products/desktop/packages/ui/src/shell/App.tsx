@@ -8,7 +8,6 @@ import { DesktopAccessScreen } from "@posthog/ui/features/auth/components/Deskto
 import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeReauthPrompt";
 import {
   useLogoutMutation,
-  useRedeemInviteCodeMutation,
   useRetryDesktopAccessMutation,
   useSelectProjectMutation,
   useSwitchOrgMutation,
@@ -31,6 +30,10 @@ import { UpdateBanner } from "@posthog/ui/features/sidebar/components/UpdateBann
 import { PendingPromptRecovery } from "@posthog/ui/features/task-detail/components/PendingPromptRecovery";
 import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
+import {
+  isBackgroundAccessRecheck,
+  nextLastAllowedProjectId,
+} from "@posthog/ui/shell/desktopAccessGate";
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
 import { ensureSession } from "@posthog/ui/shell/firstRun";
 import { logger } from "@posthog/ui/shell/logger";
@@ -63,12 +66,41 @@ function App({ devToolbar }: AppProps) {
   const selectProjectMutation = useSelectProjectMutation();
   const switchOrgMutation = useSwitchOrgMutation();
   const retryDesktopAccessMutation = useRetryDesktopAccessMutation();
-  const redeemInviteCodeMutation = useRedeemInviteCodeMutation();
   const logoutMutation = useLogoutMutation();
   const desktopAccessIsCurrent =
     desktopAccess.projectId === authState.currentProjectId;
   const hasDesktopAccess =
     desktopAccessIsCurrent && desktopAccess.status === "allowed";
+  // Once the app has shown for a project, a background access recheck for
+  // that same project must not unmount it into the loading screen (see
+  // isBackgroundAccessRecheck). The ref updates in an effect, so when a
+  // "checking" flip renders it still holds the project from the last settled
+  // render.
+  const lastAllowedProjectRef = useRef<number | null>(null);
+  useEffect(() => {
+    lastAllowedProjectRef.current = nextLastAllowedProjectId(
+      lastAllowedProjectRef.current,
+      {
+        isAuthenticated,
+        currentProjectId: authState.currentProjectId,
+        accessIsCurrent: desktopAccessIsCurrent,
+        accessStatus: desktopAccess.status,
+      },
+    );
+  }, [
+    isAuthenticated,
+    authState.currentProjectId,
+    desktopAccessIsCurrent,
+    desktopAccess.status,
+  ]);
+  const isRevalidatingAccess =
+    desktopAccessIsCurrent &&
+    isBackgroundAccessRecheck(
+      lastAllowedProjectRef.current,
+      authState.currentProjectId,
+      desktopAccess.status,
+    );
+  const settledDesktopAccess = hasDesktopAccess || isRevalidatingAccess;
   const switchError =
     selectProjectMutation.isError || switchOrgMutation.isError
       ? "Couldn't switch your selection. Try again."
@@ -86,19 +118,20 @@ function App({ devToolbar }: AppProps) {
     desktopAccessIsCurrent &&
     ["blocked", "error"].includes(desktopAccess.status);
   const authenticatedClient = useOptionalAuthenticatedClient();
-  const consent = useOrgConsent(isAuthenticated && hasDesktopAccess);
+  const consent = useOrgConsent(isAuthenticated && settledDesktopAccess);
   const needsConsent =
     isAuthenticated &&
     hasCompletedOnboarding &&
-    hasDesktopAccess &&
+    settledDesktopAccess &&
     consent.status === "resolved" &&
     !consent.satisfied;
   const isCheckingAccess =
     isAuthenticated &&
     hasCompletedOnboarding &&
     (!desktopAccessIsCurrent ||
-      ["unchecked", "checking"].includes(desktopAccess.status) ||
-      (hasDesktopAccess && consent.status === "loading"));
+      (["unchecked", "checking"].includes(desktopAccess.status) &&
+        !isRevalidatingAccess) ||
+      (settledDesktopAccess && consent.status === "loading"));
   const { isAdmin: isOrgAdmin } = useIsOrgAdmin();
   const isAdmin = isOrgAdmin === true;
   useConsentAnalytics(
@@ -117,7 +150,7 @@ function App({ devToolbar }: AppProps) {
     isBootstrapped &&
     isAuthenticated &&
     hasCompletedOnboarding &&
-    hasDesktopAccess &&
+    settledDesktopAccess &&
     consent.status === "resolved" &&
     consent.satisfied;
   const startupIdentity = getAuthIdentity(authState);
@@ -242,18 +275,13 @@ function App({ devToolbar }: AppProps) {
               selectProjectMutation.isPending || switchOrgMutation.isPending
             }
             isRetrying={retryDesktopAccessMutation.isPending}
-            isRedeemingInviteCode={redeemInviteCodeMutation.isPending}
             isLoggingOut={logoutMutation.isPending}
             switchError={switchError}
-            redemptionError={redeemInviteCodeMutation.error?.message ?? null}
             onSelectOrganization={(organizationId) =>
               switchOrgMutation.mutate(organizationId)
             }
             onSelectProject={(projectId) =>
               selectProjectMutation.mutate(projectId)
-            }
-            onRedeemInviteCode={(inviteCode) =>
-              redeemInviteCodeMutation.mutate(inviteCode)
             }
             onRetry={() => retryDesktopAccessMutation.mutate()}
             onLogout={() => logoutMutation.mutate()}
