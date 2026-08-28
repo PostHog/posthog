@@ -316,10 +316,10 @@ export interface llmEvaluationLogicActions {
     }
     moveInputTransformation: (
         index: number,
-        direction: 'up' | 'down'
+        direction: 'down' | 'up'
     ) => {
+        direction: 'down' | 'up'
         index: number
-        direction: 'up' | 'down'
     }
     patchTargetConfig: (patch: Partial<Omit<EvaluationTargetConfig, 'strategy'>>) => {
         patch: Partial<Omit<EvaluationTargetConfig, 'strategy'>>
