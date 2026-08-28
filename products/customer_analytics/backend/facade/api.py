@@ -3562,6 +3562,14 @@ def get_accessible_account_id(team_id: int, account_id: str, user_access_control
     return str(account.id) if account is not None else None
 
 
+def get_editable_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
+    """The account_id when the caller can edit that account, else None."""
+    account = _resolve_accessible_account(team_id, user_access_control, account_id=account_id)
+    if account is None or not user_access_control.check_access_level_for_object(account, required_level="editor"):
+        return None
+    return str(account.id)
+
+
 def list_account_channel_summaries(
     team_id: int,
     account_id: str,
@@ -4412,6 +4420,25 @@ def end_account_relationship(
     except _relationships_logic.AccountRelationshipNotFound:
         return None
     return _to_account_relationship(relationship)
+
+
+def delete_account_relationship(
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    relationship_id: str | UUID,
+    actor: "User | None" = None,
+) -> bool:
+    try:
+        _relationships_logic.delete_relationship(
+            team_id=team_id,
+            account_id=account_id,
+            relationship_id=str(relationship_id),
+            actor=actor,
+        )
+    except _relationships_logic.AccountRelationshipNotFound:
+        return False
+    return True
 
 
 # --- EventStream ---

@@ -519,6 +519,49 @@ class TestDataQualityCheckAPI(APIBaseTest):
         check_runs = self.client.get(f"{base}/{mine.id}/check_runs/")
         assert [row["subject_name"] for row in check_runs.json()] == ["orders"]
 
+    def test_listing_a_subjects_checks_leaves_out_the_ones_reading_a_denied_subject(self) -> None:
+        # The parent gate cleared "customers", but a check under it names the denied "orders" in its
+        # config, which the routes that address one check already refuse to serve.
+        allowed = self._make_view("customers")
+        DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.VIEW,
+            saved_query_id=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            config={"query": "SELECT 1 FROM orders"},
+            fingerprint=uuid4().hex,
+        )
+        self._deny_the_view()
+
+        listed = self.client.get(f"{self._checks_url(allowed.id)}/")
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert listed.json()["results"] == []
+
+    def test_a_subjects_health_leaves_out_the_checks_reading_a_denied_subject(self) -> None:
+        # The rollup counts the same checks the list serves, so one the list withholds must not be
+        # counted back in here: checks_failing answers the same question one step removed.
+        allowed = self._make_view("customers")
+        DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.VIEW,
+            saved_query_id=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            config={"query": "SELECT 1 FROM orders"},
+            fingerprint=uuid4().hex,
+            last_status=CheckRunStatus.FAILED,
+        )
+        self._deny_the_view()
+
+        health = self.client.get(f"{self._checks_url(allowed.id)}/health/")
+
+        assert health.status_code == status.HTTP_200_OK, health.json()
+        assert health.json()["checks_total"] == 0
+        assert health.json()["checks_failing"] == 0
+        assert health.json()["health"] == "unknown"
+
     @parameterized.expand([("pinned", True), ("recorded before pinning", False)])
     def test_editing_a_check_does_not_unlock_the_history_it_used_to_read(self, _name: str, pinned: bool) -> None:
         # Authorizing history against the definition the check carries *now* lets a member point a
@@ -742,6 +785,22 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert sorted(row["check_type"] for row in response.json()) == sorted(expected_types)
+
+    def test_a_suite_whose_run_read_a_denied_subject_is_withheld(self) -> None:
+        # The suite row carries passed/failed/errored/skipped over every check it ran, while
+        # check_runs hands back only the readable ones. Serving both names the withheld check's
+        # outcome by subtraction, so the row with the counters is the one to hold back.
+        allowed = self._make_view("customers")
+        suite = self._suite_with_two_runs(allowed)
+        self._deny_the_view()
+
+        base = self._suite_runs_url(allowed.id)
+        listed = self.client.get(f"{base}/")
+        retrieved = self.client.get(f"{base}/{suite.id}/")
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert listed.json()["results"] == []
+        assert retrieved.status_code == status.HTTP_404_NOT_FOUND
 
     def test_a_run_whose_definition_is_unknown_is_judged_by_its_type(self) -> None:
         # Predating the pinned references, so there is nothing recorded to judge. A type that cannot

@@ -33,7 +33,7 @@ export function ReviewStep({
     : [];
 
   return (
-    <StepBody title="Review" description="This is what gets created.">
+    <StepBody title="Review" description="This is what gets created">
       <dl className="flex flex-col gap-2 text-[12.5px]">
         {plan.scope === "image" ? (
           <>
@@ -100,7 +100,7 @@ export function ReviewStep({
           <Text className="font-medium text-(--gray-11) text-[11px] uppercase tracking-wide">
             Image spec
           </Text>
-          <pre className="max-h-[176px] overflow-auto rounded-(--radius-3) border border-(--gray-5) bg-(--gray-2) px-3 py-2.5 font-mono text-(--gray-11) text-[11.5px] leading-relaxed">
+          <pre className="max-h-[176px] overflow-auto rounded-(--radius-3) border border-border bg-(--gray-2) px-3 py-2.5 font-mono text-(--gray-11) text-[11.5px] leading-relaxed">
             {imageSpecToYaml(buildImageSpec(planSpecInput(plan)))}
           </pre>
         </div>
