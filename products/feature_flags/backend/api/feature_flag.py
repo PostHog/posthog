@@ -2614,16 +2614,18 @@ class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
     has_targeting_conditions = serializers.BooleanField(
         help_text=(
             "True if any release condition has property filters, i.e. the flag is conditionally targeted "
-            "rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the "
-            "targeted segment, not of the whole user base."
+            "rather than a blanket rollout. This says nothing about which condition produced "
+            "`max_rollout_percentage`: the two fields are computed independently over the whole condition "
+            "list."
         )
     )
     max_rollout_percentage = serializers.FloatField(
         allow_null=True,
         help_text=(
             "Highest rollout percentage (0-100) across the flag's release conditions, treating a missing "
-            "percentage as 100. Null when the flag has no release conditions. Interpret together with "
-            "`has_targeting_conditions`."
+            "percentage as 100. Null when the flag has no release conditions. The maximum can come from an "
+            "untargeted condition even when `has_targeting_conditions` is true, so it cannot be attributed "
+            "to a targeted condition or read as a share of a targeted segment."
         ),
     )
     is_multivariate = serializers.BooleanField(
