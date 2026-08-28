@@ -598,7 +598,8 @@ class SandboxBase(ABC):
             result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
             payload = json.loads(result.stdout or "{}")
             session_init_ms = payload.get("sessionInitMs")
-            raw_phases = payload.get("boot", {}).get("phasesMs", {})
+            boot = payload.get("boot", {})
+            raw_phases = boot.get("phasesMs", {}) if isinstance(boot, dict) else {}
             allowed_phases = {
                 "context_fetch",
                 "acp_initialize",
@@ -615,6 +616,10 @@ class SandboxBase(ABC):
                 if isinstance(raw_phases, dict)
                 else {}
             )
+            for source, target in (("totalMs", "server_total"), ("httpReadyMs", "http_ready")):
+                duration = boot.get(source) if isinstance(boot, dict) else None
+                if isinstance(duration, int | float) and not isinstance(duration, bool):
+                    phases[target] = max(0, int(duration))
             return int(session_init_ms) if isinstance(session_init_ms, int | float) else None, phases
         except Exception:
             return None, {}

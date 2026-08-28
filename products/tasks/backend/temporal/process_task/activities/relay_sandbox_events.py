@@ -25,6 +25,7 @@ from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
     try_auto_respond_permission_request,
 )
+from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import (
     Task as TaskModel,
@@ -401,6 +402,7 @@ async def _relay_loop(
     pending_text_parts: list[str] = []
     last_text_flush: list[float] = [0.0]
     final_message_tracker = FinalMessageTracker()
+    first_agent_activity_observed = False
 
     stop_heartbeat = asyncio.Event()
     heartbeat_task = asyncio.create_task(
@@ -453,6 +455,12 @@ async def _relay_loop(
                                 continue
 
                             await redis_stream.write_event(event_data)
+                            if workflow_handle is not None:
+                                if is_agent_command_dispatched(event_data):
+                                    await _signal_safely(workflow_handle, "agent_command_dispatched")
+                                if not first_agent_activity_observed and is_agent_generation_event(event_data):
+                                    first_agent_activity_observed = True
+                                    await _signal_safely(workflow_handle, "agent_activity_observed")
                             if task_run is not None:
                                 permission_request = parse_permission_request(event_data)
                                 if permission_request is not None:

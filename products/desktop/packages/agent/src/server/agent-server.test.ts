@@ -1318,6 +1318,7 @@ describe("AgentServer HTTP Mode", () => {
         clientConnection: { prompt },
       };
       return testServer as unknown as {
+        eventStreamSender: { enqueue: ReturnType<typeof vi.fn> };
         promptWithUpstreamRetry(request: {
           sessionId: string;
           prompt: ContentBlock[];
@@ -1352,6 +1353,13 @@ describe("AgentServer HTTP Mode", () => {
         expect(retryRequest.prompt[0].text).toContain(
           "interrupted by a transient connection error",
         );
+        const dispatchEvents =
+          testServer.eventStreamSender.enqueue.mock.calls.filter(
+            ([event]) =>
+              (event as { notification?: { method?: string } }).notification
+                ?.method === POSTHOG_NOTIFICATIONS.COMMAND_DISPATCHED,
+          );
+        expect(dispatchEvents).toHaveLength(1);
       } finally {
         vi.useRealTimers();
       }

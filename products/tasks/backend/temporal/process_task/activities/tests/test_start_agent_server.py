@@ -215,9 +215,10 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
     )
 
     assert result.sandbox_url == "https://sandbox.example"
+    sandbox.wait_for_agent_server_ready.assert_called_once_with(None)
     if expects_relaunch:
-        sandbox.wait_for_agent_server_ready.assert_not_called()
         sandbox.start_agent_server.assert_called_once()
+        assert sandbox.start_agent_server.call_args.kwargs["wait_for_health"] is False
         record_retry.assert_called_once_with(
             attempt,
             "succeeded",
@@ -226,7 +227,6 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
             runtime="gvisor",
         )
     else:
-        sandbox.wait_for_agent_server_ready.assert_called_once_with(None)
         sandbox.start_agent_server.assert_not_called()
         record_retry.assert_not_called()
 
@@ -703,6 +703,8 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         allowed_gateway_server_ids=["srv-1"],
     )
     sandbox.start_agent_server.assert_called_once()
+    sandbox.wait_for_agent_server_ready.assert_called_once_with(None)
+    assert sandbox.start_agent_server.call_args.kwargs["wait_for_health"] is False
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"
 
 

@@ -1052,7 +1052,41 @@ describe('ingest-handler', () => {
     // Side effects: session/update → agent active
     // -----------------------------------------------------------------------
 
-    it('sets agent active on session/update event and fires heartbeat after claim', async () => {
+    it.each([
+        {
+            name: 'prompt echo',
+            event: {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'user_message_chunk' } },
+                },
+            },
+            expectedKinds: ['heartbeat'],
+            expectedActive: true,
+        },
+        {
+            name: 'agent output',
+            event: {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'agent_message_chunk' } },
+                },
+            },
+            expectedKinds: ['agent_activity', 'heartbeat'],
+            expectedActive: true,
+        },
+        {
+            name: 'command dispatch',
+            event: {
+                type: 'notification',
+                notification: { method: '_posthog/agent_command_dispatched', params: {} },
+            },
+            expectedKinds: ['command_dispatched'],
+            expectedActive: false,
+        },
+    ])('dispatches side effects for $name', async ({ event, expectedKinds, expectedActive }) => {
         const fetchCalls: { url: string; body: unknown }[] = []
         const originalFetch = global.fetch
         global.fetch = vi.fn(async (url, init) => {
@@ -1063,23 +1097,20 @@ describe('ingest-handler', () => {
         const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
         mockValidate.mockResolvedValue(makeClaims())
 
-        const sessionUpdateEvent = {
-            type: 'notification',
-            notification: { method: 'session/update' },
-        }
-        const ndjson = JSON.stringify({ seq: 1, event: sessionUpdateEvent }) + '\n'
+        const ndjson = JSON.stringify({ seq: 1, event }) + '\n'
         const ctx = makeContext({ body: makeStringBody(ndjson) })
         const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
         expect(res.status).toBe(200)
 
         const agentActive = await redisStream.getAgentActive()
-        expect(agentActive).toBe(true)
+        expect(agentActive).toBe(expectedActive)
 
         await new Promise((r) => setTimeout(r, 0))
 
-        const callbackCall = fetchCalls.find((c) => c.url.includes('agent-proxy-callback'))
-        expect(callbackCall).toBeTruthy()
-        expect(callbackCall?.body).toMatchObject({ kind: 'heartbeat', agent_active: true })
+        const callbackKinds = fetchCalls
+            .filter((c) => c.url.includes('agent-proxy-callback'))
+            .map((c) => (c.body as { kind: string }).kind)
+        expect(callbackKinds).toEqual(expectedKinds)
 
         global.fetch = originalFetch
     })
