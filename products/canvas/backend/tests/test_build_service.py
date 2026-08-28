@@ -463,6 +463,22 @@ class TestAssetSideLoading(BuildServiceBaseTest):
         assert build.status == CanvasBuild.STATUS_FAILED
         assert build.diagnostics[0]["code"] == "build_unavailable"
 
+    def test_cleanup_logs_when_delete_objects_leaves_keys(self):
+        # delete_objects reports leftover keys instead of raising, so cleanup must read the
+        # result: a failed build never records its prefix, so a leftover object is unreachable.
+        build = self._publish()
+        keys = ["canvas_artifact/leftover.png"]
+        with patch.object(build_service, "logger") as mock_logger:
+            with patch.object(build_service.object_storage, "delete_objects", return_value=[]):
+                build_service._cleanup_artifact_objects(build, keys)
+            mock_logger.warning.assert_not_called()
+
+            with patch.object(build_service.object_storage, "delete_objects", return_value=keys):
+                build_service._cleanup_artifact_objects(build, keys)
+            mock_logger.warning.assert_called_once()
+        assert mock_logger.warning.call_args.args[0] == "canvas_artifact_cleanup_failed"
+        assert mock_logger.warning.call_args.kwargs["failed_count"] == 1
+
 
 class TestBuildDispatch(BuildServiceBaseTest):
     def test_flagged_in_team_dispatches_to_temporal_instead_of_celery(self) -> None:

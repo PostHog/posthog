@@ -51,6 +51,8 @@ class InMemoryStorage:
     def delete_objects(self, keys):
         for key in keys:
             self.objects.pop(key, None)
+        # Matches the real client: returns the keys it could not delete (none here).
+        return []
 
     def head_object(self, key, bucket=None):
         if key not in self.objects:

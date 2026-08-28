@@ -978,6 +978,20 @@ def act_on_build(canvas: Canvas, build_id: str | UUID, action: str) -> CanvasBui
     return build
 
 
+def _cleanup_artifact_objects(build: CanvasBuild, keys: list[str]) -> None:
+    """Best-effort delete of a failed build's uploaded artifacts.
+
+    delete_objects returns the keys it could not remove and does not raise, so read the result
+    and log any leftovers. A failed build never records its artifact_object_prefix, so the
+    retention sweep cannot reach an object left behind here.
+    """
+    if not keys:
+        return
+    failed = object_storage.delete_objects(keys)
+    if failed:
+        logger.warning("canvas_artifact_cleanup_failed", build_id=str(build.id), failed_count=len(failed))
+
+
 def run_canvas_build(team_id: int, build_id: str) -> None:
     """The cloud build worker body.
 
@@ -1108,11 +1122,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
                     canvas_asset_object_key(build.team_id, build.canvas_id, source.sha256), missing_ok=True
                 )
             if data is None or len(data) != source.size_bytes or hashlib.sha256(data).hexdigest() != source.sha256:
-                if uploaded_keys:
-                    try:
-                        object_storage.delete_objects(uploaded_keys)
-                    except object_storage.ObjectStorageError:
-                        logger.warning("canvas_artifact_cleanup_failed", build_id=str(build.id))
+                _cleanup_artifact_objects(build, uploaded_keys)
                 _finish_failed(
                     build,
                     [
@@ -1130,11 +1140,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
             # asset would otherwise render broken with no diagnostic.
             sniffed_type = sniff_image_content_type(data)
             if sniffed_type != source.content_type:
-                if uploaded_keys:
-                    try:
-                        object_storage.delete_objects(uploaded_keys)
-                    except object_storage.ObjectStorageError:
-                        logger.warning("canvas_artifact_cleanup_failed", build_id=str(build.id))
+                _cleanup_artifact_objects(build, uploaded_keys)
                 _finish_failed(
                     build,
                     [
@@ -1155,11 +1161,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
             )
             uploaded_keys.append(f"{prefix}/{asset_path}")
     except object_storage.ObjectStorageError:
-        if uploaded_keys:
-            try:
-                object_storage.delete_objects(uploaded_keys)
-            except object_storage.ObjectStorageError:
-                logger.warning("canvas_artifact_cleanup_failed", build_id=str(build.id))
+        _cleanup_artifact_objects(build, uploaded_keys)
         _requeue_or_fail(build, code="artifact_upload_failed", message="Artifact storage is unavailable.")
         return
     integrity = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
@@ -1180,7 +1182,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
             CanvasBuild.objects.for_team(build.team_id).filter(id=build.id).values_list("status", flat=True).first()
         )
         if current_status != CanvasBuild.STATUS_READY:
-            object_storage.delete_objects(uploaded_keys)
+            _cleanup_artifact_objects(build, uploaded_keys)
         CANVAS_BUILD_OUTCOMES.labels(outcome="failed", code="superseded_during_build").inc()
         return
     CANVAS_BUILD_OUTCOMES.labels(outcome="ready", code="").inc()
