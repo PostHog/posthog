@@ -560,7 +560,7 @@ export function OperatorSelect({
     onSelectHogQLExpression,
 }: OperatorSelectProps): JSX.Element {
     const hasSemver = operators.some(isOperatorSemver)
-    const operatorOptions: LemonSelectSection<OperatorSelectValue>[] = hasSemver
+    const operatorSections: LemonSelectSection<OperatorSelectValue>[] = hasSemver
         ? [
               ...(operators.some((op) => !isOperatorSemver(op))
                   ? [{ options: operators.filter((op) => !isOperatorSemver(op)).map(toOption) }]
@@ -583,9 +583,14 @@ export function OperatorSelect({
           ]
         : [{ options: operators.map(toOption) }]
 
-    const options: LemonSelectSection<OperatorSelectValue>[] = showHogQLExpressionOption
-        ? [...operatorOptions, HOGQL_EXPRESSION_SECTION]
-        : operatorOptions
+    // Keep the original flat-list shape when no SQL entry is appended, so existing dropdowns
+    // render exactly as before; only wrap into sections when the SQL entry needs its own group.
+    const options: LemonSelectSection<OperatorSelectValue>[] | { label: JSX.Element; value: PropertyOperator }[] =
+        showHogQLExpressionOption
+            ? [...operatorSections, HOGQL_EXPRESSION_SECTION]
+            : hasSemver
+              ? operatorSections
+              : operators.map(toOption)
 
     return (
         <LemonSelect
