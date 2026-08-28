@@ -26,11 +26,14 @@ impl Db {
         let pool = Pool::builder(mgr)
             .max_size(16)
             .post_create(deadpool_postgres::Hook::async_fn(|c, _| Box::pin(async move {
-                // The API is read-only by construction; make the session enforce it too.
-                if let Err(e) = c.batch_execute("SET default_transaction_read_only = on; SET statement_timeout = 30000; SET application_name = 'pgapi'").await {
-                    tracing::warn!(error = %e, "could not apply read-only session settings");
-                }
-                Ok(())
+                // The API is read-only by construction; make the session enforce it too. A
+                // connection that cannot be made read-only is rejected, never pooled.
+                c.batch_execute("SET default_transaction_read_only = on; SET statement_timeout = 30000; SET application_name = 'pgapi'")
+                    .await
+                    .map_err(|e| {
+                        tracing::error!(error = %e, "could not apply read-only session settings; dropping connection");
+                        deadpool_postgres::HookError::Backend(e)
+                    })
             })))
             .build()?;
         let db = Self { pool };
