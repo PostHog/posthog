@@ -3,6 +3,8 @@ import { describe, it } from 'node:test'
 
 import {
     buildBlocks,
+    buildShadowBlocks,
+    buildTeamDigests,
     buildRunnerReports,
     CLUSTER_MIN_TESTS,
     enrich,
@@ -390,6 +392,31 @@ describe('weekly flaky report', () => {
         )
         // The cluster PR count is a floor over overlapping member sets, never an exact count.
         assert.deepEqual(clusterRow[4], { type: 'raw_text', text: '1+' })
+    })
+
+    it('groups shadow digests by owning team and drops teams it cannot route', () => {
+        const row = (name) => [{ type: 'raw_text', text: name }]
+        const entries = [
+            { owner: 'team-devex', slack: '#team-devex', row: row('test_one') },
+            { owner: 'team-devex', slack: '#team-devex', row: row('test_two') },
+            { owner: 'team-replay', slack: '#team-replay', row: row('renders') },
+            { owner: 'unowned', slack: null, row: row('test_orphan') },
+            // notifications: false, owned but the team declared no automation channel.
+            { owner: 'team-quiet', slack: null, row: row('test_silenced') },
+        ]
+
+        const digests = buildTeamDigests(entries)
+
+        assert.deepEqual(
+            digests.map(({ owner, channel, rows }) => [owner, channel, rows.length]),
+            [
+                ['team-devex', '#team-devex', 2],
+                ['team-replay', '#team-replay', 1],
+            ]
+        )
+        const [header, table] = buildShadowBlocks(digests[0])
+        assert.equal(header.text.text, '*devex* _(shadow: would post to #team-devex)_')
+        assert.equal(table.rows.length, 3)
     })
 
     it('matches a Jest selector reported from the package root against Trunk', async () => {
