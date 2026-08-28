@@ -159,6 +159,8 @@ describe('formatPropertyLabel() for account date filters', () => {
     it.each([
         ['-14d', 'created_at > 14 days ago'],
         [['-14d'], 'created_at > 14 days ago'],
+        ['14d', 'created_at > 14 days from now'],
+        ['+1w', 'created_at > 1 week from now'],
     ])('formats %s as %s', (value, expected) => {
         expect(
             formatPropertyLabel(
