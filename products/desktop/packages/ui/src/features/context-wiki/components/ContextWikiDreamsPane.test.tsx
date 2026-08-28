@@ -1,10 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  ContextWikiDreamsPane,
-  firstSummaryLine,
-} from "./ContextWikiDreamsPane";
+import { ContextWikiDreamsPane } from "./ContextWikiDreamsPane";
+import { firstSummaryLine } from "./contextWikiDreams";
 
 const hoisted = vi.hoisted(() => ({
   dreams: [
@@ -12,7 +10,8 @@ const hoisted = vi.hoisted(() => ({
       sha: "b".repeat(40),
       date: "2026-08-18",
       committed_at: "2026-08-18T03:00:00Z",
-      summary: "# Context dream — 2026-08-18\n\nSecond night summary.",
+      summary:
+        "# Context dream — 2026-08-18\n\nSecond night summary.\n\n![internal service](http://127.0.0.1/action)",
       pages_added: 1,
       pages_modified: 0,
       pages_deleted: 0,
@@ -60,10 +59,6 @@ vi.mock("../hooks/useContextWiki", () => ({
   }),
 }));
 
-vi.mock("@posthog/ui/features/editor/components/MarkdownRenderer", () => ({
-  MarkdownRenderer: ({ content }: { content: string }) => <div>{content}</div>,
-}));
-
 // The diff viewer needs browser APIs jsdom does not have; the pane only needs
 // the patch-to-metadata conversion, which is the part worth keeping real.
 vi.mock("@pierre/diffs/react", () => ({
@@ -85,7 +80,11 @@ describe("ContextWikiDreamsPane", () => {
     render(<ContextWikiDreamsPane />);
 
     // Newest first, and the newest is selected without a click.
-    expect(screen.getByText("Second night summary.")).toBeInTheDocument();
+    expect(screen.getAllByText("Second night summary.")).toHaveLength(2);
+    expect(
+      screen.getByText("Remote image blocked: internal service"),
+    ).toBeInTheDocument();
+    expect(document.querySelector("img")).toBeNull();
     expect(screen.getByText("areas/dreamt.md")).toBeInTheDocument();
     expect(screen.getByTestId("file-diff")).toBeInTheDocument();
 

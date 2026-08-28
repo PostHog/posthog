@@ -4,8 +4,8 @@ A dreaming run lands as one two-parent merge commit whose subject is
 `dream: <YYYY-MM-DD>` and whose body is the run summary, so the history itself
 is the record: `git log --merges` lists the runs and `git diff <merge>^1
 <merge>` shows what the night changed. Lists are cached per head sha (a new
-dream moves the head), and one run's diff is immutable, so its cache entry is
-keyed by the merge sha alone.
+dream moves the head), and one run's diff is immutable within that history, so
+its cache entry is keyed by both the head and merge shas.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ DREAM_MAX_FILES = 500
 DREAM_MAX_PATCH_BYTES_PER_FILE = 100_000
 
 # git log record and field separators.
+_CHANGE_SEPARATOR = "\x1d"
 _RECORD_SEPARATOR = "\x1e"
 _FIELD_SEPARATOR = "\x1f"
 
@@ -73,8 +74,8 @@ def _list_cache_key(organization_id: uuid.UUID | str, head_sha: str) -> str:
     return f"context_layer:dreams:{organization_id}:{head_sha}"
 
 
-def _detail_cache_key(organization_id: uuid.UUID | str, sha: str) -> str:
-    return f"context_layer:dream:{organization_id}:{sha}"
+def _detail_cache_key(organization_id: uuid.UUID | str, head_sha: str, sha: str) -> str:
+    return f"context_layer:dream:{organization_id}:{head_sha}:{sha}"
 
 
 def list_dream_runs(organization_id: uuid.UUID | str) -> DreamRunList:
@@ -100,9 +101,13 @@ def get_dream_run(organization_id: uuid.UUID | str, sha: str) -> DreamRunDetail:
 
     The sha must name a dream merge on main, so a caller cannot diff arbitrary
     commits through this endpoint."""
-    cached = get_safe_cache(_detail_cache_key(organization_id, sha))
-    if cached is not None:
-        return _dream_detail_from_dict(cached)
+    head_sha = store.get_config(organization_id).head_sha
+    cached = get_safe_cache(_detail_cache_key(organization_id, head_sha, sha))
+    if isinstance(cached, dict):
+        try:
+            return _dream_detail_from_dict(cached)
+        except ValueError:
+            pass
     with store.checkout_repo(organization_id) as checkout:
         dreams = {dream.sha: dream for dream in _read_dream_runs(checkout)}
         run = dreams.get(sha)
@@ -110,7 +115,11 @@ def get_dream_run(organization_id: uuid.UUID | str, sha: str) -> DreamRunDetail:
             raise DreamNotFoundError(f"no dream run at {sha}")
         files = _read_dream_files(checkout, sha)
     detail = DreamRunDetail(run=run, files=files)
-    safe_cache_set(_detail_cache_key(organization_id, sha), _dream_detail_to_dict(detail), CACHE_TTL_SECONDS)
+    safe_cache_set(
+        _detail_cache_key(organization_id, checkout.head_sha, sha),
+        _dream_detail_to_dict(detail),
+        CACHE_TTL_SECONDS,
+    )
     return detail
 
 
@@ -119,7 +128,10 @@ def _read_dream_runs(checkout: store.RepoCheckout) -> list[DreamRun]:
         [
             "log",
             "--merges",
-            f"--format=%H{_FIELD_SEPARATOR}%cI{_FIELD_SEPARATOR}%s{_FIELD_SEPARATOR}%b{_RECORD_SEPARATOR}",
+            "--diff-merges=first-parent",
+            "--name-status",
+            "--no-renames",
+            f"--format={_RECORD_SEPARATOR}%H{_FIELD_SEPARATOR}%cI{_FIELD_SEPARATOR}%s{_FIELD_SEPARATOR}%b{_CHANGE_SEPARATOR}.",
             "main",
         ],
         checkout.path,
@@ -129,12 +141,21 @@ def _read_dream_runs(checkout: store.RepoCheckout) -> list[DreamRun]:
         record = record.strip("\n")
         if not record:
             continue
-        sha, _, rest = record.partition(_FIELD_SEPARATOR)
+        metadata, separator, changes = record.partition(_CHANGE_SEPARATOR)
+        if not separator:
+            continue
+        changes = changes.removeprefix(".")
+        sha, _, rest = metadata.partition(_FIELD_SEPARATOR)
         committed_at, _, rest = rest.partition(_FIELD_SEPARATOR)
         subject, _, body = rest.partition(_FIELD_SEPARATOR)
         if not subject.startswith(DREAM_SUBJECT_PREFIX):
             continue
-        counts = _dream_change_counts(checkout, sha)
+        counts = {"A": 0, "M": 0, "D": 0}
+        for line in changes.splitlines():
+            status, _, path = line.partition("\t")
+            status = status[:1]
+            if path.endswith(".md") and status in counts:
+                counts[status] += 1
         dreams.append(
             DreamRun(
                 sha=sha,
@@ -149,30 +170,32 @@ def _read_dream_runs(checkout: store.RepoCheckout) -> list[DreamRun]:
     return dreams
 
 
-def _dream_change_counts(checkout: store.RepoCheckout, sha: str) -> dict[str, int]:
-    counts = {"A": 0, "M": 0, "D": 0}
-    for line in store._run_git(["diff", "--name-status", f"{sha}^1", sha, "--", "*.md"], checkout.path).splitlines():
-        status = line.split("\t", 1)[0][:1]
-        if status in counts:
-            counts[status] += 1
-    return counts
-
-
 def _read_dream_files(checkout: store.RepoCheckout, sha: str) -> list[DreamFileDiff]:
     name_status = store._run_git(
         ["diff", "--name-status", "--no-renames", f"{sha}^1", sha, "--", "*.md"], checkout.path
     )
+    combined_patch = store._run_git(["diff", "--no-renames", f"{sha}^1", sha, "--", "*.md"], checkout.path)
+    patches = _split_file_patches(combined_patch)
+    changed_files = name_status.splitlines()
+    if len(patches) != len(changed_files):
+        raise store.ContextLayerStoreError("could not match dream patches to changed files")
     files: list[DreamFileDiff] = []
-    for line in name_status.splitlines()[:DREAM_MAX_FILES]:
+    for line, patch in zip(changed_files[:DREAM_MAX_FILES], patches[:DREAM_MAX_FILES], strict=True):
         status_code, _, path = line.partition("\t")
         status = _STATUS_MAP.get(status_code[:1], "modified")
-        patch = store._run_git(["diff", f"{sha}^1", sha, "--", path], checkout.path)
         truncated = False
         if len(patch.encode("utf-8")) > DREAM_MAX_PATCH_BYTES_PER_FILE:
             patch = patch.encode("utf-8")[:DREAM_MAX_PATCH_BYTES_PER_FILE].decode("utf-8", errors="ignore")
             truncated = True
         files.append(DreamFileDiff(path=path, status=status, patch=patch, truncated=truncated))
     return files
+
+
+def _split_file_patches(combined_patch: str) -> list[str]:
+    if not combined_patch:
+        return []
+    first, *rest = combined_patch.split("\ndiff --git ")
+    return [first, *(f"diff --git {patch}" for patch in rest)]
 
 
 def _dream_run_to_dict(dream: DreamRun) -> dict[str, object]:
@@ -210,20 +233,24 @@ def _dream_detail_to_dict(detail: DreamRunDetail) -> dict[str, object]:
 
 
 def _dream_detail_from_dict(data: dict[str, object]) -> DreamRunDetail:
-    run_data = data["run"]
-    files_data = data["files"]
+    run_data = data.get("run")
+    files_data = data.get("files")
     if not isinstance(run_data, dict) or not isinstance(files_data, list):
         raise ValueError("malformed cached dream detail")
-    return DreamRunDetail(
-        run=_dream_run_from_dict(run_data),
-        files=[
-            DreamFileDiff(
-                path=str(file["path"]),
-                status=str(file["status"]),
-                patch=str(file["patch"]),
-                truncated=bool(file["truncated"]),
+    try:
+        run = _dream_run_from_dict(run_data)
+        files: list[DreamFileDiff] = []
+        for file in files_data:
+            if not isinstance(file, dict):
+                raise ValueError("malformed cached dream detail")
+            files.append(
+                DreamFileDiff(
+                    path=str(file["path"]),
+                    status=str(file["status"]),
+                    patch=str(file["patch"]),
+                    truncated=bool(file["truncated"]),
+                )
             )
-            for file in files_data
-            if isinstance(file, dict)
-        ],
-    )
+    except (KeyError, TypeError, ValueError) as err:
+        raise ValueError("malformed cached dream detail") from err
+    return DreamRunDetail(run=run, files=files)

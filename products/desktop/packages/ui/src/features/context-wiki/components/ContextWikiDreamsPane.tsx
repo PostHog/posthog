@@ -22,11 +22,21 @@ import { MarkdownRenderer } from "@posthog/ui/features/editor/components/Markdow
 import { DIFFS_HIGHLIGHTER_OPTIONS } from "@posthog/ui/features/sessions/diffHighlighterOptions";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { useMemo, useState } from "react";
+import type { Components } from "react-markdown";
 import { useThemeStore } from "../../../shell/themeStore";
 import {
   useContextWikiDream,
   useContextWikiDreams,
 } from "../hooks/useContextWiki";
+import { firstSummaryLine } from "./contextWikiDreams";
+
+const dreamMarkdownComponents: Partial<Components> = {
+  img: ({ alt }) => (
+    <span className="text-[13px] text-gray-10">
+      Remote image blocked{alt ? `: ${alt}` : ""}
+    </span>
+  ),
+};
 
 /**
  * The dreaming history: every nightly synthesis run the wiki landed, newest
@@ -196,7 +206,10 @@ function DreamDetail({ run }: { run: ContextWikiDreamRun }) {
       </div>
       {run.summary ? (
         <div className="border-(--gray-5) border-b p-4 text-[13px]">
-          <MarkdownRenderer content={run.summary} />
+          <MarkdownRenderer
+            content={run.summary}
+            componentsOverride={dreamMarkdownComponents}
+          />
         </div>
       ) : null}
       <div className="flex flex-col gap-3 p-4">
@@ -277,14 +290,4 @@ function DreamFileDiffView({ file }: { file: ContextWikiDreamFile }) {
       )}
     </div>
   );
-}
-
-/** The first prose line of a run summary, skipping the markdown heading. */
-export function firstSummaryLine(summary: string): string {
-  for (const line of summary.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    return trimmed;
-  }
-  return "";
 }

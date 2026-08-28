@@ -19,9 +19,10 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.storage.object_storage import UnavailableStorage
+from posthog.utils import safe_cache_set
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.context_layer.backend import enablement, store
+from products.context_layer.backend import dreams, enablement, store
 from products.context_layer.backend.presentation import views
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -775,6 +776,31 @@ class TestContextLayerAPI(APIBaseTest):
         head = self._enable()
         assert self.client.get(f"{self.base_url}/dreams/{head}/").status_code == 404
         assert self.client.get(f"{self.base_url}/dreams/{'0' * 40}/").status_code == 404
+
+    def test_cached_dream_is_rejected_after_history_purge(self, _flag) -> None:
+        self._enable()
+        self._land_dream("areas/dreamt.md", _page("Dreamt"), "dream/2026-08-18")
+        dream = self.client.get(f"{self.base_url}/dreams/").json()["dreams"][0]
+        assert self.client.get(f"{self.base_url}/dreams/{dream['sha']}/").status_code == 200
+
+        store.purge_repo_history(self.organization.id)
+
+        assert self.client.get(f"{self.base_url}/dreams/{dream['sha']}/").status_code == 404
+
+    def test_malformed_dream_cache_is_rebuilt(self, _flag) -> None:
+        self._enable()
+        self._land_dream("areas/dreamt.md", _page("Dreamt"), "dream/2026-08-18")
+        dream = self.client.get(f"{self.base_url}/dreams/").json()["dreams"][0]
+        head_sha = self.client.get(f"{self.base_url}/status/").json()["head_sha"]
+        safe_cache_set(
+            dreams._detail_cache_key(self.organization.id, head_sha, dream["sha"]),
+            {"run": {}, "files": []},
+        )
+
+        response = self.client.get(f"{self.base_url}/dreams/{dream['sha']}/")
+
+        assert response.status_code == 200
+        assert response.json()["run"]["sha"] == dream["sha"]
 
     def _bundle_with_edit(self, path: str, content: str, branch: str = "main") -> bytes:
         """Clone the wiki the way a sandbox does, commit one edit, pack it as a thin bundle."""
