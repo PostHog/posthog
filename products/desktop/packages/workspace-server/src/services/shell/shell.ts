@@ -65,8 +65,13 @@ function getShellArgs(shell: string): string[] {
 
 function buildShellEnv(
   additionalEnv?: Record<string, string>,
+  unsetEnv?: string[],
 ): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;
+
+  for (const key of unsetEnv ?? []) {
+    delete env[key];
+  }
 
   // User-facing shells must not inherit the workspace-server's internal
   // markers: ELECTRON_RUN_AS_NODE makes any Electron-based CLI run as node,
@@ -232,8 +237,11 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
     command: string;
     cwd: string;
     taskId?: string;
+    additionalEnv?: Record<string, string>;
+    unsetEnv?: string[];
   }): Promise<void> {
-    const { sessionId, command, cwd, taskId } = options;
+    const { sessionId, command, cwd, taskId, additionalEnv, unsetEnv } =
+      options;
 
     const existing = this.sessions.get(sessionId);
     if (existing) {
@@ -241,6 +249,7 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
     }
 
     const taskEnv = await this.getTaskEnv(taskId);
+    const mergedEnv = { ...taskEnv, ...additionalEnv };
     const workingDir = this.resolveWorkingDir(sessionId, cwd);
     const shell = getDefaultShell();
 
@@ -249,7 +258,7 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
       cols: 80,
       rows: 24,
       cwd: workingDir,
-      env: buildShellEnv(taskEnv),
+      env: buildShellEnv(mergedEnv, unsetEnv),
       encoding: PTY_ENCODING,
     });
 

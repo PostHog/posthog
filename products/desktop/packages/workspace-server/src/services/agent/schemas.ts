@@ -306,6 +306,19 @@ export type ClaudeSubscriptionStatus = z.infer<
   typeof claudeSubscriptionStatusOutput
 >;
 
+export const claudeAuthTerminalInput = z.object({
+  action: z.enum(["login", "logout"]),
+});
+
+export const claudeAuthTerminalOutput = z.object({
+  command: z.string(),
+  cwd: z.string(),
+  additionalEnv: z.record(z.string(), z.string()),
+  unsetEnv: z.array(z.string()),
+});
+
+export type ClaudeAuthTerminal = z.infer<typeof claudeAuthTerminalOutput>;
+
 export const codexSubscriptionLoginOutput = z.object({
   authUrl: z.string(),
 });

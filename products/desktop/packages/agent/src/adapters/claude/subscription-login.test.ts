@@ -16,6 +16,7 @@ vi.mock("node:fs", async () => {
   return { ...actual, existsSync: vi.fn(actual.existsSync) };
 });
 
+import { MACHINE_CLAUDE_CONFIG_DIR_ENV } from "./machine-config-dir";
 import { hasClaudeLogin } from "./subscription-login";
 
 class FakeChildProcess extends EventEmitter {
@@ -108,6 +109,35 @@ describe("hasClaudeLogin", () => {
     // A user-provided OAuth token is itself a subscription credential — keep it.
     expect(spawnOptions.env.CLAUDE_CODE_OAUTH_TOKEN).toBe("user-oauth-token");
   });
+
+  it.each([
+    { machineDir: undefined, expected: undefined },
+    { machineDir: "/home/me/.claude", expected: "/home/me/.claude" },
+  ])(
+    "checks the machine config dir $machineDir, not the app one",
+    async ({ machineDir, expected }) => {
+      process.env.CLAUDE_CONFIG_DIR = "/app-data/claude";
+      if (machineDir) {
+        process.env[MACHINE_CLAUDE_CONFIG_DIR_ENV] = machineDir;
+      }
+      try {
+        const result = hasClaudeLogin({ claudeCliPath: "/bundled/claude" });
+        exit(0);
+        await result;
+
+        const [, , spawnOptions] = spawnMock.mock.calls[0] as [
+          string,
+          string[],
+          { env: NodeJS.ProcessEnv },
+        ];
+        expect(spawnOptions.env.CLAUDE_CONFIG_DIR).toBe(expected);
+        expect(spawnOptions.env[MACHINE_CLAUDE_CONFIG_DIR_ENV]).toBeUndefined();
+      } finally {
+        delete process.env.CLAUDE_CONFIG_DIR;
+        delete process.env[MACHINE_CLAUDE_CONFIG_DIR_ENV];
+      }
+    },
+  );
 
   it("runs a legacy cli.js through the current JS runtime", async () => {
     const result = hasClaudeLogin({ claudeCliPath: "/bundled/claude/cli.js" });

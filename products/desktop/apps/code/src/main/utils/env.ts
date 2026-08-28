@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { MACHINE_CLAUDE_CONFIG_DIR_ENV } from "@posthog/agent/adapters/claude/machine-config-dir";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -28,9 +29,18 @@ export function getAppVersion(): string {
   return requireEnv("POSTHOG_CODE_VERSION");
 }
 
+/**
+ * Keep the app's Claude state out of the machine's `~/.claude`.
+ *
+ * Own-subscription sessions must undo this to see the machine's CLI login, so
+ * record the dir that login uses. Unset means the CLI default.
+ */
 export function ensureClaudeConfigDir(): void {
   const existing = process.env.CLAUDE_CONFIG_DIR;
-  if (existing) return;
+  if (existing) {
+    process.env[MACHINE_CLAUDE_CONFIG_DIR_ENV] = existing;
+    return;
+  }
 
   const claudeDir = path.join(getUserDataDir(), "claude");
 

@@ -40,6 +40,7 @@ import {
   type EnrichedReadCache,
   type OnModeChange,
 } from "../hooks";
+import { applyMachineClaudeConfigDir } from "../machine-config-dir";
 import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
 import type { EffortLevel } from "../types";
 import { buildAppendedInstructions } from "./instructions";
@@ -223,6 +224,8 @@ function buildEnvironment(
     // mode only ambient values could survive, and they must not either.
     delete env.OPENAI_BASE_URL;
     delete env.OPENAI_API_KEY;
+    // The login lives in the machine's Claude config dir, not the app's.
+    applyMachineClaudeConfigDir(env);
     applyContextWikiEnv(env, contextWiki);
     return env;
   }

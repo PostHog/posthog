@@ -5,6 +5,7 @@ import type { HookInput, Options } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "../../../utils/logger";
 import { SUBAGENT_REWRITES } from "../hooks";
+import { MACHINE_CLAUDE_CONFIG_DIR_ENV } from "../machine-config-dir";
 import {
   buildSessionOptions,
   buildSystemPrompt,
@@ -506,6 +507,31 @@ describe("buildSessionOptions", () => {
         expect(key).not.toMatch(/X-PostHog/i);
       }
     });
+
+    it.each([
+      { machineDir: undefined, expected: undefined },
+      { machineDir: "/home/me/.claude", expected: "/home/me/.claude" },
+    ])(
+      "runs against the machine config dir $machineDir, not the app one",
+      ({ machineDir, expected }) => {
+        process.env.CLAUDE_CONFIG_DIR = "/app-data/claude";
+        if (machineDir) {
+          process.env[MACHINE_CLAUDE_CONFIG_DIR_ENV] = machineDir;
+        }
+        try {
+          const env = buildSessionOptions({
+            ...makeParams(),
+            useMachineAuth: true,
+          }).env;
+
+          expect(env?.CLAUDE_CONFIG_DIR).toBe(expected);
+          expect(env?.[MACHINE_CLAUDE_CONFIG_DIR_ENV]).toBeUndefined();
+        } finally {
+          delete process.env.CLAUDE_CONFIG_DIR;
+          delete process.env[MACHINE_CLAUDE_CONFIG_DIR_ENV];
+        }
+      },
+    );
 
     it("keeps session behavior flags and the Electron node mode", () => {
       const env = buildSessionOptions({
