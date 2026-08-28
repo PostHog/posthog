@@ -254,6 +254,32 @@ class HogQLDatabaseSources:
     virtual_source: Optional[ExternalDataSource] = None
     virtual_schemas: list[ExternalDataSchema] = dataclasses.field(default_factory=list)
 
+    def copy_for_request(
+        self, team: Team, user: Optional[User | SyntheticUser | SharedLinkUser]
+    ) -> HogQLDatabaseSources:
+        """A copy safe to hand out from the sources cache: the request's own team/user, a private
+        modifiers copy, and fresh top-level containers so an in-place mutation downstream cannot
+        leak into other requests. The contained ORM rows stay shared — the build reads them only."""
+        return dataclasses.replace(
+            self,
+            team=team,
+            user=user,
+            modifiers=self.modifiers.model_copy(deep=True),
+            direct_connection_metadata=(
+                dict(self.direct_connection_metadata) if self.direct_connection_metadata is not None else None
+            ),
+            denied_system_table_names=set(self.denied_system_table_names),
+            group_types=list(self.group_types),
+            saved_queries=list(self.saved_queries),
+            endpoint_saved_queries=list(self.endpoint_saved_queries),
+            revenue_views=list(self.revenue_views),
+            warehouse_tables=list(self.warehouse_tables),
+            data_warehouse_joins=list(self.data_warehouse_joins),
+            data_warehouse_expressions=list(self.data_warehouse_expressions),
+            event_modifier_saved_queries=dict(self.event_modifier_saved_queries),
+            virtual_schemas=list(self.virtual_schemas),
+        )
+
 
 type DatabaseSchemaTable = (
     DatabaseSchemaPostHogTable
@@ -1412,12 +1438,7 @@ class Database(BaseModel):
         if cache_key is None:
             sources = fetch_fresh()
         else:
-            sources = get_or_fetch_sources(cache_key, fetch_fresh)
-            # Cached entries outlive this request: hand out a copy carrying this request's
-            # team/user and a private modifiers copy, so nothing downstream mutates shared state.
-            sources = dataclasses.replace(
-                sources, team=cast("Team", team), user=user, modifiers=sources.modifiers.model_copy(deep=True)
-            )
+            sources = get_or_fetch_sources(cache_key, fetch_fresh).copy_for_request(cast("Team", team), user)
 
         with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="build_from_sources").time():
             return Database._build_from_sources(
