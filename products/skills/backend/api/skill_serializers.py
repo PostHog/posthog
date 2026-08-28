@@ -9,7 +9,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
-from ..marketplace.packaging import DEFAULT_BUNDLE_SKILLS, MAX_BUNDLE_SKILLS
+from ..marketplace.packaging import DEFAULT_BUNDLE_SKILLS, MAX_BUNDLE_SKILLS, SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.skills import LLMSkill, LLMSkillFile, category_for_skill_name
 from .community_publish_services import (
     DISPLAY_NAME_PATTERN,
@@ -326,7 +326,7 @@ class LLMSkillPublishSerializer(serializers.Serializer):
         ),
     )
     description = serializers.CharField(
-        max_length=4096,
+        max_length=SPEC_DESCRIPTION_MAX_LENGTH,
         required=False,
         help_text="Updated description for the new version.",
     )
@@ -526,7 +526,10 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "name": {
                 "help_text": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters."
             },
-            "description": {"help_text": "What this skill does and when to use it. Max 4096 characters."},
+            "description": {
+                "max_length": SPEC_DESCRIPTION_MAX_LENGTH,
+                "help_text": "What this skill does and when to use it. Max 1024 characters.",
+            },
             "body": {"help_text": "The SKILL.md instruction content (markdown)."},
             "license": {"help_text": "License name or reference to a bundled license file."},
             "compatibility": {

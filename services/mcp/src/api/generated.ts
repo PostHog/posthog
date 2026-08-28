@@ -46369,8 +46369,8 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * What this skill does and when to use it. Max 4096 characters.
-         * @maxLength 4096
+         * What this skill does and when to use it. Max 1024 characters.
+         * @maxLength 1024
          */
       description: string;
       /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
@@ -46451,8 +46451,8 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * What this skill does and when to use it. Max 4096 characters.
-         * @maxLength 4096
+         * What this skill does and when to use it. Max 1024 characters.
+         * @maxLength 1024
          */
       description: string;
       /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
@@ -46597,8 +46597,8 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * What this skill does and when to use it. Max 4096 characters.
-         * @maxLength 4096
+         * What this skill does and when to use it. Max 1024 characters.
+         * @maxLength 1024
          */
       description: string;
       /**
@@ -62524,7 +62524,7 @@ export namespace Schemas {
       edits?: LLMSkillEditOperation[];
       /**
          * Updated description for the new version.
-         * @maxLength 4096
+         * @maxLength 1024
          */
       description?: string;
       /**

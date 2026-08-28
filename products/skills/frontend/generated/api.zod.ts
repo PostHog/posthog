@@ -27,7 +27,7 @@ export const CommunitySkillsInstallCreateBody = /* @__PURE__ */ zod.object({
 
 export const llmSkillsCreateBodyNameMax = 64
 
-export const llmSkillsCreateBodyDescriptionMax = 4096
+export const llmSkillsCreateBodyDescriptionMax = 1024
 
 export const llmSkillsCreateBodyLicenseMax = 255
 
@@ -49,7 +49,7 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
         description: zod
             .string()
             .max(llmSkillsCreateBodyDescriptionMax)
-            .describe('What this skill does and when to use it. Max 4096 characters.'),
+            .describe('What this skill does and when to use it. Max 1024 characters.'),
         body: zod.string().describe('The SKILL.md instruction content (markdown).'),
         license: zod
             .string()
@@ -119,7 +119,7 @@ export const LlmSkillsMarketplaceInstallCommandCreateBody = /* @__PURE__ */ zod.
         ),
 })
 
-export const llmSkillsNamePartialUpdateBodyDescriptionMax = 4096
+export const llmSkillsNamePartialUpdateBodyDescriptionMax = 1024
 
 export const llmSkillsNamePartialUpdateBodyLicenseMax = 255
 

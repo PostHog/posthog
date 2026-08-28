@@ -146,7 +146,7 @@ class GetSkillFileArgs(BaseModel):
 class CreateSkillArgs(BaseModel):
     name: str = Field(description="Kebab-case skill name. <=64 chars. Must be unique within the team.")
     description: str = Field(
-        description="Short summary explaining what the skill does and when agents should pick it. <=4096 chars.",
+        description="Short summary explaining what the skill does and when agents should pick it. <=1024 chars.",
     )
     body: str = Field(description="SKILL.md instructions as markdown. Treated as system instructions when invoked.")
     license: str | None = Field(default=None, description="Optional license string (e.g. 'MIT').")

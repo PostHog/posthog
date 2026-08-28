@@ -28,6 +28,7 @@ from ...api.skill_services import (
     resolve_skill_owners,
     set_skill_owners,
 )
+from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ...models.skills import LLMSkill, LLMSkillFile
 
 COMMUNITY_FLAG = "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled"
@@ -192,6 +193,22 @@ class TestLLMSkillAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_skill_caps_description_at_spec_limit(self):
+        # Writes cap at the Agent Skills spec limit so a skill cannot grow past what publish and export accept.
+        over = self.client.post(
+            self._url(),
+            data={"name": "too-long", "description": "x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1), "body": "# Body"},
+            format="json",
+        )
+        assert over.status_code == status.HTTP_400_BAD_REQUEST
+
+        at_limit = self.client.post(
+            self._url(),
+            data={"name": "at-limit", "description": "x" * SPEC_DESCRIPTION_MAX_LENGTH, "body": "# Body"},
+            format="json",
+        )
+        assert at_limit.status_code == status.HTTP_201_CREATED
 
     def test_create_skill_with_files(self):
         response = self.client.post(
