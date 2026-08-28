@@ -1,6 +1,7 @@
 {% extends "email/base.html" %}
 {% load posthog_assets %}
 {% load posthog_filters %}
+
 {% block heading %}{{ requester_name }} requested the {{ integration_name }} integration{% endblock %}
 {% block section %}
 <!-- prettier-ignore -->
