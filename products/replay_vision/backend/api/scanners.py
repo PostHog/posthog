@@ -28,7 +28,7 @@ from posthog.schema import RecordingsQuery
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin, set_tags_on_object
 from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.tag import tagify
@@ -201,6 +201,22 @@ def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
         refresh_scanner_estimate(scanner, budget=SAVE_ESTIMATE_BUDGET)
     except Exception:
         logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
+
+
+def _scanner_copy_name(team_id: int, source_name: str) -> str:
+    """First free "<name> (copy)" / "<name> (copy N)" variant, truncated to the name column limit.
+    One query for the team's names, since suffix-dependent truncation defeats a startswith filter;
+    scanner counts per team are small. The unique constraint stays the backstop for a concurrent
+    create racing this check."""
+    taken = set(ReplayScanner.objects.filter(team_id=team_id).values_list("name", flat=True))
+    for n in range(1, len(taken) + 2):
+        suffix = " (copy)" if n == 1 else f" (copy {n})"
+        candidate = f"{source_name[: 255 - len(suffix)]}{suffix}"
+        if candidate not in taken:
+            return candidate
+    # Unreachable given the range spans more than the collisions, but stay well-defined; the DB
+    # uniqueness constraint is the final backstop.
+    return source_name
 
 
 class FeedbackThemeSessionSerializer(serializers.Serializer):
@@ -1495,6 +1511,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         "update",
         "partial_update",
         "destroy",
+        "duplicate",
         "observe",
         "bulk_observe",
         "inline_scan",
@@ -1506,7 +1523,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     # Same authorization as /observe/: configuring a scanner indirectly exposes recording contents.
-    _CONFIG_ACTIONS = {"create", "update", "partial_update"}
+    _CONFIG_ACTIONS = {"create", "update", "partial_update", "duplicate"}
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         if self.action in self._CONFIG_ACTIONS:
@@ -1563,6 +1580,72 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             team=self.team,
             request=self.request,
         )
+
+    @extend_schema(request=None, responses={201: ReplayScannerSerializer})
+    @action(detail=True, methods=["post"])
+    def duplicate(self, request: Request, **kwargs: Any) -> Response:
+        """Copy a scanner into a new disabled scanner named "<name> (copy)".
+
+        Copies the stored model row rather than the serializer's read representation, so a query
+        that no longer validates survives the copy; duplicating through the create endpoint would
+        silently drop it. Experiment targeting is the exception and follows the read path instead.
+        Unlike create, no digest is provisioned: the copy starts disabled and unreviewed."""
+        # An object-level editor grant on one scanner is enough to get past the permission
+        # class, but this action creates a new scanner, so it must clear the same
+        # resource-level bar the create action enforces.
+        if not self.user_access_control.check_access_level_for_resource("replay_scanner", required_level="editor"):
+            raise PermissionDenied("Duplicating a scanner requires editor access to Replay Vision scanners.")
+        source = self.get_object()
+        if not self.team.organization.is_ai_data_processing_approved:
+            raise serializers.ValidationError(
+                "Your organization needs to allow AI analysis before you can create a Replay Vision scanner."
+            )
+        user = cast(User, request.user)
+        # A scanner is viewable at a coarser grain than its targeted experiment, so the read path
+        # nulls an experiment the caller cannot view. Drop it from the copy for the same reason:
+        # create rejects targeting such an experiment, and duplicate must not be the way around it.
+        experiment_targeting = source.experiment_targeting
+        if experiment_targeting:
+            experiment_id = experiment_targeting.get("experiment_id")
+            if experiment_id is None or not is_experiment_accessible(
+                self.user_access_control, self.team_id, experiment_id
+            ):
+                experiment_targeting = None
+        # One transaction so a failed tag write can't leave an untagged copy behind. Side effects stay outside.
+        with transaction.atomic():
+            try:
+                scanner = ReplayScanner.objects.create(
+                    team=self.team,
+                    created_by=user,
+                    name=_scanner_copy_name(self.team_id, source.name),
+                    description=source.description,
+                    scanner_type=source.scanner_type,
+                    scanner_config=source.scanner_config,
+                    query=source.query,
+                    sampling_rate=source.sampling_rate,
+                    sampling_mode=source.sampling_mode,
+                    credit_limit=source.credit_limit,
+                    provider=source.provider,
+                    model=source.model,
+                    emits_signals=source.emits_signals,
+                    experiment_targeting=experiment_targeting,
+                    enabled=False,
+                )
+            except IntegrityError as e:
+                ReplayScannerSerializer._reraise_unique_name_violation(e)
+            tags = list(source.tagged_items.values_list("tag__name", flat=True))
+            if tags:
+                set_tags_on_object(tags, scanner)
+        _refresh_estimate_fail_soft(scanner)
+        # Distinct from replay_vision_scanner_created so duplicates don't inflate wizard-completion counts.
+        report_user_action(
+            user,
+            "replay_vision_scanner_duplicated",
+            {**_scanner_lifecycle_properties(scanner), "source_scanner_id": str(source.id)},
+            team=self.team,
+            request=request,
+        )
+        return Response(self.get_serializer(scanner).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: ScannerCreatorsResponseSerializer})
     @action(detail=False, methods=["get"], pagination_class=None)
