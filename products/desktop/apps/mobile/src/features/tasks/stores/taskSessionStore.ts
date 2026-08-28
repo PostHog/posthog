@@ -188,8 +188,6 @@ function analyzeEntries(
         | undefined;
       if (params?.status === "compacting") {
         compacting = !params.isComplete;
-      } else if (params?.status === "compacting_failed") {
-        compacting = false;
       }
     }
     if (method === "_posthog/compact_boundary") {
