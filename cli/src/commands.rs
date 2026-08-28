@@ -413,7 +413,7 @@ impl Cli {
                     crate::sourcemaps::plain::upload::upload(&upload_args, None)?;
                 }
                 SourcemapCommand::Process(args) => {
-                    let (inject_args, upload_args) = args.resolve_stdin()?.into();
+                    let (inject_args, upload_args) = args.materialize()?.into();
                     let cwd =
                         std::env::current_dir().context("Failed to determine current directory")?;
                     let release = crate::sourcemaps::inject::get_release_for_maps(

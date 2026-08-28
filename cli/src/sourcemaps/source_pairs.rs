@@ -158,9 +158,12 @@ impl SourcePair {
     /// In symbol-set mode no hash is set and the upload layer hashes the raw payload, matching
     /// the hashes the server already stores for previous uploads.
     pub fn into_upload(mut self, release_mode: ReleaseMode) -> Result<SymbolSetUpload> {
-        let chunk_id = self
-            .get_chunk_id()
-            .ok_or_else(|| anyhow!("Chunk ID not found"))?;
+        let chunk_id = self.get_chunk_id().ok_or_else(|| {
+            anyhow!(
+                "Chunk ID not found in {} — the file was not injected before upload",
+                self.source.inner.path.display()
+            )
+        })?;
         let release_id = self.sourcemap.get_release_id();
         let source_content = self.source.inner.content.clone();
         let sourcemap_content = serde_json::to_string(&self.sourcemap.inner.content)?;

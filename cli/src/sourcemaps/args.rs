@@ -91,6 +91,32 @@ impl FileSelectionArgs {
         }
         Ok(self)
     }
+
+    /// Expand every root into the concrete files it currently contains, applying the
+    /// include/exclude globs, so repeated consumers see an identical set. `process` needs
+    /// this: its inject and upload passes each re-walk directory roots, and a bundler
+    /// writing into the directory between the passes (e.g. Turbopack's background
+    /// filesystem-cache flush on Next.js 16.3+) would otherwise hand upload chunks that
+    /// inject never stamped, failing the run with "Chunk ID not found".
+    /// See https://github.com/PostHog/posthog-js/issues/4667
+    pub fn materialize(self) -> Result<Self> {
+        let resolved = self.resolve_stdin()?;
+        resolved.validate()?;
+        let files = FileSelection::try_from(resolved.clone())?
+            .into_iter()
+            .filter(|entry| entry.file_type().is_file())
+            .map(|entry| entry.into_path())
+            .collect::<Vec<_>>();
+        if files.is_empty() {
+            bail!("No files found in {resolved}");
+        }
+        Ok(Self {
+            directory: files,
+            stdin: false,
+            include: Vec::new(),
+            exclude: Vec::new(),
+        })
+    }
 }
 
 /// How exceptions get associated with a release.
@@ -260,6 +286,43 @@ mod tests {
         }
 
         parsed
+    }
+
+    #[test]
+    fn materialize_freezes_the_file_set() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("chunk.js"), "content").unwrap();
+
+        let args = FileSelectionArgs {
+            directory: vec![dir.path().to_path_buf()],
+            stdin: false,
+            include: Vec::new(),
+            exclude: Vec::new(),
+        };
+        let materialized = args.materialize().unwrap();
+
+        // A chunk written after materialization (a bundler flushing files in the
+        // background between the inject and upload passes) must not enter the selection.
+        fs::write(dir.path().join("late.js"), "content").unwrap();
+
+        let selected: Vec<_> = FileSelection::try_from(materialized)
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.into_path())
+            .collect();
+        assert_eq!(selected, vec![dir.path().join("chunk.js")]);
+    }
+
+    #[test]
+    fn materialize_fails_on_empty_selection() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = FileSelectionArgs {
+            directory: vec![dir.path().to_path_buf()],
+            stdin: false,
+            include: Vec::new(),
+            exclude: Vec::new(),
+        };
+        assert!(args.materialize().is_err());
     }
 
     fn make_args(name: Option<&str>, version: Option<&str>, build: Option<&str>) -> ReleaseArgs {

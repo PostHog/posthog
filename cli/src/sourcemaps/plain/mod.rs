@@ -65,9 +65,11 @@ pub struct ProcessArgs {
 }
 
 impl ProcessArgs {
-    /// Resolve stdin paths once so they can be shared between inject and upload.
-    pub fn resolve_stdin(mut self) -> Result<Self> {
-        self.file_selection = self.file_selection.resolve_stdin()?;
+    /// Freeze the file selection into a concrete file list once, so inject and upload
+    /// operate on the exact same set even when the scanned directory keeps changing
+    /// underneath us (e.g. Turbopack's background cache flush on Next.js 16.3+).
+    pub fn materialize(mut self) -> Result<Self> {
+        self.file_selection = self.file_selection.materialize()?;
         Ok(self)
     }
 }
