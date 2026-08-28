@@ -12,6 +12,11 @@ const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
 // a runaway loop must not be able to pile up unbounded concurrent requests,
 // ship oversized payloads, or hold a request slot forever.
 const MAX_CONCURRENT_DATA_REQUESTS = 8;
+// A canvas with more cards than there are slots is normal — each card fires its
+// own query on mount. Over-cap requests wait for a slot instead of failing, but
+// the wait queue is itself bounded so a runaway loop still can't pile up
+// unbounded work.
+const MAX_QUEUED_DATA_REQUESTS = 64;
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
 const DATA_REQUEST_TIMEOUT_MS = 30_000;
 const REPLAYABLE_SHORTCUT_KEYS = new Set([
@@ -93,6 +98,29 @@ export function createCanvasHostMessageRouter(
 ): (message: CanvasToHostMessage) => Promise<void> {
   let lastExternalOpen = 0;
   let activeDataRequests = 0;
+  const slotWaiters: Array<() => void> = [];
+
+  // Take a concurrency slot, waiting in FIFO order when all slots are busy.
+  const acquireSlot = (): Promise<void> =>
+    new Promise((resolve) => {
+      if (activeDataRequests < MAX_CONCURRENT_DATA_REQUESTS) {
+        activeDataRequests += 1;
+        resolve();
+      } else {
+        slotWaiters.push(resolve);
+      }
+    });
+
+  // Hand the freed slot straight to the next waiter, so the active count only
+  // drops when nobody is waiting.
+  const releaseSlot = (): void => {
+    const next = slotWaiters.shift();
+    if (next) {
+      next();
+    } else {
+      activeDataRequests -= 1;
+    }
+  };
 
   return async (message) => {
     switch (message.type) {
@@ -121,9 +149,14 @@ export function createCanvasHostMessageRouter(
         // starve the canvas's ordinary reads/writes. Its own bound is the
         // host's single-flight guard (one request awaiting approval at a time).
         const holdsSlot = message.method !== "agentRequest";
+        // An oversized payload can never run, and the wait queue has a bound a
+        // runaway loop must not blow past. Both are hard limits; the request
+        // fails rather than waits.
         if (
-          (holdsSlot && activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS) ||
-          !isBoundedPayload(message.payload)
+          !isBoundedPayload(message.payload) ||
+          (holdsSlot &&
+            activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS &&
+            slotWaiters.length >= MAX_QUEUED_DATA_REQUESTS)
         ) {
           options.post({
             channel: "posthog-canvas",
@@ -134,7 +167,10 @@ export function createCanvasHostMessageRouter(
           });
           break;
         }
-        if (holdsSlot) activeDataRequests += 1;
+        // Over-cap requests wait here for a slot; the timeout below only starts
+        // once the request actually runs, so a queued request isn't timed out
+        // while waiting.
+        if (holdsSlot) await acquireSlot();
         try {
           const call = options
             .callbacks()
@@ -172,7 +208,7 @@ export function createCanvasHostMessageRouter(
             error: error instanceof Error ? error.message : String(error),
           });
         } finally {
-          if (holdsSlot) activeDataRequests -= 1;
+          if (holdsSlot) releaseSlot();
         }
         break;
       }

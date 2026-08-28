@@ -12,9 +12,13 @@ minted at authoring time by the `generate-app-url` MCP tool (`/insights/{id}`), 
 the numbers on the real insight with their own permissions applied.
 
 The load-bearing pattern is `useCanvasQuery`: one instance per query, each owning its
-`{ loading, error, data }`. All queries start concurrently on mount and each card renders as soon
-as its own result arrives — a slow query only holds back its own card. Keep that shape as you add
-metrics; never collapse the queries behind one shared `loading` flag or a `Promise.all`.
+`{ loading, error, data }` and its own `reload`. All queries start concurrently on mount and each
+card renders as soon as its own result arrives — a slow query only holds back its own card. A
+card's Retry reloads only that query. The header Refresh reloads every card by calling each query's
+reload. Do not route both through one shared nonce: a shared nonce reloads every card on any single
+retry, and past the host's concurrency cap it turns one retry into a wave of requests. Keep that
+shape as you add metrics; never collapse the queries behind one shared `loading` flag or a
+`Promise.all`.
 
 ```tsx
 import React, { useEffect, useState } from 'react'
@@ -63,9 +67,13 @@ const uniqueUsersQuery = (dateRange) => ({
 // One instance per query. Each section owns its own { loading, error, data }
 // and renders the moment ITS result lands — never share one loading flag
 // across queries or gate the canvas on Promise.all: that makes the fastest
-// card wait for the slowest query.
+// card wait for the slowest query. Each instance also owns its own `reload`,
+// so a card's Retry re-runs only that query — never a single shared nonce that
+// re-runs every card at once.
 function useCanvasQuery(runQuery, deps) {
   const [state, setState] = useState({ loading: true, error: null, data: null })
+  const [reloadNonce, setReloadNonce] = useState(0)
+  const reload = () => setReloadNonce((n) => n + 1)
   useEffect(() => {
     let cancelled = false
     setState({ loading: true, error: null, data: null })
@@ -83,8 +91,9 @@ function useCanvasQuery(runQuery, deps) {
     return () => {
       cancelled = true
     }
-  }, deps)
-  return state
+    // reloadNonce re-runs this one query; deps (e.g. the date window) re-run it too.
+  }, [...deps, reloadNonce])
+  return { ...state, reload }
 }
 
 function CardError({ message, onRetry }) {
@@ -132,9 +141,6 @@ export default function Canvas() {
     range: def,
   })
   const [open, setOpen] = useState(false)
-  // Refresh plumbing: bump this nonce to re-run every data effect on demand.
-  const [nonce, setNonce] = useState(0)
-  const retry = () => setNonce((n) => n + 1)
 
   const dateRange = {
     date_from: win.start.toISOString(),
@@ -156,13 +162,18 @@ export default function Canvas() {
           })),
         }
       }),
-    [win, nonce]
+    [win]
   )
   const visitors = useCanvasQuery(
     () => ph.query(uniqueUsersQuery(dateRange)).then((res) => res.results[0]?.aggregated_value ?? 0),
-    [win, nonce]
+    [win]
   )
   const anyLoading = events.loading || visitors.loading
+  // The header Refresh reloads every card by calling each query's own reload.
+  const refreshAll = () => {
+    events.reload()
+    visitors.reload()
+  }
 
   return (
     // The canvas root must resolve height against the iframe viewport. The
@@ -190,7 +201,7 @@ export default function Canvas() {
               />
             </PopoverContent>
           </Popover>
-          <Button variant="outline" disabled={anyLoading} onClick={retry}>
+          <Button variant="outline" disabled={anyLoading} onClick={refreshAll}>
             <RefreshCw size={14} className={anyLoading ? 'animate-spin' : undefined} />
             Refresh
           </Button>
@@ -206,7 +217,7 @@ export default function Canvas() {
             {events.loading ? (
               <SkeletonText lines={1} className="text-3xl" />
             ) : events.error ? (
-              <CardError message={events.error} onRetry={retry} />
+              <CardError message={events.error} onRetry={events.reload} />
             ) : (
               <Heading size="2xl">{events.data.total.toLocaleString()}</Heading>
             )}
@@ -223,7 +234,7 @@ export default function Canvas() {
             {visitors.loading ? (
               <SkeletonText lines={1} className="text-3xl" />
             ) : visitors.error ? (
-              <CardError message={visitors.error} onRetry={retry} />
+              <CardError message={visitors.error} onRetry={visitors.reload} />
             ) : (
               <Heading size="2xl">{visitors.data.toLocaleString()}</Heading>
             )}
@@ -242,7 +253,7 @@ export default function Canvas() {
           {events.loading ? (
             <SkeletonText lines={6} />
           ) : events.error ? (
-            <CardError message={events.error} onRetry={retry} />
+            <CardError message={events.error} onRetry={events.reload} />
           ) : (
             <div className="h-[280px] w-full">
               <ResponsiveContainer>
