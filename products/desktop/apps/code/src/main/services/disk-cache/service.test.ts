@@ -59,11 +59,17 @@ describe("DiskCache", () => {
     },
   );
 
-  it("drops an entry whose sidecar is unreadable", async () => {
+  it.each([
+    ["{not json", "unparseable"],
+    // Parses, but a missing storedAt makes the staleness arithmetic NaN, which
+    // reads as fresh — the entry would never expire and never refresh.
+    ['{"contentType":"image/png"}', "missing storedAt"],
+    ['{"storedAt":1000}', "missing contentType"],
+  ])("drops an entry whose sidecar is %s (%s)", async (sidecar) => {
     const images = makeCache().namespace("images");
     await images.set("key", PNG, "image/png");
     const hash = createHash("sha256").update("key").digest("hex");
-    await writeFile(join(rootDir, "images", `${hash}.json`), "{not json");
+    await writeFile(join(rootDir, "images", `${hash}.json`), sidecar);
 
     expect(await images.get("key", { maxAgeMs: 100 })).toBeNull();
     expect(await readdir(join(rootDir, "images"))).toEqual([]);

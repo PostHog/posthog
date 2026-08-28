@@ -39,6 +39,23 @@ function isNotFound(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
 }
 
+/**
+ * A sidecar that parses but has the wrong shape must not pass. A missing
+ * `storedAt` makes the staleness arithmetic NaN, which reads as fresh, so the
+ * entry would never expire and never refresh.
+ */
+function parseSidecar(raw: string): DiskCacheSidecar {
+  const parsed = JSON.parse(raw) as Partial<DiskCacheSidecar>;
+  if (
+    typeof parsed?.contentType !== "string" ||
+    typeof parsed?.storedAt !== "number" ||
+    !Number.isFinite(parsed.storedAt)
+  ) {
+    throw new Error("Malformed cache sidecar");
+  }
+  return { contentType: parsed.contentType, storedAt: parsed.storedAt };
+}
+
 export class DiskCache implements IDiskCache {
   private readonly now: () => number;
 
@@ -75,9 +92,7 @@ export class DiskCacheNamespace {
   ): Promise<DiskCacheEntry | null> {
     const base = this.pathFor(key);
     try {
-      const sidecar = JSON.parse(
-        await readFile(`${base}.json`, "utf8"),
-      ) as DiskCacheSidecar;
+      const sidecar = parseSidecar(await readFile(`${base}.json`, "utf8"));
       const bytes = await readFile(base);
       return {
         bytes,
@@ -164,10 +179,7 @@ export class DiskCacheNamespace {
   /** Age from the sidecar. An entry with no readable sidecar is junk, so it goes first. */
   private async storedAtOf(base: string): Promise<number> {
     try {
-      const sidecar = JSON.parse(
-        await readFile(`${base}.json`, "utf8"),
-      ) as DiskCacheSidecar;
-      return sidecar.storedAt;
+      return parseSidecar(await readFile(`${base}.json`, "utf8")).storedAt;
     } catch {
       return Number.NEGATIVE_INFINITY;
     }

@@ -26,6 +26,7 @@ describe("disk-cache-protocol", () => {
     ["https://[::1]/a.png", "ipv6 loopback"],
     ["https://nas/a.png", "bare intranet name"],
     ["https://printer.local/a.png", "mdns name"],
+    ["https://user:pass@example.com/a.png", "embedded credentials"],
   ])("refuses to cache %s (%s)", (remoteUrl) => {
     expect(isCacheableImageUrl(remoteUrl)).toBe(false);
   });

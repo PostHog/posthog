@@ -1,5 +1,6 @@
 import type { DiskCacheNamespace } from "@main/services/disk-cache/service";
 import { logger } from "@main/utils/logger";
+import { redactUrl } from "@main/utils/network-log";
 import type { FetchLike } from "@posthog/core/auth/auth";
 import {
   fromCachedImageUrl,
@@ -15,9 +16,20 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 /** Ceiling for the whole images namespace, well past what avatars and icons need. */
 export const CACHED_IMAGE_NAMESPACE_MAX_BYTES = 100 * 1024 * 1024;
 
+/**
+ * A refresh holds every waiting request for this URL, and an unsettled one
+ * would pin them forever, so the fetch needs its own deadline.
+ */
+const FETCH_TIMEOUT_MS = 30_000;
+
+/** Each running refresh holds its own buffer, so bound how many there can be. */
+const MAX_CONCURRENT_FETCHES = 16;
+
 interface CachedImage {
   bytes: Uint8Array;
   contentType: string;
+  /** True when this is the fallback copy served because a refresh failed. */
+  stale: boolean;
 }
 
 /**
@@ -76,14 +88,17 @@ export function createCachedImageHandler(
     remoteUrl: string,
     stale: CachedImage | null,
   ): Promise<CachedImage | null> {
+    const safeUrl = redactUrl(remoteUrl);
     try {
-      const response = await fetch(remoteUrl);
+      const response = await fetch(remoteUrl, {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
       if (response.status === 404) {
         await images.delete(remoteUrl);
         return null;
       }
       if (!response.ok) {
-        log.warn("Image fetch failed", { remoteUrl, status: response.status });
+        log.warn("Image fetch failed", { safeUrl, status: response.status });
         return stale;
       }
       // The network stack follows redirects for us, so check where the bytes
@@ -91,7 +106,10 @@ export function createCachedImageHandler(
       // address or downgrade it to http.
       const finalUrl = response.url || remoteUrl;
       if (finalUrl !== remoteUrl && !isCacheableImageUrl(finalUrl)) {
-        log.warn("Image redirected off-limits", { remoteUrl, finalUrl });
+        log.warn("Image redirected off-limits", {
+          safeUrl,
+          finalUrl: redactUrl(finalUrl),
+        });
         return stale;
       }
       const contentType = response.headers.get("content-type") ?? "";
@@ -101,14 +119,20 @@ export function createCachedImageHandler(
 
       const bytes = await readCapped(response, MAX_IMAGE_BYTES);
       if (!bytes) {
-        log.warn("Image too large", { remoteUrl, max: MAX_IMAGE_BYTES });
+        log.warn("Image too large", { safeUrl, max: MAX_IMAGE_BYTES });
         return stale;
       }
 
-      await images.set(remoteUrl, bytes, contentType);
-      return { bytes, contentType };
+      // The bytes are already good, so a failed write costs a later cache miss
+      // and nothing more. Failing here instead would render nothing at all.
+      await images
+        .set(remoteUrl, bytes, contentType)
+        .catch((error: unknown) => {
+          log.warn("Could not store image", { safeUrl, error });
+        });
+      return { bytes, contentType, stale: false };
     } catch (error) {
-      log.warn("Image fetch threw", { remoteUrl, error });
+      log.warn("Image fetch threw", { safeUrl, error });
       return stale;
     }
   }
@@ -119,6 +143,14 @@ export function createCachedImageHandler(
 
     const pending = inFlight.get(remoteUrl);
     if (pending) return pending;
+
+    // Coalescing only helps repeats of one URL. Distinct URLs each hold their
+    // own buffer, so cap how many can run at once and let the rest wait for a
+    // later render rather than growing main-process memory without limit.
+    if (inFlight.size >= MAX_CONCURRENT_FETCHES) {
+      log.warn("Too many image fetches in flight", { size: inFlight.size });
+      return cached;
+    }
 
     const refreshed = refresh(remoteUrl, cached).finally(() => {
       inFlight.delete(remoteUrl);
@@ -137,7 +169,12 @@ export function createCachedImageHandler(
     return new Response(image.bytes as BodyInit, {
       headers: {
         "Content-Type": image.contentType,
-        "Cache-Control": `max-age=${Math.floor(maxAgeMs / 1000)}`,
+        // The scheme is standard and secure, so Chromium caches these like any
+        // other resource. Letting a stale copy claim the full max age would put
+        // it beyond reach of the next refresh.
+        "Cache-Control": image.stale
+          ? "no-cache"
+          : `max-age=${Math.floor(maxAgeMs / 1000)}`,
       },
     });
   };

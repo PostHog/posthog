@@ -8,11 +8,13 @@ const CACHED_IMAGE_ORIGIN = `${DISK_CACHE_SCHEME}://images/`;
  * The scheme is registered on the session that also renders untrusted artifact
  * HTML, so any preview can name a source and make the main process fetch it.
  * Public https only: an intranet address would let the preview reach hosts its
- * own sandbox cannot.
+ * own sandbox cannot, and embedded credentials would have the main process
+ * present them to a host the preview chose.
  */
 export function isCacheableImageUrl(remoteUrl: string): boolean {
   try {
     const url = new URL(remoteUrl);
+    if (url.username || url.password) return false;
     return url.protocol === "https:" && !isPrivateHostname(url.hostname);
   } catch {
     return false;
