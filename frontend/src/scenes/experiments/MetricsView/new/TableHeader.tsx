@@ -9,7 +9,7 @@ import { ExperimentStatsMethod } from '~/types'
 
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
 import { getNiceTickValues } from '../shared/utils'
-import { SVG_EDGE_MARGIN, TICK_FONT_SIZE_NEW, TICK_PANEL_HEIGHT, VIEW_BOX_WIDTH } from './constants'
+import { SVG_EDGE_MARGIN, TICK_FONT_SIZE, TICK_PANEL_HEIGHT, VIEW_BOX_WIDTH } from './constants'
 import { TickLabels } from './TickLabels'
 import { useAxisScale } from './useAxisScale'
 
@@ -103,7 +103,7 @@ export function TableHeader({
                                     scale={scale}
                                     y={(TICK_PANEL_HEIGHT + 13) / 2}
                                     viewBoxWidth={VIEW_BOX_WIDTH}
-                                    fontSize={TICK_FONT_SIZE_NEW}
+                                    fontSize={TICK_FONT_SIZE}
                                     fontWeight="600"
                                     dominantBaseline="middle"
                                     svgWidth={svgWidth}
