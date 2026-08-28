@@ -5,6 +5,7 @@ import type { Mocks } from '~/mocks/utils'
 import { actionsEmptyState } from 'products/actions/frontend/emptyState/actionsEmptyState'
 import { aiObservabilityEmptyState } from 'products/ai_observability/frontend/emptyState/aiObservabilityEmptyState'
 import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptyState/llmPromptsEmptyState'
+import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
@@ -177,6 +178,17 @@ const actionsMocks = {
 export const ActionsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(actionsEmptyState, 'needs-setup', {
     mocks: actionsMocks,
 })
+
+// Annotations detection lists annotations on mount - answer "none yet".
+const annotationsMocks = {
+    get: { '/api/projects/:team_id/annotations/': [200, { count: 0, results: [] }] },
+} as const
+
+export const AnnotationsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    annotationsEmptyState,
+    'needs-setup',
+    { mocks: annotationsMocks }
+)
 
 // Error tracking detection asks the issues-exists API on mount - answer "none yet".
 const errorTrackingMocks = {
