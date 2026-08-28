@@ -8,14 +8,16 @@ from django.db import transaction
 from django.utils import timezone
 
 from ..db import WRITER_DB
-from ..facade.enums import ReviewState, SnapshotResult, ToleratedReason
+from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, ActorType, ReviewState, SnapshotResult, ToleratedReason
 from ..models import Run, RunSnapshot, ToleratedHash
 from . import errors, run_queries
 
 
 @transaction.atomic(using=WRITER_DB)
-def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int) -> RunSnapshot:
-    """Mark a changed snapshot as a known tolerated alternate (human decision).
+def mark_snapshot_as_tolerated(
+    run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int, actor: ActorType = ActorType.HUMAN
+) -> RunSnapshot:
+    """Mark a changed snapshot as a known tolerated alternate (a reviewer's decision).
 
     Creates a ToleratedHash entry tied to the current baseline, reclassifies the
     snapshot as UNCHANGED, and recalculates run summary counts.
@@ -42,7 +44,7 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
         baseline_hash=snapshot.baseline_hash,
         alternate_hash=snapshot.current_hash,
         defaults={
-            "reason": ToleratedReason.HUMAN,
+            "reason": ToleratedReason.AGENT if actor == ActorType.AGENT else ToleratedReason.HUMAN,
             "source_run": run,
             "created_by_id": user_id,
             "diff_percentage": snapshot.diff_percentage,
@@ -57,10 +59,14 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
     snapshot.tolerated_hash_match = tolerated
     snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "tolerated_hash_match"])
 
-    # Update tolerated_match_count (only human-tolerated, not auto-threshold)
+    # Update tolerated_match_count (only decided tolerations, not auto-threshold)
     tolerated_count = (
         RunSnapshot.objects.using(WRITER_DB)
-        .filter(run=run, tolerated_hash_match__isnull=False, tolerated_hash_match__reason=ToleratedReason.HUMAN)
+        .filter(
+            run=run,
+            tolerated_hash_match__isnull=False,
+            tolerated_hash_match__reason__in=INTENTIONAL_TOLERATE_REASONS,
+        )
         .count()
     )
     Run.objects.using(WRITER_DB).filter(id=run.id).update(tolerated_match_count=tolerated_count)
