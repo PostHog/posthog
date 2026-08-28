@@ -232,6 +232,8 @@ describe("PiSessionService start", () => {
       rootLogger,
     );
 
+    expect(service.getPendingMcpToolPermissions("task-1")).toEqual([]);
+
     await service.start({
       taskContext: {
         taskId: "task-1",
