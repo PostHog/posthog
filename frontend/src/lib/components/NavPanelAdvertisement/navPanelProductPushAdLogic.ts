@@ -71,7 +71,7 @@ export const navPanelProductPushAdLogic = kea<navPanelProductPushAdLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            navPanelAdvertisementLogic({ campaign: dismissKey(props.campaign) }),
+            navPanelAdvertisementLogic({ dismissKey: dismissKey(props.campaign) }),
             ['hidden'],
         ],
     })),

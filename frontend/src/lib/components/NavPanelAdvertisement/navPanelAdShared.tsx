@@ -10,41 +10,42 @@ import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
 /**
  * Which card filled the ad slot, sent as `card_type` on every ad-slot event.
  *
- * Two cards shared the `nav panel campaign shown` event name once before, which made their
- * impressions indistinguishable in analytics. Breaking down on this instead of on the event
- * name keeps that ambiguity from coming back.
+ * A broadcast is hand-authored in a feature flag and targeted by whoever wrote it. A product push
+ * is chosen by the growth scheduler from an organization's `ProductPushCampaign` queue. Two cards
+ * shared one event name once before, which made their impressions indistinguishable, so every
+ * ad-slot event states its card outright.
  */
 // pinned: analytics property values — renaming breaks dashboards
 export const NAV_PANEL_CARD_TYPE = {
-    FLAG_CAMPAIGN: 'flag_campaign',
+    BROADCAST: 'broadcast',
     PRODUCT_PUSH: 'product_push',
 } as const
 
-export interface CampaignPayload {
-    campaign: string
+export interface BroadcastPayload {
+    /** Slug identifying this broadcast, e.g. 'managed-warehouse-beta'. Keys dismissal state. */
+    broadcast: string
     text: string
     emoji: string
     emojiLabel: string
     title: string
     /**
-     * ProductKey the campaign advertises, e.g. 'session_replay'. Optional, because the payload is
-     * hand-authored in the flag and a campaign need not be about a product at all (a legal notice,
-     * say). Set it whenever the campaign does promote one, so its impressions can be compared
-     * against the automated push for the same product.
+     * ProductKey the broadcast advertises, e.g. 'session_replay'. Optional, because a broadcast
+     * need not be about a product at all (a legal notice, say). Set it whenever the broadcast does
+     * promote one, so its impressions can be compared against the product push for that product.
      */
     productKey?: string
 }
 
-export function isCampaignPayload(value: unknown): value is CampaignPayload {
+export function isBroadcastPayload(value: unknown): value is BroadcastPayload {
     return (
         typeof value === 'object' &&
         value !== null &&
-        typeof (value as CampaignPayload).campaign === 'string' &&
-        typeof (value as CampaignPayload).text === 'string' &&
-        typeof (value as CampaignPayload).emoji === 'string' &&
-        typeof (value as CampaignPayload).emojiLabel === 'string' &&
-        typeof (value as CampaignPayload).title === 'string' &&
-        ['undefined', 'string'].includes(typeof (value as CampaignPayload).productKey)
+        typeof (value as BroadcastPayload).broadcast === 'string' &&
+        typeof (value as BroadcastPayload).text === 'string' &&
+        typeof (value as BroadcastPayload).emoji === 'string' &&
+        typeof (value as BroadcastPayload).emojiLabel === 'string' &&
+        typeof (value as BroadcastPayload).title === 'string' &&
+        ['undefined', 'string'].includes(typeof (value as BroadcastPayload).productKey)
     )
 }
 

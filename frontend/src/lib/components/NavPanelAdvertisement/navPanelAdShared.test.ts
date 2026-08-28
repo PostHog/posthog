@@ -1,7 +1,7 @@
-import { CampaignPayload, isCampaignPayload } from './navPanelAdShared'
+import { BroadcastPayload, isBroadcastPayload } from './navPanelAdShared'
 
-const VALID_PAYLOAD: CampaignPayload = {
-    campaign: 'managed-warehouse-beta',
+const VALID_PAYLOAD: BroadcastPayload = {
+    broadcast: 'managed-warehouse-beta',
     text: 'Query everything in one place.',
     emoji: '🏠',
     emojiLabel: 'house emoji',
@@ -9,9 +9,9 @@ const VALID_PAYLOAD: CampaignPayload = {
 }
 
 describe('navPanelAdShared', () => {
-    describe('isCampaignPayload', () => {
-        // Campaign payloads are hand-authored in the feature flag, so the guard has to keep
-        // accepting every payload written before `productKey` existed.
+    describe('isBroadcastPayload', () => {
+        // Broadcast payloads are hand-authored in the feature flag, so the guard has to keep
+        // accepting a payload that names no product.
         it.each([
             ['without productKey', VALID_PAYLOAD, true],
             ['with a productKey', { ...VALID_PAYLOAD, productKey: 'session_replay' }, true],
@@ -20,7 +20,7 @@ describe('navPanelAdShared', () => {
             ['missing a required field', { ...VALID_PAYLOAD, title: undefined }, false],
             ['not an object', 'managed-warehouse-beta', false],
         ])('accepts or rejects a payload %s', (_description, value, expected) => {
-            expect(isCampaignPayload(value)).toBe(expected)
+            expect(isBroadcastPayload(value)).toBe(expected)
         })
     })
 })
