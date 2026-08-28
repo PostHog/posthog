@@ -147,7 +147,7 @@ CADDY
 
 echo "== bootstrap-dev-stack =="
 if [ -x /usr/local/bin/bootstrap-dev-stack ]; then
-	/usr/local/bin/bootstrap-dev-stack || fail "bootstrap-dev-stack failed"
+	/usr/local/bin/bootstrap-dev-stack 9>&- || fail "bootstrap-dev-stack failed"
 fi
 
 echo "== preview proxy =="
@@ -184,6 +184,7 @@ export TRUST_ALL_PROXIES=1
 export DEBUG=1
 export COMPOSE_PROJECT_NAME=posthog
 export HOGLI_SKIP_ZOMBIE_CHECK=1
+export HOGLI_SKIP_PREVIEW_CHECK=1
 
 echo "== hogli start =="
 hogli start -y -d || fail "hogli start failed"
