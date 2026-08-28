@@ -50,13 +50,16 @@ const NO_OP_SET_VALUE = (): void => undefined
 const MASKED_CREDENTIAL_PLACEHOLDER = '••••••••'
 
 // A saved credential reloads empty because the backend redacts it. In update mode, mask the input
-// and tell the user that a blank field keeps the stored value, so they don't re-enter it.
+// and tell the user that a blank field keeps the stored value, so they don't re-enter it. Only do
+// this for required fields: a required credential must already be saved, but an optional one may
+// never have been set, and the redacted response can't tell the two apart. Masking an optional
+// field would claim a stored value that may not exist.
 const credentialFieldDisplay = (
     field: SourceFieldInputConfig,
     isUpdateMode?: boolean
 ): { placeholder: string; help: JSX.Element | undefined } => {
     const caption = field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined
-    if (!isUpdateMode || !isSensitiveCredentialField(field)) {
+    if (!isUpdateMode || !isSensitiveCredentialField(field) || !field.required) {
         return { placeholder: field.placeholder, help: caption }
     }
     return {

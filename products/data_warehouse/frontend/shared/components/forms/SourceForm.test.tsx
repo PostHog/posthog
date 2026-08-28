@@ -84,6 +84,18 @@ describe('sourceFieldToElement', () => {
         expect(scalarFieldRender(SECRET_FIELD, false)).toEqual({ placeholder: '', hasHelp: false })
     })
 
+    // An optional secret (e.g. openFDA's api_key) may never have been saved, and the redacted
+    // response can't say. Masking it would claim a stored value that may not exist, so it keeps its
+    // own placeholder and no keep-value help even when editing.
+    it('does not mask an optional secret when editing a source', () => {
+        const optionalSecret: SourceFieldInputConfig = {
+            ...SECRET_FIELD,
+            required: false,
+            placeholder: 'Your API key',
+        }
+        expect(scalarFieldRender(optionalSecret, true)).toEqual({ placeholder: 'Your API key', hasHelp: false })
+    })
+
     it('does not mask a non-sensitive field when editing a source', () => {
         const hostField: SourceFieldInputConfig = {
             type: 'text',
