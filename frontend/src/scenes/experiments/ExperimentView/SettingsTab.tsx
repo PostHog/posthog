@@ -70,31 +70,6 @@ export function SettingsTab(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <div className="flex gap-4 flex-wrap items-start">
-                <div className="flex-1 min-w-64 flex flex-col gap-4">
-                    <div className="rounded border p-4 bg-bg-light flex flex-col gap-4">
-                        <h2 className="font-semibold text-base m-0">Advanced options</h2>
-                        <div className="flex flex-col gap-2">
-                            <h3 className="text-sm font-medium m-0">Tags</h3>
-                            {canEditExperiment ? (
-                                <ObjectTags
-                                    tags={experiment.tags ?? []}
-                                    // Not updateExperimentSettings: tags don't affect metric
-                                    // computation, so don't trigger its results refresh.
-                                    onChange={(tags) => updateExperiment({ tags })}
-                                    saving={experimentUpdateLoading}
-                                    tagsAvailable={allExistingTags.filter(
-                                        (tag: string) => !experiment.tags?.includes(tag)
-                                    )}
-                                    actionButtonSize="medium"
-                                    data-attr="experiment-tags"
-                                />
-                            ) : (
-                                <ObjectTags tags={experiment.tags ?? []} staticOnly data-attr="experiment-tags" />
-                            )}
-                        </div>
-                    </div>
-                </div>
-
                 <div className="flex-[2] min-w-80 flex flex-col gap-4">
                     <div className="rounded border p-4 bg-bg-light flex flex-col gap-4">
                         <h2 className="font-semibold text-base m-0">Statistics</h2>
@@ -221,6 +196,31 @@ export function SettingsTab(): JSX.Element {
                             />
                         </div>
                     )}
+                </div>
+
+                <div className="flex-1 min-w-64 flex flex-col gap-4">
+                    <div className="rounded border p-4 bg-bg-light flex flex-col gap-4">
+                        <h2 className="font-semibold text-base m-0">Advanced options</h2>
+                        <div className="flex flex-col gap-2">
+                            <h3 className="text-sm font-medium m-0">Tags</h3>
+                            {canEditExperiment ? (
+                                <ObjectTags
+                                    tags={experiment.tags ?? []}
+                                    // Not updateExperimentSettings: tags don't affect metric
+                                    // computation, so don't trigger its results refresh.
+                                    onChange={(tags) => updateExperiment({ tags })}
+                                    saving={experimentUpdateLoading}
+                                    tagsAvailable={allExistingTags.filter(
+                                        (tag: string) => !experiment.tags?.includes(tag)
+                                    )}
+                                    actionButtonSize="medium"
+                                    data-attr="experiment-tags"
+                                />
+                            ) : (
+                                <ObjectTags tags={experiment.tags ?? []} staticOnly data-attr="experiment-tags" />
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
