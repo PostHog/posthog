@@ -70,12 +70,14 @@ def _current_assignee_property(issue: ErrorTrackingIssue) -> Optional[str]:
 
 
 def issue_fingerprint_for_links(issue: ErrorTrackingIssue) -> Optional[str]:
-    # Deterministic: always the issue's longest-held fingerprint, so persisted
-    # links keep resolving to this issue as long as possible. Callers whose
-    # mutation moves fingerprints (merge) must snapshot this before mutating.
+    # Deterministic anchor: prefer the issue's own founding fingerprint. `version`
+    # counts reassignments (merge/split bump it; cymbal inserts at 0), so a
+    # version-0 row was born attached to this issue and cannot be a merged-in
+    # fingerprint that a later split would point at another issue. Callers whose
+    # mutation moves fingerprints (merge) must still snapshot this before mutating.
     return (
         ErrorTrackingIssueFingerprintV2.objects.filter(team_id=issue.team_id, issue_id=issue.id)
-        .order_by("first_seen", "id")
+        .order_by("version", "first_seen", "id")
         .values_list("fingerprint", flat=True)
         .first()
     )

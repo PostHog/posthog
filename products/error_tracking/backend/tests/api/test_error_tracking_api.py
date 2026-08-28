@@ -636,7 +636,8 @@ class TestErrorTracking(APIBaseTest):
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge",
-                data={"ids": [issue_two.id]},
+                # A ghost id and a duplicate must not be reported as merged.
+                data={"ids": [issue_two.id, str(uuid7()), issue_two.id]},
             )
 
         assert response.status_code == 200, response.json()
@@ -651,6 +652,47 @@ class TestErrorTracking(APIBaseTest):
         assert activity.item_id == str(issue_one.id)
         assert activity.detail is not None
         assert activity.detail["changes"][0]["after"] == [str(issue_two.id)]
+
+    def test_lifecycle_links_survive_merge_then_split_of_source_fingerprint(self):
+        issue_a = self.create_issue(fingerprints=["target_fingerprint"])
+        issue_b = self.create_issue(fingerprints=["source_fingerprint"])
+        # The source's fingerprint is older, so after the merge it is the
+        # longest-known fingerprint attached to the target.
+        ErrorTrackingIssueFingerprintV2.objects.filter(issue=issue_b).update(
+            first_seen=timezone.now() - timedelta(days=1)
+        )
+        merge = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue_a.id}/merge",
+            data={"ids": [issue_b.id]},
+        )
+        assert merge.status_code == 200, merge.json()
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue_a.id}",
+                data={"status": "resolved"},
+            )
+        assert response.status_code == 200, response.json()
+        link_fingerprint = mock_produce.call_args.kwargs["event"].properties["fingerprint"]
+        assert link_fingerprint == "target_fingerprint"
+
+        # Splitting the merged-in fingerprint must not retarget the persisted link.
+        split = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue_a.id}/split",
+            data={"fingerprints": [{"fingerprint": "source_fingerprint", "name": "Split issue"}]},
+            format="json",
+        )
+        assert split.status_code == 200, split.json()
+
+        resolve = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints/resolve",
+            data={"fingerprint": link_fingerprint},
+        )
+        assert resolve.status_code == 200, resolve.json()
+        assert resolve.json()["issue_id"] == str(issue_a.id)
 
     def test_issue_merge_without_effect_logs_no_activity(self):
         issue = self.create_issue(fingerprints=["fingerprint_one"])
