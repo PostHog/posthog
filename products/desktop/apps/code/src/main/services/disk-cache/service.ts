@@ -117,21 +117,26 @@ export class DiskCacheNamespace {
 
     try {
       const names = await readdir(this.dir);
-      const entries = await Promise.all(
+      const sized = await Promise.all(
         names
           .filter((name) => !name.endsWith(".json") && !name.endsWith(".tmp"))
-          .map(async (name) => {
-            const base = join(this.dir, name);
-            const [stats, storedAt] = await Promise.all([
-              stat(base),
-              this.storedAtOf(base),
-            ]);
-            return { name, bytes: stats.size, storedAt };
-          }),
+          .map(async (name) => ({
+            name,
+            bytes: (await stat(join(this.dir, name))).size,
+          })),
       );
 
-      let total = entries.reduce((sum, entry) => sum + entry.bytes, 0);
+      let total = sized.reduce((sum, entry) => sum + entry.bytes, 0);
       if (total <= budget) return;
+
+      // Ages come from the sidecars, so only read them once eviction is on:
+      // every write would otherwise pay for the whole namespace.
+      const entries = await Promise.all(
+        sized.map(async (entry) => ({
+          ...entry,
+          storedAt: await this.storedAtOf(join(this.dir, entry.name)),
+        })),
+      );
 
       entries.sort((a, b) => a.storedAt - b.storedAt);
       for (const entry of entries) {
