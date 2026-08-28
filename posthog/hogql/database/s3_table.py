@@ -41,6 +41,12 @@ class DuckDBS3Source:
 
 
 @dataclass(frozen=True, kw_only=True)
+class _S3VirtualHost:
+    bucket: str
+    endpoint: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class DuckDBAzureSource:
     uri: str
     scope: str
@@ -64,14 +70,14 @@ def _region_for_s3_endpoint(endpoint: str) -> str:
     return match.group("region") if match else "us-east-1"
 
 
-def _parse_s3_virtual_host(hostname: str) -> tuple[str, str] | None:
+def _parse_s3_virtual_host(hostname: str) -> _S3VirtualHost | None:
     match = _AWS_S3_VIRTUAL_HOST_RE.fullmatch(hostname)
     if match is not None:
-        return match.group("bucket"), match.group("endpoint")
+        return _S3VirtualHost(bucket=match.group("bucket"), endpoint=match.group("endpoint"))
     for pattern in _NON_AWS_S3_VIRTUAL_HOST_RES:
         match = pattern.fullmatch(hostname)
         if match is not None:
-            return match.group("bucket"), match.group("endpoint")
+            return _S3VirtualHost(bucket=match.group("bucket"), endpoint=match.group("endpoint"))
     return None
 
 
@@ -148,10 +154,10 @@ def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
     key = parsed.path.lstrip("/")
     virtual_host = _parse_s3_virtual_host(hostname)
     if virtual_host is not None:
-        bucket, virtual_host_endpoint = virtual_host
-        endpoint = virtual_host_endpoint if parsed.port is None else f"{virtual_host_endpoint}:{parsed.port}"
+        bucket = virtual_host.bucket
+        endpoint = virtual_host.endpoint if parsed.port is None else f"{virtual_host.endpoint}:{parsed.port}"
         url_style: Literal["path", "vhost"] = "vhost"
-        region = _region_for_s3_endpoint(virtual_host_endpoint)
+        region = _region_for_s3_endpoint(virtual_host.endpoint)
     else:
         location = _split_bucket_and_key(parsed.path)
         if location is None:
