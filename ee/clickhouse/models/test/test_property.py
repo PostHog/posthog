@@ -30,9 +30,6 @@ from posthog.models.property.util import (
     prop_filter_json_extract,
 )
 from posthog.models.team import Team
-from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
-from posthog.queries.person_query import PersonQuery
-from posthog.queries.property_optimizer import PropertyOptimizer
 from posthog.queries.util import PersonPropertiesMode
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -777,27 +774,16 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
 class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    def _run_query(self, filter: Filter, join_person_tables=False) -> list:
+    def _run_query(self, filter: Filter) -> list:
         filter.hogql_context.use_new_events_schema = False
-        outer_properties = PropertyOptimizer().parse_property_groups(filter.property_groups).outer
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
-            property_group=outer_properties,
+            property_group=filter.property_groups,
             allow_denormalized_props=True,
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             hogql_context=filter.hogql_context,
         )
-        joins = ""
-        if join_person_tables:
-            person_query = PersonQuery(filter, self.team.pk)
-            person_subquery, person_join_params = person_query.get_query()
-            joins = f"""
-                INNER JOIN ({get_team_distinct_ids_query(self.team.pk)}) AS pdi ON events.distinct_id = pdi.distinct_id
-                INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
-            """
-            params.update(person_join_params)
-
-        final_query = f"SELECT uuid FROM events {joins} WHERE team_id = %(team_id)s {query}"
+        final_query = f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}"
         # Make sure we don't accidentally use json on the properties field
         self.assertNotIn("json", final_query.lower())
         return sync_execute(
@@ -850,122 +836,6 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             }
         )
         self.assertEqual(len(self._run_query(filter)), 1)
-
-    def test_prop_person_denormalized(self):
-        _create_person(
-            distinct_ids=["some_id"],
-            team_id=self.team.pk,
-            properties={"email": "test@posthog.com"},
-        )
-        _create_event(event="$pageview", team=self.team, distinct_id="some_id")
-
-        materialize("person", "email")
-
-        filter = Filter(
-            data={
-                "properties": [
-                    {
-                        "key": "email",
-                        "type": "person",
-                        "value": "posthog",
-                        "operator": "icontains",
-                    }
-                ]
-            }
-        )
-        self.assertEqual(len(self._run_query(filter, join_person_tables=True)), 1)
-
-        filter = Filter(
-            data={
-                "properties": [
-                    {
-                        "key": "email",
-                        "type": "person",
-                        "value": "posthog",
-                        "operator": "not_icontains",
-                    }
-                ]
-            }
-        )
-        self.assertEqual(len(self._run_query(filter, join_person_tables=True)), 0)
-
-    def test_prop_person_groups_denormalized(self):
-        _filter = {
-            "properties": {
-                "type": "OR",
-                "values": [
-                    {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "event_prop2",
-                                "value": ["foo2", "bar2"],
-                                "type": "event",
-                                "operator": None,
-                            },
-                            {
-                                "key": "person_prop2",
-                                "value": "efg2",
-                                "type": "person",
-                                "operator": None,
-                            },
-                        ],
-                    },
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "event_prop",
-                                "value": ["foo", "bar"],
-                                "type": "event",
-                                "operator": None,
-                            },
-                            {
-                                "key": "person_prop",
-                                "value": "efg",
-                                "type": "person",
-                                "operator": None,
-                            },
-                        ],
-                    },
-                ],
-            }
-        }
-
-        filter = Filter(data=_filter)
-
-        _create_person(distinct_ids=["some_id_1"], team_id=self.team.pk, properties={})
-        _create_event(
-            event="$pageview",
-            team=self.team,
-            distinct_id="some_id_1",
-            properties={"event_prop2": "foo2"},
-        )
-
-        _create_person(
-            distinct_ids=["some_id_2"],
-            team_id=self.team.pk,
-            properties={"person_prop2": "efg2"},
-        )
-        _create_event(event="$pageview", team=self.team, distinct_id="some_id_2")
-
-        _create_person(
-            distinct_ids=["some_id_3"],
-            team_id=self.team.pk,
-            properties={"person_prop": "efg"},
-        )
-        _create_event(
-            event="$pageview",
-            team=self.team,
-            distinct_id="some_id_3",
-            properties={"event_prop": "foo"},
-        )
-
-        materialize("events", "event_prop")
-        materialize("events", "event_prop2")
-        materialize("person", "person_prop")
-        materialize("person", "person_prop2")
-        self.assertEqual(len(self._run_query(filter, join_person_tables=True)), 3)
 
     def test_prop_event_denormalized_ints(self):
         _create_event(
@@ -1071,16 +941,6 @@ def test_parse_prop_clauses_defaults(snapshot):
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             allow_denormalized_props=False,
             team_id=1,
-            hogql_context=filter.hogql_context,
-        )
-        == snapshot
-    )
-    assert (
-        parse_prop_grouped_clauses(
-            team_id=1,
-            property_group=filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT,
-            allow_denormalized_props=False,
             hogql_context=filter.hogql_context,
         )
         == snapshot
