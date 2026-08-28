@@ -378,7 +378,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert detail["name"] == "my_custom_event"
 
     @patch("posthog.api.event_definition.EE_AVAILABLE", False)
-    def test_create_event_definition_rejects_enterprise_metadata_without_ee(self, _mock_ee_available):
+    def test_create_event_definition_rejects_enterprise_metadata_without_ee(self):
         response = self.client.post(
             "/api/projects/@current/event_definitions/",
             {
