@@ -21,6 +21,7 @@ import time
 from contextlib import suppress
 from datetime import timedelta
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
@@ -81,7 +82,11 @@ def _get_notebook_limiter() -> RateLimit:
         _NOTEBOOK_LIMITER = RateLimit(
             max_concurrency=NOTEBOOK_RUN_CONCURRENCY,
             limit_name="notebooks_run_per_notebook",
-            get_task_name=lambda *args, **kwargs: _notebook_key(kwargs["team_id"], kwargs["notebook_short_id"]),
+            # Stable: `use()` exports this as the `task_name` metric label, so a per-notebook
+            # value would mint a Prometheus series per contended notebook, in every web process,
+            # and a caller could grow that set at will. The dynamic part is the Redis key below.
+            get_task_name=lambda *args, **kwargs: "notebooks:run:per-notebook",
+            get_task_key=lambda *args, **kwargs: _notebook_key(kwargs["team_id"], kwargs["notebook_short_id"]),
             get_task_id=lambda *args, **kwargs: kwargs["task_id"],
             ttl=_NOTEBOOK_SLOT_TTL_SECONDS,
             # No `retry`: a full ceiling refuses straight away rather than holding the request.
@@ -97,18 +102,40 @@ def _get_team_limiter() -> RateLimit:
         _TEAM_LIMITER = RateLimit(
             max_concurrency=TEAM_RUN_CONCURRENCY,
             limit_name="notebooks_run_per_team",
-            get_task_name=lambda *args, **kwargs: _team_key(kwargs["team_id"]),
+            # Same split as above. team_id is already its own label on the counter, so carrying
+            # it in the name only duplicated it.
+            get_task_name=lambda *args, **kwargs: "notebooks:run:per-team",
+            get_task_key=lambda *args, **kwargs: _team_key(kwargs["team_id"]),
             get_task_id=lambda *args, **kwargs: kwargs["task_id"],
             ttl=_TEAM_SLOT_TTL_SECONDS,
         )
     return _TEAM_LIMITER
 
 
+# Remove a slot member only if it still carries the score we read. Redis has no conditional
+# ZREM, and an unconditional one is not enough: between reading a stale member and dropping it,
+# another dispatch can reclaim the slot and put its own member there, or the holder can come
+# back to life and renew. Both would be destroyed by a blind removal, letting two runs into a
+# ceiling of one.
+_EVICT_IF_UNCHANGED = """
+local score = redis.call('ZSCORE', KEYS[1], ARGV[1])
+if score and tonumber(score) == tonumber(ARGV[2]) then
+    return redis.call('ZREM', KEYS[1], ARGV[1])
+end
+return 0
+"""
+
+
 def acquire_run_slots(team_id: int, notebook_short_id: str, run_id: str) -> None:
-    """Take one per-notebook and one per-team slot, or raise NotebookRunBusy.
+    """Take one per-notebook and one per-team slot, or raise.
 
     Taken before the run row exists, so a refused dispatch writes nothing: an agent retrying
     into a full ceiling must not leave a trail of rows on the table that already grows fastest.
+
+    A full ceiling is not proof that anything is running. Both release sites need a client still
+    watching, and a direct run has no server-side sweeper at all, so a caller that dispatches and
+    walks away leaves its slot held. Each ceiling therefore reclaims demonstrably dead members
+    once before refusing.
     """
     notebook_limiter = _get_notebook_limiter()
     team_limiter = _get_team_limiter()
@@ -119,25 +146,14 @@ def acquire_run_slots(team_id: int, notebook_short_id: str, run_id: str) -> None
     try:
         notebook_limiter.use(team_id=team_id, notebook_short_id=notebook_short_id, task_id=run_id)
     except ConcurrencyLimitExceeded as exc:
-        # A full notebook slot is not proof that a cell is running. Both release sites need a
-        # client to still be watching — the direct lane turns terminal on the result poll, and
-        # the kernel lane's watchdog fires there too — so an agent that dispatches a cell and
-        # walks away leaves the slot held with nothing to hand it back. The run rows are the
-        # truth, so ask them before refusing.
-        # Two things have to be true before treating the slot as a leak. A run row must not be
-        # in flight, and the slot must be old enough that its holder would have written that row
-        # by now. Checking only the row would let a dispatch still in the gap look like a leak.
-        if _notebook_has_running_run(team_id, notebook_short_id) or _slot_is_recent(
-            notebook_limiter, _notebook_key(team_id, notebook_short_id)
-        ):
+        if not _reclaim_dead_members(notebook_limiter, _notebook_key(team_id, notebook_short_id), team_id):
             raise NotebookRunBusy(
                 "This notebook already has a cell running. Wait for it to finish, then run this one."
             ) from exc
-        _clear(notebook_limiter, _notebook_key(team_id, notebook_short_id))
         try:
             notebook_limiter.use(team_id=team_id, notebook_short_id=notebook_short_id, task_id=run_id)
         except ConcurrencyLimitExceeded as retry_exc:
-            # Another dispatch cleared and claimed it in the same moment. That one is real.
+            # Another dispatch reclaimed and took it in the same moment. That one is real.
             raise NotebookRunBusy(
                 "This notebook already has a cell running. Wait for it to finish, then run this one."
             ) from retry_exc
@@ -145,6 +161,12 @@ def acquire_run_slots(team_id: int, notebook_short_id: str, run_id: str) -> None
     try:
         team_limiter.use(team_id=team_id, task_id=run_id)
     except ConcurrencyLimitExceeded as exc:
+        if _reclaim_dead_members(team_limiter, _team_key(team_id), team_id):
+            try:
+                team_limiter.use(team_id=team_id, task_id=run_id)
+                return
+            except ConcurrencyLimitExceeded:
+                pass
         # The notebook slot is already ours, so give it back rather than holding a notebook
         # hostage over a ceiling the caller never got past.
         _release(notebook_limiter, _notebook_key(team_id, notebook_short_id), run_id)
@@ -153,52 +175,67 @@ def acquire_run_slots(team_id: int, notebook_short_id: str, run_id: str) -> None
         ) from exc
 
 
-def _notebook_has_running_run(team_id: int, notebook_short_id: str) -> bool:
-    """Whether a run for this notebook is genuinely still in flight.
+def _reclaim_dead_members(limiter: RateLimit, key: str, team_id: int) -> bool:
+    """Drop slot members whose run is demonstrably over; return whether any went.
 
-    Bounded by `_RUN_ACTIVE_WINDOW_SECONDS` rather than trusting the status alone: a row that
-    has sat RUNNING past every watchdog budget is abandoned, and counting it would block its
-    notebook for good instead of until a TTL.
+    Two conditions, both needed. A member has to be old enough that its holder would have
+    written its run row by now, or a dispatch still inside that gap would look abandoned. And
+    its run must not be in flight, judged by the rows rather than by the slot.
 
-    Only reached when the slot is already full, so the join to resolve the short id costs
-    nothing on the path that matters.
-    """
-    return (
-        NotebookNodeRun.objects.for_team(team_id)
-        .filter(
-            notebook__short_id=notebook_short_id,
-            status=NotebookNodeRun.Status.RUNNING,
-            updated_at__gte=timezone.now() - timedelta(seconds=_RUN_ACTIVE_WINDOW_SECONDS),
-        )
-        .exists()
-    )
-
-
-def _slot_is_recent(limiter: RateLimit, key: str) -> bool:
-    """Whether the slot was taken too recently for its holder to have written a run row yet.
-
-    The set's score is the member's expiry, so its age is the TTL minus the time still on it.
-    A Redis failure reads as recent, which refuses the dispatch rather than clearing a slot on
-    no evidence.
+    The row lookup is by primary key over at most a ceiling's worth of ids, so it stays indexed
+    even for the team ceiling, where counting a whole team's runs would not be.
     """
     try:
         entries = limiter.redis_client.zrange(key, 0, -1, withscores=True)
     except Exception:
-        return True
-    if not entries:
+        # No evidence means no eviction: refuse rather than clear a slot on a failed read.
         return False
     now = time.time()
-    return any(limiter.ttl - (float(expiry) - now) < _SLOT_CONFIRM_GRACE_SECONDS for _member, expiry in entries)
+    settled = [
+        (member.decode() if isinstance(member, bytes) else str(member), float(score))
+        for member, score in entries
+        if limiter.ttl - (float(score) - now) >= _SLOT_CONFIRM_GRACE_SECONDS
+    ]
+    if not settled:
+        return False
+
+    active = _active_run_ids(team_id, [member for member, _ in settled])
+    reclaimed = False
+    for member, score in settled:
+        if member not in active and _evict_if_unchanged(limiter, key, member, score):
+            reclaimed = True
+    return reclaimed
 
 
-def _clear(limiter: RateLimit, key: str) -> None:
-    """Drop every member of a slot set whose runs are all finished.
+def _active_run_ids(team_id: int, run_ids: list[str]) -> set[str]:
+    """Which of `run_ids` are still genuinely in flight.
 
-    Only safe because the caller just established that no run is in flight for it: this is
-    recovering a leaked slot, never pre-empting a live one.
+    Bounded by `_RUN_ACTIVE_WINDOW_SECONDS` rather than trusting RUNNING alone: a direct run
+    only turns terminal when a client polls it, and nothing sweeps one server-side, so a row
+    left RUNNING would otherwise hold its slot for good.
     """
-    with suppress(Exception):
-        limiter.redis_client.delete(key)
+    try:
+        rows = (
+            NotebookNodeRun.objects.for_team(team_id)
+            .filter(
+                id__in=run_ids,
+                status=NotebookNodeRun.Status.RUNNING,
+                updated_at__gte=timezone.now() - timedelta(seconds=_RUN_ACTIVE_WINDOW_SECONDS),
+            )
+            .values_list("id", flat=True)
+        )
+    except (DjangoValidationError, ValueError):
+        # A member that is not a uuid cannot name a run, so nothing here is active.
+        return set()
+    return {str(row_id) for row_id in rows}
+
+
+def _evict_if_unchanged(limiter: RateLimit, key: str, member: str, score: float) -> bool:
+    """Remove `member` only while it still holds `score`. Returns whether it went."""
+    try:
+        return bool(limiter.redis_client.eval(_EVICT_IF_UNCHANGED, 1, key, member, repr(score)))
+    except Exception:
+        return False
 
 
 def renew_run_slots(team_id: int, notebook_short_id: str, run_id: str) -> None:

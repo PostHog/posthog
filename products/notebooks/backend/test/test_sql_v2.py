@@ -521,6 +521,41 @@ class TestSQLV2Run(APIBaseTest):
         second = self.client.post(self.run_url, data={"node_id": "n2", "code": "select 2"}, format="json")
         self.assertEqual(second.status_code, 409, second.content)
 
+    def test_a_second_reclaimer_cannot_wipe_the_slot_the_first_just_took(self) -> None:
+        # The interleave that used to break the ceiling. Two callers both see the same stale
+        # member S and both decide it is dead. A retires S and takes the slot; B, still holding
+        # its own view of S, then tries to retire it too. Clearing the whole key at that point
+        # removed A's brand-new member and let B in as well, so a ceiling of one ran two cells.
+        limiter = sql_v2_concurrency._get_notebook_limiter()
+        key = sql_v2_concurrency._notebook_key(self.team.id, "racenb")
+        client = redis.get_client()
+        client.delete(key)
+        stale_score = time.time() + sql_v2_concurrency._NOTEBOOK_SLOT_TTL_SECONDS - 7200
+        client.zadd(key, {"stale-holder": stale_score})
+
+        # A retires the dead holder and claims the slot.
+        self.assertTrue(sql_v2_concurrency._evict_if_unchanged(limiter, key, "stale-holder", stale_score))
+        client.zadd(key, {"caller-a": time.time() + sql_v2_concurrency._NOTEBOOK_SLOT_TTL_SECONDS})
+
+        # B acts on the view it took before A moved. It must not disturb the live holder.
+        self.assertFalse(sql_v2_concurrency._evict_if_unchanged(limiter, key, "stale-holder", stale_score))
+        self.assertEqual(client.zrange(key, 0, -1), [b"caller-a"])
+
+    def test_a_reclaim_cannot_evict_a_member_that_changed_underneath_it(self) -> None:
+        # The same guarantee stated the other way: a score read before the holder renewed, or
+        # before a new dispatch replaced it, must not authorise removing what is there now.
+        limiter = sql_v2_concurrency._get_notebook_limiter()
+        key = sql_v2_concurrency._notebook_key(self.team.id, "renewnb")
+        client = redis.get_client()
+        client.delete(key)
+        observed_score = time.time() + 100
+        client.zadd(key, {"holder": observed_score})
+        # The holder renews, or another dispatch takes the slot, after the score was read.
+        client.zadd(key, {"holder": observed_score + 500})
+
+        self.assertFalse(sql_v2_concurrency._evict_if_unchanged(limiter, key, "holder", observed_score))
+        self.assertEqual(client.zrange(key, 0, -1), [b"holder"])
+
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
