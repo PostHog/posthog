@@ -67,15 +67,13 @@ export function useEvidencePreviewPrefetch(
     if (!enabled || !isOnline || !client || !element) return;
 
     let cancelSettle: (() => void) | undefined;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        observer.disconnect();
-        cancelSettle = whenViewSettles(() => {
-          void prefetchEvidencePreview(queryClient, client, { kind, id });
-        });
-      },
-    );
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      observer.disconnect();
+      cancelSettle = whenViewSettles(() => {
+        void prefetchEvidencePreview(queryClient, client, { kind, id });
+      });
+    });
     observer.observe(element);
 
     return () => {
