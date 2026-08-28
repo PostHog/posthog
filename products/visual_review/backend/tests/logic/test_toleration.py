@@ -79,6 +79,7 @@ class TestToleratedHashes:
 
         # An expired row is invisible to the classifier, so leaving it expired would
         # make the toleration look like it worked and change nothing.
+        assert updated.tolerated_hash_match is not None
         assert updated.tolerated_hash_match.expires_at is None
         assert updated.tolerated_hash_match.reason == "agent"
         assert ToleratedHash.objects.filter(repo_id=repo.id, identifier="Button").count() == 1
