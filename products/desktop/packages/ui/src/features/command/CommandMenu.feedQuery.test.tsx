@@ -24,6 +24,13 @@ vi.mock("@posthog/ui/features/tasks/useTasks", () => ({
 vi.mock("@posthog/ui/features/archive/useArchivedTaskIds", () => ({
   useArchivedTaskIds: () => new Set(),
 }));
+vi.mock("@posthog/ui/features/archive/useTaskArchive", () => ({
+  useTaskArchive: () => ({
+    requestArchive: vi.fn(),
+    isArchiving: false,
+    dialog: null,
+  }),
+}));
 vi.mock("@posthog/ui/features/workspace/useWorkspace", () => ({
   useWorkspaces: () => ({ data: [], isFetched: true }),
 }));

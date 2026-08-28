@@ -206,6 +206,7 @@ export type SettingId =
     | 'organization-admin-notice'
     | 'organization-ai-consent'
     | 'organization-ai-training-opt-out'
+    | 'organization-desktop-beta-terms'
     | 'organization-cimd-verification-tokens-list'
     | 'organization-default-role'
     | 'organization-delete'

@@ -69,6 +69,7 @@ import {
     NOTEBOOK_AI_PRESENCE_NAME,
 } from './notebookPresence'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { NotebookVariablesBar } from './NotebookVariablesBar'
 
 const NOTEBOOK_AI_FOLLOW_UP_PROMPT_MARKDOWN = '<Prompt question="" />'
 const NOTEBOOK_AI_PRESENCE_DEPARTURE_IDLE_MS = 5_000
@@ -85,6 +86,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         isEditable,
         isShared,
         notebook,
+        shortId,
         markdownEditorValue,
         markdownEditorInteractionActive,
         markdownRemoteCarets,
@@ -354,7 +356,9 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             markAIPresenceActive(conversationId)
             setAICaretPosition(getNotebookAICaretPosition(markdownWithResponse, responseNodeIndex))
             const uiContext = getInlineNotebookAIUIContext({
-                notebookShortId: notebook?.short_id ?? null,
+                // A canvas has no saved notebook, so fall back to the logic's short id. Without it the
+                // structured context is dropped and the request reaches the model with no document.
+                notebookShortId: notebook?.short_id ?? shortId,
                 notebookTitle: notebook?.title ?? 'Untitled notebook',
                 markdown: markdownWithResponse,
                 conversationId,
@@ -382,7 +386,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             inlineAIResponseNodeCountsRef.current[conversationId] = 1
             inlineAIResponseNodeIndicesRef.current[conversationId] = responseNodeIndex
         },
-        [markAIPresenceActive, notebook?.short_id, notebook?.title]
+        [markAIPresenceActive, notebook?.short_id, notebook?.title, shortId]
     )
 
     const getInlineAIRequest = useCallback(
@@ -707,6 +711,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     deferRemoteValue={markdownEditorInteractionActive}
                     onInteractionStateChange={setMarkdownEditorInteractionActive}
                     allowViewModeFilters={mountedNotebookLogic.props.mode === 'canvas'}
+                    canvasHeader={<NotebookVariablesBar />}
                     className="Notebook__markdown-v2"
                     data-attr="notebook-markdown-v2"
                     autoFocus={isEditable}
