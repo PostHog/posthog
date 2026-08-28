@@ -147,6 +147,8 @@ There are two ways a caller uses a connection, and they differ in who speaks MCP
 
 Agents mount a connection without connecting to it, so an installation's `description` (copied from the catalog entry at install time) travels with the server config and is what the agent's tool search matches on until the first call.
 A connection with no description is only findable by searching its exact name.
+Cloud runs read it through `get_installations_for_sandbox`, which falls back to the template's description; desktop runs read it from the installation serializer.
+Either way the description is for pi only, so the agent server drops it before passing servers to claude or codex.
 
 Both paths resolve policy through the same `resolve_call_decision` / `_gateway_decision` in `backend/proxy.py` and write the same `MCPAuditEvent` rows, so approval state and the audit trail cannot diverge between them.
 `needs_approval` and `do_not_use` tools are refused before any upstream request.
