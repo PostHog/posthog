@@ -62,6 +62,7 @@ from products.web_analytics.backend.hogql_queries.traffic_type import get_traffi
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     compute_filters_eligibility_hash,
     is_precompute_enabled_for_team,
+    is_team_above_volume_floor,
 )
 
 logger = structlog.get_logger(__name__)
@@ -763,7 +764,12 @@ WHERE and(
         # (the kill switch) must not keep serving cached precompute-produced
         # responses until they stale out.
         precompute = is_precompute_enabled_for_team(self.team)
-        key = f"{original}_{self.team.path_cleaning_filters}_pc{int(precompute)}"
+        # The volume-floor verdict is part of the key too: a team crossing below
+        # the floor switches to the live path, so a precompute-produced response
+        # under the old key must not keep serving until it stales out. Only read
+        # the floor when precompute is on — otherwise it can't change the result.
+        above_floor = precompute and is_team_above_volume_floor(self.team.pk)
+        key = f"{original}_{self.team.path_cleaning_filters}_pc{int(precompute)}_vf{int(above_floor)}"
         # A rewritten filter selects a different population for the same query, so
         # rewritten and entry-attributed runs must not share cache entries.
         if self.rewritten_first_pageview_filters:

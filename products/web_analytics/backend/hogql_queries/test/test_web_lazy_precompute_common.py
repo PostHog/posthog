@@ -34,6 +34,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     TtlSchedule,
 )
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import can_use_lazy_precompute
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     _VOLUME_FLOOR_LOCAL_CACHE,
     OOM_PIN_TTL_SECONDS,
@@ -53,6 +54,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     check_common_eligibility,
     compute_filters_eligibility_hash,
     compute_shape_cap_key,
+    get_above_floor_team_ids,
     handle_stale_served,
     host_filter_expr,
     is_precompute_enabled_for_team,
@@ -187,6 +189,16 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
         with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=False):
             key_disabled = self._cache_key()
         assert key_enabled != key_disabled
+
+    def test_crossing_the_volume_floor_changes_cache_key(self) -> None:
+        # A team crossing below the floor switches to the live path; the key must
+        # change so a precompute-produced response is not served until it stales.
+        with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=True):
+            with mock.patch(f"{self._RUNNER_MOD}.is_team_above_volume_floor", return_value=True):
+                key_above = self._cache_key()
+            with mock.patch(f"{self._RUNNER_MOD}.is_team_above_volume_floor", return_value=False):
+                key_below = self._cache_key()
+        assert key_above != key_below
 
 
 class TestHostFilterExpr(BaseTest):
@@ -746,6 +758,43 @@ class TestVolumeFloor(BaseTest):
                         properties=[],
                         resolve_date_range=lambda: (None, None),
                     )
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_overview_stats_trends_gate_rejects_below_floor_team(self):
+        # Overview, stats, and trends reach the gate through `can_use_lazy_precompute`
+        # / `check_common_eligible`, not `check_common_eligibility`. Without the floor
+        # check there, a below-floor team keeps serving those primary tiles from
+        # precompute. The flag is forced on so the floor is the only rejection reason.
+        publish_volume_floor_teams([self.team.pk + 1])
+        runner = WebOverviewQueryRunner(
+            query=WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]), team=self.team
+        )
+        with mock.patch(
+            "products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute.is_precompute_enabled_for_team",
+            return_value=True,
+        ):
+            assert can_use_lazy_precompute(runner, log_prefix="web_overview") is False
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_bulk_reader_returns_published_set_with_allowlist(self):
+        publish_volume_floor_teams([self.team.pk + 1, self.team.pk + 2])
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            assert get_above_floor_team_ids() == {self.team.pk, self.team.pk + 1, self.team.pk + 2}
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_bulk_reader_fails_open_to_none(self):
+        # None means "select every team". A disabled floor and an unpublished set
+        # both fail open — the warmer must never narrow selection on missing state.
+        with override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=0):
+            assert get_above_floor_team_ids() is None
+        assert get_above_floor_team_ids() is None  # published set absent
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000, WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
+    def test_bulk_reader_empty_publish_selects_no_teams(self):
+        # An empty publish is an empty set, NOT None: nobody is above the floor, so
+        # the warmer selects no team. The "__none__" placeholder must not leak in.
+        publish_volume_floor_teams([])
+        assert get_above_floor_team_ids() == set()
 
 
 class TestStaleRevalidationEnqueue(BaseTest):
