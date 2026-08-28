@@ -334,6 +334,12 @@ class TestHogFlowAPI(APIBaseTest):
                 "template-does-not-exist",
                 ["must be the literal 'template-email'"],
             ),
+            (
+                "another_channels_template_on_fixed_step",
+                "function_sms",
+                "template-email",
+                ["must be the literal 'template-twilio'"],
+            ),
         ]
     )
     def test_unknown_template_id_error_names_the_expected_form(self, _name, action_type, template_id, fragments):

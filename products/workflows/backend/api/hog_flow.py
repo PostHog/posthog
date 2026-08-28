@@ -591,7 +591,7 @@ def _parse_uuid_or_none(value: Any) -> Optional[uuid_mod.UUID]:
         return None
 
 
-def _apply_fixed_template_id(config: dict, template_id: str, fixed_template_id: str) -> str:
+def _apply_fixed_template_id(config: dict, template_id: str, fixed_template_id: str, *, strict: bool) -> str:
     """template_id on fixed-template steps is fully determined by the step type, so infer it when
     omitted instead of rejecting for leaving out a constant, and move a UUID-shaped value (a saved
     library template reference, the dominant authoring mistake) into config.template_uuid where it
@@ -603,6 +603,20 @@ def _apply_fixed_template_id(config: dict, template_id: str, fixed_template_id: 
         return template_id
     library_uuid = _parse_uuid_or_none(template_id)
     if library_uuid is None:
+        if strict:
+            # A different literal template on a fixed-template step is never legitimate: the worker
+            # executes by template, so a mislabeled step (an sms step carrying template-email) would
+            # run the other channel's send and dodge that channel's checks, like the email tier cap.
+            # Non-strict (internal re-save) passes through so a legacy stored mismatch cannot brick
+            # unrelated edits; it is rejected the next time a person saves the step.
+            raise serializers.ValidationError(
+                {
+                    "template_id": (
+                        f"template_id must be the literal '{fixed_template_id}' for this step type, "
+                        f"not '{template_id}'."
+                    )
+                }
+            )
         return template_id
     if config.get("template_uuid") and _parse_uuid_or_none(config["template_uuid"]) != library_uuid:
         raise serializers.ValidationError(
@@ -1457,7 +1471,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             template_id = config.get("template_id", "")
             fixed_template_id = _FIXED_TEMPLATE_IDS.get(data.get("type", ""))
             if fixed_template_id:
-                template_id = _apply_fixed_template_id(config, template_id, fixed_template_id)
+                template_id = _apply_fixed_template_id(config, template_id, fixed_template_id, strict=strict)
             # After the fixed-id coercion, so a library UUID sent as template_id (the dominant
             # authoring mistake) lands in template_uuid first and still gets materialized.
             if data.get("type") == "function_email" and config.get("template_uuid"):
