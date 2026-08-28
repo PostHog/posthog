@@ -140,4 +140,23 @@ describe('SqlVisualizationPicker support rules', () => {
             ).toEqual('This insight has no numeric column to plot')
         }
     })
+
+    it('preserves saved axes while response columns are unavailable', () => {
+        const query = {
+            ...baseQuery,
+            chartSettings: {
+                xAxis: { column: 'day' },
+                yAxis: [
+                    {
+                        column: 'total',
+                        settings: { formatting: { prefix: '$', suffix: '' } },
+                    },
+                ],
+            },
+        } as DataVisualizationNode
+
+        expect(applyVisualizationType(query, ChartDisplayType.ActionsBar, [], 0).chartSettings).toEqual(
+            query.chartSettings
+        )
+    })
 })

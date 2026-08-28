@@ -87,7 +87,7 @@ export function applyVisualizationType(
             (series) => !columns.find((column) => column.name === series.column)?.type.isNumerical
         ) ?? false
 
-    if (invalidX || invalidY) {
+    if (columns.length > 0 && (invalidX || invalidY)) {
         chartSettings.xAxis = undefined
         chartSettings.yAxis = undefined
     }
