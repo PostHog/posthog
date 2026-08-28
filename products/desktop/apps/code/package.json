@@ -20,7 +20,7 @@
     "package:dev": "bash scripts/compile-glass-icon.sh && FORCE_DEV_MODE=1 SKIP_NOTARIZE=1 electron-vite build && electron-builder build --dir --config electron-builder.ts",
     "make": "bash scripts/compile-glass-icon.sh && electron-vite build && electron-builder build --config electron-builder.ts",
     "make:linux": "bash scripts/build-linux-docker.sh",
-    "publish": "electron-vite build && electron-builder build --publish always --config electron-builder.ts",
+    "publish": "bash scripts/compile-glass-icon.sh && electron-vite build && electron-builder build --publish always --config electron-builder.ts",
     "build": "pnpm package",
     "build-icons": "bash scripts/generate-icns.sh",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
