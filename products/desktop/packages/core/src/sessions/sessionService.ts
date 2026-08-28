@@ -4438,7 +4438,6 @@ export class SessionService {
         sessionId: session.taskRunId,
         prompt: blocks,
       });
-      this.flushSessionEventsForTask(session.taskRunId);
       this.d.store.updateSession(session.taskRunId, {
         isPromptPending: false,
         promptStartedAt: null,
@@ -5876,6 +5875,14 @@ export class SessionService {
   /**
    * Set a session configuration option with optimistic update and rollback.
    * This is the unified method for model, mode, thought level, etc.
+   */
+  /**
+   * Returns whether the change reached the agent: `true` once the backend
+   * accepted it (or it was already set), `false` when the session is missing,
+   * the option is unknown, the change was skipped because the local session is
+   * offline, or the backend call failed and rolled back. Callers that gate a
+   * user action on the switch (the mid-session model switch) rely on this to
+   * tell success from a swallowed failure.
    */
   async setSessionConfigOption(
     taskId: string,
