@@ -363,7 +363,9 @@ export function HogFunctionTest(): JSX.Element {
                                 <LemonBanner
                                     // Worker errors can echo a third-party response body with customer data,
                                     // so keep the banner text out of session replay, like the log table below.
-                                    className="ph-no-capture whitespace-pre-line"
+                                    // break-words lets a long unbroken token (a URL or JSON body) wrap instead
+                                    // of being clipped by LemonBanner's overflow-hidden content box.
+                                    className="ph-no-capture whitespace-pre-line break-words"
                                     type={
                                         testResult.status === 'success'
                                             ? 'success'
