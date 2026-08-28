@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -29,6 +31,7 @@ from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
@@ -907,7 +910,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         with self.assertRaises(ValueError):
             MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).to_query()
 
-    def _printed_sql(self, breakdown: MarketingAnalyticsAttributionBreakdown) -> str:
+    def _printed_sql(self, breakdown: MarketingAnalyticsAttributionBreakdown, *, precomputed: bool = False) -> str:
         query = MarketingAnalyticsAttributionQuery(
             dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
             breakdownBy=breakdown,
@@ -915,10 +918,17 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             properties=[],
         )
         runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
+        runner.config.sessions_precomputation_enabled = precomputed
         context = runner._shared_hogql_context
         # execute_hogql_query flips this on the context it is handed; do the same to print the real query.
         context.enable_select_queries = True
-        printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+        ready = LazyComputationResult(ready=True, job_ids=[UUID(int=1)])
+        with patch(
+            "products.marketing_analytics.backend.hogql_queries.attribution_sessions_read.ensure_marketing_sessions_precomputed",
+            return_value=ready,
+        ):
+            printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+        assert runner._sessions_precompute_used == precomputed
         return pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk)
 
     # One breakdown per SQL shape. Campaign reads a stored property, and the five breakdowns not listed
@@ -934,3 +944,16 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_attribution_table_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
         assert self._printed_sql(breakdown) == self.snapshot
+
+    # The precomputed half of each pair must carry neither the channel classifier nor an argMinMerge
+    # over raw_sessions: resolving those at read time is what exhausts memory on a large team.
+    @parameterized.expand(
+        [
+            ("campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN),
+            ("source", MarketingAnalyticsAttributionBreakdown.SOURCE),
+            ("channel", MarketingAnalyticsAttributionBreakdown.CHANNEL),
+        ]
+    )
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_precomputed_sessions_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
+        assert self._printed_sql(breakdown, precomputed=True) == self.snapshot
