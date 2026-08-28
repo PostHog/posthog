@@ -111,6 +111,31 @@ describe("createCachedImageHandler", () => {
       async (): Promise<Response> =>
         new Response("<html>", { headers: { "content-type": "text/html" } }),
     ],
+    [
+      "the remote declares a length past the cap",
+      async (): Promise<Response> =>
+        new Response(PNG as BodyInit, {
+          headers: {
+            "content-type": "image/png",
+            "content-length": String(6 * 1024 * 1024),
+          },
+        }),
+    ],
+    [
+      "the remote streams past the cap without declaring a length",
+      async (): Promise<Response> =>
+        imageResponse(new Uint8Array(6 * 1024 * 1024)),
+    ],
+    [
+      "the remote redirects onto a private address",
+      async (): Promise<Response> => {
+        const response = imageResponse(PNG);
+        Object.defineProperty(response, "url", {
+          value: "https://169.254.169.254/latest/meta-data",
+        });
+        return response;
+      },
+    ],
   ])("serves the stale copy when %s", async (_label, fetch) => {
     await seedStaleCopy();
     const handler = createCachedImageHandler(images, fetch, MAX_AGE_MS);

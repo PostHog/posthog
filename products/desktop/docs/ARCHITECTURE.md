@@ -153,7 +153,15 @@ It exposes colocated tRPC routers. `@posthog/workspace-client` is the typed clie
 
 The Electron main process owns one on-disk cache at `userData/cache/<namespace>/` (`apps/code/src/main/services/disk-cache/service.ts`). An entry is bytes plus a content type and a stored-at time. Readers pass a max age and get stale entries back flagged, so a consumer can serve them when a refresh fails. "Clear application storage" removes the whole directory.
 
+A namespace can take a `maxBytes` budget.
+Nothing else removes entries, so a namespace without one grows for as long as callers reach for new keys.
+With one, a write that passes the budget drops the oldest entries until the namespace fits again.
+
 Consumers take a namespace and serve it over the `posthog-cache://` protocol (`apps/code/src/main/protocols/disk-cache.ts`). Today `images/` serves remote images: the renderer rewrites an `https:` URL with `cachedImageUrl()` from `@posthog/ui/shell/cachedImageUrl`, backed by the `IDiskCacheImages` platform interface. Hosts without a disk cache leave the URL unchanged.
+
+The protocol is registered on the session that also renders untrusted artifact HTML, so treat every source as attacker-chosen.
+A source must be public `https:`: intranet and loopback addresses are refused, and a response that redirected onto one is thrown away.
+Bodies are read against a size cap while they stream, and the namespace budget bounds what one preview can put on disk.
 
 ## Schemas
 

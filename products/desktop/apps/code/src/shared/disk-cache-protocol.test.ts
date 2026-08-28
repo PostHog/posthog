@@ -18,6 +18,14 @@ describe("disk-cache-protocol", () => {
     ["http://example.com/a.png", "plain http"],
     ["file:///etc/passwd", "file scheme"],
     ["not a url", "malformed"],
+    ["https://localhost/a.png", "loopback name"],
+    ["https://127.0.0.1/a.png", "loopback address"],
+    ["https://169.254.169.254/latest/meta-data", "link-local address"],
+    ["https://10.1.2.3/a.png", "private address"],
+    ["https://192.168.0.1/a.png", "private address"],
+    ["https://[::1]/a.png", "ipv6 loopback"],
+    ["https://nas/a.png", "bare intranet name"],
+    ["https://printer.local/a.png", "mdns name"],
   ])("refuses to cache %s (%s)", (remoteUrl) => {
     expect(isCacheableImageUrl(remoteUrl)).toBe(false);
   });
@@ -36,6 +44,10 @@ describe("disk-cache-protocol", () => {
       "wrong scheme",
     ],
     ["posthog-cache://images/", "missing src"],
+    [
+      "posthog-cache://images/?src=https%3A%2F%2F169.254.169.254%2Flatest",
+      "link-local source",
+    ],
   ])("rejects %s (%s)", (protocolUrl) => {
     expect(fromCachedImageUrl(protocolUrl)).toBeNull();
   });

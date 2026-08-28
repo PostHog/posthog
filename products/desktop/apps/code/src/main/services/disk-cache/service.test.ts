@@ -78,6 +78,19 @@ describe("DiskCache", () => {
     ).toBeNull();
   });
 
+  it("evicts the oldest entries once the namespace passes its byte budget", async () => {
+    const big = new Uint8Array(1024);
+    const images = makeCache().namespace("images", { maxBytes: 2048 });
+
+    for (const key of ["a", "b", "c"]) {
+      await images.set(key, big, "image/png");
+      now += 1;
+    }
+
+    expect(await images.get("a", { maxAgeMs: Infinity })).toBeNull();
+    expect(await images.get("c", { maxAgeMs: Infinity })).not.toBeNull();
+  });
+
   it("clear removes every namespace", async () => {
     const cache = makeCache();
     await cache.namespace("images").set("a", PNG, "image/png");

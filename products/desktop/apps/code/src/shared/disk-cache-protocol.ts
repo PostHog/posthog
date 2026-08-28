@@ -1,10 +1,19 @@
+import { isPrivateHostname } from "@posthog/core/local-mcp/localMcpImport";
+
 export const DISK_CACHE_SCHEME = "posthog-cache";
 
 const CACHED_IMAGE_ORIGIN = `${DISK_CACHE_SCHEME}://images/`;
 
+/**
+ * The scheme is registered on the session that also renders untrusted artifact
+ * HTML, so any preview can name a source and make the main process fetch it.
+ * Public https only: an intranet address would let the preview reach hosts its
+ * own sandbox cannot.
+ */
 export function isCacheableImageUrl(remoteUrl: string): boolean {
   try {
-    return new URL(remoteUrl).protocol === "https:";
+    const url = new URL(remoteUrl);
+    return url.protocol === "https:" && !isPrivateHostname(url.hostname);
   } catch {
     return false;
   }

@@ -1,5 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { logger } from "@main/utils/logger";
 import type { IDiskCache } from "@posthog/platform/disk-cache";
@@ -22,6 +30,11 @@ export interface DiskCacheOptions {
   now?: () => number;
 }
 
+export interface DiskCacheNamespaceOptions {
+  /** Total bytes the namespace may hold. Oldest entries go first once passed. */
+  maxBytes?: number;
+}
+
 function isNotFound(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
 }
@@ -33,8 +46,15 @@ export class DiskCache implements IDiskCache {
     this.now = options.now ?? Date.now;
   }
 
-  namespace(name: string): DiskCacheNamespace {
-    return new DiskCacheNamespace(join(this.options.rootDir, name), this.now);
+  namespace(
+    name: string,
+    options: DiskCacheNamespaceOptions = {},
+  ): DiskCacheNamespace {
+    return new DiskCacheNamespace(
+      join(this.options.rootDir, name),
+      this.now,
+      options.maxBytes,
+    );
   }
 
   async clear(): Promise<void> {
@@ -46,6 +66,7 @@ export class DiskCacheNamespace {
   constructor(
     private readonly dir: string,
     private readonly now: () => number,
+    private readonly maxBytes?: number,
   ) {}
 
   async get(
@@ -82,6 +103,61 @@ export class DiskCacheNamespace {
     await mkdir(this.dir, { recursive: true });
     await writeAtomic(base, bytes);
     await writeAtomic(`${base}.json`, JSON.stringify(sidecar));
+    await this.evictOverBudget();
+  }
+
+  /**
+   * Keeps the namespace under its byte budget, oldest first. Entries expire by
+   * age on read but nothing removes them, so without this a caller that reaches
+   * for many distinct keys grows the directory until the disk is full.
+   */
+  private async evictOverBudget(): Promise<void> {
+    const budget = this.maxBytes;
+    if (budget === undefined) return;
+
+    try {
+      const names = await readdir(this.dir);
+      const entries = await Promise.all(
+        names
+          .filter((name) => !name.endsWith(".json") && !name.endsWith(".tmp"))
+          .map(async (name) => {
+            const base = join(this.dir, name);
+            const [stats, storedAt] = await Promise.all([
+              stat(base),
+              this.storedAtOf(base),
+            ]);
+            return { name, bytes: stats.size, storedAt };
+          }),
+      );
+
+      let total = entries.reduce((sum, entry) => sum + entry.bytes, 0);
+      if (total <= budget) return;
+
+      entries.sort((a, b) => a.storedAt - b.storedAt);
+      for (const entry of entries) {
+        if (total <= budget) break;
+        const base = join(this.dir, entry.name);
+        await Promise.all([
+          rm(base, { force: true }),
+          rm(`${base}.json`, { force: true }),
+        ]);
+        total -= entry.bytes;
+      }
+    } catch (error) {
+      log.warn("Could not trim cache namespace", { dir: this.dir, error });
+    }
+  }
+
+  /** Age from the sidecar. An entry with no readable sidecar is junk, so it goes first. */
+  private async storedAtOf(base: string): Promise<number> {
+    try {
+      const sidecar = JSON.parse(
+        await readFile(`${base}.json`, "utf8"),
+      ) as DiskCacheSidecar;
+      return sidecar.storedAt;
+    } catch {
+      return Number.NEGATIVE_INFINITY;
+    }
   }
 
   async delete(key: string): Promise<void> {
