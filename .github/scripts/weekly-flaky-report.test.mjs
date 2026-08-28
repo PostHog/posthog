@@ -3,7 +3,6 @@ import { describe, it } from 'node:test'
 
 import {
     buildBlocks,
-    buildQueue,
     buildRunnerReports,
     CLUSTER_MIN_TESTS,
     enrich,
@@ -11,10 +10,10 @@ import {
     fetchCandidatePools,
     fetchTrunkQuarantined,
     flakyTestsUrl,
+    quarantineStatusFor,
     REPORT_RUNNERS,
     selectReportCandidates,
     tableRows,
-    testStatusFor,
 } from './weekly-flaky-report.mjs'
 import { repoPathResolver, trackedTestPaths } from './weekly-report-common.mjs'
 
@@ -41,6 +40,7 @@ describe('weekly flaky report', () => {
                     classification: 'confirmed_flake',
                     quarantined_failed_run_count: 0,
                     failed_run_count: 4,
+                    failed_pr_count: 3,
                 },
             ],
             () => ({ owner: 'team-devex', repoPath: 'posthog/test/test_example.py' }),
@@ -58,8 +58,12 @@ describe('weekly flaky report', () => {
         assert.ok(table)
         assert.deepEqual(
             table.rows[0].map((tableCell) => tableCell.text),
-            ['test', 'runner', 'owner', 'rescued', 'fails', 'logs']
+            ['test', 'runner', 'owner', 'quarantined', 'PRs', 'rescued', 'fails', 'logs']
         )
+        // The edit-workflow context block may still render when Actions env vars are set;
+        // only the action footer has to be gone.
+        const contextText = JSON.stringify(blocks.filter((block) => block.type === 'context'))
+        assert.doesNotMatch(contextText, /fixing-flaky-tests|test:quarantine/)
         for (const tableCell of table.rows.flat()) {
             assert.ok(['raw_text', 'raw_number', 'rich_text'].includes(tableCell.type))
         }
@@ -79,7 +83,9 @@ describe('weekly flaky report', () => {
             ],
         })
         assert.deepEqual(rows[0][1], { type: 'raw_text', text: 'pytest' })
-        assert.deepEqual(rows[0][5], {
+        assert.deepEqual(rows[0][3], { type: 'raw_text', text: '-' })
+        assert.deepEqual(rows[0][4], { type: 'raw_text', text: '3' })
+        assert.deepEqual(rows[0][7], {
             type: 'rich_text',
             elements: [
                 {
@@ -245,8 +251,8 @@ describe('weekly flaky report', () => {
 
         assert.equal(enrichmentRequested, false)
         assert.deepEqual(row[1], { type: 'raw_text', text: 'Jest' })
-        assert.deepEqual(row[3], { type: 'raw_text', text: '-' })
         assert.deepEqual(row[5], { type: 'raw_text', text: '-' })
+        assert.deepEqual(row[7], { type: 'raw_text', text: '-' })
     })
 
     it('scopes enrichment to the current repository', async () => {
@@ -312,7 +318,7 @@ describe('weekly flaky report', () => {
         assert.equal(trunkFor({ selector: 'backend/tests/test_migration.py::MigrationTest::test_other' }), null)
     })
 
-    it('drops both quarantine systems from the queue, but keeps a Trunk flag that still fails CI', () => {
+    it('labels how each quarantine system suppresses a test instead of dropping it', () => {
         const quarantineFile = { runner: 'pytest', selector: 'file.py::test_file', classification: 'quarantined' }
         // Quarantined earlier in the window, un-quarantined since, and failing on its own now.
         const unparked = {
@@ -323,41 +329,67 @@ describe('weekly flaky report', () => {
             failed_run_count: 4,
         }
         const trunked = { runner: 'pytest', selector: 'masked.py::test_masked', failed_run_count: 9 }
+        const undated = { runner: 'pytest', selector: 'undated.py::test_undated', failed_run_count: 2 }
         const plain = { runner: 'pytest', selector: 'plain.py::test_plain', failed_run_count: 1 }
-        const items = [quarantineFile, unparked, trunked, plain]
+        const items = [quarantineFile, unparked, trunked, undated, plain]
+        const trunkRows = new Map([
+            [trunked.selector, '2026-07-13T17:12:22.000Z'],
+            [undated.selector, null],
+        ])
         const trunkFor = (item) =>
-            item.selector === trunked.selector ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
-        const selectors = (list) => list.map((item) => item.selector)
+            trunkRows.has(item.selector) ? { quarantinedAt: trunkRows.get(item.selector) } : null
 
-        const masked = buildQueue(items, testStatusFor(trunkFor, true))
-        const unmasked = buildQueue(items, testStatusFor(trunkFor, false))
+        const cells = (masksCi) =>
+            tableRows(
+                items,
+                () => ({ owner: 'team-devex', repoPath: null }),
+                () => ({ runsRescued: null, evidence: [] }),
+                quarantineStatusFor(trunkFor, masksCi)
+            ).map((row) => row[3].text)
 
-        assert.deepEqual(selectors(masked), [unparked.selector, plain.selector])
-        // Masking off leaves Trunk's failure reddening CI, so only the quarantine file parks.
-        assert.deepEqual(selectors(unmasked), [unparked.selector, trunked.selector, plain.selector])
-        const [ownerCell] = tableRows(
-            [trunked],
-            () => ({ owner: 'team-devex', repoPath: null }),
-            () => ({ runsRescued: null, evidence: [] }),
-            testStatusFor(trunkFor, false)
-        ).map((row) => row[2])
-        assert.equal(ownerCell.text, 'devex (Trunk flagged)')
+        assert.deepEqual(cells(true), ['file', '-', '2026-07-13', 'yes', '-'])
+        // Masking off leaves Trunk's failure reddening CI, so the date would overclaim.
+        assert.deepEqual(cells(false), ['file', '-', 'flagged', 'flagged', '-'])
     })
 
-    it('parks a quarantined test that would otherwise be buried in a collapsed cluster', () => {
-        // A cluster's selector is a bare file path, so it can never match a test id.
-        const items = Array.from({ length: CLUSTER_MIN_TESTS }, (_, index) => ({
+    it('keeps a Trunk-quarantined test in the report and counts suppressed cluster members', async () => {
+        const clustered = Array.from({ length: CLUSTER_MIN_TESTS }, (_, index) => ({
             runner: 'pytest',
+            // Two members parked via the quarantine file: suppressed whichever way TRUNK_* masking
+            // resolves, so the count holds without pinning the env. A Trunk-marked member with
+            // masking off is only 'flagged' and must not count as suppressed.
+            classification: index < 2 ? 'quarantined' : 'confirmed_flake',
             selector: `shared.py::test_${index}`,
-            failed_run_count: 2,
+            failed_run_count: index < 2 ? 0 : 2,
+            quarantined_failed_run_count: index < 2 ? 3 : 0,
+            failed_pr_count: 1,
         }))
-
-        const queue = buildQueue(
-            items,
-            testStatusFor(() => ({ quarantinedAt: '2026-07-13T17:12:22.000Z' }), true)
+        const trunked = { runner: 'pytest', selector: 'masked.py::test_masked', failed_run_count: 9 }
+        const [{ candidates, statusFor }] = await buildRunnerReports(
+            [{ runner: 'pytest', candidates: [...clustered, trunked] }],
+            async () => () => ({ runsRescued: null, evidence: [] }),
+            async () => (item) =>
+                item.selector === trunked.selector ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
         )
 
-        assert.deepEqual(queue, [])
+        assert.deepEqual(
+            candidates.map((candidate) => [candidate.selector, candidate.failed_run_count]),
+            [
+                ['masked.py::test_masked', 9],
+                ['shared.py', 6],
+            ]
+        )
+        assert.equal(statusFor(candidates[1]), `2/${CLUSTER_MIN_TESTS}`)
+        // Truthy either way TRUNK_* masking resolves, so this holds without pinning the env.
+        assert.ok(statusFor(trunked))
+        const [clusterRow] = tableRows(
+            [candidates[1]],
+            () => ({ owner: 'team-devex', repoPath: null }),
+            () => ({ runsRescued: null, evidence: [] }),
+            statusFor
+        )
+        // The cluster PR count is a floor over overlapping member sets, never an exact count.
+        assert.deepEqual(clusterRow[4], { type: 'raw_text', text: '1+' })
     })
 
     it('matches a Jest selector reported from the package root against Trunk', async () => {

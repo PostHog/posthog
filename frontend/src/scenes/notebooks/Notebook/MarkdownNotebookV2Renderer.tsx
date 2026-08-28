@@ -85,6 +85,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         isEditable,
         isShared,
         notebook,
+        shortId,
         markdownEditorValue,
         markdownEditorInteractionActive,
         markdownRemoteCarets,
@@ -354,7 +355,9 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             markAIPresenceActive(conversationId)
             setAICaretPosition(getNotebookAICaretPosition(markdownWithResponse, responseNodeIndex))
             const uiContext = getInlineNotebookAIUIContext({
-                notebookShortId: notebook?.short_id ?? null,
+                // A canvas has no saved notebook, so fall back to the logic's short id. Without it the
+                // structured context is dropped and the request reaches the model with no document.
+                notebookShortId: notebook?.short_id ?? shortId,
                 notebookTitle: notebook?.title ?? 'Untitled notebook',
                 markdown: markdownWithResponse,
                 conversationId,
@@ -382,7 +385,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             inlineAIResponseNodeCountsRef.current[conversationId] = 1
             inlineAIResponseNodeIndicesRef.current[conversationId] = responseNodeIndex
         },
-        [markAIPresenceActive, notebook?.short_id, notebook?.title]
+        [markAIPresenceActive, notebook?.short_id, notebook?.title, shortId]
     )
 
     const getInlineAIRequest = useCallback(
