@@ -42,5 +42,17 @@ exclude {
     # Orphan: no migration or code creates it; roles/coshared/custom_metrics models it
     # for the ops nodes, which do carry it.
     "events_team_daily_stats",
+
+    # --- metrics-overlay ingest: created by migration 0305 on LOGS, modeled in
+    #     roles/logs/shared + cloud for dev/prod but not in the local golden.
+    #     metrics1 diverges per env (codecs), so it is not yet in an all-env layer. ---
+    "metrics1",
+    "metrics",
+    "metrics_kafka_metrics",
+    "kafka_metrics_avro",
+    "kafka_metrics_avro_mv",
+    "kafka_metrics_avro_to_metric_samples",
+    "kafka_metrics_avro_to_metric_series",
+    "kafka_metrics_avro_kafka_metrics_mv",
   ]
 }
