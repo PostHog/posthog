@@ -353,7 +353,6 @@ export const FEATURE_FLAGS = {
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
     INBOX_REDESIGN: 'inbox-redesign', // owner: #team-self-driving, gates the inbox redesign: report sections, triage mode, the Settings tab, and scout cards
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
-    INBOX_WELCOME_REDESIGN: 'inbox-welcome-redesign', // owner: #team-self-driving multivariate=control,test — experiment on the inbox self-driving welcome takeover
     INSIGHT_DRAG_TO_ZOOM: 'insight-drag-to-zoom', // owner: @sampennington #team-product-analytics, gates x-axis drag-to-zoom on insight charts (trends today, SQL to follow)
     INSIGHT_EXPORT_NUDGE: 'insight-export-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges people who just exported an insight toward a recurring subscription
     INSIGHT_SUBSCRIBE_PROMINENT_BUTTON: 'insight-subscribe-prominent-button', // owner: @mattp #team-analytics-platform multivariate=control,test
