@@ -40,6 +40,8 @@ import type {
     OrganizationDomainApi,
     OrganizationInviteApi,
     OrganizationInviteDelegateApi,
+    OrganizationNotificationLockBulkUpdateApi,
+    OrganizationNotificationMemberApi,
     OrganizationsProjectsEventIngestionRestrictionsListParams,
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
@@ -645,6 +647,43 @@ export const invitesDelegateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(organizationInviteDelegateApi),
+    })
+}
+
+export const getNotificationLocksListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/notification_locks/`
+}
+
+/**
+ * List the organization's members with their own notification settings and the locks in force for each.
+ */
+export const notificationLocksList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<OrganizationNotificationMemberApi[]> => {
+    return apiMutator<OrganizationNotificationMemberApi[]>(getNotificationLocksListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotificationLocksBulkUpdateCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/notification_locks/bulk_update/`
+}
+
+/**
+ * Lock or unlock notification settings for members of this organization. Each affected member is notified in the app.
+ */
+export const notificationLocksBulkUpdateCreate = async (
+    organizationId: string,
+    organizationNotificationLockBulkUpdateApi: OrganizationNotificationLockBulkUpdateApi,
+    options?: RequestInit
+): Promise<OrganizationNotificationMemberApi[]> => {
+    return apiMutator<OrganizationNotificationMemberApi[]>(getNotificationLocksBulkUpdateCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(organizationNotificationLockBulkUpdateApi),
     })
 }
 

@@ -20,6 +20,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.exceptions_capture import capture_exception
@@ -67,6 +68,39 @@ from products.warehouse_sources.backend.facade.temporal import AccountPropertyRo
 LOGGER = get_logger(__name__)
 
 MB_100_IN_BYTES = 100 * 1000 * 1000
+
+# ClickHouse builds every GLOBAL IN subquery as a temporary table while it plans a query, and
+# DESCRIBE plans the query too, so the schema probe scans the source tables just to return column
+# types. The probe therefore prints a copy of the query with GLOBAL IN downgraded to plain IN and
+# runs with the two settings that would add GLOBAL back pinned off (the cluster profile sets
+# distributed_product_mode=global). Joins keep their GLOBAL prefix: the resolver adds it to
+# events-to-S3 join chains to work around a ClickHouse bug, not for cost. The materialization query
+# itself is printed from the untouched AST.
+DESCRIBE_QUERY_SETTINGS = {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
+
+_LOCAL_COMPARE_OPS = {
+    ast.CompareOperationOp.GlobalIn: ast.CompareOperationOp.In,
+    ast.CompareOperationOp.GlobalNotIn: ast.CompareOperationOp.NotIn,
+}
+
+
+class _DowngradeGlobalIn(CloningVisitor):
+    def __init__(self) -> None:
+        super().__init__(clear_types=False, clear_locations=False)
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.CompareOperation:
+        cloned = super().visit_compare_operation(node)
+        cloned.op = _LOCAL_COMPARE_OPS.get(cloned.op, cloned.op)
+        return cloned
+
+
+def _print_describe_variant(
+    prepared_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, settings: HogQLGlobalSettings
+) -> str:
+    downgraded = _DowngradeGlobalIn().visit(prepared_query)
+    return print_prepared_ast(downgraded, context=context, dialect="clickhouse", settings=settings, stack=[])
+
+
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
 
@@ -504,13 +538,7 @@ async def hogql_table(
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    printed = await database_sync_to_async_pool(print_prepared_ast)(
-        prepared_hogql_query,
-        context=context,
-        dialect="clickhouse",
-        settings=settings,
-        stack=[],
-    )
+    printed = await database_sync_to_async_pool(_print_describe_variant)(prepared_hogql_query, context, settings)
 
     table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw"
     arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
@@ -540,7 +568,10 @@ async def hogql_table(
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
     async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
         async with client.apost_query(
-            query=table_describe_query, query_parameters=context.values, query_id=str(uuid.uuid4())
+            query=table_describe_query,
+            query_parameters=context.values,
+            query_id=str(uuid.uuid4()),
+            settings=DESCRIBE_QUERY_SETTINGS,
         ) as ch_response:
             table_describe_response = await ch_response.content.read()
             for line in table_describe_response.decode("utf-8").splitlines():
