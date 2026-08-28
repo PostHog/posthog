@@ -55,6 +55,13 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["updated_at"],
                 name="idx_extdatajob_updated_at",
             ),
+            # Serves the rows-synced aggregates (usage report, source health): equality on
+            # pipeline/status with a finished_at range. Without it the FK index walks every
+            # job for the pipeline and filters most of them out.
+            models.Index(
+                fields=["pipeline", "status", "finished_at"],
+                name="idx_extdatajob_pipe_stat_fin",
+            ),
         ]
 
     def folder_path(self) -> str:
