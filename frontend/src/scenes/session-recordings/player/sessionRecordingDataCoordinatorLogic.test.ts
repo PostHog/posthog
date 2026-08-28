@@ -145,6 +145,12 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             ['enough giant mutations', mutationSnapshots(3, 2000), true, true],
             ['too few giant mutations', mutationSnapshots(2, 5000), true, false],
             ['many ordinary mutations', mutationSnapshots(100, 100), true, false],
+            [
+                'malformed mutations without adds',
+                mutationSnapshots(3, 0).map((s) => ({ ...s, data: { source: 0 } }) as unknown as RecordingSnapshot),
+                true,
+                false,
+            ],
             ['the flag is disabled', mutationSnapshots(3, 2000), false, false],
         ])('detects oversized mutations with %s', (_name, snapshots, flagEnabled, expected) => {
             featureFlagLogic.mount()

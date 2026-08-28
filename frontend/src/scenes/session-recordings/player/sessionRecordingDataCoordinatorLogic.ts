@@ -713,7 +713,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 for (const snapshot of snapshots) {
                     if (
                         snapshot.type === EventType.IncrementalSnapshot &&
-                        snapshot.data.source === IncrementalSource.Mutation &&
+                        snapshot.data?.source === IncrementalSource.Mutation &&
+                        Array.isArray(snapshot.data.adds) &&
                         snapshot.data.adds.length >= OVERSIZED_MUTATION_MIN_ADDED_NODES
                     ) {
                         oversizedEvents += 1
