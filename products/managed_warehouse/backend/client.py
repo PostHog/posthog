@@ -9,9 +9,9 @@ import psycopg
 from psycopg import sql as psql
 from psycopg.conninfo import make_conninfo
 
-from posthog.hogql.database.s3_table import (
+from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.s3_table_duckdb import (
     DUCKDB_SELF_MANAGED_SUPPORTED_FORMATS,
-    S3Table,
     build_duckdb_azure_connection_string,
     parse_duckdb_azure_source,
     parse_duckdb_s3_source,
