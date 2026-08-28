@@ -63,7 +63,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
     const { openAddToDashboardModal, openTerraformModal } = useActions(insightModalsLogic(insightLogicProps))
 
     const { canCopyToProject } = useValues(interProjectCopyLogic)
-    const { editImage } = useActions(captureImageLogic)
+    const { downloadImage } = useActions(captureImageLogic)
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
 
@@ -80,7 +80,11 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
     // Only an InsightViz renders the results card the browser-side capture targets. Anything else
     // still goes through the server-side PNG render.
     const canCaptureImage = isInsightVizNode(query)
-    const captureTarget = { selector: INSIGHT_GRAPH_SELECTOR, screenshotKey: INSIGHT_SCREENSHOT_KEY }
+    const captureTarget = {
+        selector: INSIGHT_GRAPH_SELECTOR,
+        screenshotKey: INSIGHT_SCREENSHOT_KEY,
+        name: insight.name || insight.derived_name || undefined,
+    }
     const showCohort =
         hogQL != null &&
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
@@ -171,7 +175,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                             insight: insight.id,
                             context: exportContext,
                             dataAttr: `${RESOURCE_TYPE}-export-png`,
-                            onClick: canCaptureImage ? () => editImage(captureTarget) : undefined,
+                            onClick: canCaptureImage ? () => downloadImage(captureTarget) : undefined,
                         },
                         {
                             format: ExporterFormat.CSV,

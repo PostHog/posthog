@@ -112,7 +112,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const { openTerraformModal, openAddToDashboardModal } = useActions(insightModalsLogic(insightLogicProps))
 
     const { canCopyToProject } = useValues(interProjectCopyLogic)
-    const { copyImage, editImage } = useActions(captureImageLogic)
+    const { copyImage, downloadImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
 
@@ -136,7 +136,11 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     // Only an InsightViz renders the results card the browser-side capture targets. Anything else
     // still goes through the server-side PNG render.
     const canCaptureImage = isInsightVizNode(query)
-    const captureTarget = { selector: INSIGHT_GRAPH_SELECTOR, screenshotKey: INSIGHT_SCREENSHOT_KEY }
+    const captureTarget = {
+        selector: INSIGHT_GRAPH_SELECTOR,
+        screenshotKey: INSIGHT_SCREENSHOT_KEY,
+        name: insight.name || insight.derived_name || undefined,
+    }
     const showCohort =
         hogQL != null &&
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
@@ -298,7 +302,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                 tooltip={exportAccessControlDisabledReason ?? undefined}
                                 onClick={() =>
                                     canCaptureImage
-                                        ? editImage(captureTarget)
+                                        ? downloadImage(captureTarget)
                                         : startExport({
                                               export_format: ExporterFormat.PNG,
                                               insight: insight.id,
