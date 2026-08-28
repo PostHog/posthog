@@ -10,6 +10,8 @@ Most detection logics are one call to `createSetupDetectionLogic` (`setupDetecti
 
 Products detectable from event definitions also declare a `setupProbe` in their manifest, which `productSetupPreloadLogic` answers at app boot with one batched request — so the status is usually known before the scene is ever opened. Probes support a `staleAfterDays` window for products where old, abandoned data shouldn't count as set up.
 
+To review an empty state on a project that already has data, add `?empty_state=1` to the scene URL. It forces the `needs-setup` screen past detection and past a local skip, `?empty_state=waiting-for-data` forces the other mode, and dropping the param gives the real scene back. Use it for design review and screenshots instead of clearing a project.
+
 **To adopt this for your product, follow the `building-product-empty-states` skill** (`.agents/skills/building-product-empty-states/SKILL.md`). Reference adoption: `products/mcp_analytics/frontend/emptyState/`.
 
 `ProductIntroduction` is deprecated in favor of this component. Which scenes have adopted this one and which are still on the old path is tracked in [`docs/internal/product-empty-state-adoption.md`](../../../../../docs/internal/product-empty-state-adoption.md).

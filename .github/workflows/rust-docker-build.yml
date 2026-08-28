@@ -177,6 +177,9 @@ jobs:
                     - release: ingestion-control-plane
                       digest_key: ingestion-control-plane
                       values_key: image
+                    - release: pgcollector
+                      digest_key: pgcollector
+                      values_key: image
                     - release: kafka-deduplicator
                       digest_key: kafka-deduplicator
                       values_key: image

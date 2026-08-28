@@ -180,6 +180,29 @@ def _cache_url_resolution() -> None:
     resolvers.URLResolver.resolve = resolve  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
+def _cache_fixture_parent_nodeids() -> None:
+    # FixtureManager._matchfactories rebuilds a node's parent-nodeid set for every fixture-name
+    # lookup, and collection resolves many fixture names per item. A node's parents are fixed at
+    # construction, so the set can be reused. Node uses __slots__, so key by id() and keep a strong
+    # reference to prevent id() reuse for the node's session lifetime.
+    from _pytest import fixtures, nodes  # noqa: PLC0415 — deferred until pytest_configure
+
+    orig_matchfactories = fixtures.FixtureManager._matchfactories
+    parents: dict[int, tuple[nodes.Node, set[str]]] = {}
+
+    def _matchfactories(self, fixturedefs, node):
+        entry = parents.get(id(node))
+        if entry is None:
+            entry = parents[id(node)] = (node, {n.nodeid for n in node.iter_parents()})
+        parentnodeids = entry[1]
+        for fixturedef in fixturedefs:
+            if fixturedef.baseid in parentnodeids:
+                yield fixturedef
+
+    _matchfactories.__wrapped__ = orig_matchfactories  # exposes the original for the canary tests
+    fixtures.FixtureManager._matchfactories = _matchfactories  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+
 def _cheapen_freezegun_module_hash() -> None:
     # Every freeze_time().start() revalidates freezegun's per-module patch cache by
     # hashing each loaded module's attribute list: hash(frozenset(dir(module))) across
@@ -211,6 +234,7 @@ def pytest_configure(config) -> None:
     _cache_select_masks()
     _cache_drf_field_info()
     _cache_url_resolution()
+    _cache_fixture_parent_nodeids()
     _cheapen_freezegun_module_hash()
 
 
