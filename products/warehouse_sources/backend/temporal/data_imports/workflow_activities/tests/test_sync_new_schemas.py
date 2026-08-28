@@ -4,6 +4,7 @@ import pytest
 from unittest import mock
 
 from posthog.models.integration import UndecryptedIntegrationSecretError
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.models.external_data_schema import SchemaSyncResult
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import sync_new_schemas as module
@@ -55,19 +56,13 @@ def _run_activity(source_mock, schemas_created=None, source_api_version=None):
             None,
         ),
         (
-            "250001: Could not connect to Snowflake backend after 3 attempt(s)",
-            {},
-            {"Could not connect to Snowflake backend after"},
-            None,
-        ),
-        (
             "UNAVAILABLE: transient network blip",
             {"invalid_grant": None},
             set(),
             "transient network blip",
         ),
     ],
-    ids=["non_retryable_error_is_skipped", "retryable_error_is_skipped", "unknown_error_propagates"],
+    ids=["non_retryable_error_is_skipped", "unknown_error_propagates"],
 )
 def test_get_schemas_error_handling(error_msg, non_retryable, retryable, expected_exc):
     source_mock = mock.MagicMock()
@@ -81,6 +76,21 @@ def test_get_schemas_error_handling(error_msg, non_retryable, retryable, expecte
     else:
         with pytest.raises(Exception, match=expected_exc):
             _run_activity(source_mock)
+
+
+def test_retryable_error_is_reraised_for_temporal_retry():
+    # A retryable source error (a transient connect blip) must fail the activity as NonReportableError,
+    # not complete it. NonReportableError keeps the workflow's Temporal retry (the activity interceptor
+    # re-raises it without capturing), so discovery retries within the run instead of skipping the whole
+    # ~6h pass. Mirrors import_data_sync's handling of the same get_retryable_errors set.
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.side_effect = Exception("250001: Could not connect to Snowflake backend after 3 attempt(s)")
+    source_mock.get_non_retryable_errors.return_value = {}
+    source_mock.get_retryable_errors.return_value = {"Could not connect to Snowflake backend after"}
+
+    with pytest.raises(NonReportableError):
+        _run_activity(source_mock)
 
 
 def test_undecrypted_integration_secret_error_is_skipped():
