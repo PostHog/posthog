@@ -4,7 +4,15 @@ import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PipelineEvent } from '~/types'
 
-import { TOKEN_COUNT_PROPERTIES } from '../token-properties'
+const TOKEN_PROPERTIES = [
+    '$ai_input_tokens',
+    '$ai_output_tokens',
+    '$ai_reasoning_tokens',
+    '$ai_cache_read_input_tokens',
+    '$ai_cache_creation_input_tokens',
+    '$ai_cache_creation_5m_input_tokens',
+    '$ai_cache_creation_1h_input_tokens',
+] as const
 
 /**
  * Validates that a value can be safely used with js-big-decimal for cost calculations.
@@ -64,7 +72,7 @@ export function createValidateAiEventTokensStep<T extends { event: PipelineEvent
 
         const warnings: PipelineWarning[] = []
 
-        for (const prop of TOKEN_COUNT_PROPERTIES) {
+        for (const prop of TOKEN_PROPERTIES) {
             if (!(prop in properties)) {
                 continue
             }

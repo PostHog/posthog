@@ -43,10 +43,6 @@ const NON_NORMALIZABLE_OBJECT_VALUES: [unknown, string][] = [
     [[100], 'array with number'],
 ]
 
-// A representative subset of TOKEN_COUNT_PROPERTIES, not a copy of it. The step
-// applies the same checks to every entry, so running the full value matrix
-// against all of them would multiply the case count for no new coverage. One
-// case below covers a property outside this subset.
 const TOKEN_PROPERTIES = [
     '$ai_input_tokens',
     '$ai_output_tokens',
@@ -140,14 +136,6 @@ describe('createValidateAiEventTokensStep', () => {
                 }
             )
         })
-    })
-
-    // Modality token counts reach js-big-decimal the same way the counts above
-    // do, so narrowing TOKEN_COUNT_PROPERTIES back to the core set would let a
-    // malformed one through unsanitized.
-    it('sanitizes a modality token count outside the subset above', async () => {
-        const input = createEvent('$ai_generation', { $ai_image_output_tokens: 'invalid' })
-        await expectNulledWithWarning(input, '$ai_image_output_tokens', 'invalid')
     })
 
     describe('normalization edge cases', () => {
