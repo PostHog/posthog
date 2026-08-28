@@ -55,7 +55,8 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
     const { duplicateInsight, setInsightMetadata } = useActions(theInsightLogic)
 
     const theInsightDataLogic = insightDataLogic(insightProps)
-    const { query, hogQL, exportContext, hogQLVariables, canEditInSqlEditor } = useValues(theInsightDataLogic)
+    const { query, hogQL, exportContext, hogQLVariables, canEditInSqlEditor, insightDataLoading, insightDataError } =
+        useValues(theInsightDataLogic)
 
     const { createStaticCohort } = useActions(exportsLogic)
     const { openCreateFromInsightModal } = useActions(endpointLogic)
@@ -85,6 +86,12 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
         screenshotKey: INSIGHT_SCREENSHOT_KEY,
         name: insight.name || insight.derived_name || undefined,
     }
+    // A browser capture takes whatever is on screen. The results card renders before the chart does, so
+    // capturing mid-load or after a failed query produces a valid PNG of an empty card.
+    const captureDisabledReasons = {
+        'Wait for the insight to finish loading': insightDataLoading,
+        'The insight has no results to capture': !!insightDataError,
+    }
     const showCohort =
         hogQL != null &&
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
@@ -106,7 +113,13 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                     Copy to another project
                 </ButtonPrimitive>
             )}
-            {canCaptureImage && <SceneCopyImageButton target={captureTarget} dataAttrKey={RESOURCE_TYPE} />}
+            {canCaptureImage && (
+                <SceneCopyImageButton
+                    target={captureTarget}
+                    dataAttrKey={RESOURCE_TYPE}
+                    disabledReasons={captureDisabledReasons}
+                />
+            )}
             <SceneFavorite
                 dataAttrKey={RESOURCE_TYPE}
                 onClick={() => setInsightMetadata({ favorited: !insight.favorited })}
@@ -176,6 +189,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                             context: exportContext,
                             dataAttr: `${RESOURCE_TYPE}-export-png`,
                             onClick: canCaptureImage ? () => downloadImage(captureTarget) : undefined,
+                            disabledReasons: canCaptureImage ? captureDisabledReasons : undefined,
                         },
                         {
                             format: ExporterFormat.CSV,

@@ -98,8 +98,17 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const { duplicateInsight, deleteInsight, setInsightMetadata } = useActions(theInsightLogic)
 
     const theInsightDataLogic = insightDataLogic(insightProps)
-    const { query, hogQL, exportContext, hogQLVariables, canEditInSqlEditor, showQueryEditor, showDebugPanel } =
-        useValues(theInsightDataLogic)
+    const {
+        query,
+        hogQL,
+        exportContext,
+        hogQLVariables,
+        canEditInSqlEditor,
+        showQueryEditor,
+        showDebugPanel,
+        insightDataLoading,
+        insightDataError,
+    } = useValues(theInsightDataLogic)
     const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(theInsightDataLogic)
 
     const { insightMode, dashboardId } = useValues(insightSceneLogic)
@@ -141,6 +150,13 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
         screenshotKey: INSIGHT_SCREENSHOT_KEY,
         name: insight.name || insight.derived_name || undefined,
     }
+    // A browser capture takes whatever is on screen. The results card renders before the chart does, so
+    // capturing mid-load or after a failed query produces a valid PNG of an empty card.
+    const captureDisabledReason = insightDataLoading
+        ? 'Wait for the insight to finish loading'
+        : insightDataError
+          ? 'The insight has no results to capture'
+          : undefined
     const showCohort =
         hogQL != null &&
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
@@ -280,7 +296,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                     {canCaptureImage && (
                         <SceneMenuBarItem
                             onClick={() => copyImage(captureTarget)}
-                            disabled={isCapturingImage}
+                            disabled={isCapturingImage || !!captureDisabledReason}
+                            tooltip={captureDisabledReason}
                             data-attr={`${RESOURCE_TYPE}-menubar-copy-image`}
                         >
                             <IconImage />
@@ -298,8 +315,13 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                     {canExport && (
                         <SceneMenuBarSubMenu label="Export">
                             <SceneMenuBarItem
-                                disabled={!!exportAccessControlDisabledReason}
-                                tooltip={exportAccessControlDisabledReason ?? undefined}
+                                disabled={
+                                    !!exportAccessControlDisabledReason || (canCaptureImage && !!captureDisabledReason)
+                                }
+                                tooltip={
+                                    exportAccessControlDisabledReason ??
+                                    (canCaptureImage ? captureDisabledReason : undefined)
+                                }
                                 onClick={() =>
                                     canCaptureImage
                                         ? downloadImage(captureTarget)

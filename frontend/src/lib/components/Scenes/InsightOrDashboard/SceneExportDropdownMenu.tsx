@@ -37,6 +37,8 @@ interface SceneExportDropdownMenuProps extends SubscriptionBaseProps {
         context?: ExportContext
         /** Produce the file in the browser instead of asking the server to render an export. */
         onClick?: () => void
+        /** Reasons this one format cannot be produced, keyed by the message to show. */
+        disabledReasons?: DisabledReasonsObject
     }[]
 }
 
@@ -75,6 +77,8 @@ export function SceneExportDropdownMenu({
             <DropdownMenuContent align="start" matchTriggerWidth>
                 <DropdownMenuGroup>
                     {dropdownMenuItems.map((item, index) => {
+                        const itemDisabledReasons = item.disabledReasons ?? {}
+                        const itemDisabled = Object.values(itemDisabledReasons).some(Boolean)
                         const exportFormatExtension = Object.keys(ExporterFormat)
                             .find((key) => ExporterFormat[key as keyof typeof ExporterFormat] === item.format)
                             ?.toLowerCase()
@@ -95,7 +99,11 @@ export function SceneExportDropdownMenu({
                         return (
                             <DropdownMenuItem
                                 key={index}
+                                disabled={itemDisabled}
                                 onClick={() => {
+                                    if (itemDisabled) {
+                                        return
+                                    }
                                     if (item.onClick) {
                                         item.onClick()
                                         return
@@ -115,7 +123,7 @@ export function SceneExportDropdownMenu({
                                 }
                                 asChild
                             >
-                                <ButtonPrimitive menuItem>
+                                <ButtonPrimitive menuItem disabledReasons={itemDisabledReasons}>
                                     {item.label ? item.label : `.${exportFormatExtension}`}
                                 </ButtonPrimitive>
                             </DropdownMenuItem>

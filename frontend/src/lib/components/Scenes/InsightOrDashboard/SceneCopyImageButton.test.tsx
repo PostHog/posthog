@@ -76,6 +76,26 @@ describe('SceneCopyImageButton', () => {
         expect(write).not.toHaveBeenCalled()
     })
 
+    it('captures nothing while a disabled reason holds', async () => {
+        render(
+            <>
+                <div data-attr="insights-graph">chart</div>
+                <SceneCopyImageButton
+                    target={TARGET}
+                    dataAttrKey="insight"
+                    disabledReasons={{ 'Wait for the insight to finish loading': true }}
+                />
+            </>
+        )
+
+        const button = screen.getByText('Copy as PNG')
+        expect(button).toBeDisabled()
+
+        await userEvent.click(button)
+
+        expect(write).not.toHaveBeenCalled()
+    })
+
     it('reports a missing target instead of copying an empty image', async () => {
         render(
             <>
