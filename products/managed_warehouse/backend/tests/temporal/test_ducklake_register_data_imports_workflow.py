@@ -311,7 +311,11 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     cancel_timer.join.assert_called_once_with(timeout=registration_module._DUCKGRES_CANCEL_TIMEOUT_SECONDS + 1)
     cancel_timer_factory.call_args.args[1]()
     conn.cancel_safe.assert_not_called()
-    assert any("SET PARTITIONED BY" in query for query in executed)
+    assert any("current_catalog" in query for query in executed)
+    create_query = next(query for query in executed if "CREATE TABLE" in query)
+    partition_query = next(query for query in executed if "SET PARTITIONED BY" in query)
+    assert "Identifier('ducklake', 'posthog_data_imports_team_1'" in create_query
+    assert "Identifier('ducklake', 'posthog_data_imports_team_1'" in partition_query
     workload_metrics.files_getter.assert_called_once_with(team_id=1, schema_id="schema")
     workload_metrics.rows_getter.assert_called_once_with(team_id=1, schema_id="schema")
     workload_metrics.bytes_getter.assert_called_once_with(team_id=1, schema_id="schema")
@@ -519,6 +523,31 @@ def test_registration_splits_add_data_files_across_path_batches(monkeypatch):
     assert landing_paths[0] not in registration_queries[1]
     assert not any(parquet_glob in query for query in registration_queries)
     assert sum(parquet_glob in query for query in executed) == 2
+
+
+def test_registration_fails_readably_when_default_catalog_is_not_ducklake(monkeypatch):
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    conn = MagicMock()
+    conn.closed = False
+
+    def execute(query: object) -> MagicMock:
+        if "current_catalog" in str(query):
+            return MagicMock(fetchone=MagicMock(return_value=("postgres",)))
+        return MagicMock()
+
+    conn.execute.side_effect = execute
+    landing_uri = registration_module._generation_scoped_landing_uri(
+        _activity_inputs().metadata.landing_uri,
+        job_id=_activity_inputs().job_id,
+        prepared_queryable_folder=_activity_inputs().metadata.prepared_queryable_folder,
+    )
+    landing_paths = [f"{landing_uri}/first.parquet"]
+
+    with pytest.raises(ApplicationError, match="default catalog is 'postgres'"):
+        registration_module._register_prepared_parquet_files(_activity_inputs(), conn, landing_paths)
+
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert not any("ducklake_add_data_files" in query for query in executed)
 
 
 @pytest.mark.parametrize(

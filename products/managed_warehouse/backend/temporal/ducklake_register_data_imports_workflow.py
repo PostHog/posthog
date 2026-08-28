@@ -65,6 +65,10 @@ from products.managed_warehouse.backend.temporal.source_job_state import record_
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 LOGGER = get_logger(__name__)
+# The DuckLake catalog is attached under this alias on every duckgres session.
+# Statements that create or alter DuckLake tables must name it, because the
+# session default catalog is not guaranteed to be the DuckLake one.
+_DUCKLAKE_CATALOG = "ducklake"
 DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
 DUCKLAKE_REGISTER_STAGE_DURATION_METRIC = "ducklake_register_data_imports_stage_duration"
 S3_COPY_BATCH_SIZE = 16
@@ -652,6 +656,21 @@ def _duckdb_varchar_list_literal(values: Sequence[str]) -> psql.Composed:
     return psql.SQL("[{}]").format(psql.SQL(", ").join(psql.Literal(value) for value in values))
 
 
+def _assert_ducklake_default_catalog(conn: psycopg.Connection) -> None:
+    # The shadow-table CREATE and SET PARTITIONED BY resolve against the session
+    # default catalog. A non-DuckLake default builds a plain DuckDB table, which
+    # SET PARTITIONED BY rejects with an opaque FeatureNotSupported error. Fail
+    # here instead, with the offending catalog named.
+    row = conn.execute(psql.SQL("SELECT current_catalog")).fetchone()
+    default_catalog = row[0] if row else None
+    if isinstance(default_catalog, str) and default_catalog != _DUCKLAKE_CATALOG:
+        raise ApplicationError(
+            f"Duckgres session default catalog is {default_catalog!r}, not {_DUCKLAKE_CATALOG!r}; "
+            "the DuckLake catalog must be attached as the session default before registering prepared imports",
+            non_retryable=True,
+        )
+
+
 def _register_prepared_parquet_files(
     inputs: DuckLakeRegisterDataImportsActivityInputs,
     conn: psycopg.Connection,
@@ -672,29 +691,30 @@ def _register_prepared_parquet_files(
 
     _raise_if_duckgres_cancel_requested(cancel_requested)
     setup_duckgres_session(conn, extensions=("ducklake", "httpfs"))
+    _assert_ducklake_default_catalog(conn)
     shadow_is_published = False
     publish_attempted = False
     try:
         with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
             _raise_if_duckgres_cancel_requested(cancel_requested)
-            conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(schema_name)))
+            conn.execute(
+                psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(_DUCKLAKE_CATALOG, schema_name))
+            )
             _raise_if_duckgres_cancel_requested(cancel_requested)
             conn.execute(
                 psql.SQL(
-                    "CREATE TABLE {}.{} AS SELECT * FROM "
+                    "CREATE TABLE {} AS SELECT * FROM "
                     "read_parquet({}, union_by_name=true, hive_partitioning=true) LIMIT 0"
                 ).format(
-                    psql.Identifier(schema_name),
-                    psql.Identifier(registration_names.shadow_name),
+                    psql.Identifier(_DUCKLAKE_CATALOG, schema_name, registration_names.shadow_name),
                     parquet_glob,
                 )
             )
             if partition_columns:
                 _raise_if_duckgres_cancel_requested(cancel_requested)
                 conn.execute(
-                    psql.SQL("ALTER TABLE {}.{} SET PARTITIONED BY ({})").format(
-                        psql.Identifier(schema_name),
-                        psql.Identifier(registration_names.shadow_name),
+                    psql.SQL("ALTER TABLE {} SET PARTITIONED BY ({})").format(
+                        psql.Identifier(_DUCKLAKE_CATALOG, schema_name, registration_names.shadow_name),
                         psql.SQL(", ").join(psql.Identifier(column) for column in partition_columns),
                     )
                 )
@@ -706,7 +726,7 @@ def _register_prepared_parquet_files(
                         "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
                         "allow_missing => true, hive_partitioning => true)"
                     ).format(
-                        psql.Literal("ducklake"),
+                        psql.Literal(_DUCKLAKE_CATALOG),
                         psql.Literal(registration_names.shadow_name),
                         _duckdb_varchar_list_literal(path_batch),
                         psql.Literal(schema_name),
