@@ -43789,6 +43789,8 @@ export namespace Schemas {
       email?: string | null;
       /** When the recording ends in ISO format. */
       end_time: string;
+      /** Number of captured rrweb events in the recording. Only present once metadata is loaded. */
+      event_count?: number | null;
       /** When the recording expires, in ISO format. */
       expiry_time?: string | null;
       /** External references to third party issues. */
@@ -43818,6 +43820,8 @@ export namespace Schemas {
       start_time: string;
       start_url?: string | null;
       summary?: string | null;
+      /** Total stored size of the recording's snapshot data in bytes. Only present once metadata is loaded. */
+      total_size?: number | null;
       /** Whether this recording has been viewed by you already. */
       viewed: boolean;
       /** user ids of other users who have viewed this recording */
@@ -55512,6 +55516,16 @@ export namespace Schemas {
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
       readonly matches_filters: boolean;
+      /**
+         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly total_size: number | null;
+      /**
+         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly event_count: number | null;
     }
 
     export interface PaginatedSessionRecordingList {
@@ -65033,6 +65047,16 @@ export namespace Schemas {
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
       readonly matches_filters?: boolean;
+      /**
+         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly total_size?: number | null;
+      /**
+         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly event_count?: number | null;
     }
 
     /**
