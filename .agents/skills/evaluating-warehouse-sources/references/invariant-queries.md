@@ -32,7 +32,16 @@ Pull a few offenders and diff their rows: identical rows point at partition drif
 ## 3. Zero-row completion (every enabled table)
 
 An implemented table that lands nothing for anyone, while reporting success, is worse than no table (#82961, #78127).
-Locally after a smoke sync: every enabled schema must have a queryable table with `count() > 0`, or the sync must have raised.
+Locally after a smoke sync, list the armed schemas and their claimed state:
+
+```sql
+SELECT name, status, last_synced_at
+FROM system.source_schemas
+WHERE should_sync AND deleted = 0
+```
+
+(HogQL footguns, inherited from the data-warehouse scout: `should_sync` is a `Boolean` — use it bare; `deleted` is an `Integer` — compare `= 0`.)
+Every enabled schema must have a queryable table with `count() > 0`, or the sync must have raised.
 There is no acceptable third state.
 
 ## 4. Month-gap scan (incremental and windowed tables)
@@ -98,7 +107,10 @@ Snapshot query 1 before and after an immediate re-sync:
 
 ## Fleet-side queries (post-merge watch)
 
-Run on the internal dogfood replicas (setup and caveats in `/auditing-warehouse-source-coverage` step 2 — including: confirm column names against `system.information_schema.columns` first, the replica schema drifts).
+Self-driving first: the data-warehouse Signals scout already sweeps `system.source_schemas` on every enabled project and files Inbox reports for armed-but-failed schemas, silent staleness, dead webhook channels, and row-volume cliffs.
+Leave it a note naming the changed source type and deploy date (SKILL.md, Tier 2), then use the replica queries below for the cross-fleet view the per-project scout cannot give you.
+
+Run these on the internal dogfood replicas (setup and caveats in `/auditing-warehouse-source-coverage` step 2 — including: confirm column names against `system.information_schema.columns` first, the replica schema drifts).
 Results are internal operational data: use them to decide, never commit them anywhere public.
 
 Schemas of the changed source type in a bad or suspicious state, both regions:

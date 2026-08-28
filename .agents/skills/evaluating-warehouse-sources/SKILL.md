@@ -20,13 +20,13 @@ Read the catalog once to calibrate suspicion, then run the tiers below.
 
 ## The five escape classes
 
-| Class                                                                                                                                                       | Example PRs                                    | What CI lacked                                    |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------- |
-| **1. Inferred vendor contract** — required params, envelope keys, cursor names, id fields, domain topology exist only in the author's head and fixtures      | #79119, #82961, #78129, #78983, #82159         | one authenticated request per endpoint            |
-| **2. Silent success** — a code path returns normally with fewer rows than the vendor holds                                                                    | #78127, #82115, #82957, #78129                 | row-count parity against the vendor's own UI      |
-| **3. Credential-instance variance** — key types, per-endpoint scopes, plan/add-on gating, OAuth manifest grants, regions                                       | #78033, #78035, #78134, #77920, #80824         | deliberately differentiated live accounts         |
-| **4. Keys, merges, partitions, restatements** — correctness only breaks across overlapping runs, regenerated files, or days of vintages                       | #82959, #82099, #82974, #82973                 | multi-run syncs over real, drifting data          |
-| **5. Environment & pre-existing state** — production egress topology, engine-variant catalogs, brownfield Delta tables, privilege-filtered introspection      | #80823, #84705, #84740, #82273                 | prod-like proxies, real clusters, seeded state    |
+| Class                                                                                                                                                    | Example PRs                            | What CI lacked                                 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------- |
+| **1. Inferred vendor contract** — required params, envelope keys, cursor names, id fields, domain topology exist only in the author's head and fixtures  | #79119, #82961, #78129, #78983, #82159 | one authenticated request per endpoint         |
+| **2. Silent success** — a code path returns normally with fewer rows than the vendor holds                                                               | #78127, #82115, #82957, #78129         | row-count parity against the vendor's own UI   |
+| **3. Credential-instance variance** — key types, per-endpoint scopes, plan/add-on gating, OAuth manifest grants, regions                                 | #78033, #78035, #78134, #77920, #80824 | deliberately differentiated live accounts      |
+| **4. Keys, merges, partitions, restatements** — correctness only breaks across overlapping runs, regenerated files, or days of vintages                  | #82959, #82099, #82974, #82973         | multi-run syncs over real, drifting data       |
+| **5. Environment & pre-existing state** — production egress topology, engine-variant catalogs, brownfield Delta tables, privilege-filtered introspection | #80823, #84705, #84740, #82273         | prod-like proxies, real clusters, seeded state |
 
 ## Scope the evaluation to the change
 
@@ -101,15 +101,21 @@ Before merging a novel transport, run `validate_credentials` through a proxy spe
 Run the parameterized queries in [references/invariant-queries.md](references/invariant-queries.md) after any live sync: primary-key integrity, duplicate hotspots, month-gap scan, parent/child coverage join, restatement sanity for report-based sources, zero-row-completion detection.
 Several of these are lifted verbatim from the audits that found shipped defects — they are the acceptance criteria the fixes were verified against.
 
-**Post-merge fleet watch.**
-Tier 1 verifies one account; production is many.
-For 24–72h after the change deploys, run the fleet-side queries (same reference file) against the internal replicas — the ranking setup in `/auditing-warehouse-source-coverage` step 2 — filtered to the changed source type: paused schemas, failure-status strings, schemas reporting `Completed` with no table or no `last_synced_at`.
-If Tier 1 was impossible pre-merge, say so in the PR and name who runs this watch; "worth a live smoke sync after merge" only counts if someone is on the hook for it.
-Connection counts and per-team results are internal operational data — use them, never commit them.
+**Post-merge watch: hand it to self-driving first.**
+Tier 1 verifies one account; production is many, and Self-driving is already standing watch there.
+The data-warehouse Signals scout (`products/signals/skills/signals-scout-data-warehouse/SKILL.md`) continuously sweeps every enabled project for exactly the fleet-side signatures this tier cares about — armed-but-failed schemas, silent staleness behind a green `Completed`, dead webhook channels, row-volume cliffs — and files deduped reports into the Inbox.
+Wire the change into that standing watch instead of reinventing it:
+
+- **Leave the scout a note when the change deploys**: `scout-notes-create` targeting `signals-scout-data-warehouse`, `expires_at` about a week out. Name the source type, the deploy date, and the failure signatures to expect (new error strings, tables whose counts should jump, formats that changed). Notes are advisory context every run reads first — they point the scout's next runs at the source and let it date onsets to the deploy instead of calling them unexplained.
+- **Check the Inbox over the next 24–72h** for reports naming the source type (`inbox-reports-list`, search by source name). A scout report that traces to the change is an escaped defect: fix it, then feed the ratchet — catalog entry, fixture, invariant.
+- **Know what the scout cannot see.** It audits status, freshness, and volume; it never checks key integrity, parent/child coverage, or restatement math. Queries 1–7 in the reference file stay yours to run.
+- **For a cross-fleet sweep**, the replica queries in the same reference file (setup in `/auditing-warehouse-source-coverage` step 2) still apply. Connection counts and per-team results are internal operational data — use them, never commit them.
+
+If Tier 1 was impossible pre-merge, say so in the PR and name the watch — a scout note plus a named inbox-checker counts; "worth a live smoke sync after merge" with nobody on the hook does not.
 
 ## Tier 3 — adversarial replay (no credentials, graduates into CI)
 
-These are fixtures and tests that live in the source's `tests/` and run in CI forever after — the point is that they encode *vendor reality*, not the author's assumptions, so build them from captured or historical material wherever possible.
+These are fixtures and tests that live in the source's `tests/` and run in CI forever after — the point is that they encode _vendor reality_, not the author's assumptions, so build them from captured or historical material wherever possible.
 
 - **Malformed bodies**: HTML error page, JSON error, blank-prefixed body, truncated stream fed to the parser must raise a loud, named error — `csv.DictReader` happily parses `<html>` into a column named `html` (#82159).
 - **Format eras**: real historical file variants (ragged widths, trailing delimiters, header variants); invariant: any file with data rows loads at least one row or raises, and the skip ratio is capped (#82957).
@@ -132,8 +138,8 @@ Replayed as fixtures, these are the cheapest way to stop tests re-asserting the 
 ## Record the verdict, gate the release
 
 - The PR's **"How did you test this code?"** section is the eval report: which tiers ran, which credential instance (plan/scopes/key type — never secrets), and the claims ledger entries still unverified. An explicit "Not verified" list is the house convention — keep it, it seeds the next person's Tier 1.
-- **Unverified tables ship defensive**: `releaseStatus=ReleaseStatus.ALPHA`, `should_sync_default=False` for tables whose shape, volume, or gating is unconfirmed, and conservative parse/merge semantics. That's the posture, not a waiver — pair it with a named post-merge watch.
-- **The ratchet**: every defect this evaluation finds — and every one that still escapes — adds a Tier 3 fixture reproducing it and, where expressible, an invariant query detecting it. Add the entry to [references/defect-catalog.md](references/defect-catalog.md) so the catalog stays the institutional memory it is.
+- **Unverified tables ship defensive**: `releaseStatus=ReleaseStatus.ALPHA`, `should_sync_default=False` for tables whose shape, volume, or gating is unconfirmed, and conservative parse/merge semantics. That's the posture, not a waiver — pair it with the self-driving handoff above.
+- **The ratchet**: every defect this evaluation finds — and every one that still escapes, including via a Self-driving inbox report that traces back to source code — adds a Tier 3 fixture reproducing it and, where expressible, an invariant query detecting it. Add the entry to [references/defect-catalog.md](references/defect-catalog.md) so the catalog stays the institutional memory it is.
 
 ## Related skills
 
@@ -141,3 +147,4 @@ Replayed as fixtures, these are the cheapest way to stop tests re-asserting the 
 - `auditing-warehouse-source-coverage` — endpoint gaps rather than correctness; also documents the internal-replica ranking used by the fleet watch.
 - `triaging-warehouse-sync-tickets` — a specific customer's failing sync in production.
 - `documenting-warehouse-sources` — scopes, key types, and plan gates discovered during Tier 1 belong in the public source doc.
+- `signals-scout-data-warehouse` (canonical: `products/signals/skills/signals-scout-data-warehouse/SKILL.md`) — Self-driving's continuous per-project import-integrity watch; the post-merge tier delegates to it via scout notes. `authoring-scouts` covers the note mechanics, and permanent new fleet signatures learned here belong in that scout's skill, not just this one.
