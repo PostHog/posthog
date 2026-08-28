@@ -1,0 +1,12 @@
+{
+    "id": "LB17",
+    "file": "tools/pr-approval-agent/review_local.py",
+    "lines": "324,338-351",
+    "priority": "should_fix",
+    "title": "Record hosted WAIT outcomes for self-driving reviews",
+    "problem": "Flagged bot PRs now pass the refusal at line 324. If a reviewer bot still has a fresh \ud83d\udc40, `run()` returns `WAIT` without calling `_capture_review_completed()`. The Action path records this outcome in `_handle_in_flight_bot_reviews()`. Hosted completion data will omit these waits. This hides retry pressure and weakens rollout monitoring.",
+    "suggestion": "Call `pipeline._capture_review_completed(\"SKIPPED\", \"WAIT\")` before the return. Add a regression test for a flagged bot PR with a fresh \ud83d\udc40.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}

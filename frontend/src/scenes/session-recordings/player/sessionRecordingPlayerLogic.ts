@@ -2887,7 +2887,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.currentTimestamp,
                     values.currentSegment?.kind,
                     values.roughAnimationFPS,
-                    cache._frameState ?? initialFrameState()
+                    cache._frameState ?? initialFrameState(),
+                    frameNow
                 )
                 cache._frameState = frameResult.newState
                 let newTimestamp = frameResult.resolvedTimestamp
@@ -3285,7 +3286,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
 
-            if (rrwebPlayerTime !== undefined && values.currentPlayerState === SessionPlayerState.PLAY) {
+            // A stall during an inactivity skip leaves the player in SKIP, not PLAY, so the recovery
+            // must run in both states or a skip can never nudge past the blockage.
+            const canRecover =
+                values.currentPlayerState === SessionPlayerState.PLAY ||
+                values.currentPlayerState === SessionPlayerState.SKIP
+            if (rrwebPlayerTime !== undefined && canRecover) {
                 actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
             }
         },

@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final, cast
 
-from llm_gateway.baseten import BASETEN_DEEPSEEK_METRIC_MODEL, BASETEN_GLM53_METRIC_MODEL, BASETEN_METRIC_MODEL
+from llm_gateway.baseten import (
+    BASETEN_DEEPSEEK_METRIC_MODEL,
+    BASETEN_GLM53_FLASH_METRIC_MODEL,
+    BASETEN_GLM53_METRIC_MODEL,
+    BASETEN_METRIC_MODEL,
+)
 
 if TYPE_CHECKING:
     from llm_gateway.rate_limiting.model_cost_service import ModelCost
@@ -45,6 +50,15 @@ BASETEN_GLM53_COST: Final[ModelCost] = {
     "supports_prompt_caching": True,
 }
 
+BASETEN_GLM53_FLASH_COST: Final[ModelCost] = {
+    "litellm_provider": "baseten",
+    "mode": "chat",
+    "input_cost_per_token": 1.5e-07,
+    "output_cost_per_token": 5e-07,
+    "cache_read_input_token_cost": 3e-08,
+    "supports_prompt_caching": True,
+}
+
 BASETEN_DEEPSEEK_COST: Final[ModelCost] = {
     "litellm_provider": "baseten",
     "mode": "chat",
@@ -58,6 +72,7 @@ MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
     BASETEN_METRIC_MODEL: cast("ModelCost", dict(BASETEN_GLM_COST)),
     BASETEN_DEEPSEEK_METRIC_MODEL: cast("ModelCost", dict(BASETEN_DEEPSEEK_COST)),
     BASETEN_GLM53_METRIC_MODEL: cast("ModelCost", dict(BASETEN_GLM53_COST)),
+    BASETEN_GLM53_FLASH_METRIC_MODEL: cast("ModelCost", dict(BASETEN_GLM53_FLASH_COST)),
     "moonshotai/kimi-k3": cast("ModelCost", dict(KIMI_K3_COST)),
     "claude-fable-5": {
         "litellm_provider": "anthropic",
@@ -112,7 +127,7 @@ MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
 
 # Provider-specific contract prices must not be replaced by a same-named LiteLLM entry.
 PINNED_MODEL_COST_OVERRIDES: Final[frozenset[str]] = frozenset(
-    {BASETEN_METRIC_MODEL, BASETEN_DEEPSEEK_METRIC_MODEL, BASETEN_GLM53_METRIC_MODEL}
+    {BASETEN_METRIC_MODEL, BASETEN_DEEPSEEK_METRIC_MODEL, BASETEN_GLM53_METRIC_MODEL, BASETEN_GLM53_FLASH_METRIC_MODEL}
 )
 
 
