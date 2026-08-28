@@ -149,6 +149,12 @@ The renderer imports `HostRouter` as a type and uses `useHostTRPC`. `trpcClient`
 
 It exposes colocated tRPC routers. `@posthog/workspace-client` is the typed client. `core` services inject narrow workspace-client slices and call those procedures.
 
+## Disk Cache
+
+The Electron main process owns one on-disk cache at `userData/cache/<namespace>/` (`apps/code/src/main/services/disk-cache/service.ts`). An entry is bytes plus a content type and a stored-at time. Readers pass a max age and get stale entries back flagged, so a consumer can serve them when a refresh fails. "Clear application storage" removes the whole directory.
+
+Consumers take a namespace and serve it over the `posthog-cache://` protocol (`apps/code/src/main/protocols/disk-cache.ts`). Today `images/` serves remote images: the renderer rewrites an `https:` URL with `cachedImageUrl()` from `@posthog/ui/shell/cachedImageUrl`, backed by the `IDiskCacheImages` platform interface. Hosts without a disk cache leave the URL unchanged.
+
 ## Schemas
 
 Use Zod at runtime boundaries. Infer TypeScript types from schemas.
