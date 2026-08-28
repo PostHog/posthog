@@ -279,7 +279,7 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
             kind=TASK_RUN_TYPE_IMPLEMENTATION,
             detail=(
                 f"This report was judged already addressed on {addressed_at.date().isoformat()}; "
-                "open the existing PR instead."
+                "check the existing work instead of starting another."
             ),
         )
     if _live_implementation_exists(team_id=team_id, report_id=report_id, exclude_task_id=task_id):
