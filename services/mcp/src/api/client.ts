@@ -38,12 +38,15 @@ const RATE_LIMIT_MAX_RETRIES = 3
 const RATE_LIMIT_BASE_BACKOFF_MS = 2000
 const RATE_LIMIT_TOTAL_WAIT_BUDGET_MS = 30_000
 
-// Gateway-timeout retry policy. When the origin does not answer in time, the edge
-// proxy returns a 5xx with an opaque body (e.g. `error code: 522`) that the agent
-// cannot act on. These failures are usually transient, so we retry with jittered
-// backoff and, once retries are exhausted, hand back a message that tells the
-// agent to narrow the request instead of pasting the proxy body. 520/522/524 are
-// Cloudflare edge statuses; 502/503/504 are standard gateway errors.
+// Gateway-timeout retry policy. When the origin is slow or does not respond, the
+// edge proxy returns a 5xx with an opaque body (e.g. `error code: 522`) that the
+// agent cannot act on. These failures are usually transient, so we retry with
+// jittered backoff and, once retries are exhausted, hand back an actionable
+// message instead of the proxy body: narrowing advice for query endpoints that
+// can be narrowed, a plain retry hint otherwise. 520/522/524 are Cloudflare edge
+// statuses; 502/503/504 are standard gateway errors. Not every status is a
+// timeout (502/503/520 signal an absent or unavailable origin), so the message
+// does not claim a specific cause the status cannot prove.
 const GATEWAY_TIMEOUT_STATUSES = new Set([502, 503, 504, 520, 522, 524])
 const GATEWAY_TIMEOUT_MAX_RETRIES = 3
 const GATEWAY_TIMEOUT_BASE_BACKOFF_MS = 1000
@@ -70,14 +73,24 @@ function isGatewayTimeoutRetryable(method: string, url: string): boolean {
     return RETRYABLE_POST_PATH_FRAGMENTS.some((fragment) => url.includes(fragment))
 }
 
+// Only query endpoints accept a date range, breakdowns, or filters, so only they
+// can act on narrowing advice. A user or project read, or an OAuth introspection,
+// has nothing to narrow, so telling it to shorten a date range is a dead end.
+function isNarrowableRequest(url: string): boolean {
+    return url.includes('/query/')
+}
+
 function buildGatewayTimeoutMessage(status: number, method: string, url: string, retryable: boolean): string {
     const base =
-        `The PostHog API gateway timed out (HTTP ${status}) on ${method} ${url}. ` +
-        `The upstream server did not answer in time, which usually means a slow or heavy request rather than a bug.`
-    if (retryable) {
-        return `${base} Narrow the request — shorten the date range, drop breakdowns, or tighten filters — and try again.`
+        `The PostHog API gateway returned HTTP ${status} on ${method} ${url}. ` +
+        `The upstream server was slow or did not respond. This is usually temporary.`
+    if (!retryable) {
+        return `${base} This request was not retried automatically because it may have already been applied. Check whether the change took effect before sending it again.`
     }
-    return `${base} This request was not retried automatically because it may have already been applied; check whether the change took effect before sending it again.`
+    if (isNarrowableRequest(url)) {
+        return `${base} It was retried automatically and still failed. Narrow the request (shorten the date range, drop breakdowns, or tighten filters), then try again.`
+    }
+    return `${base} It was retried automatically and still failed. Try again in a few moments.`
 }
 
 // Default overall timeout for an SSE stream (wall-clock cap from connect to close).

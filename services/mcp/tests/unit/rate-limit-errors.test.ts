@@ -194,24 +194,42 @@ describe('outbound 429 handling', () => {
             expect(mockFetch).toHaveBeenCalledTimes(2)
         })
 
-        it('returns a narrow-and-retry message instead of the proxy body after exhausting retries', async () => {
-            const mockFetch = vi.fn().mockResolvedValue(buildTimeout(522))
-            vi.stubGlobal('fetch', mockFetch)
+        it.each([
+            {
+                label: 'a non-narrowable read (users/me) gets generic retry guidance',
+                call: (c: ApiClient): Promise<Result<unknown>> => c.users().me(),
+                expectNarrow: false,
+            },
+            {
+                label: 'a narrowable query (POST /query/) gets narrow-and-retry advice',
+                call: (c: ApiClient): Promise<Result<unknown>> => c.insights({ projectId: '2' }).query({ query: {} }),
+                expectNarrow: true,
+            },
+        ])(
+            'returns an actionable message instead of the proxy body after exhausting retries: $label',
+            async ({ call, expectNarrow }) => {
+                const mockFetch = vi.fn().mockResolvedValue(buildTimeout(522))
+                vi.stubGlobal('fetch', mockFetch)
 
-            const resultPromise = buildClient().users().me()
-            await vi.runAllTimersAsync()
-            const result = await resultPromise
+                const resultPromise = call(buildClient())
+                await vi.runAllTimersAsync()
+                const result = await resultPromise
 
-            expect(result.success).toBe(false)
-            if (result.success) {
-                throw new Error('expected failure')
+                expect(result.success).toBe(false)
+                if (result.success) {
+                    throw new Error('expected failure')
+                }
+                expect(result.error).toBeInstanceOf(PostHogApiError)
+                expect((result.error as PostHogApiError).status).toBe(522)
+                expect(result.error.message).not.toContain('error code: 522')
+                if (expectNarrow) {
+                    expect(result.error.message).toContain('Narrow the request')
+                } else {
+                    expect(result.error.message).not.toContain('Narrow the request')
+                }
+                expect(mockFetch).toHaveBeenCalledTimes(4)
             }
-            expect(result.error).toBeInstanceOf(PostHogApiError)
-            expect((result.error as PostHogApiError).status).toBe(522)
-            expect(result.error.message).toContain('Narrow the request')
-            expect(result.error.message).not.toContain('error code: 522')
-            expect(mockFetch).toHaveBeenCalledTimes(4)
-        })
+        )
 
         it('does not retry a mutating request and reports the write may have applied', async () => {
             const mockFetch = vi.fn().mockResolvedValue(buildTimeout(504))
