@@ -222,6 +222,9 @@ export class FanOutFanInChunkPipeline<
                     // The parent's origin, by reference, so sub crash logs
                     // identify the message the sub-element came from.
                     debugContext: element.context.debugContext,
+                    // Sub-elements spend the parent's time, so they share its
+                    // budget and the checkpoints inside the subpipeline apply.
+                    budget: element.context.budget,
                     sideEffects: [],
                     warnings: [],
                     [FAN_OUT_PARENT]: ref,

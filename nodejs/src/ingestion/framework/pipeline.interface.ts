@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { IngestionWarning } from '~/ingestion/common/ingestion-warnings'
 
+import { BatchBudget } from './batch-budget'
 import { PipelineResult, PipelineResultOk } from './results'
 
 export type PipelineWarning = IngestionWarning
@@ -57,6 +58,14 @@ export type PipelineContext<C = { message: Message }> = C & {
      * `C` narrows the type via its own `debugContext` declaration.
      */
     debugContext?: unknown
+    /**
+     * The time allowance of the batch this item was fed in, stamped by
+     * {@link BatchingPipeline} next to the messageId. Framework checkpoints
+     * read it here, so they stay generic over the context type. It is absent
+     * only where no batch exists: the beforeBatch and afterBatch hooks, and
+     * pipelines driven directly rather than through a batching pipeline.
+     */
+    budget?: BatchBudget
     /**
      * Work that outlives the step, drained with the batch. A side effect must
      * not reject. What a rejection does depends on the host: consumer-v2

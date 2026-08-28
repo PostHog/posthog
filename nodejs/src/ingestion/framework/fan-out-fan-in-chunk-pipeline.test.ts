@@ -3,11 +3,12 @@ import { Message } from 'node-rdkafka'
 import { logger } from '~/common/utils/logger'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 
+import { BatchBudget } from './batch-budget'
 import { ChunkPipelineBuilder } from './builders'
 import { ChunkPipeline } from './chunk-pipeline.interface'
 import { FanOutFanInChunkPipeline, FanOutSubContext } from './fan-out-fan-in-chunk-pipeline'
 import { createKafkaDebugContext, createNewChunkPipeline, createOkContext } from './helpers'
-import { PipelineResultWithContext, PipelineWarning } from './pipeline.interface'
+import { PipelineContext, PipelineResultWithContext, PipelineWarning } from './pipeline.interface'
 import { PipelineResult, dlq, drop, isDlqResult, isOkResult, isTimeoutResult, ok, redirect, timeout } from './results'
 
 jest.mock('~/common/utils/logger', () => ({
@@ -163,6 +164,36 @@ describe('FanOutFanInChunkPipeline', () => {
         const second = await pipeline.next()
         expect(okValues(second!)).toEqual([{ id: 'a', total: 2 }])
         expect(await pipeline.next()).toBeNull()
+    })
+
+    it('copies the parent budget onto every sub-element context', async () => {
+        // Sub-elements spend the parent's time, so a sub-element that lost the
+        // budget would run its steps with no checkpoint at all.
+        const budget = BatchBudget.unlimited()
+        const subContexts: PipelineContext<FanOutSubContext>[] = []
+        let buffered: PipelineResultWithContext<SubItem, FanOutSubContext>[] = []
+        const sub: ChunkPipeline<SubItem, SubItem, FanOutSubContext> = {
+            feed: (elements) => {
+                subContexts.push(...elements.map((element) => element.context))
+                buffered = [...elements]
+            },
+            next: () => {
+                const chunk = buffered
+                buffered = []
+                return Promise.resolve(chunk.length > 0 ? chunk : null)
+            },
+        }
+        const pipeline = new FanOutFanInChunkPipeline(
+            createNewChunkPipeline<Parent, { message: Message; budget: BatchBudget }>().build(),
+            splitSubs,
+            sub,
+            sumSubs
+        )
+
+        pipeline.feed([createOkContext({ id: 'a', subs: [1, 2] }, { message: createTestMessage(), budget })])
+
+        expect(okValues((await pipeline.next())!)).toEqual([{ id: 'a', total: 3 }])
+        expect(subContexts.map((context) => context.budget)).toEqual([budget, budget])
     })
 
     it('emits parents unordered as they complete, keeping sub-results correlated', async () => {

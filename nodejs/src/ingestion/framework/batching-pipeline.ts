@@ -1,5 +1,6 @@
 import pLimit from 'p-limit'
 
+import { BatchBudget } from './batch-budget'
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
@@ -11,6 +12,8 @@ export type FeedResult = { ok: true } | { ok: false; kind: FeedRejectionKind; re
 
 export interface BatchingContext {
     messageId: number
+    /** The fed batch's time allowance, shared by every element of that batch. */
+    budget: BatchBudget
 }
 
 export interface BeforeBatchInput<TInput, CInput, CBatch = Record<never, object>> {
@@ -91,7 +94,7 @@ interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never, CFeed
  *   registered and no hooks run (a zero-message batch could never complete).
  * - feed() runs beforeBatch which returns enriched elements (same count as
  *   fed — count changes throw) and side effects. Elements are tagged with
- *   messageId, then fed to the sub-pipeline.
+ *   messageId and the batch's budget, then fed to the sub-pipeline.
  * - next() collects results. When all messages in a batch complete, calls
  *   afterBatch with the batchContext and ordered results, then returns a
  *   BatchResult with concatenated side effects.
@@ -171,18 +174,28 @@ export class BatchingPipeline<
         this.options = { ...BATCHING_PIPELINE_DEFAULTS, ...options }
     }
 
-    feed(elements: OkResultWithContext<TInput, CInput>[], batchContext: CFeed): Promise<FeedResult> {
+    /**
+     * Feed one batch. The budget is that batch's whole time allowance, shared
+     * by every element of it; the default leaves the batch unlimited, which is
+     * what a caller with no time policy wants.
+     */
+    feed(
+        elements: OkResultWithContext<TInput, CInput>[],
+        batchContext: CFeed,
+        budget: BatchBudget = BatchBudget.unlimited()
+    ): Promise<FeedResult> {
         // Serialize so buffer order always matches batchId order: without this,
         // the await on beforePipeline between batchId assignment and
         // subPipeline.feed() lets two concurrent feeds enter the buffer inverted.
         // With one concurrent batch the caller is already sequential, so the
         // mutex is uncontended.
-        return this.feedLimit(() => this.feedSerialized(elements, batchContext))
+        return this.feedLimit(() => this.feedSerialized(elements, batchContext, budget))
     }
 
     private async feedSerialized(
         elements: OkResultWithContext<TInput, CInput>[],
-        feedContext: CFeed
+        feedContext: CFeed,
+        budget: BatchBudget
     ): Promise<FeedResult> {
         // An empty feed has no messages that could ever complete a batch:
         // completion is only detected in pump()'s result loop, so registering a
@@ -251,6 +264,7 @@ export class BatchingPipeline<
                 context: {
                     ...element.context,
                     messageId,
+                    budget,
                 },
             }
         })
