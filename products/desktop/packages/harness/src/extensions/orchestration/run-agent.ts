@@ -338,6 +338,15 @@ export async function runAgent(
     return result;
   } finally {
     result.endedAt = Date.now();
+    // Every early-return failure/abort path funnels through here, so emit the
+    // terminal snapshot once — otherwise a consumer's activeResults keeps a
+    // stale "running" partial until sibling runs finish. Runs before the
+    // registry cleanup so it can't re-add the entry after removeAgentRun.
+    try {
+      emitUpdate();
+    } catch {
+      /* status emission is best-effort; never fail the run over it */
+    }
     signal?.removeEventListener("abort", onAbort);
     unsubscribeSession?.();
     childSession?.dispose();

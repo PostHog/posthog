@@ -21,7 +21,7 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
 import type { AgentConfig } from "./agents";
 import type { RunStatus } from "./lifecycle";
 import { runDirectory, transcriptPath } from "./lifecycle";
-import { runAgent } from "./run-agent";
+import { runAgent, type SingleRunResult } from "./run-agent";
 
 interface FakeSession {
   abort: ReturnType<typeof vi.fn>;
@@ -241,6 +241,26 @@ describe("runAgent lifecycle persistence", () => {
     expect(createAgentSessionMock).not.toHaveBeenCalled();
     expect(readStatus(result.runId)?.state).toBe("failed");
     expect(readStatus(result.runId)?.error).toMatch(/No credentials available/);
+  });
+
+  it("emits a terminal onUpdate on a pre-prompt failure path", async () => {
+    const ctx = makeCtx("/repo");
+    ctx.modelRegistry.getApiKeyAndHeaders = vi.fn(async () => ({
+      ok: false,
+      error: "no creds",
+    }));
+    const updates: SingleRunResult[] = [];
+
+    await runAgent({
+      ctx,
+      agent,
+      task: "find it",
+      onUpdate: (partial) => updates.push(partial),
+    });
+
+    const last = updates.at(-1);
+    expect(last?.state).toBe("failed");
+    expect(last?.endedAt).toBeDefined();
   });
 
   it("writes failed status when the SDK session rejects the prompt", async () => {
