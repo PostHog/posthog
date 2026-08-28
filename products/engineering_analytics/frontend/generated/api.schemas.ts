@@ -211,35 +211,35 @@ export interface DeploymentFrequencyBucketApi {
 export interface LeadTimeBucketApi {
     /** Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). Keyed on deploy time: a PR lands in the bucket its first post-merge deploy succeeded in. */
     bucket_start: string
-    /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). */
+    /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). The same population backs every lead-time series, so the stages compare bucket by bucket. */
     deployed_pr_count: number
     /**
-     * Fastest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+     * Fastest duration for this stage in this bucket, in seconds. Null when nothing deployed.
      * @nullable
      */
     min_seconds: number | null
     /**
-     * 25th percentile merge-to-deploy seconds. Null when nothing deployed.
+     * 25th percentile of the stage's duration, in seconds. Null when nothing deployed.
      * @nullable
      */
     p25_seconds: number | null
     /**
-     * Median merge-to-deploy seconds. Null when nothing deployed.
+     * Median of the stage's duration, in seconds. Null when nothing deployed.
      * @nullable
      */
     p50_seconds: number | null
     /**
-     * Mean merge-to-deploy seconds. Null when nothing deployed.
+     * Mean of the stage's duration, in seconds. Null when nothing deployed.
      * @nullable
      */
     mean_seconds: number | null
     /**
-     * 75th percentile merge-to-deploy seconds. Null when nothing deployed.
+     * 75th percentile of the stage's duration, in seconds. Null when nothing deployed.
      * @nullable
      */
     p75_seconds: number | null
     /**
-     * Slowest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+     * Slowest duration for this stage in this bucket, in seconds. Null when nothing deployed.
      * @nullable
      */
     max_seconds: number | null
@@ -328,7 +328,7 @@ export interface DoraOverviewApi {
      * @nullable
      */
     latest_deploy_status_at: string | null
-    /** Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'. */
+    /** Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'. */
     series_granularity: string
 }
 
