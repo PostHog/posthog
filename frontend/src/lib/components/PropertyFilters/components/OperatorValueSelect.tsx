@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
+import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -26,6 +27,7 @@ import {
 import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
 
 import { PropValue } from '~/models/propertyDefinitionsModel'
+import { AnyDataNode } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     GroupTypeIndex,
@@ -44,6 +46,17 @@ const STARTS_ENDS_WITH_OPERATORS = [
     PropertyOperator.EndsWith,
     PropertyOperator.NotEndsWith,
 ]
+
+// Sentinel operator-dropdown entry. Not a real PropertyOperator: selecting it swaps the value
+// input for a SQL editor, so the filter can compare a property against another expression —
+// something the {key, operator, literal value} filter shape can't express on its own.
+export const HOGQL_EXPRESSION_OPTION = '__hogql_expression__'
+type OperatorSelectValue = PropertyOperator | typeof HOGQL_EXPRESSION_OPTION
+
+const HOGQL_EXPRESSION_PLACEHOLDER =
+    'Compare properties with a SQL expression, such as:\n' +
+    '- properties.$browser = properties.$initial_browser\n' +
+    '- properties.total_spend > properties.credit_limit'
 
 // OTel span.kind enum (https://opentelemetry.io/docs/specs/otel/trace/api/#spankind).
 const SPAN_KIND_OPTIONS: { key: number; label: string }[] = [
@@ -150,13 +163,27 @@ export interface OperatorValueSelectProps {
     forceSingleSelect?: boolean
     /** Statically known value suggestions, replacing API-fetched ones. See `PropertyValueProps.staticValues`. */
     staticValues?: PropValue[] | null
+    /**
+     * When set, the operator dropdown offers a "SQL expression" entry. Selecting it swaps the
+     * value input for a SQL editor and commits the expression through this callback as a HogQL
+     * filter. Only wire this where a HogQL filter is valid (the HogQL taxonomic group is offered).
+     */
+    onHogQLExpressionChange?: (expression: string) => void
+    /** Query the SQL editor autocompletes against. Forwarded to the HogQL editor. */
+    metadataSource?: AnyDataNode
+    /** Extra globals available to the SQL editor autocomplete. Forwarded to the HogQL editor. */
+    hogQLGlobals?: Record<string, any>
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
-    operator: PropertyOperator
+    operator: OperatorSelectValue
     operators: Array<PropertyOperator>
     onChange: (operator: PropertyOperator) => void
     startVisible?: LemonDropdownProps['startVisible']
+    /** Append a "SQL expression" entry below the operators. */
+    showHogQLExpressionOption?: boolean
+    /** Fired when the "SQL expression" entry is picked, instead of `onChange`. */
+    onSelectHogQLExpression?: () => void
 }
 
 function getRegexValidationError(operator: PropertyOperator, value: any): string | null {
@@ -206,6 +233,9 @@ export function OperatorValueSelect({
     operatorAllowlist,
     forceSingleSelect,
     staticValues,
+    onHogQLExpressionChange,
+    metadataSource,
+    hogQLGlobals,
 }: OperatorValueSelectProps): JSX.Element {
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
@@ -229,6 +259,13 @@ export function OperatorValueSelect({
     }
 
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
+
+    // Escape hatch into a raw SQL expression, offered only when `onHogQLExpressionChange` is wired.
+    const hogQLExpressionAvailable = !!onHogQLExpressionChange
+    const [sqlMode, setSqlMode] = useState(false)
+    useEffect(() => {
+        setSqlMode(false)
+    }, [propertyKey, type])
 
     const { featureFlags } = useValues(featureFlagLogic)
     const startsEndsWithEnabled = !!featureFlags[FEATURE_FLAGS.STARTS_WITH_ENDS_WITH_OPERATORS]
@@ -364,9 +401,12 @@ export function OperatorValueSelect({
             <div data-attr="taxonomic-operator">
                 {editable ? (
                     <OperatorSelect
-                        operator={currentOperator || PropertyOperator.Exact}
+                        operator={sqlMode ? HOGQL_EXPRESSION_OPTION : currentOperator || PropertyOperator.Exact}
                         operators={operators}
+                        showHogQLExpressionOption={hogQLExpressionAvailable}
+                        onSelectHogQLExpression={() => setSqlMode(true)}
                         onChange={(newOperator: PropertyOperator) => {
+                            setSqlMode(false)
                             setCurrentOperator(newOperator)
                             if (isOperatorCohort(newOperator)) {
                                 onChange(newOperator, value || null)
@@ -401,7 +441,19 @@ export function OperatorValueSelect({
                     <span>{allOperatorsToHumanName(currentOperator)} </span>
                 )}
             </div>
-            {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propertyKey && (
+            {sqlMode && editable && type && propertyKey && (
+                <div className="shrink grow-[1000] min-w-[10rem] overflow-hidden" data-attr="taxonomic-value-select">
+                    <HogQLEditor
+                        value={typeof value === 'string' ? value : ''}
+                        onChange={(expression) => onHogQLExpressionChange?.(expression)}
+                        metadataSource={metadataSource}
+                        globals={hogQLGlobals}
+                        placeholder={HOGQL_EXPRESSION_PLACEHOLDER}
+                        submitText="Add SQL expression"
+                    />
+                </div>
+            )}
+            {!sqlMode && !isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propertyKey && (
                 <div
                     // High flex-grow for proper sizing within TaxonomicPropertyFilter
                     className="shrink grow-[1000] min-w-[10rem] overflow-hidden"
@@ -488,6 +540,15 @@ function toOption(op: PropertyOperator): { label: JSX.Element; value: PropertyOp
     }
 }
 
+const HOGQL_EXPRESSION_SECTION: LemonSelectSection<OperatorSelectValue> = {
+    options: [
+        {
+            label: <span className="operator-value-option">SQL expression</span>,
+            value: HOGQL_EXPRESSION_OPTION,
+        },
+    ],
+}
+
 export function OperatorSelect({
     operator,
     operators,
@@ -495,31 +556,36 @@ export function OperatorSelect({
     className,
     size,
     startVisible,
+    showHogQLExpressionOption,
+    onSelectHogQLExpression,
 }: OperatorSelectProps): JSX.Element {
     const hasSemver = operators.some(isOperatorSemver)
-    const options: LemonSelectSection<PropertyOperator>[] | { label: JSX.Element; value: PropertyOperator }[] =
-        hasSemver
-            ? [
-                  ...(operators.some((op) => !isOperatorSemver(op))
-                      ? [{ options: operators.filter((op) => !isOperatorSemver(op)).map(toOption) }]
-                      : []),
-                  {
-                      title: 'Semver operators',
-                      footer: (
-                          <div className="mx-2 my-1">
-                              <Link
-                                  to="https://posthog.com/docs/data/property-filters#semver-operators"
-                                  target="_blank"
-                                  className="text-xs"
-                              >
-                                  Learn more
-                              </Link>
-                          </div>
-                      ),
-                      options: operators.filter(isOperatorSemver).map(toOption),
-                  },
-              ]
-            : operators.map(toOption)
+    const operatorOptions: LemonSelectSection<OperatorSelectValue>[] = hasSemver
+        ? [
+              ...(operators.some((op) => !isOperatorSemver(op))
+                  ? [{ options: operators.filter((op) => !isOperatorSemver(op)).map(toOption) }]
+                  : []),
+              {
+                  title: 'Semver operators',
+                  footer: (
+                      <div className="mx-2 my-1">
+                          <Link
+                              to="https://posthog.com/docs/data/property-filters#semver-operators"
+                              target="_blank"
+                              className="text-xs"
+                          >
+                              Learn more
+                          </Link>
+                      </div>
+                  ),
+                  options: operators.filter(isOperatorSemver).map(toOption),
+              },
+          ]
+        : [{ options: operators.map(toOption) }]
+
+    const options: LemonSelectSection<OperatorSelectValue>[] = showHogQLExpressionOption
+        ? [...operatorOptions, HOGQL_EXPRESSION_SECTION]
+        : operatorOptions
 
     return (
         <LemonSelect
@@ -530,7 +596,11 @@ export function OperatorSelect({
             dropdownPlacement="bottom-start"
             fullWidth
             onChange={(op) => {
-                op && onChange(op)
+                if (op === HOGQL_EXPRESSION_OPTION) {
+                    onSelectHogQLExpression?.()
+                } else if (op) {
+                    onChange(op)
+                }
             }}
             className={className}
             size={size}

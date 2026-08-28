@@ -104,6 +104,18 @@ export function OperatorValueMenuOpen(): JSX.Element {
     )
 }
 
+export function OperatorValueMenuWithSqlExpression(): JSX.Element {
+    return (
+        <>
+            <h1>Offering the SQL expression escape hatch</h1>
+            <OperatorValueSelect
+                {...props({ startVisible: true, editable: true })}
+                onHogQLExpressionChange={() => {}}
+            />
+        </>
+    )
+}
+
 export function OperatorValueMenuWithAllowlist(): JSX.Element {
     return (
         <>

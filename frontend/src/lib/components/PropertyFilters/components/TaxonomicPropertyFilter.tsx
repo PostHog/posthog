@@ -96,6 +96,8 @@ export function TaxonomicPropertyFilter({
     const pageKey = pageKeyInput || `filter-${generatedKey}`
     const baseGroupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
     const groupTypes = [TaxonomicFilterGroupType.SuggestedFilters, ...baseGroupTypes]
+    // Only offer the SQL-expression operator where a HogQL filter is already valid here.
+    const hogQLExpressionAvailable = groupTypes.includes(TaxonomicFilterGroupType.HogQLExpression)
     const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
         taxonomicGroup,
         value,
@@ -247,6 +249,20 @@ export function TaxonomicPropertyFilter({
                     : undefined
             }
             operatorAllowlist={operatorAllowlist}
+            metadataSource={metadataSource}
+            hogQLGlobals={hogQLGlobals}
+            onHogQLExpressionChange={
+                hogQLExpressionAvailable
+                    ? (expression) => {
+                          setFilter(index, {
+                              type: PropertyFilterType.HogQL,
+                              key: expression,
+                              value: null,
+                          } as AnyPropertyFilter)
+                          onComplete()
+                      }
+                    : undefined
+            }
         />
     )
 

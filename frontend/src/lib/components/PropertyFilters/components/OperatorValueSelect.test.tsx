@@ -10,7 +10,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
-import { OperatorValueSelect } from './OperatorValueSelect'
+import { HOGQL_EXPRESSION_OPTION, OperatorValueSelect } from './OperatorValueSelect'
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
@@ -73,7 +73,10 @@ describe('OperatorValueSelect', () => {
         })
     }
 
-    function renderSelect(operator?: PropertyOperator): void {
+    function renderSelect(
+        operator?: PropertyOperator,
+        extraProps?: { onHogQLExpressionChange?: (expression: string) => void }
+    ): void {
         render(
             <Provider>
                 <OperatorValueSelect
@@ -84,6 +87,7 @@ describe('OperatorValueSelect', () => {
                     editable
                     onChange={jest.fn()}
                     propertyDefinitions={[emailPropertyDefinition]}
+                    onHogQLExpressionChange={extraProps?.onHogQLExpressionChange}
                 />
             </Provider>
         )
@@ -120,5 +124,15 @@ describe('OperatorValueSelect', () => {
         for (const operatorValue of STARTS_ENDS_WITH_VALUES) {
             expect(values).toContain(operatorValue)
         }
+    })
+
+    it('hides the SQL expression operator entry unless a HogQL commit handler is wired', () => {
+        renderSelect()
+        expect(renderedOperatorValues()).not.toContain(HOGQL_EXPRESSION_OPTION)
+    })
+
+    it('offers the SQL expression operator entry when a HogQL commit handler is wired', () => {
+        renderSelect(undefined, { onHogQLExpressionChange: jest.fn() })
+        expect(renderedOperatorValues()).toContain(HOGQL_EXPRESSION_OPTION)
     })
 })
