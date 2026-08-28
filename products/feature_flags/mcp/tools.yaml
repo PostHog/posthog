@@ -261,8 +261,8 @@ tools:
             There is no request body.
 
 
-            The flag stays turned off. Call `feature-flag-enable` when the user also wants it serving again.
-            Unarchiving a flag that is not archived succeeds and changes nothing, so retrying is safe.
+            The flag stays turned off. Call `feature-flag-enable` when the user also wants it serving again. Unarchiving
+            a flag that is not archived succeeds and changes nothing, so retrying is safe.
         param_overrides:
             id:
                 cast: string-int
