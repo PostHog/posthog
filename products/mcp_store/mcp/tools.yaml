@@ -150,6 +150,12 @@ tools:
     mcp-gateway-service-accounts-access-create:
         operation: mcp_gateway_service_accounts_access_create
         enabled: false
+    mcp-gateway-service-accounts-create:
+        operation: mcp_gateway_service_accounts_create
+        enabled: false
+    mcp-gateway-service-accounts-destroy:
+        operation: mcp_gateway_service_accounts_destroy
+        enabled: false
     mcp-gateway-service-accounts-list:
         operation: mcp_gateway_service_accounts_list
         enabled: false
