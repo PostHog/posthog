@@ -143,6 +143,8 @@ def get_user_blast_radius_persons(
 
 def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
     """Calculate blast radius for person-based feature flags using HogQL."""
+    from posthog.hogql.context import HogQLContext
+    from posthog.hogql.database.database import Database
     from posthog.hogql.query import execute_hogql_query
 
     properties = filter.property_groups.flat
@@ -157,13 +159,18 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
 
     # Execute the query
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+    # Build the team's HogQL database once and share it between the two counts below.
+    # Each execute_hogql_query call would otherwise build its own, and the build cost
+    # scales with the team's warehouse size.
+    database = Database.create_for(team=team)
     response = execute_hogql_query(
         query=select_query,
         team=team,
+        context=HogQLContext(team_id=team.pk, database=database),
     )
 
     total_count = response.results[0][0] if response.results else 0
-    total_users = team.persons_seen_so_far
+    total_users = team.count_persons_seen_so_far(database=database)
     blast_radius = min(total_count, total_users)
 
     return BlastRadiusResult(affected=blast_radius, total=total_users)

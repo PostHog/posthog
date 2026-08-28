@@ -52,6 +52,8 @@ from .team_caching import get_team_in_cache, set_team_in_cache
 if TYPE_CHECKING:
     from posthog.schema import PathCleaningFilter
 
+    from posthog.hogql.database.database import Database
+
     from posthog.models.user import User
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
@@ -879,8 +881,12 @@ class Team(UUIDTClassicModel):
 
     @cached_property
     def persons_seen_so_far(self) -> int:
+        return self.count_persons_seen_so_far()
+
+    def count_persons_seen_so_far(self, database: Optional["Database"] = None) -> int:
         from posthog.schema import HogQLQueryModifiers
 
+        from posthog.hogql.context import HogQLContext
         from posthog.hogql.query import execute_hogql_query
 
         from posthog.schema_enums import PersonsArgMaxVersion
@@ -891,8 +897,12 @@ class Team(UUIDTClassicModel):
                 team=self,
                 query_type="persons_seen_so_far",
                 # Pin v1 because the v2 persons path pushes the executor's default LIMIT into its
-                # dedup subquery, which caps a bare count() at ~101 for teams pinned to v2.
+                # dedup subquery, which caps a bare count() at ~101 for teams pinned to v2 (see #87323).
                 modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V1),
+                # A caller that runs several queries can pass a prebuilt database to skip a rebuild.
+                # The v1 pin survives a shared database: the persons table reads the dedup mode from
+                # each query's modifiers at print time, not from the database.
+                context=HogQLContext(team_id=self.pk, database=database),
             ).results[0][0]
 
     @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
