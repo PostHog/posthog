@@ -47,11 +47,13 @@ export function MCPAnalyticsScene(): JSX.Element {
 function MCPAnalyticsSceneContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
-    const { onboardingState, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
+    const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)
     const { notificationCount } = useValues(mcpAnalyticsNotificationsLogic)
 
-    // Keep search only on tabs that expose a free-text filter.
-    const { search: _search, ...sharedParams } = searchParams
+    // landing is a one-shot redirect marker, while search belongs to Sessions and Missing capabilities.
+    // The date range stays shared across every tab.
+    const { landing: _landing, ...tabParams } = searchParams
+    const { search: _search, ...sharedParams } = tabParams
 
     const activityTab: LemonTab<MCPAnalyticsTab> = {
         key: 'activity',
@@ -69,15 +71,13 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     }
 
     const tabs: LemonTab<MCPAnalyticsTab>[] = [
-        // The default landing tab leads: Activity while the project is low-volume,
-        // Dashboard once it graduates — matching the landing redirect so the first
-        // tab is always the one you arrive on.
-        ...(dashboardStage === 'activity' ? [activityTab, dashboardTab] : [dashboardTab, activityTab]),
+        dashboardTab,
+        activityTab,
         {
             key: 'sessions',
             label: 'Sessions',
             content: <MCPSessionsPlaylist />,
-            link: combineUrl(urls.mcpAnalyticsSessions(), searchParams).url,
+            link: combineUrl(urls.mcpAnalyticsSessions(), tabParams).url,
             'data-attr': 'mcp-analytics-sessions-tab',
         },
         {
@@ -98,7 +98,7 @@ function MCPAnalyticsSceneContent(): JSX.Element {
             key: 'missing-capabilities',
             label: 'Missing capabilities',
             content: <MCPAnalyticsMissingCapabilities />,
-            link: combineUrl(urls.mcpAnalyticsMissingCapabilities(), searchParams).url,
+            link: combineUrl(urls.mcpAnalyticsMissingCapabilities(), tabParams).url,
             'data-attr': 'mcp-analytics-missing-capabilities-tab',
         },
         {

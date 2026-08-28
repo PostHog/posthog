@@ -52,6 +52,7 @@ export const manifest: ProductManifest = {
     },
     urls: {
         // Define URL helpers here
+        mcpAnalytics: (): string => '/mcp-analytics',
         mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
         mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
         mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
@@ -81,7 +82,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-mcp-analytics-light)',
                 'var(--color-product-mcp-analytics-dark)',
             ] as FileSystemIconColor,
-            href: urls.mcpAnalyticsDashboard(),
+            href: urls.mcpAnalytics(),
             flag: FEATURE_FLAGS.MCP_ANALYTICS,
             tags: ['beta'],
             sceneKey: 'MCPAnalytics',
