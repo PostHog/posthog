@@ -13,7 +13,7 @@ from asgiref.sync import async_to_sync
 
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.apply_dashboard_filters import flatten_property_leaves
-from posthog.models import EventDefinition
+from posthog.models import EventDefinition, Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -529,6 +529,217 @@ class TestResolveReportContext(BaseTest):
         object_access.assert_not_called()
         execute.assert_not_called()
         assert evidence.insights[0].status == "failed"
+
+    def test_cross_team_context_targets_fail_before_access_or_execution(self) -> None:
+        subscription = self._subscription()
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        foreign_dashboard = Dashboard.objects.create(
+            team=other_team,
+            created_by=self.user,
+            name="Foreign dashboard",
+        )
+        foreign_insight = Insight.objects.create(
+            team=other_team,
+            created_by=self.user,
+            name="Foreign insight",
+            query=_trends_query("foreign event"),
+        )
+        local_insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Local insight",
+            query=_trends_query("local event"),
+        )
+        self._add_dashboard_context(subscription, foreign_dashboard)
+        self._add_insight_context(subscription, foreign_insight)
+        self._add_insight_context(subscription, local_insight)
+
+        with (
+            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True),
+            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", return_value=True) as object_access,
+            patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute,
+        ):
+            evidence = async_to_sync(resolve_report_context)(subscription)
+
+        assert evidence.dashboards[0].id == foreign_dashboard.id
+        assert evidence.dashboards[0].status == "failed"
+        by_id = {item.id: item for item in evidence.insights}
+        assert by_id[foreign_insight.id].status == "failed"
+        assert by_id[local_insight.id].status == "success"
+        object_access.assert_called_once_with(local_insight, "viewer")
+        assert [call.kwargs["insight_id"] for call in execute.call_args_list] == [local_insight.id]
+
+    def test_cross_team_dashboard_tile_is_excluded_before_access_or_execution(self) -> None:
+        subscription = self._subscription()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="Mixed tenant tiles")
+        self._add_dashboard_context(subscription, dashboard)
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        foreign_insight = Insight.objects.create(
+            team=other_team,
+            created_by=self.user,
+            name="Foreign tile",
+            query=_trends_query("foreign tile event"),
+        )
+        local_insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Local tile",
+            query=_trends_query("local tile event"),
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=foreign_insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=local_insight)
+
+        with (
+            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True),
+            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", return_value=True) as object_access,
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}) as popularity,
+            patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute,
+        ):
+            evidence = async_to_sync(resolve_report_context)(subscription)
+
+        assert [item.id for item in evidence.dashboards[0].insights] == [local_insight.id]
+        accessed_targets = {(type(call.args[0]), call.args[0].pk) for call in object_access.call_args_list}
+        assert (Insight, foreign_insight.id) not in accessed_targets
+        popularity.assert_called_once_with(
+            team_id=self.team.id,
+            insight_ids=[local_insight.id],
+            since=popularity.call_args.kwargs["since"],
+        )
+        assert [call.kwargs["insight_id"] for call in execute.call_args_list] == [local_insight.id]
+
+    def test_context_limit_excess_is_bounded_and_fails_closed(self) -> None:
+        subscription = self._subscription()
+        insights = [
+            Insight.objects.create(
+                team=self.team,
+                created_by=self.user,
+                name=f"Context {index}",
+                query=_trends_query(f"context-{index}"),
+            )
+            for index in range(4)
+        ]
+        for insight in insights:
+            self._add_insight_context(subscription, insight)
+
+        with (
+            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True) as query_access,
+            patch(_EXECUTOR, new_callable=AsyncMock) as execute,
+        ):
+            evidence = async_to_sync(resolve_report_context)(subscription)
+
+        selected_ids = [insight.id for insight in insights[:3]]
+        assert sorted(item.id for item in evidence.insights) == sorted(selected_ids)
+        assert evidence.fingerprint == compute_report_context_fingerprint(
+            dashboard_ids=[],
+            insight_ids=selected_ids,
+        )
+        assert {(item.status, item.content) for item in evidence.insights} == {
+            ("failed", "Report context limit exceeded.")
+        }
+        query_access.assert_not_called()
+        execute.assert_not_called()
+
+    def test_inaccessible_and_deleted_targets_do_not_block_accessible_sibling_as_creator(self) -> None:
+        subscription = self._subscription()
+        inaccessible = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Inaccessible",
+            query=_trends_query("inaccessible event"),
+        )
+        deleted = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Deleted",
+            query=_trends_query("deleted event"),
+            deleted=True,
+        )
+        accessible = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Accessible",
+            query=_trends_query("accessible event"),
+        )
+        for insight in (inaccessible, deleted, accessible):
+            self._add_insight_context(subscription, insight)
+
+        def can_view(resource: object, _level: str) -> bool:
+            return not isinstance(resource, Insight) or resource.id != inaccessible.id
+
+        with (
+            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True),
+            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", side_effect=can_view),
+            patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute,
+        ):
+            evidence = async_to_sync(resolve_report_context)(subscription)
+
+        by_id = {item.id: item for item in evidence.insights}
+        assert by_id[inaccessible.id].status == "failed"
+        assert by_id[deleted.id].status == "failed"
+        assert by_id[accessible.id].status == "success"
+        execute.assert_awaited_once()
+        assert execute.call_args.kwargs["insight_id"] == accessible.id
+        assert execute.call_args.kwargs["user"] == subscription.created_by
+
+    def test_dashboard_and_standalone_budget_exhaustion_updates_exact_provenance(self) -> None:
+        subscription = self._subscription()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="Budget dashboard")
+        self._add_dashboard_context(subscription, dashboard)
+        first = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="First tile",
+            query=_trends_query("first tile event"),
+        )
+        second = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Second tile",
+            query=_trends_query("second tile event"),
+        )
+        standalone = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Standalone",
+            query=_trends_query("standalone event"),
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=first, layouts={"sm": {"y": 0, "x": 0}})
+        DashboardTile.objects.create(dashboard=dashboard, insight=second, layouts={"sm": {"y": 1, "x": 0}})
+        self._add_insight_context(subscription, standalone)
+
+        async def execute(_team: object, _query: object, **kwargs: object) -> str:
+            result_by_id = {
+                first.id: "A" * 200,
+                second.id: "B" * 200,
+                standalone.id: "S" * 200,
+            }
+            insight_id = kwargs["insight_id"]
+            assert isinstance(insight_id, int)
+            return result_by_id[insight_id]
+
+        with (
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(_EXECUTOR, side_effect=execute),
+        ):
+            full_evidence = async_to_sync(resolve_report_context)(subscription)
+
+        full_dashboard_content = full_evidence.dashboards[0].content
+        second_result_start = full_dashboard_content.index("B" * 100)
+        budget = second_result_start + len("…(context evidence truncated)")
+
+        with (
+            patch(f"{_MODULE}.DASHBOARD_CONTEXT_CHAR_BUDGET", budget),
+            patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight", return_value={}),
+            patch(_EXECUTOR, side_effect=execute),
+        ):
+            evidence = async_to_sync(resolve_report_context)(subscription)
+
+        dashboard_evidence = evidence.dashboards[0]
+        assert dashboard_evidence.status == "truncated"
+        assert [item.status for item in dashboard_evidence.insights] == ["success", "truncated"]
+        assert evidence.insights[0].status == "truncated"
+        assert "A" * 100 in dashboard_evidence.content
+        assert "B" * 100 not in dashboard_evidence.content
 
     def test_aggregate_budget_bounds_output_and_contract_never_carries_raw_response(self) -> None:
         subscription = self._subscription()

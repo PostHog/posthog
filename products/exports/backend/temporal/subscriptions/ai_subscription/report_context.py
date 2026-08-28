@@ -48,6 +48,7 @@ type JsonObject = dict[str, JsonValue]
 
 _UNAVAILABLE_INSIGHT_MARKER = "Insight context unavailable."
 _UNAVAILABLE_DASHBOARD_MARKER = "Dashboard context unavailable."
+_CONTEXT_LIMIT_EXCEEDED_MARKER = "Report context limit exceeded."
 _TRUNCATED_CONTEXT_MARKER = "\n\n…(context evidence truncated)"
 
 
@@ -169,6 +170,7 @@ class _LoadedReportContext:
     fingerprint: str
     dashboards: tuple[_SavedDashboard, ...]
     insights: tuple[_SavedInsight, ...]
+    over_limit: bool
 
 
 @frozen
@@ -188,9 +190,10 @@ class _ExecutedInsight:
 class _UnboundedDashboardEvidence:
     id: int
     name: str
-    status: ReportContextStatus
-    insights: tuple[InsightReportProvenance, ...]
-    content: str
+    description: str
+    dashboard_url: str
+    insights: tuple[_ExecutedInsight, ...]
+    available: bool
 
 
 def compute_report_context_fingerprint(*, dashboard_ids: Collection[int], insight_ids: Collection[int]) -> str:
@@ -328,20 +331,21 @@ def _load_dashboard(
     access_control: UserAccessControl,
     popularity_since: datetime,
 ) -> _SavedDashboard:
-    if dashboard.deleted or not _can_view(access_control, dashboard):
+    if dashboard.team_id != team.id or dashboard.deleted or not _can_view(access_control, dashboard):
         return _unavailable_dashboard(dashboard.id)
 
     tile_rows = list(
         DashboardTile.objects.filter(
             dashboard_id=dashboard.id,
             insight_id__isnull=False,
+            insight__team_id=team.id,
             insight__deleted=False,
         ).select_related("insight")
     )
     candidates: list[_DashboardTile] = []
     for tile in tile_rows:
         insight = tile.insight
-        if insight is None or not _can_view(access_control, insight):
+        if insight is None or insight.team_id != team.id or not _can_view(access_control, insight):
             continue
         candidates.append(
             _DashboardTile(
@@ -410,17 +414,29 @@ def _load_report_context(subscription_id: int, team_id: int) -> _LoadedReportCon
     context_rows = list(
         SubscriptionContext.objects.for_team(team_id)
         .filter(subscription_id=subscription.id)
-        .select_related("dashboard", "insight")
+        .only("id", "created_at", "dashboard_id", "insight_id")
+        .order_by("created_at", "id")[: MAX_REPORT_CONTEXTS + 1]
     )
-    dashboard_ids = [row.dashboard_id for row in context_rows if row.dashboard_id is not None]
-    insight_ids = [row.insight_id for row in context_rows if row.insight_id is not None]
-    fingerprint = compute_report_context_fingerprint(dashboard_ids=dashboard_ids, insight_ids=insight_ids)
     selected_rows = sorted(
-        context_rows,
+        context_rows[:MAX_REPORT_CONTEXTS],
         key=lambda row: (
             f"dashboard:{row.dashboard_id}" if row.dashboard_id is not None else f"insight:{row.insight_id}"
         ),
-    )[:MAX_REPORT_CONTEXTS]
+    )
+    dashboard_ids = [row.dashboard_id for row in selected_rows if row.dashboard_id is not None]
+    insight_ids = [row.insight_id for row in selected_rows if row.insight_id is not None]
+    fingerprint = compute_report_context_fingerprint(dashboard_ids=dashboard_ids, insight_ids=insight_ids)
+    over_limit = len(context_rows) > MAX_REPORT_CONTEXTS
+
+    if over_limit:
+        return _LoadedReportContext(
+            team=subscription.team,
+            user=subscription.created_by,
+            fingerprint=fingerprint,
+            dashboards=tuple(_unavailable_dashboard(dashboard_id) for dashboard_id in dashboard_ids),
+            insights=tuple(_unavailable_insight(insight_id) for insight_id in insight_ids),
+            over_limit=True,
+        )
 
     user = subscription.created_by
     if user is None:
@@ -435,12 +451,35 @@ def _load_report_context(subscription_id: int, team_id: int) -> _LoadedReportCon
             access_control = None
             query_access = False
 
+    dashboards_by_id = (
+        {
+            dashboard.id: dashboard
+            for dashboard in Dashboard.objects_including_soft_deleted.filter(
+                id__in=dashboard_ids,
+                team_id=team_id,
+            )
+        }
+        if query_access
+        else {}
+    )
+    insights_by_id = (
+        {
+            insight.id: insight
+            for insight in Insight.objects_including_soft_deleted.filter(
+                id__in=insight_ids,
+                team_id=team_id,
+            )
+        }
+        if query_access
+        else {}
+    )
+
     dashboards: list[_SavedDashboard] = []
     insights: list[_SavedInsight] = []
     popularity_since = timezone.now() - timedelta(days=7)
     for row in selected_rows:
         if row.dashboard_id is not None:
-            dashboard = row.dashboard
+            dashboard = dashboards_by_id.get(row.dashboard_id)
             if not query_access or access_control is None or dashboard is None:
                 dashboards.append(_unavailable_dashboard(row.dashboard_id))
             else:
@@ -453,7 +492,7 @@ def _load_report_context(subscription_id: int, team_id: int) -> _LoadedReportCon
                     )
                 )
         elif row.insight_id is not None:
-            insight = row.insight
+            insight = insights_by_id.get(row.insight_id)
             if (
                 not query_access
                 or access_control is None
@@ -471,6 +510,7 @@ def _load_report_context(subscription_id: int, team_id: int) -> _LoadedReportCon
         fingerprint=fingerprint,
         dashboards=tuple(dashboards),
         insights=tuple(insights),
+        over_limit=False,
     )
     return _validate_project_event_names(loaded)
 
@@ -518,6 +558,74 @@ def _truncate_content(content: str, remaining: int) -> tuple[str, bool]:
     return content[: remaining - len(_TRUNCATED_CONTEXT_MARKER)] + _TRUNCATED_CONTEXT_MARKER, True
 
 
+def _format_dashboard_content(
+    dashboard: _UnboundedDashboardEvidence,
+    insight_contents: Sequence[str],
+) -> str:
+    return format_prompt_string(
+        DASHBOARD_RESULT_TEMPLATE,
+        dashboard_name=dashboard.name,
+        dashboard_id=str(dashboard.id),
+        dashboard_url=dashboard.dashboard_url,
+        description=dashboard.description,
+        insights="\n\n".join(insight_contents),
+    )
+
+
+def _bound_dashboard(
+    dashboard: _UnboundedDashboardEvidence,
+    remaining: int,
+) -> DashboardReportEvidence:
+    if not dashboard.available:
+        content, truncated = _truncate_content(_UNAVAILABLE_DASHBOARD_MARKER, remaining)
+        return DashboardReportEvidence(
+            id=dashboard.id,
+            name=dashboard.name,
+            status="truncated" if truncated else "failed",
+            insights=(),
+            content=content,
+        )
+
+    provenance = tuple(_to_insight_provenance(insight) for insight in dashboard.insights)
+    full_content = _format_dashboard_content(dashboard, [insight.content for insight in dashboard.insights])
+    if len(full_content) <= remaining:
+        return DashboardReportEvidence(
+            id=dashboard.id,
+            name=dashboard.name,
+            status=_dashboard_status(provenance),
+            insights=provenance,
+            content=full_content,
+        )
+
+    truncation_item = _TRUNCATED_CONTEXT_MARKER.strip()
+    for included_count in range(len(dashboard.insights) - 1, -1, -1):
+        included_contents = [insight.content for insight in dashboard.insights[:included_count]]
+        bounded_content = _format_dashboard_content(dashboard, [*included_contents, truncation_item])
+        if len(bounded_content) > remaining:
+            continue
+        bounded_provenance = tuple(
+            item if index < included_count else replace(item, status="truncated")
+            for index, item in enumerate(provenance)
+        )
+        return DashboardReportEvidence(
+            id=dashboard.id,
+            name=dashboard.name,
+            status="truncated",
+            insights=bounded_provenance,
+            content=bounded_content,
+        )
+
+    marker_only_content = _format_dashboard_content(dashboard, [truncation_item])
+    bounded_content, _ = _truncate_content(marker_only_content, remaining)
+    return DashboardReportEvidence(
+        id=dashboard.id,
+        name=dashboard.name,
+        status="truncated",
+        insights=tuple(replace(item, status="truncated") for item in provenance),
+        content=bounded_content,
+    )
+
+
 def _bound_evidence(
     dashboards: Sequence[_UnboundedDashboardEvidence], insights: Sequence[_ExecutedInsight]
 ) -> tuple[tuple[DashboardReportEvidence, ...], tuple[InsightReportEvidence, ...]]:
@@ -527,27 +635,11 @@ def _bound_evidence(
     bounded_insights: list[InsightReportEvidence] = []
 
     for dashboard in dashboards:
-        separator_length = 2 if has_content and dashboard.content else 0
-        bounded_content, truncated = _truncate_content(dashboard.content, max(0, remaining - separator_length))
-        if bounded_content:
-            remaining -= separator_length + len(bounded_content)
+        separator_length = 2 if has_content else 0
+        bounded_dashboard = _bound_dashboard(dashboard, max(0, remaining - separator_length))
+        if bounded_dashboard.content:
+            remaining -= separator_length + len(bounded_dashboard.content)
             has_content = True
-        if truncated:
-            bounded_dashboard = DashboardReportEvidence(
-                id=dashboard.id,
-                name=dashboard.name,
-                status="truncated",
-                insights=dashboard.insights,
-                content=bounded_content,
-            )
-        else:
-            bounded_dashboard = DashboardReportEvidence(
-                id=dashboard.id,
-                name=dashboard.name,
-                status=dashboard.status,
-                insights=dashboard.insights,
-                content=bounded_content,
-            )
         bounded_dashboards.append(bounded_dashboard)
 
     for executed_insight in insights:
@@ -574,6 +666,30 @@ async def resolve_report_context(subscription: Subscription) -> ReportContextEvi
     loaded = await database_sync_to_async(_load_report_context, thread_sensitive=True)(
         subscription.id, subscription.team_id
     )
+    if loaded.over_limit:
+        return ReportContextEvidence(
+            fingerprint=loaded.fingerprint,
+            dashboards=tuple(
+                DashboardReportEvidence(
+                    id=dashboard.id,
+                    name=dashboard.name,
+                    status="failed",
+                    insights=(),
+                    content=_CONTEXT_LIMIT_EXCEEDED_MARKER,
+                )
+                for dashboard in loaded.dashboards
+            ),
+            insights=tuple(
+                InsightReportEvidence(
+                    id=insight.id,
+                    name=insight.name,
+                    events=(),
+                    status="failed",
+                    content=_CONTEXT_LIMIT_EXCEEDED_MARKER,
+                )
+                for insight in loaded.insights
+            ),
+        )
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_CONTEXT_QUERIES)
 
     dashboard_contexts: list[DashboardContext | None] = []
@@ -649,29 +765,22 @@ async def resolve_report_context(subscription: Subscription) -> ReportContextEvi
                 _UnboundedDashboardEvidence(
                     id=dashboard.id,
                     name=dashboard.name,
-                    status="failed",
+                    description="",
+                    dashboard_url="",
                     insights=(),
-                    content=_UNAVAILABLE_DASHBOARD_MARKER,
+                    available=False,
                 )
             )
             continue
         executed_insights = tuple(executed_by_pending[id(item)] for item in dashboard_pending)
-        insight_provenance = tuple(_to_insight_provenance(insight) for insight in executed_insights)
-        content = format_prompt_string(
-            DASHBOARD_RESULT_TEMPLATE,
-            dashboard_name=dashboard.name,
-            dashboard_id=str(dashboard.id),
-            dashboard_url=maybe_dashboard_context.dashboard_url,
-            description=dashboard.description,
-            insights="\n\n".join(insight.content for insight in executed_insights),
-        )
         dashboard_evidence.append(
             _UnboundedDashboardEvidence(
                 id=dashboard.id,
                 name=dashboard.name,
-                status=_dashboard_status(insight_provenance),
-                insights=insight_provenance,
-                content=content,
+                description=dashboard.description,
+                dashboard_url=maybe_dashboard_context.dashboard_url or "",
+                insights=executed_insights,
+                available=True,
             )
         )
 
