@@ -4,12 +4,24 @@ import type { Task } from "@posthog/shared/domain-types";
 import { CANVAS_DRAG_TYPE } from "@posthog/ui/features/canvas/canvasDrag";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
+  beginSidebarPeek,
+  cancelSidebarPeek,
+  endSidebarPeek,
+  useSidebarPeekStore,
+} from "@posthog/ui/features/sidebar/sidebarPeekStore";
+import {
   TASK_DRAG_TYPE,
   TASK_IDS_DRAG_TYPE,
 } from "@posthog/ui/features/sidebar/taskDrag";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { Theme } from "@radix-ui/themes";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +32,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   status: null as TaskStatusInput | null,
   currentUserId: 999 as number | undefined,
+  currentUserUuid: "u-1" as string | undefined,
   analysis: {
     canAnalyze: false,
     isPending: false,
@@ -27,7 +40,9 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
-  useCurrentUser: () => ({ data: { id: mocks.currentUserId } }),
+  useCurrentUser: () => ({
+    data: { id: mocks.currentUserId, uuid: mocks.currentUserUuid },
+  }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
   useChannelTaskStatus: () => mocks.status,
@@ -408,6 +423,29 @@ describe("ChannelItemRow", () => {
     }
   });
 
+  it("keeps the hover sidebar open while the context menu is open", () => {
+    vi.useFakeTimers();
+    try {
+      beginSidebarPeek();
+      renderWithMenu({});
+
+      fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+      endSidebarPeek(0);
+      act(() => vi.runAllTimers());
+
+      expect(useSidebarPeekStore.getState().peek).toBe(true);
+
+      fireEvent.keyDown(document, { key: "Escape" });
+      act(() => vi.runAllTimers());
+
+      expect(useSidebarPeekStore.getState().peek).toBe(false);
+    } finally {
+      cleanup();
+      cancelSidebarPeek();
+      vi.useRealTimers();
+    }
+  });
+
   it("offers Run analysis for a task with a terminal run", () => {
     const run = vi.fn();
     mocks.analysis = { canAnalyze: true, isPending: false, run };
@@ -519,7 +557,7 @@ describe("ChannelItemRow", () => {
       kind: "canvas",
       id: "c1",
       title: "Web analytics overview",
-      authorUser: { id: 999, uuid: "u-1", email: "owner@example.com" },
+      authorUuid: "u-1",
     });
     renderInList(
       <ChannelItemRow
@@ -549,7 +587,7 @@ describe("ChannelItemRow", () => {
       kind: "canvas",
       id: "c1",
       title: "Web analytics overview",
-      authorUser: { id: 7, uuid: "u-2", email: "creator@example.com" },
+      authorUuid: "u-2",
     });
     renderInList(
       <ChannelItemRow actions={actions} isActive={false} item={canvas} />,

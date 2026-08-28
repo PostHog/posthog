@@ -10,6 +10,7 @@ import {
 } from "@phosphor-icons/react";
 import { humanizeIdentifier } from "@posthog/core/inbox/activityLog";
 import {
+  filterReportsBySearch,
   INBOX_DISMISSED_STATUS_FILTER,
   REPORTS_INBOX_STATUS_FILTER,
 } from "@posthog/core/inbox/reportFiltering";
@@ -43,6 +44,7 @@ import { ReportTriageFocus } from "@posthog/ui/features/inbox/components/ReportT
 import { SuggestedReviewerAvatarStack } from "@posthog/ui/features/inbox/components/SuggestedReviewerAvatarStack";
 import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
+import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxSectionCounts } from "@posthog/ui/features/inbox/hooks/useInboxSectionCounts";
@@ -131,9 +133,12 @@ export function ReportsInboxView() {
   const decisionCount = searchActive
     ? sections.decision.length
     : serverCounts.decision;
-  const monitoringCount = searchActive
-    ? sections.monitoring.length
-    : serverCounts.monitoring;
+  const attentionCount = searchActive
+    ? sections.attention.length
+    : serverCounts.attention;
+  const inProgressCount = searchActive
+    ? sections.inProgress.length
+    : serverCounts.inProgress;
   useTrackReportsInboxViewed({
     reports: scopedReports,
     totalCount: searchActive ? scopedReports.length : totalCount,
@@ -194,10 +199,13 @@ export function ReportsInboxView() {
   }
 
   const isEmpty = searchActive
-    ? sections.decision.length === 0 && sections.monitoring.length === 0
+    ? sections.decision.length === 0 &&
+      sections.attention.length === 0 &&
+      sections.inProgress.length === 0
     : !serverCounts.isLoading &&
       serverCounts.decision === 0 &&
-      serverCounts.monitoring === 0;
+      serverCounts.attention === 0 &&
+      serverCounts.inProgress === 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-gray-1">
@@ -330,9 +338,14 @@ export function ReportsInboxView() {
                     emptyNote="Nothing waiting on you."
                   />
                   <InboxSection
-                    title="Monitoring"
-                    reports={sections.monitoring}
-                    count={monitoringCount}
+                    title="Needs attention"
+                    reports={sections.attention}
+                    count={attentionCount}
+                  />
+                  <InboxSection
+                    title="In progress"
+                    reports={sections.inProgress}
+                    count={inProgressCount}
                   />
                   {isFetchingNextPage && (
                     <div className="flex justify-center py-2">
@@ -341,7 +354,7 @@ export function ReportsInboxView() {
                   )}
                 </>
               )}
-              <ResolvedSection />
+              <ResolvedSection searchQuery={searchQuery} />
             </>
           )}
         </div>
@@ -425,12 +438,19 @@ function InboxReportRow({ report }: { report: SignalReport }) {
     : null;
   const { actionButton: archiveButton, dialog: archiveDialog } =
     useInboxReportDismissAction(report);
+  const { prefetch, pointerHandlers } = useInboxReportDetailPrefetch({
+    to: "/inbox/reports/$reportId",
+    params: { reportId: report.id },
+  });
   return (
     <>
       {/* biome-ignore lint/a11y/useSemanticElements: the row holds a real archive <button>, which a <button> row would illegally nest */}
       <div
         role="button"
         tabIndex={0}
+        onPointerEnter={prefetch}
+        onFocus={prefetch}
+        onPointerDown={pointerHandlers.onPointerDown}
         onClick={() => navigateToInboxReportDetail(report.id)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -551,7 +571,11 @@ function InboxReportRow({ report }: { report: SignalReport }) {
 
 // Archived and resolved reports come from their own server-side fetch, so the
 // section fetches lazily on first expand and stays collapsed by default.
-function ResolvedSection() {
+function ResolvedSection({
+  searchQuery,
+}: {
+  searchQuery: string;
+}): React.JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const {
     allReports,
@@ -563,6 +587,19 @@ function ResolvedSection() {
     { status: INBOX_DISMISSED_STATUS_FILTER, ordering: "-updated_at" },
     { enabled: expanded, pageSize: 25 },
   );
+  const matchingReports = useMemo(
+    () => filterReportsBySearch(allReports, searchQuery),
+    [allReports, searchQuery],
+  );
+  const searchActive = searchQuery.trim().length > 0;
+  const canAutoPageSearch =
+    searchActive && hasNextPage && allReports.length < AUTOPAGE_REPORT_LIMIT;
+
+  useEffect(() => {
+    if (!expanded || !canAutoPageSearch || isFetchingNextPage) return;
+    void fetchNextPage();
+  }, [expanded, canAutoPageSearch, isFetchingNextPage, fetchNextPage]);
+
   return (
     <section className="flex flex-col gap-1.5">
       <button
@@ -581,16 +618,24 @@ function ResolvedSection() {
           <div className="flex justify-center py-3">
             <Spinner />
           </div>
-        ) : allReports.length === 0 ? (
-          <p className="px-1 py-2 text-[13.5px] text-gray-10">
-            Nothing resolved or archived yet.
-          </p>
         ) : (
           <div className="flex flex-col gap-1">
-            {allReports.map((report) => (
+            {matchingReports.length === 0 && !canAutoPageSearch && (
+              <p className="px-1 py-2 text-[13.5px] text-gray-10">
+                {searchActive
+                  ? "No resolved or archived reports match your search. Try a different search."
+                  : "Nothing resolved or archived yet."}
+              </p>
+            )}
+            {matchingReports.map((report) => (
               <InboxReportRow key={report.id} report={report} />
             ))}
-            {hasNextPage && (
+            {isFetchingNextPage && (
+              <div className="flex justify-center py-2">
+                <Spinner />
+              </div>
+            )}
+            {hasNextPage && !canAutoPageSearch && (
               <Button
                 type="button"
                 variant="link-muted"
@@ -599,7 +644,7 @@ function ResolvedSection() {
                 disabled={isFetchingNextPage}
                 onClick={() => fetchNextPage()}
               >
-                {isFetchingNextPage ? <Spinner /> : "Show more"}
+                Show more
               </Button>
             )}
           </div>

@@ -57,6 +57,7 @@ from .amplitude.source import AmplitudeSource
 from .anodot_cost.source import AnodotCostSource
 from .anomalo.source import AnomaloSource
 from .anthropic.source import AnthropicSource
+from .anvil.source import AnvilSource
 from .apaleo.source import ApaleoSource
 from .apify_dataset.source import ApifyDatasetSource
 from .apitally.source import ApitallySource
@@ -301,6 +302,7 @@ from .contentsquare.source import ContentsquareSource
 from .convertkit.source import ConvertKitSource
 from .convex.source import ConvexSource
 from .convonite.source import ConvoniteSource
+from .coolify.source import CoolifySource
 from .copper.source import CopperSource
 from .coralogix.source import CoralogixSource
 from .cortex.source import CortexSource
@@ -1095,6 +1097,7 @@ from .snovio.source import SnovioSource
 from .snowflake.source import SnowflakeSource
 from .snowplow.source import SnowplowSource
 from .snyk.source import SnykSource
+from .socialpilot.source import SocialPilotSource
 from .soda_cloud.source import SodaCloudSource
 from .solarwinds_service_desk.source import SolarwindsServiceDeskSource
 from .sonar_cloud.source import SonarCloudSource
@@ -1196,6 +1199,7 @@ from .travis_ci.source import TravisCISource
 from .trello.source import TrelloSource
 from .tremendous.source import TremendousSource
 from .trigger_dev.source import TriggerDevSource
+from .trino.source import TrinoSource
 from .triple_whale.source import TripleWhaleSource
 from .trunk_io.source import TrunkIoSource
 from .trustpilot.source import TrustPilotSource

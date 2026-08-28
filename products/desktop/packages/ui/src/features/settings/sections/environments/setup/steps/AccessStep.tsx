@@ -9,15 +9,15 @@ import { useId } from "react";
 interface AccessStepProps {
   plan: EnvironmentSetupPlan;
   onChange: (plan: EnvironmentSetupPlan) => void;
-  /** True when the environment already holds variables that are not shown back. */
-  variablesAlreadySet?: boolean;
+  /** Names of the variables the environment already holds; their values are not shown back. */
+  savedVariableKeys?: readonly string[];
 }
 
 /** What the sandbox may reach, and what it gets in its shell. */
 export function AccessStep({
   plan,
   onChange,
-  variablesAlreadySet = false,
+  savedVariableKeys = [],
 }: AccessStepProps) {
   const defaultsId = useId();
   const domainsId = useId();
@@ -26,7 +26,7 @@ export function AccessStep({
   return (
     <StepBody
       title="Access"
-      description="Which hosts sessions may reach, and the values they get before the agent runs."
+      description="Which hosts sessions may reach, and the values they get before the agent runs"
     >
       <div className="flex max-w-[520px] flex-col gap-2">
         <Label className="font-medium text-[12.5px]">Network access</Label>
@@ -90,12 +90,13 @@ export function AccessStep({
           Environment variables
         </Label>
         <Text className="max-w-[56ch] text-(--gray-10) text-[11.5px] leading-snug">
-          {variablesAlreadySet
-            ? "Variables are set. They are encrypted and never shown back, so adding any here replaces the whole set, and leaving this empty keeps them."
+          {savedVariableKeys.length > 0
+            ? "The variables below are saved. Values are encrypted and never shown back, so adding one here replaces the whole set, and leaving this alone keeps them."
             : "The API keys or tokens the agent needs. They are encrypted, and never shown back once saved."}
         </Text>
         <EnvVarRows
           rows={plan.envVars}
+          savedKeys={savedVariableKeys}
           onChange={(envVars) => onChange({ ...plan, envVars })}
         />
       </div>

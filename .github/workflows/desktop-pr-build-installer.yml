@@ -137,6 +137,7 @@ jobs:
                   path: |
                       products/desktop/apps/code/out/*.dmg
                       products/desktop/apps/code/out/*-mac.zip
+                  compression-level: 0
                   retention-days: 7
                   if-no-files-found: error
 

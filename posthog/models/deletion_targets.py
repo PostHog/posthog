@@ -310,6 +310,22 @@ def resolve_placements(
     return [placement for placement in placements if placement is not None]
 
 
+def sweep_clusters(
+    cluster: ClickhouseCluster, targets: Sequence[DeletionTarget] = PERSONAL_DATA_TARGETS
+) -> list[ClickhouseCluster]:
+    """Every distinct cluster a sweep over ``targets`` dispatches to, the handle in hand first.
+
+    A mutation predicate that joins a dictionary needs that dictionary present on every cluster the
+    mutation runs on, which is what this enumerates. The handle in hand is always included: sweeps
+    over the replicated, non-sharded tables run there whatever the targets resolve to.
+    """
+    clusters = [cluster]
+    for placement in resolve_placements(cluster, targets):
+        if not any(placement.cluster is known for known in clusters):
+            clusters.append(placement.cluster)
+    return clusters
+
+
 def resolve_targets_here(
     cluster: ClickhouseCluster, targets: Sequence[DeletionTarget] = PERSONAL_DATA_TARGETS
 ) -> list[DeletionTarget]:

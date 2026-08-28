@@ -8,15 +8,10 @@
  * OpenAPI spec version: 1.0.0
  */
 export interface LegacyDesktopAccessResponseApi {
-    /** Whether the user has legacy PostHog Desktop access. */
+    /** Whether the current project can use PostHog Desktop. */
     has_access: boolean
     /** Whether the independent Loops feature is enabled. */
     has_loops_access: boolean
-}
-
-export interface CodeInviteRedeemRequestApi {
-    /** @maxLength 50 */
-    code: string
 }
 
 /**
@@ -849,16 +844,22 @@ export interface SandboxCustomImageBuildApi {
 }
 
 /**
- * List response for sandbox environments (subset of fields).
+ * A sandbox environment, as returned by list, detail, create and update.
  */
 export interface SandboxEnvironmentDTOApi {
     id: string
     name: string
     network_access_level: string
     allowed_domains?: string[]
+    include_default_domains: boolean
     repositories?: string[]
+    /** Whether any environment variables are set on this environment. */
+    has_environment_variables?: boolean
+    /** Names of the environment variables that are set, sorted. Values are write-only and never returned. */
+    environment_variable_keys?: string[]
     private: boolean
     internal: boolean
+    effective_domains?: string[]
     created_by?: TaskUserBasicInfoApi | null
     /** @nullable */
     created_at?: string | null
@@ -1287,6 +1288,54 @@ export interface OnboardingSessionApi {
     task_id: string
 }
 
+export interface OnboardingSessionTestApi {
+    /**
+     * Company domain to research. Blank simulates a personal email address.
+     * @maxLength 253
+     */
+    company_domain?: string
+    /** Whether the user is joining an organization that already has shared context. */
+    joining_existing_organization?: boolean
+    /** Whether the project has ingested events. */
+    has_events?: boolean
+    /**
+     * Number of findings waiting in #general.
+     * @minimum 0
+     * @maximum 10000
+     */
+    signal_reports_waiting?: number
+    /**
+     * Display names of other Desktop users in the organization.
+     * @maxItems 25
+     * @items.maxLength 100
+     */
+    other_members?: string[]
+    /**
+     * Signal sources that were already enabled.
+     * @maxItems 25
+     * @items.maxLength 100
+     */
+    sources_enabled?: string[]
+    /**
+     * Signal sources the onboarding flow is watching.
+     * @maxItems 25
+     * @items.maxLength 100
+     */
+    sources_watching?: string[]
+    /** Whether onboarding enabled any signal sources. */
+    sources_newly_enabled?: boolean
+}
+
+/**
+ * The first-run session that was started for the requester.
+ */
+export interface OnboardingSessionTestResponseApi {
+    /** The agent session opened in the team's #general space. */
+    task_id: string
+    /** The requester's personal space containing the session. */
+    channel_id: string
+}
+
 /**
  * The requester's default channels, plus whether this call is what created them.
  */
@@ -1297,6 +1346,13 @@ export interface ProvisionedChannelsApi {
     personal_created: boolean
     /** Whether this call created the team's shared #general channel. True only for the first user to provision it, so clients can branch first-user setup on it. */
     general_created: boolean
+}
+
+export interface TeachingCanvasApi {
+    /** The teaching canvas that was resolved or created. */
+    canvas_id: string
+    /** The requester's personal space containing the canvas. */
+    channel_id: string
 }
 
 /**
@@ -1601,6 +1657,8 @@ export interface TaskRunDetailDTOApi {
     updated_at?: string | null
     /** @nullable */
     completed_at?: string | null
+    /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
+    preview_available?: boolean
 }
 
 export interface SlackThreadReferenceDTOApi {
@@ -1665,6 +1723,11 @@ export interface TaskDetailDTOApi {
     /** @nullable */
     channel?: string | null
     readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
+    /**
+     * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+     * @nullable
+     */
+    origin_key?: string | null
 }
 
 export interface PaginatedTaskDetailDTOListApi {
@@ -3076,16 +3139,6 @@ export const RunStatusEnumApi = {
     Cancelled: 'cancelled',
 } as const
 
-/**
- * * `local` - local
- */
-export type TaskRunUpdateEnvironmentEnumApi =
-    (typeof TaskRunUpdateEnvironmentEnumApi)[keyof typeof TaskRunUpdateEnvironmentEnumApi]
-
-export const TaskRunUpdateEnvironmentEnumApi = {
-    Local: 'local',
-} as const
-
 export interface PatchedTaskRunUpdateApi {
     /** Current execution status
      *
@@ -3119,10 +3172,6 @@ export interface PatchedTaskRunUpdateApi {
      * @nullable
      */
     error_message?: string | null
-    /** Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.
-     *
-     * * `local` - local */
-    environment?: TaskRunUpdateEnvironmentEnumApi
 }
 
 /**

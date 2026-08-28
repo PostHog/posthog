@@ -1920,6 +1920,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 key: `hogql-editor-${props.tabId}`,
                                 query: values.sourceQuery?.source.query ?? '',
                                 language: 'hogQL',
+                                indexUsage: true,
                             })
                         )
                     }

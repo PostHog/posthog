@@ -250,6 +250,17 @@ export function isBehavioralPropertyFilter(filter?: AnyFilterLike | null): filte
     return filter?.type === PropertyFilterType.Behavioral
 }
 
+export function newBehavioralFilter(key: string, eventType: 'events' | 'actions'): BehavioralPropertyFilter {
+    return {
+        type: PropertyFilterType.Behavioral,
+        value: BehavioralEventType.PerformEvent,
+        key,
+        event_type: eventType,
+        time_value: 30,
+        time_interval: TimeUnitType.Day,
+    }
+}
+
 export const BEHAVIORAL_COUNT_OPERATOR_LABELS: Partial<Record<PropertyOperator, string>> = {
     [PropertyOperator.GreaterThanOrEqual]: 'at least',
     [PropertyOperator.LessThanOrEqual]: 'at most',
@@ -282,10 +293,13 @@ function formatBehavioralPropertyLabel(
                   'time'
               )}`
             : ''
+    const whereClause = item.event_filters?.length
+        ? ` where ${item.event_filters.map((filter) => formatPropertyLabel(filter, {}).trim()).join(' and ')}`
+        : ''
     const windowClause = item.explicit_datetime
         ? ` since ${item.explicit_datetime}`
         : ` in the last ${pluralize(item.time_value ?? 30, item.time_interval ?? TimeUnitType.Day)}`
-    return `${item.negation ? 'Did not perform' : 'Performed'} ${eventLabel}${countClause}${windowClause}`
+    return `${item.negation ? 'Did not perform' : 'Performed'} ${eventLabel}${countClause}${whereClause}${windowClause}`
 }
 
 // Filter keys whose value we offer a read-only group-info card for on hover.

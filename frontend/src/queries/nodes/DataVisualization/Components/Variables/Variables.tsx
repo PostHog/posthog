@@ -214,6 +214,9 @@ export const VariableInput = ({
                 )}
                 {variable.type === 'Date' && (
                     <DateField
+                        // The calendar is narrower than the popover, so grow to fill it rather than
+                        // leaving dead space down the right-hand side.
+                        className="grow"
                         variable={{ ...variable, default_value: String(localInputValue) } as DateVariable}
                         updateVariable={(updatedVariable) => setLocalInputValue(updatedVariable.default_value)}
                         onApply={commit}
@@ -236,7 +239,9 @@ export const VariableInput = ({
                 <>
                     <LemonDivider className="m1" />
 
-                    <div className="flex p-1">
+                    {/* Sized off the popover rather than its own content, so a long variable
+                        reference wraps instead of stretching the field above it. */}
+                    <div className="flex p-1 w-0 min-w-full">
                         <code
                             ref={codeRef}
                             onClick={() => {
@@ -251,7 +256,9 @@ export const VariableInput = ({
                                     }
                                 }
                             }}
-                            className="text-xs flex flex-1 items-center mr-2"
+                            // The reference is one unbreakable token, so without this a long code
+                            // name widens the whole popover instead of wrapping.
+                            className="text-xs flex flex-1 items-center mr-2 min-w-0 break-all"
                         >
                             {variableAsHogQL}
                         </code>

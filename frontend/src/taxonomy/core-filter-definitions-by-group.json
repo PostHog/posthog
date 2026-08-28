@@ -287,7 +287,8 @@
             "description": "The source that triggered this evaluation.",
             "examples": [
                 "signals-grouping",
-                "sandboxed-agent"
+                "sandboxed-agent",
+                "one-shot"
             ],
             "label": "AI eval source (LLM)"
         },
@@ -2337,7 +2338,7 @@
             "label": "MCP session ID"
         },
         "$mcp_skill_body_offset": {
-            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset. Count calls at offset 0 for loads, or all calls for pages read. Set only on reads that succeeded, like `$mcp_skill_name`. Absent when the caller asked for the whole body, and never set on `skill-file-get`, which does not paginate.",
+            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset, and a first read usually omits the offset \u2014 absent and 0 both mean a first page. Scope the query to `$mcp_tool_name IN ('skill-get', 'llma-skill-get')` before counting: the property is never set on `skill-file-get` or on a failed read, so an absent value outside that scope means 'never paginated' rather than 'first page', and counting it inflates loads. Within the scope, count calls where the offset is absent or 0 for loads, and every call for pages read. Set only on reads that succeeded, like `$mcp_skill_name`.",
             "examples": [
                 "0",
                 "5000"
@@ -4125,6 +4126,42 @@
             "description": "Automatically captured web vitals data.",
             "label": "Web vitals"
         },
+        "$workflows_email_blocked": {
+            "description": "Fires when a recipient reports a workflow email as spam. Despite the event name, this does not count blocked mail: it counts spam complaints that mailbox providers pass back through their feedback loops. Gmail does not send those reports, so a Gmail user marking an email as spam is not counted here. Workflow metrics show the same count as \"Marked as spam\".",
+            "label": "Workflow email marked as spam"
+        },
+        "$workflows_email_bounced": {
+            "description": "Fires when a workflow email bounces.",
+            "label": "Workflow email bounced"
+        },
+        "$workflows_email_delivered": {
+            "description": "Fires when a workflow email reaches the recipient's inbox, confirmed by their mail server accepting it.",
+            "label": "Workflow email delivered"
+        },
+        "$workflows_email_failed": {
+            "description": "Fires when a workflow email could not be sent. This covers a failed call to the email provider, a template that did not render, a message the provider rejected for containing a virus, and a misconfigured email step, such as a sender that no longer exists or a domain that is not verified.",
+            "label": "Workflow email failed"
+        },
+        "$workflows_email_link_clicked": {
+            "description": "Fires when a recipient clicks a link in a workflow email. Emails sent without click tracking can never record a click, so they are missing from this count.",
+            "label": "Workflow email link clicked"
+        },
+        "$workflows_email_opened": {
+            "description": "Fires when a recipient opens a workflow email. Emails sent without open tracking can never record an open, so they are missing from this count.",
+            "label": "Workflow email opened"
+        },
+        "$workflows_email_sent": {
+            "description": "Fires when a workflow sends an email to a recipient.",
+            "label": "Workflow email sent"
+        },
+        "$workflows_email_tracking_consent_updated": {
+            "description": "Fires when a recipient changes whether workflow emails can track their opens and clicks, on the email preferences page.",
+            "label": "Workflow email tracking consent updated"
+        },
+        "$workflows_email_unsubscribed": {
+            "description": "Fires when a recipient unsubscribes from workflow emails, through the one-click unsubscribe link or the preferences page. The `category` property holds the message category they left, or `$all` when they opted out of everything.",
+            "label": "Workflow email unsubscribed"
+        },
         "All events": {
             "description": "This is a wildcard that matches all events.",
             "label": "All events"
@@ -4522,7 +4559,7 @@
             "label": "MCP session ID"
         },
         "$mcp_skill_body_offset": {
-            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset. Count calls at offset 0 for loads, or all calls for pages read. Set only on reads that succeeded, like `$mcp_skill_name`. Absent when the caller asked for the whole body, and never set on `skill-file-get`, which does not paginate.",
+            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset, and a first read usually omits the offset \u2014 absent and 0 both mean a first page. Scope the query to `$mcp_tool_name IN ('skill-get', 'llma-skill-get')` before counting: the property is never set on `skill-file-get` or on a failed read, so an absent value outside that scope means 'never paginated' rather than 'first page', and counting it inflates loads. Within the scope, count calls where the offset is absent or 0 for loads, and every call for pages read. Set only on reads that succeeded, like `$mcp_skill_name`.",
             "examples": [
                 "0",
                 "5000"
@@ -4830,7 +4867,8 @@
             "description": "The source that triggered this evaluation.",
             "examples": [
                 "signals-grouping",
-                "sandboxed-agent"
+                "sandboxed-agent",
+                "one-shot"
             ],
             "label": "AI eval source (LLM)"
         },
@@ -7297,7 +7335,7 @@
             "label": "MCP session ID"
         },
         "$mcp_skill_body_offset": {
-            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset. Count calls at offset 0 for loads, or all calls for pages read. Set only on reads that succeeded, like `$mcp_skill_name`. Absent when the caller asked for the whole body, and never set on `skill-file-get`, which does not paginate.",
+            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset, and a first read usually omits the offset \u2014 absent and 0 both mean a first page. Scope the query to `$mcp_tool_name IN ('skill-get', 'llma-skill-get')` before counting: the property is never set on `skill-file-get` or on a failed read, so an absent value outside that scope means 'never paginated' rather than 'first page', and counting it inflates loads. Within the scope, count calls where the offset is absent or 0 for loads, and every call for pages read. Set only on reads that succeeded, like `$mcp_skill_name`.",
             "examples": [
                 "0",
                 "5000"

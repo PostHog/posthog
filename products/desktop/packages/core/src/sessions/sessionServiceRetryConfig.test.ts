@@ -124,7 +124,8 @@ describe("SessionService.clearSessionError retry config", () => {
   it("recreates the session with the original run configuration", async () => {
     const session = makeSession({
       model: "claude-fable-5",
-      adapter: "claude",
+      adapter: "codex",
+      codexModelAccess: "own-subscription",
       executionMode: "auto",
       reasoningLevel: "high",
       contextWindow: "1m",
@@ -140,13 +141,14 @@ describe("SessionService.clearSessionError retry config", () => {
       "/repo",
       { client: {} },
       session.initialPrompt,
-      "auto", // executionMode
-      "claude", // adapter
-      "claude-fable-5", // model
-      "high", // reasoningLevel
-      undefined, // importedSessionId
-      "1m", // contextWindow
-      true, // fastMode
+      "auto",
+      "codex",
+      "claude-fable-5",
+      "high",
+      undefined,
+      "1m",
+      true,
+      "own-subscription",
     );
   });
 

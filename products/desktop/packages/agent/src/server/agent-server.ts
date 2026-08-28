@@ -18,6 +18,7 @@ import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
+  type AcpMcpServer,
   type Adapter,
   buildPrOutput,
   getErrorMessage,
@@ -29,6 +30,7 @@ import {
   readMcpToolDescriptor,
   readPrUrls,
   sleepWithBackoff,
+  toAcpMcpServers,
 } from "@posthog/shared";
 import {
   buildPosthogPropertiesHeaderLines,
@@ -70,7 +72,6 @@ import {
 } from "../adapters/signed-commit-shared";
 import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
-import { HandoffCheckpointTracker } from "../handoff-checkpoint";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import { configurePersistentAgentState } from "../persistent-agent-state";
 import { PostHogAPIClient } from "../posthog-api";
@@ -96,8 +97,6 @@ import { SessionLogWriter } from "../session-log-writer";
 import type {
   AgentMode,
   DeviceInfo,
-  GitCheckpointEvent,
-  HandoffLocalGitState,
   LogLevel,
   Task,
   TaskRun,
@@ -126,11 +125,7 @@ import {
 } from "./pr-checkout";
 import { resolveRtkSavings } from "./rtk-savings";
 import { RunUsageAccumulator } from "./run-usage";
-import {
-  handoffLocalGitStateSchema,
-  jsonRpcRequestSchema,
-  validateCommandParams,
-} from "./schemas";
+import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
 
@@ -323,7 +318,6 @@ interface ActiveSession {
   permissionMode: PermissionMode;
   /** Whether a desktop client has ever connected via SSE during this session */
   hasDesktopConnected: boolean;
-  pendingHandoffGitState?: HandoffLocalGitState;
   /** Meta the session was created with, reused when a retry needs a fresh session */
   sessionMeta: Record<string, unknown>;
 }
@@ -390,6 +384,11 @@ function getTaskRunStateString(
   const value = taskRun?.state[key];
   return typeof value === "string" ? value : null;
 }
+
+type SteerDeclineReason =
+  | "startup_turn"
+  | "no_active_turn"
+  | "adapter_rejected";
 
 /** Which delivery routes a Slack run has, as resolved by the backend from flags and Slack scopes. */
 type SlackArtifactDelivery = "none" | "message" | "canvas_file";
@@ -533,8 +532,6 @@ export class AgentServer {
   // CLI flags can't carry the user's choice. Those settings are read from the
   // run's state when the first message arrives (see resolveActivationSettings).
   private prewarmedRun = false;
-  /** Whether the resume git checkpoint has been attempted, and what it answered. See `applyResumeGitCheckpoint`. */
-  private resumeGitCheckpointApplied: boolean | null = null;
   private prewarmedStartupTurnPending = false;
   private autoPublishStateResolved = false;
   private warmReasoningEffortResolved = false;
@@ -985,9 +982,6 @@ export class AgentServer {
       });
       this.logger.debug("Resume state loaded", {
         conversationTurns: this.resumeState.conversation.length,
-        hasGitCheckpoint: !!this.resumeState.latestGitCheckpoint,
-        gitCheckpointBranch:
-          this.resumeState.latestGitCheckpoint?.branch ?? null,
         logEntries: this.resumeState.logEntryCount,
       });
     } catch (error) {
@@ -1308,10 +1302,10 @@ export class AgentServer {
           };
 
           if (params.steer === true) {
-            if (
-              this.activeOwnedTurnCount > 0 &&
-              this.activeStartupTurnCount === 0
-            ) {
+            let declineReason: SteerDeclineReason = "no_active_turn";
+            if (this.activeStartupTurnCount > 0) {
+              declineReason = "startup_turn";
+            } else if (this.activeOwnedTurnCount > 0) {
               const result = await commandSession.clientConnection.prompt({
                 sessionId: commandSession.acpSessionId,
                 prompt,
@@ -1326,10 +1320,12 @@ export class AgentServer {
                 resolveDelivery(outcome);
                 return outcome;
               }
+              declineReason = "adapter_rejected";
             }
             const outcome = {
               stopReason: "steer_declined",
               steered: false,
+              reason: declineReason,
             };
             resolveDelivery(outcome);
             return outcome;
@@ -1526,10 +1522,6 @@ export class AgentServer {
       case POSTHOG_NOTIFICATIONS.CLOSE:
       case "close": {
         this.logger.debug("Close requested");
-        const localGitState = this.extractHandoffLocalGitState(params);
-        if (localGitState && this.session) {
-          this.session.pendingHandoffGitState = localGitState;
-        }
         await this.cleanupSession();
         return { closed: true };
       }
@@ -1600,7 +1592,7 @@ export class AgentServer {
 
         return await this.session.clientConnection.extMethod(
           POSTHOG_METHODS.REFRESH_SESSION,
-          { mcpServers: refreshedMcpServers },
+          { mcpServers: toAcpMcpServers(refreshedMcpServers) },
         );
       }
 
@@ -1777,7 +1769,6 @@ export class AgentServer {
 
     this.resumeState = null;
     this.nativeResume = null;
-    this.resumeGitCheckpointApplied = null;
     this.preSessionEvents = [];
     this.prewarmedRun = false;
     this.prewarmedStartupTurnPending = false;
@@ -1832,6 +1823,7 @@ export class AgentServer {
       taskRunId: payload.run_id,
       taskUserId: payload.user_id || preTask?.created_by?.id || null,
       taskTitle: preTask?.title,
+      taskOriginKey: preTask?.origin_key,
       repositories: this.taskRepositories,
       runtimeAdapter,
       sandboxEnvironmentId: getTaskRunStateString(
@@ -2026,6 +2018,7 @@ export class AgentServer {
       ...(preTask?.origin_product && {
         taskOriginProduct: preTask.origin_product,
       }),
+      ...(runState?.end_run_when_done === true && { endRunWhenDone: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
         this.config.contextWindow && {
@@ -2076,10 +2069,10 @@ export class AgentServer {
             sessionCwd,
             initialPermissionMode,
           );
-          const preparedMcpServers: McpServerConnection[] = [
+          const preparedMcpServers: AcpMcpServer[] = toAcpMcpServers([
             ...(this.config.mcpServers ?? []),
             ...(await this.startMcpRelayServer()),
-          ];
+          ]);
           return [preparedNativeResume, preparedMcpServers] as const;
         } finally {
           if (existingPrCheckoutPromise) {
@@ -2143,7 +2136,6 @@ export class AgentServer {
         return sessionId;
       },
     );
-
     this.evaluatedPrUrls.clear();
     this.prAttributionChain = Promise.resolve();
 
@@ -2158,7 +2150,6 @@ export class AgentServer {
       telemetry,
       permissionMode: initialPermissionMode,
       hasDesktopConnected: sseController !== null,
-      pendingHandoffGitState: undefined,
       sessionMeta: effectiveSessionMeta,
     };
     this.initializingTelemetry = undefined;
@@ -2608,13 +2599,7 @@ export class AgentServer {
         resumeState.conversation,
       );
 
-      const checkpointApplied = await this.applyResumeGitCheckpoint(payload);
-
       const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
-
-      const checkpointContext = checkpointApplied
-        ? `The workspace environment (all files, packages, and code changes) has been fully restored from the latest checkpoint.`
-        : `No additional git checkpoint was applied before resuming. Use the current workspace contents together with the preserved conversation history below.`;
 
       let resumePromptBlocks: ContentBlock[];
       let resumePromptMeta: Record<string, unknown> | undefined;
@@ -2624,7 +2609,7 @@ export class AgentServer {
         resumePromptMessageId = pendingUserPrompt.messageId;
         resumePromptBlocks = [
           hiddenTextBlock(
-            `You are resuming a previous conversation. ${checkpointContext}\n\n` +
+            "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
               `Here is the conversation history from the previous session:\n\n` +
               `${conversationSummary}\n\n` +
               `The user has sent a new message:\n\n`,
@@ -2637,7 +2622,7 @@ export class AgentServer {
       } else {
         resumePromptBlocks = [
           hiddenTextBlock(
-            `You are resuming a previous conversation. ${checkpointContext}\n\n` +
+            "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
               `Here is the conversation history from the previous session:\n\n` +
               `${conversationSummary}\n\n` +
               `Continue from where you left off. The user is waiting for your response.`,
@@ -2650,9 +2635,6 @@ export class AgentServer {
         conversationTurns: resumeState.conversation.length,
         promptLength: promptBlocksToText(resumePromptBlocks).length,
         hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
-        checkpointApplied,
-        hasGitCheckpoint: !!resumeState.latestGitCheckpoint,
-        gitCheckpointBranch: resumeState.latestGitCheckpoint?.branch ?? null,
       });
 
       return {
@@ -2672,16 +2654,11 @@ export class AgentServer {
     const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
     if (pendingUserPrompt?.prompt.length) return false;
 
-    const checkpointApplied = this.nativeResume?.warm
-      ? false
-      : await this.applyResumeGitCheckpoint(payload);
-
     this.logger.debug("Idle resume settled without a turn", {
       taskId: payload.task_id,
       runId: payload.run_id,
       sessionId: this.nativeResume?.sessionId,
       warm: this.nativeResume?.warm,
-      checkpointApplied,
     });
 
     this.resumeState = null;
@@ -2701,14 +2678,10 @@ export class AgentServer {
     }
 
     if (this.nativeResume) {
-      const checkpointApplied = this.nativeResume.warm
-        ? false
-        : await this.applyResumeGitCheckpoint(payload);
       this.logger.debug("Applying deferred native resume to user message", {
         taskId: payload.task_id,
         sessionId: this.nativeResume.sessionId,
         warm: this.nativeResume.warm,
-        checkpointApplied,
       });
       return { prompt, consumed: true };
     }
@@ -2718,21 +2691,14 @@ export class AgentServer {
     }
 
     const resumeState = this.resumeState;
-    const checkpointApplied = await this.applyResumeGitCheckpoint(payload);
 
     this.logger.debug("Applying deferred summary resume to user message", {
       taskId: payload.task_id,
       conversationTurns: resumeState.conversation.length,
-      checkpointApplied,
-      hasGitCheckpoint: !!resumeState.latestGitCheckpoint,
     });
 
     return {
-      prompt: this.wrapPromptWithSummaryResume(
-        resumeState,
-        checkpointApplied,
-        prompt,
-      ),
+      prompt: this.wrapPromptWithSummaryResume(resumeState, prompt),
       consumed: true,
     };
   }
@@ -2740,18 +2706,14 @@ export class AgentServer {
   /** Wrap the user's message in the previous session's conversation, hidden from the transcript. */
   private wrapPromptWithSummaryResume(
     resumeState: ResumeState,
-    checkpointApplied: boolean,
     prompt: ContentBlock[],
   ): ContentBlock[] {
-    const checkpointContext = checkpointApplied
-      ? "The workspace environment (all files, packages, and code changes) has been fully restored from the latest checkpoint."
-      : "No additional git checkpoint was applied before resuming. Use the current workspace contents together with the preserved conversation history below.";
     const conversationSummary = formatConversationForResume(
       resumeState.conversation,
     );
     return [
       hiddenTextBlock(
-        `You are resuming a previous conversation. ${checkpointContext}\n\n` +
+        "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
           `Here is the conversation history from the previous session:\n\n` +
           `${conversationSummary}\n\n` +
           "The user has sent a new message:\n\n",
@@ -2819,11 +2781,7 @@ export class AgentServer {
       "Deferred resume prompt exceeded the context window; retrying on a fresh session with summarized history",
       { taskId: payload.task_id, runId: payload.run_id },
     );
-    return this.wrapPromptWithSummaryResume(
-      resumeState,
-      await this.applyResumeGitCheckpoint(payload),
-      prompt,
-    );
+    return this.wrapPromptWithSummaryResume(resumeState, prompt);
   }
 
   private async sendResumeContinuation(
@@ -2838,10 +2796,6 @@ export class AgentServer {
       taskRun,
       "Resume continuation",
       async () => {
-        const checkpointApplied = this.nativeResume?.warm
-          ? false
-          : await this.applyResumeGitCheckpoint(payload);
-
         const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
         const prompt: ContentBlock[] = pendingUserPrompt?.prompt.length
           ? pendingUserPrompt.prompt
@@ -2855,7 +2809,6 @@ export class AgentServer {
           taskId: payload.task_id,
           sessionId: this.nativeResume?.sessionId,
           warm: this.nativeResume?.warm,
-          checkpointApplied,
           hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
         });
 
@@ -2926,7 +2879,7 @@ export class AgentServer {
     try {
       const response = await this.session.clientConnection.newSession({
         cwd: this.config.repositoryPath ?? "/tmp/workspace",
-        mcpServers: this.config.mcpServers ?? [],
+        mcpServers: toAcpMcpServers(this.config.mcpServers ?? []),
         _meta: this.session.sessionMeta,
       });
       this.session.acpSessionId = response.sessionId;
@@ -3019,53 +2972,6 @@ export class AgentServer {
       await this.handleTurnFailure(payload, "resume", error);
     } finally {
       releaseSelfDelivery?.();
-    }
-  }
-
-  private async applyResumeGitCheckpoint(
-    payload: JwtPayload,
-  ): Promise<boolean> {
-    // At most once per process, and the answer is replayed afterwards. The checkpoint resets the
-    // workspace to the resumed run's snapshot, so a second application discards everything the
-    // session has written since — including the work of a turn that failed and is being retried.
-    // A failed attempt counts as an attempt: it may have partially applied.
-    if (this.resumeGitCheckpointApplied !== null) {
-      return this.resumeGitCheckpointApplied;
-    }
-    if (
-      !this.resumeState?.latestGitCheckpoint ||
-      !this.config.repositoryPath ||
-      !this.posthogAPI
-    ) {
-      return false;
-    }
-    try {
-      const checkpointTracker = new HandoffCheckpointTracker({
-        repositoryPath: this.config.repositoryPath,
-        taskId: payload.task_id,
-        runId: payload.run_id,
-        apiClient: this.posthogAPI,
-        logger: this.logger.child("HandoffCheckpoint"),
-      });
-      const metrics = await checkpointTracker.applyFromHandoff(
-        this.resumeState.latestGitCheckpoint,
-      );
-      this.logger.debug("Git checkpoint applied", {
-        branch: this.resumeState.latestGitCheckpoint.branch,
-        head: this.resumeState.latestGitCheckpoint.head,
-        packBytes: metrics.packBytes,
-        indexBytes: metrics.indexBytes,
-        totalBytes: metrics.totalBytes,
-      });
-      this.resumeGitCheckpointApplied = true;
-      return true;
-    } catch (error) {
-      this.logger.warn("Failed to apply git checkpoint", {
-        error: error instanceof Error ? error.message : String(error),
-        branch: this.resumeState.latestGitCheckpoint.branch,
-      });
-      this.resumeGitCheckpointApplied = false;
-      return false;
     }
   }
 
@@ -4184,7 +4090,7 @@ export class AgentServer {
 ## Delivering to Slack
 - Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
 - Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
-- Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, checkpoints, user uploads) are internal: never deliver them to Slack or mention them in your reply.`;
+- Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, user uploads) are internal: never deliver them to Slack or mention them in your reply.`;
 
     // Charts attach to both modes: they post as an image block referencing a PostHog-hosted
     // url, so they work wherever the workspace can post at all.
@@ -4694,6 +4600,7 @@ ${commonInstructions}
     taskRunId,
     taskUserId,
     taskTitle,
+    taskOriginKey,
     repositories,
     runtimeAdapter,
     sandboxEnvironmentId,
@@ -4709,6 +4616,7 @@ ${commonInstructions}
     taskRunId?: string | null;
     taskUserId?: number | null;
     taskTitle?: string | null;
+    taskOriginKey?: string | null;
     repositories?: string[];
     runtimeAdapter?: string | null;
     sandboxEnvironmentId?: string | null;
@@ -4758,6 +4666,7 @@ ${commonInstructions}
       task_run_id: taskRunId,
       task_user_id: taskUserId,
       task_title: taskTitle,
+      task_origin_key: taskOriginKey,
       task_repositories: repositories?.length
         ? JSON.stringify(repositories)
         : null,
@@ -5095,29 +5004,6 @@ ${commonInstructions}
         }
 
         this.maybeAttachCreatedPr(payload, params.update);
-
-        // session/update notifications flow through the tapped stream (like local transport)
-        // Capture checkpoints for file-changing tools so cloud resumes restore
-        // from git checkpoints rather than tree snapshots.
-        if (params.update?.sessionUpdate === "tool_call_update") {
-          const meta = (params.update?._meta as Record<string, unknown>)
-            ?.claudeCode as Record<string, unknown> | undefined;
-          const toolName = meta?.toolName as string | undefined;
-          const toolResponse = meta?.toolResponse as
-            | Record<string, unknown>
-            | undefined;
-
-          if (
-            (toolName === "Write" ||
-              toolName === "Edit" ||
-              toolName === "MultiEdit" ||
-              toolName === "Delete" ||
-              toolName === "Move") &&
-            toolResponse?.filePath
-          ) {
-            await this.captureCheckpointState();
-          }
-        }
       },
     };
   }
@@ -5451,12 +5337,6 @@ ${commonInstructions}
     this.logger.debug("Cleaning up session");
 
     try {
-      await this.captureCheckpointState(this.session.pendingHandoffGitState);
-    } catch (error) {
-      this.logger.error("Failed to capture final checkpoint state", error);
-    }
-
-    try {
       await this.session.logWriter.flush(this.session.payload.run_id, {
         coalesce: true,
       });
@@ -5545,79 +5425,6 @@ ${commonInstructions}
     } catch (error) {
       this.logger.debug("Failed to emit rtk savings", { error });
     }
-  }
-
-  private async captureCheckpointState(
-    localGitState?: HandoffLocalGitState,
-  ): Promise<void> {
-    if (!this.session) {
-      return;
-    }
-    if (!this.posthogAPI) {
-      this.logger.warn(
-        "Skipping checkpoint capture: PostHog API client is not configured",
-      );
-      return;
-    }
-    const session = this.session;
-
-    const repositories =
-      this.taskRepositories.length > 1
-        ? this.taskRepositories.map((repository) => ({
-            repository,
-            path: `/tmp/workspace/repos/${repository.toLowerCase()}`,
-          }))
-        : this.config.repositoryPath
-          ? [
-              {
-                repository: this.taskRepositories[0],
-                path: this.config.repositoryPath,
-              },
-            ]
-          : [];
-
-    await Promise.all(
-      repositories.map(async ({ repository, path }) => {
-        const tracker = new HandoffCheckpointTracker({
-          repositoryPath: path,
-          taskId: session.payload.task_id,
-          runId: session.payload.run_id,
-          apiClient: this.posthogAPI,
-          logger: this.logger.child("HandoffCheckpoint"),
-        });
-        const checkpoint = await tracker.captureForHandoff(
-          repositories.length === 1 ? localGitState : undefined,
-        );
-        if (!checkpoint) return;
-
-        const checkpointWithDevice: GitCheckpointEvent = {
-          ...checkpoint,
-          repository,
-          device: session.deviceInfo,
-        };
-        const notification = {
-          jsonrpc: "2.0" as const,
-          method: POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT,
-          params: checkpointWithDevice,
-        };
-        this.broadcastEvent({
-          type: "notification",
-          timestamp: new Date().toISOString(),
-          notification,
-        });
-        session.logWriter.appendRawLine(
-          session.payload.run_id,
-          JSON.stringify(notification),
-        );
-      }),
-    );
-  }
-
-  private extractHandoffLocalGitState(
-    params: Record<string, unknown>,
-  ): HandoffLocalGitState | null {
-    const result = handoffLocalGitStateSchema.safeParse(params.localGitState);
-    return result.success ? result.data : null;
   }
 
   /**

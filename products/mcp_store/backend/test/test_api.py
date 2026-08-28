@@ -36,7 +36,7 @@ from products.mcp_store.backend.models import (
     MCPToolPolicy,
     TeamMCPGatewayConfig,
 )
-from products.mcp_store.backend.oauth import DcrClientRegistration
+from products.mcp_store.backend.oauth import DcrClientRegistration, DCRRegistrationRejectedError
 from products.mcp_store.backend.presentation.gateway_views import (
     MAX_TOOL_POLICIES_PER_REQUEST,
     GatewayPoliciesUpsertSerializer,
@@ -2464,6 +2464,29 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         assert response.json()["results"][0]["icon_domain"] == "notion.example"
         assert response.json()["results"][0]["icon_key"] == "posthog_mcp"
 
+    def test_list_installation_description_falls_back_to_template(self):
+        template = MCPServerTemplate.objects.create(
+            name="Linear",
+            url="https://mcp.linear.example/mcp",
+            description="Manage issues and projects",
+            auth_type="api_key",
+            is_active=True,
+        )
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            display_name="",
+            description="",
+            url=template.url,
+            auth_type="api_key",
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_server_installations/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["description"] == "Manage issues and projects"
+
     def test_uninstall_server(self):
         installation = MCPServerInstallation.objects.create(
             team=self.team,
@@ -3878,6 +3901,31 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         # A half-created installation should not linger after DCR failure.
+        assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
+
+    @patch(
+        "products.mcp_store.backend.presentation.views.register_dcr_client",
+        side_effect=DCRRegistrationRejectedError("The server rejected registration: client_name is invalid"),
+    )
+    @patch(
+        "products.mcp_store.backend.presentation.views.discover_oauth_metadata",
+        return_value={
+            "authorization_endpoint": "https://auth.discovered.example.com/authorize",
+            "token_endpoint": "https://auth.discovered.example.com/token",
+            "registration_endpoint": "https://auth.discovered.example.com/register",
+        },
+    )
+    def test_install_template_dcr_rejection_surfaces_provider_message(self, _discover, _register):
+        template = self._template(oauth_credentials={}, oauth_metadata={})
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "client_name is invalid" in response.json()["detail"]
         assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
 
     @parameterized.expand([("row_disabled",), ("default_disabled",)])

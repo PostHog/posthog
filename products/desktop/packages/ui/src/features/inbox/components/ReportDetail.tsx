@@ -1,7 +1,5 @@
 import { FileTextIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
-import { REPORT_CHAT_DEFAULT_OPEN_FLAG } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
-import { useFeatureFlagVariant } from "@posthog/ui/features/feature-flags/useFeatureFlagVariant";
 import {
   AskAboutSelection,
   quoteSelection,
@@ -11,6 +9,7 @@ import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDet
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { ReportChatSidebar } from "@posthog/ui/features/inbox/components/ReportChatSidebar";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
+import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/ReportVerdictBanner";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { useCallback, useEffect, useRef } from "react";
 
@@ -73,15 +72,13 @@ function ReportDetailContent({
   const chatOpen = useReportChatPanelStore((s) => s.open);
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
   const setPendingQuote = useReportChatPanelStore((s) => s.setPendingQuote);
-  const defaultOpenVariant = useFeatureFlagVariant(
-    REPORT_CHAT_DEFAULT_OPEN_FLAG,
-  );
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: each report should start in its assigned default state rather than inherit the previous report's panel state.
+  // Each report opens as a document. Conversation remains explicit through the action box.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the route changes to another report.
   useEffect(() => {
-    setChatOpen(defaultOpenVariant !== "control");
-  }, [defaultOpenVariant, report.id, setChatOpen]);
+    setChatOpen(false);
+  }, [report.id, setChatOpen]);
 
   const handleAsk = useCallback(
     (text: string) => {
@@ -101,6 +98,13 @@ function ReportDetailContent({
           fallbackTitle="Untitled report"
           primaryAction={
             <ReportDetailActions report={report} placement="header" />
+          }
+          aboveSummary={
+            <ReportVerdictBanner
+              key={report.id}
+              report={report}
+              initialEngagementOnly
+            />
           }
           summarySection={{ Icon: FileTextIcon, title: "Summary" }}
           footer={<ReportFeedbackFooter report={report} />}
