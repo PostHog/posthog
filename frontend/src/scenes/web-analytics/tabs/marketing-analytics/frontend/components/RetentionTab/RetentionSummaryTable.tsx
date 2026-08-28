@@ -35,7 +35,7 @@ export function RetentionSummaryTable({
         },
         {
             title: 'Acquired',
-            tooltip: `How many people this ${dimensionLabel.toLowerCase()} brought in for the first time, across every cohort in the date range.`,
+            tooltip: `How many people this ${dimensionLabel.toLowerCase()} acquired, added up across the cohorts shown in the tables below.`,
             dataIndex: 'acquired',
             align: 'right',
             sorter: (a, b) => a.acquired - b.acquired,
@@ -84,7 +84,7 @@ export function RetentionSummaryTable({
             <div className="text-muted mb-1 flex flex-wrap items-center gap-1 text-xs font-semibold uppercase">
                 <span>Compare {dimensionLabel.toLowerCase()}s</span>
                 <Tooltip
-                    title={`Every cohort of a ${dimensionLabel.toLowerCase()} blended into one row. Returns and people are summed, then the rate is recalculated, so a cohort of five thousand counts for more than one of fifty. It is not an average of the per-cohort percentages below.`}
+                    title={`Every cohort of a ${dimensionLabel.toLowerCase()} blended into one row. People and returns are summed and the rate is recalculated, so this is not an average of the percentages below. A cohort of five thousand counts for more than one of fifty. "Other" is left out here.`}
                 >
                     <IconInfo className="text-base" />
                 </Tooltip>

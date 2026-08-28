@@ -94,13 +94,13 @@ export function RetentionCohortTable({
     const columns: LemonTableColumn<MarketingAnalyticsRetentionRow, any>[] = [
         {
             title: 'Cohort',
-            tooltip: 'The period a person first arrived in. People stay in the same row for the whole table.',
+            tooltip: "The period a person's first session landed in. People stay in the same row for the whole table.",
             dataIndex: 'cohortDate',
             render: (_, row) => cohortLabel(row.cohortDate, interval, timezone),
         },
         {
             title: 'Acquired',
-            tooltip: `How many people arrived for the first time in this period, credited to the ${dimensionLabel.toLowerCase()} of their first session. Each person is counted once.`,
+            tooltip: `How many people had their first session of the date range in this period, credited to that session's ${dimensionLabel.toLowerCase()}. Each person is counted once. Options changes which sessions qualify and who counts as new.`,
             dataIndex: 'cohortSize',
             align: 'right',
             render: (_, row) => humanFriendlyNumber(row.cohortSize),
