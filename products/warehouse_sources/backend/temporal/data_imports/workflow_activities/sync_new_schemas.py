@@ -7,6 +7,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.models.integration import UndecryptedIntegrationSecretError
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_discover_schemas_schedule
@@ -97,6 +98,16 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             if error_message_matches(error_msg, non_retryable_errors):
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {error_msg}")
                 return
+            # Retryable source errors (a transient connect blip, a self-recovering HTTP status) reach
+            # us only after the source exhausted its own retries. Re-raise as NonReportableError so the
+            # activity interceptor suppresses the error-tracking report while Temporal still retries the
+            # activity, opening a fresh connection that usually succeeds. This mirrors import_data_sync's
+            # handling of the same get_retryable_errors set. Returning here instead would skip the whole
+            # discovery pass until the next ~6h run and waste the workflow's remaining retry attempts.
+            retryable_errors = new_source.get_retryable_errors()
+            if error_message_matches(error_msg, retryable_errors):
+                logger.warning(f"Retrying schema discovery after retryable source error: {error_msg}")
+                raise NonReportableError(error_msg) from e
             raise
 
         schemas_to_sync = {s.name: s.label for s in schemas}

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from snowflake.connector.errors import DatabaseError, HttpError
+from snowflake.connector.errors import DatabaseError, HttpError, OperationalError
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
@@ -955,6 +955,14 @@ class TestSnowflakeSourceRetryableErrors:
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Snowflake login internal-error should be classified retryable: {error_msg}"
 
+    def test_connect_backend_after_attempts_is_retryable(self, source):
+        # The real shape from production: opening the connection failed after the connector
+        # exhausted its own login retries. A fresh Temporal retry opens a new connection.
+        error_msg = "250001: Could not connect to Snowflake backend after 3 attempt(s)"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Snowflake connect-backend error should be classified retryable: {error_msg}"
+
 
 class TestSnowflakeValidateCredentials:
     @pytest.fixture
@@ -1035,6 +1043,27 @@ class TestSnowflakeValidateCredentials:
 
         assert ok is False
         assert message is not None and "multi-factor authentication" in message
+        mock_capture.assert_not_called()
+
+    def test_transient_connect_blip_returns_friendly_message_without_capture(self, source):
+        # Opening the connection failed after the connector exhausted its own login retries, raising
+        # OperationalError (a DatabaseError subclass) with the stable connect-backend phrase. The sync
+        # path retries this blip quietly, so validate must surface a "try again" message rather than
+        # capturing it and telling the user their correct connection details are wrong.
+        connect_error = OperationalError(
+            msg="250001: Could not connect to Snowflake backend after 3 attempt(s).Aborting",
+            errno=250001,
+        )
+        with (
+            patch.object(source, "get_schemas", side_effect=connect_error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("password"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "try again" in message
         mock_capture.assert_not_called()
 
     def test_unexpected_value_error_is_still_captured(self, source):
