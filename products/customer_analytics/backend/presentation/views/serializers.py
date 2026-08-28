@@ -1773,8 +1773,8 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
     display_type = serializers.ChoiceField(
         choices=CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
         help_text=(
-            "How the property is interpreted and rendered: 'text', 'number', 'currency', "
-            "'percent', 'date', 'datetime', 'boolean', or 'select'."
+            "How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', "
+            "'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL."
         ),
     )
     target_type = serializers.ChoiceField(
@@ -1906,7 +1906,8 @@ class CustomPropertyValueWriteSerializer(serializers.Serializer):
     value = CustomPropertyValueField(
         help_text=(
             "Value to store, matching the definition's type: a number for number/currency/percent, a "
-            "boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties."
+            "boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, "
+            "or text for text properties."
         )
     )
 
