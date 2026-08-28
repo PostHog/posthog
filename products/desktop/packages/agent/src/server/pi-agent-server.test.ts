@@ -22,6 +22,50 @@ function config(overrides: Partial<AgentServerConfig> = {}): AgentServerConfig {
 }
 
 describe("PiAgentServer", () => {
+  it("interrupts a stalled Pi turn and fails the run", async () => {
+    vi.useFakeTimers();
+    try {
+      const abort = vi.fn(async () => {});
+      const getState = vi.fn(async () => ({ isStreaming: false }));
+      const updateTaskRun = vi.fn(async () => ({}));
+      const broadcast = vi.fn();
+      const server = new PiAgentServer(config()) as unknown as {
+        session: unknown;
+        posthogAPI: { updateTaskRun: typeof updateTaskRun };
+        broadcast: typeof broadcast;
+        handleTurnStall(reason: string, silentMs: number): Promise<void>;
+      };
+      server.posthogAPI.updateTaskRun = updateTaskRun;
+      server.broadcast = broadcast;
+      server.session = {
+        payload: { task_id: "task-1", run_id: "run-1" },
+        runtime: { client: { abort, getState } },
+      };
+
+      const stall = server.handleTurnStall("sandbox_unresponsive", 600_000);
+      await vi.runAllTimersAsync();
+      await stall;
+
+      expect(abort).toHaveBeenCalledOnce();
+      expect(broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "pi_event",
+          event: expect.objectContaining({
+            type: "runtime_error",
+            errorType: "sandbox_unresponsive",
+          }),
+        }),
+      );
+      expect(updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({ status: "failed" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("logs session initialization diagnostics when setup fails", async () => {
     const payload = { task_id: "task-1", run_id: "run-1" };
     const server = new PiAgentServer(

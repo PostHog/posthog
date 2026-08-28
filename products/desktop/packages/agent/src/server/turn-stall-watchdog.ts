@@ -10,6 +10,31 @@ export const DEFAULT_TURN_STALL_PROBE_TIMEOUT_MS = 15 * 1000;
 
 export type TurnStallReason = "sandbox_unresponsive" | "turn_silent";
 
+export const TURN_STALL_CANCEL_GRACE_MS = 60_000;
+export const TURN_STALL_DRAIN_POLL_MS = 500;
+export const TURN_STALL_MESSAGES: Record<TurnStallReason, string> = {
+  sandbox_unresponsive:
+    "The sandbox stopped responding while the agent was working. Resume the task to continue.",
+  turn_silent:
+    "The agent produced no output for a long time and the turn was stopped. Resume the task to continue.",
+};
+
+export function readTurnStallTimeoutsFromEnv(): {
+  softTimeoutMs: number;
+  hardTimeoutMs: number;
+} {
+  return {
+    softTimeoutMs: readTurnStallTimeoutMs(
+      process.env.POSTHOG_TURN_STALL_SOFT_TIMEOUT_MS,
+      DEFAULT_TURN_STALL_SOFT_TIMEOUT_MS,
+    ),
+    hardTimeoutMs: readTurnStallTimeoutMs(
+      process.env.POSTHOG_TURN_STALL_HARD_TIMEOUT_MS,
+      DEFAULT_TURN_STALL_HARD_TIMEOUT_MS,
+    ),
+  };
+}
+
 export interface TurnStallWatchdogLogger {
   debug(message: string, data?: unknown): void;
   warn(message: string, data?: unknown): void;

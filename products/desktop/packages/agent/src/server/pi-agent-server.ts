@@ -37,6 +37,15 @@ import { Logger } from "../utils/logger";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { jsonRpcRequestSchema } from "./schemas";
+import {
+  probeSandboxResponsive,
+  readTurnStallTimeoutsFromEnv,
+  TURN_STALL_CANCEL_GRACE_MS,
+  TURN_STALL_DRAIN_POLL_MS,
+  TURN_STALL_MESSAGES,
+  type TurnStallReason,
+  TurnStallWatchdog,
+} from "./turn-stall-watchdog";
 import type { AgentServerConfig } from "./types";
 
 interface SseController {
@@ -136,8 +145,19 @@ export class PiAgentServer {
     string,
     McpToolPermissionRequest
   >();
+  private readonly turnStallWatchdog: TurnStallWatchdog;
 
   constructor(private readonly config: AgentServerConfig) {
+    this.turnStallWatchdog = new TurnStallWatchdog({
+      ...readTurnStallTimeoutsFromEnv(),
+      probe: () => probeSandboxResponsive(),
+      isWaitingOnUser: () => this.pendingMcpPermissions.size > 0,
+      onStall: (reason, silentMs) => this.handleTurnStall(reason, silentMs),
+      logger: {
+        debug: (message, data) => this.logger.debug(message, data),
+        warn: (message, data) => this.logger.warn(message, data),
+      },
+    });
     this.posthogAPI = new PostHogAPIClient({
       apiUrl: config.apiUrl,
       projectId: config.projectId,
@@ -211,6 +231,7 @@ export class PiAgentServer {
   }
 
   async stop(): Promise<void> {
+    this.turnStallWatchdog.stop();
     const session = this.session;
     if (session) {
       await session.runtime.client
@@ -619,7 +640,12 @@ export class PiAgentServer {
       this.handleEvent(event),
     );
     const unsubscribeRuntime = runtime.onRuntimeEvent((event) => {
+      if (event.type === "agent_start") {
+        this.turnStallWatchdog.start();
+      }
+      this.turnStallWatchdog.recordActivity();
       if (event.type === "agent_settled") {
+        this.turnStallWatchdog.stop();
         this.settledPersistenceQueue = this.settledPersistenceQueue
           .then(() => this.persistSettledTurn())
           .catch((error) => {
@@ -662,6 +688,7 @@ export class PiAgentServer {
   }
 
   private handleEvent(event: AgentConversationEvent): void {
+    this.turnStallWatchdog.recordActivity();
     const id = randomUUID();
     this.broadcast({
       id,
@@ -674,6 +701,47 @@ export class PiAgentServer {
         this.logger.error("Failed to persist Pi queue state", error),
       );
     }
+  }
+
+  private async handleTurnStall(
+    reason: TurnStallReason,
+    silentMs: number,
+  ): Promise<void> {
+    const session = this.session;
+    if (!session) return;
+    const message = TURN_STALL_MESSAGES[reason];
+    this.logger.error("turn_stalled", { reason, silentMs });
+    this.broadcast({
+      type: "pi_event",
+      timestamp: new Date().toISOString(),
+      event: {
+        type: "runtime_error",
+        timestamp: Date.now(),
+        errorType: reason,
+        message,
+      } satisfies AgentConversationEvent,
+    });
+    await session.runtime.client.abort().catch((error: unknown) => {
+      this.logger.warn("Turn stall abort failed", { error });
+    });
+    const deadline = Date.now() + TURN_STALL_CANCEL_GRACE_MS;
+    while (Date.now() < deadline) {
+      const state = await session.runtime.client.getState().catch(() => null);
+      if (state && !state.isStreaming) break;
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, TURN_STALL_DRAIN_POLL_MS),
+      );
+    }
+    if (this.session !== session) return;
+    await this.settledPersistenceQueue.catch(() => undefined);
+    await this.posthogAPI
+      .updateTaskRun(session.payload.task_id, session.payload.run_id, {
+        status: "failed",
+        error_message: message,
+      })
+      .catch((error) =>
+        this.logger.error("Failed to mark stalled Pi run as failed", error),
+      );
   }
 
   private handleMcpToolPermissionRequest(

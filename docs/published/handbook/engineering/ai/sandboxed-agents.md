@@ -362,8 +362,8 @@ A sandbox that is starved rather than dead keeps its Modal handle but stops answ
 never return, heartbeats stop, and the run looks alive until the inactivity timeout ends it. Two
 detectors shorten that window:
 
-- The agent-server runs a turn stall watchdog (`turn-stall-watchdog.ts`). When the adapter has
-  produced no output for `POSTHOG_TURN_STALL_SOFT_TIMEOUT_MS` (10 minutes) it probes the box by
+- The agent-server (both the ACP `AgentServer` and `PiAgentServer`) runs a turn stall watchdog
+  (`turn-stall-watchdog.ts`). When the runtime has produced no output for `POSTHOG_TURN_STALL_SOFT_TIMEOUT_MS` (10 minutes) it probes the box by
   spawning a trivial process; a probe that fails, or silence past
   `POSTHOG_TURN_STALL_HARD_TIMEOUT_MS` (45 minutes), interrupts the turn, emits a
   `sandbox_unresponsive` or `turn_silent` error to the stream, waits up to a minute for that turn

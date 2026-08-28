@@ -125,10 +125,11 @@ import { resolveRtkSavings } from "./rtk-savings";
 import { RunUsageAccumulator } from "./run-usage";
 import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
 import {
-  DEFAULT_TURN_STALL_HARD_TIMEOUT_MS,
-  DEFAULT_TURN_STALL_SOFT_TIMEOUT_MS,
   probeSandboxResponsive,
-  readTurnStallTimeoutMs,
+  readTurnStallTimeoutsFromEnv,
+  TURN_STALL_CANCEL_GRACE_MS,
+  TURN_STALL_DRAIN_POLL_MS,
+  TURN_STALL_MESSAGES,
   type TurnStallReason,
   TurnStallWatchdog,
 } from "./turn-stall-watchdog";
@@ -145,15 +146,6 @@ const agentErrorClassificationSchema = z.enum([
   "turn_ended_without_response",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
-
-const TURN_STALL_CANCEL_GRACE_MS = 60_000;
-const TURN_STALL_DRAIN_POLL_MS = 500;
-export const TURN_STALL_MESSAGES: Record<TurnStallReason, string> = {
-  sandbox_unresponsive:
-    "The sandbox stopped responding while the agent was working. Resume the task to continue.",
-  turn_silent:
-    "The agent produced no output for a long time and the turn was stopped. Resume the task to continue.",
-};
 
 const INITIAL_TASK_RUN_REFRESH_TIMEOUT_MS = 5_000;
 
@@ -663,14 +655,7 @@ export class AgentServer {
     );
     this.logger = new Logger({ debug: true, prefix: "[AgentServer]" });
     this.turnStallWatchdog = new TurnStallWatchdog({
-      softTimeoutMs: readTurnStallTimeoutMs(
-        process.env.POSTHOG_TURN_STALL_SOFT_TIMEOUT_MS,
-        DEFAULT_TURN_STALL_SOFT_TIMEOUT_MS,
-      ),
-      hardTimeoutMs: readTurnStallTimeoutMs(
-        process.env.POSTHOG_TURN_STALL_HARD_TIMEOUT_MS,
-        DEFAULT_TURN_STALL_HARD_TIMEOUT_MS,
-      ),
+      ...readTurnStallTimeoutsFromEnv(),
       probe: () => probeSandboxResponsive(),
       isWaitingOnUser: () => this.pendingPermissions.size > 0,
       onStall: (reason, silentMs) => this.handleTurnStall(reason, silentMs),
