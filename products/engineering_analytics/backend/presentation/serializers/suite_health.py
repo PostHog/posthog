@@ -85,6 +85,10 @@ class TrunkQuarantinedTestSerializer(DataclassSerializer):
             "quarantined_at": {"help_text": "When Trunk quarantined the test."},
             "age_days": {"help_text": "Whole days since the quarantine started."},
             "overdue": {"help_text": "True once age_days exceeds ttl_days: the quarantine has outlived the TTL."},
+            "trunk_url": {
+                "help_text": "The Trunk app's page for this test; null when the connected source has no "
+                "organization slug or the row carries no test case id.",
+            },
         }
 
 

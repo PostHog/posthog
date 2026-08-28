@@ -38,7 +38,7 @@ _OWNER_ROSTER_SELECT = f"""
 """
 
 _QUARANTINED_SELECT = """
-    SELECT runner, nodeid, file, status, quarantine_setting, quarantined_at
+    SELECT runner, nodeid, file, status, quarantine_setting, test_case_id, quarantined_at
     FROM __TRUNK_SOURCE__
 """
 
@@ -57,6 +57,14 @@ def _trunk_url(org_url_slug: str | None, repository: str) -> str | None:
     if not org_url_slug:
         return None
     return f"https://app.trunk.io/{org_url_slug}/flaky-tests?repo={repository}"
+
+
+def _trunk_test_url(org_url_slug: str | None, repository: str, test_case_id: str) -> str | None:
+    """The Trunk app's per-test page. The ``?repo`` form is what Trunk itself redirects to the
+    canonical repo-uuid URL (verified against the live app); the uuid is not in the synced data."""
+    if not org_url_slug or not test_case_id:
+        return None
+    return f"https://app.trunk.io/{org_url_slug}/flaky-tests/test/{test_case_id}?repo={repository}"
 
 
 def query_trunk_quarantine_debt(
@@ -100,8 +108,9 @@ def query_trunk_quarantine_debt(
             for variant in _nodeid_variants(key):
                 owner_by_variant[(runner, variant)] = owner_team
 
+    org_url_slug = curated.trunk_org_url_slug()
     tests: list[TrunkQuarantinedTest] = []
-    for runner, nodeid, file, status, quarantine_setting, quarantined_at in rows:
+    for runner, nodeid, file, status, quarantine_setting, test_case_id, quarantined_at in rows:
         owner = next(
             (
                 owner_by_variant[(runner, variant)]
@@ -124,6 +133,7 @@ def query_trunk_quarantine_debt(
                 quarantined_at=quarantined_at,
                 age_days=age_days,
                 overdue=age_days > ttl_days,
+                trunk_url=_trunk_test_url(org_url_slug, curated.repository, test_case_id),
             )
         )
     tests.sort(key=lambda test: (-test.age_days, test.nodeid))

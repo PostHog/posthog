@@ -19,6 +19,7 @@ def build_query(table: str) -> str:
         file,
         any(status) AS status,
         any(quarantine_setting) AS quarantine_setting,
+        any(test_case_id) AS test_case_id,
         -- Trunk keys a test per variant (e.g. one row per browser), so collapse to one row per
         -- test; the oldest quarantine carries the honest age.
         min(quarantined_at_parsed) AS quarantined_at
@@ -29,6 +30,7 @@ def build_query(table: str) -> str:
             ifNull(name, '') AS name,
             ifNull(status, '') AS status,
             ifNull(quarantine_setting, '') AS quarantine_setting,
+            ifNull(test_case_id, '') AS test_case_id,
             parseDateTimeBestEffort(quarantined_at) AS quarantined_at_parsed,
             replaceAll(substring(ifNull(file, ''), 1, length(ifNull(file, '')) - 3), '/', '.') AS module,
             if(parent = 'pytest' AND startsWith(ifNull(classname, ''), concat(module, '.')),

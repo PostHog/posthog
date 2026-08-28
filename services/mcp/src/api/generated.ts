@@ -85042,6 +85042,11 @@ export namespace Schemas {
       age_days: number;
       /** True once age_days exceeds ttl_days: the quarantine has outlived the TTL. */
       overdue: boolean;
+      /**
+         * The Trunk app's page for this test; null when the connected source has no organization slug or the row carries no test case id.
+         * @nullable
+         */
+      trunk_url: string | null;
     }
 
     export interface TrunkQuarantineDebt {

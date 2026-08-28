@@ -55,6 +55,7 @@ const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
             quarantined_at: '2026-05-19T08:00:00Z',
             age_days: 44,
             overdue: true,
+            trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests/test/t-1?repo=PostHog/posthog',
         },
         {
             runner: 'pytest',
@@ -66,6 +67,7 @@ const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
             quarantined_at: '2026-05-25T08:00:00Z',
             age_days: 38,
             overdue: true,
+            trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests/test/t-2?repo=PostHog/posthog',
         },
         {
             runner: 'jest',
@@ -77,6 +79,7 @@ const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
             quarantined_at: '2026-06-23T08:00:00Z',
             age_days: 9,
             overdue: false,
+            trunk_url: null,
         },
     ],
 }

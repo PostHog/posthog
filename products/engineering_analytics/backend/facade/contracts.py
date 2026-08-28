@@ -650,6 +650,8 @@ class TrunkQuarantinedTest:
     quarantined_at: datetime
     age_days: int
     overdue: bool
+    # The Trunk app's page for this test; None when the source has no org slug or the row no id.
+    trunk_url: str | None
 
 
 @dataclass(frozen=True)

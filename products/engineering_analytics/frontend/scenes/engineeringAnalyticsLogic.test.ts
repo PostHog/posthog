@@ -859,6 +859,7 @@ describe('engineeringAnalyticsLogic', () => {
                     quarantined_at: '2026-05-19T08:00:00Z',
                     age_days: 44,
                     overdue: true,
+                    trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests/test/t-1?repo=PostHog/posthog',
                 },
                 {
                     runner: 'jest',
@@ -870,6 +871,7 @@ describe('engineeringAnalyticsLogic', () => {
                     quarantined_at: '2026-06-23T08:00:00Z',
                     age_days: 9,
                     overdue: false,
+                    trunk_url: null,
                 },
             ],
         })
@@ -892,6 +894,7 @@ describe('engineeringAnalyticsLogic', () => {
             quarantinedAt: '2026-05-19T08:00:00Z',
             ageDays: 44,
             overdue: true,
+            trunkUrl: 'https://app.trunk.io/posthog-inc/flaky-tests/test/t-1?repo=PostHog/posthog',
         })
         expect(Object.keys(logic.values.trunkQuarantineTestsByTeam)).toEqual(['team-replay', 'unowned'])
         expect(logic.values.trunkQuarantineTestsByTeam['team-replay'].map((test) => test.nodeid)).toEqual([

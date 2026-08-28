@@ -33,9 +33,9 @@ export function TeamQuarantinedTestsTable({
             // nodeid truncates instead of pushing the table wider than the scene.
             className: 'w-full max-w-0',
             render: (_, row) => (
-                <Tooltip title={row.nodeid}>
+                <Tooltip title={row.trunkUrl ? `${row.nodeid} - open in Trunk` : row.nodeid}>
                     <Link
-                        to={`https://github.com/${repository}/blob/master/${row.file}`}
+                        to={row.trunkUrl ?? `https://github.com/${repository}/blob/master/${row.file}`}
                         target="_blank"
                         targetBlankIcon={false}
                         className="flex max-w-full items-center gap-1 font-mono text-xs"

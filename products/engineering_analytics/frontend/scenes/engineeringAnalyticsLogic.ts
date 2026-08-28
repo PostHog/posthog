@@ -455,6 +455,8 @@ export interface TrunkQuarantinedTestRow {
     quarantinedAt: string
     ageDays: number
     overdue: boolean
+    /** The Trunk app's page for this test; null when the source has no org slug or the row no id. */
+    trunkUrl: string | null
 }
 
 export interface TrunkQuarantineTeamRow {
@@ -1079,6 +1081,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                     quarantinedAt: it.quarantined_at,
                                     ageDays: it.age_days,
                                     overdue: it.overdue,
+                                    trunkUrl: it.trunk_url ?? null,
                                 })
                             ),
                         }
