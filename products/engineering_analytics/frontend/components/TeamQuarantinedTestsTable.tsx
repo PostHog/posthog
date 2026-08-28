@@ -1,3 +1,4 @@
+import { IconExternal } from '@posthog/icons'
 import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -36,9 +37,12 @@ export function TeamQuarantinedTestsTable({
                     <Link
                         to={`https://github.com/${repository}/blob/master/${row.file}`}
                         target="_blank"
-                        className="block max-w-full truncate font-mono text-xs"
+                        targetBlankIcon={false}
+                        className="flex max-w-full items-center gap-1 font-mono text-xs"
                     >
-                        {row.nodeid}
+                        {/* Icon leads so truncating a long nodeid never clips it away. */}
+                        <IconExternal className="shrink-0" />
+                        <span className="truncate">{row.nodeid}</span>
                     </Link>
                 </Tooltip>
             ),
