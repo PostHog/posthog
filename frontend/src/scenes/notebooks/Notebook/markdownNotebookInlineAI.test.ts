@@ -3,6 +3,7 @@ import { ThreadMessage } from 'scenes/max/maxThreadLogic'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 
 import { getInlineAICompletion } from './MarkdownNotebookInlineAI'
+import { getInlineNotebookAIUIContext } from './markdownNotebookRuntime'
 
 const LONG_THINKING =
     'The user wants to add a pie chart to their notebook. I need to create an insight (pie chart) and then ' +
@@ -44,5 +45,25 @@ describe('markdown notebook inline AI completion', () => {
             hasArtifact: true,
             message: 'Updated the notebook.',
         })
+    })
+
+    it('keeps cached binary output out of the notebook AI context', () => {
+        const imageData = 'a'.repeat(120_000)
+        const markdown = `<PythonV2 title="Chart" code="print('chart')" result={{"columns":[],"stdout":"done","media":[{"mime_type":"image/png","data":"${imageData}"}]}} />`
+
+        const uiContext = getInlineNotebookAIUIContext({
+            notebookShortId: 'test-notebook',
+            notebookTitle: 'Test notebook',
+            markdown,
+            conversationId: 'test-conversation',
+        })
+        const contextMarkdown = uiContext?.notebooks?.[0].markdown_with_insertion_placeholder ?? ''
+
+        expect(contextMarkdown).not.toContain(imageData)
+        expect(contextMarkdown.length).toBeLessThan(markdown.length)
+        expect(contextMarkdown).toContain(`code="print('chart')"`)
+        expect(contextMarkdown).toContain('"stdout":"done"')
+        expect(contextMarkdown).not.toContain('"media"')
+        expect(markdown).toContain(imageData)
     })
 })

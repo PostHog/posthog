@@ -5429,14 +5429,8 @@ function MarkdownNotebookEditor({
             conversationId,
             query:
                 source === 'selection' && selectedMarkdown
-                    ? getAskAISelectionQuery(
-                          selectedMarkdown,
-                          query,
-                          responseMarker,
-                          selectedRefId,
-                          markdownWithResponse
-                      )
-                    : getAskAIInlineNotebookQuery(query, responseMarker, markdownWithResponse),
+                    ? getAskAISelectionQuery(selectedMarkdown, query, responseMarker, selectedRefId)
+                    : getAskAIInlineNotebookQuery(query, responseMarker),
             source,
             responseNodeId: nodeId,
             responseNodeIndex,
