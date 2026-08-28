@@ -267,11 +267,13 @@ describe("spawnCodexAppServerProcess", () => {
       access: process.env.CODEX_ACCESS_TOKEN,
       gateway: process.env.POSTHOG_GATEWAY_API_KEY,
       openai: process.env.OPENAI_API_KEY,
+      openaiBaseUrl: process.env.OPENAI_BASE_URL,
       sqliteHome: process.env.CODEX_SQLITE_HOME,
     };
     process.env.CODEX_ACCESS_TOKEN = "old-access-token";
     process.env.POSTHOG_GATEWAY_API_KEY = "old-gateway-key";
     process.env.OPENAI_API_KEY = "old-openai-key";
+    process.env.OPENAI_BASE_URL = "https://api.openai.example/v1";
     mockSpawn.mockReturnValue(fakeChild() as never);
     try {
       spawnCodexAppServerProcess({
@@ -295,12 +297,16 @@ describe("spawnCodexAppServerProcess", () => {
       });
       const gatewayEnv = mockSpawn.mock.lastCall?.[2].env as NodeJS.ProcessEnv;
       expect(gatewayEnv.POSTHOG_GATEWAY_API_KEY).toBe("phk");
+      expect(gatewayEnv.OPENAI_API_KEY).toBeUndefined();
+      expect(gatewayEnv.OPENAI_BASE_URL).toBeUndefined();
+      expect(gatewayEnv.CODEX_ACCESS_TOKEN).toBeUndefined();
       expect(gatewayEnv.CODEX_HOME).toBe("/appdata/codex/run-2");
       expect(gatewayEnv.CODEX_SQLITE_HOME).toBe("/appdata/codex/run-2");
     } finally {
       restoreEnv("CODEX_ACCESS_TOKEN", saved.access);
       restoreEnv("POSTHOG_GATEWAY_API_KEY", saved.gateway);
       restoreEnv("OPENAI_API_KEY", saved.openai);
+      restoreEnv("OPENAI_BASE_URL", saved.openaiBaseUrl);
       restoreEnv("CODEX_SQLITE_HOME", saved.sqliteHome);
     }
   });

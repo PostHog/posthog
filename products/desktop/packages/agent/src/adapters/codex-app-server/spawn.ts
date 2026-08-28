@@ -253,13 +253,16 @@ export function spawnCodexAppServerProcess(
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_NO_ASAR;
   delete env.POSTHOG_GATEWAY_API_KEY;
-  if (options.useMachineAuth) {
-    delete env.CODEX_ACCESS_TOKEN;
-    delete env.CODEX_API_KEY;
-    delete env.OPENAI_API_KEY;
-    delete env.OPENAI_API_BASE;
-    delete env.OPENAI_BASE_URL;
-  }
+  // Codex hands its environment to every shell the exec tools run, so an
+  // ambient provider key would be readable by any script the agent executes.
+  // Neither auth mode needs them: gateway mode pins model_provider to the
+  // PostHog provider (env_key=POSTHOG_GATEWAY_API_KEY), machine auth uses the
+  // ChatGPT login state.
+  delete env.CODEX_ACCESS_TOKEN;
+  delete env.CODEX_API_KEY;
+  delete env.OPENAI_API_KEY;
+  delete env.OPENAI_API_BASE;
+  delete env.OPENAI_BASE_URL;
   if (options.apiKey) {
     env.POSTHOG_GATEWAY_API_KEY = options.apiKey;
   }
