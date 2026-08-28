@@ -275,6 +275,7 @@ export type SidebarNavItem =
   | "command_center"
   | "contexts"
   | "activity"
+  | "canvases"
   | "configure"
   | "loops"
   | "more";
@@ -479,7 +480,6 @@ export interface TaskFeedbackProperties {
 // Onboarding events
 export type OnboardingStepId =
   | "project-select"
-  | "invite-code"
   | "consent"
   | "connect-github"
   | "install-cli"
@@ -517,11 +517,6 @@ export interface OnboardingSignInInitiatedProperties {
 export interface OnboardingProjectSelectedProperties {
   had_multiple_orgs: boolean;
   had_multiple_projects: boolean;
-}
-
-export interface OnboardingInviteCodeSubmittedProperties {
-  success: boolean;
-  error_type?: string;
 }
 
 export interface OnboardingFolderSelectedProperties {
@@ -982,7 +977,8 @@ export type ChannelsSurface =
   | "context"
   | "thread_panel"
   | "activity_panel"
-  | "activity";
+  | "activity"
+  | "canvases_pane";
 
 export type ChannelActionType =
   | "enter_space"
@@ -1124,6 +1120,8 @@ export interface CanvasRuntimeErrorProperties {
    * source fragments, query results, or secrets that must not cross into analytics.
    */
   error_type: string;
+  /** CSP directive only; blocked URLs never cross into analytics. */
+  csp_directive?: string;
 }
 
 export type ContextActionType = "save_version" | "generate_started" | "discard";
@@ -1458,7 +1456,6 @@ export const ANALYTICS_EVENTS = {
   ONBOARDING_STEP_SKIPPED: "Onboarding step skipped",
   ONBOARDING_SIGN_IN_INITIATED: "Onboarding sign in initiated",
   ONBOARDING_PROJECT_SELECTED: "Onboarding project selected",
-  ONBOARDING_INVITE_CODE_SUBMITTED: "Onboarding invite code submitted",
   ONBOARDING_FOLDER_SELECTED: "Onboarding folder selected",
   ONBOARDING_GITHUB_CONNECT_STARTED: "Onboarding github connect started",
   ONBOARDING_GITHUB_CONNECT_FAILED: "Onboarding github connect failed",
@@ -1650,7 +1647,6 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.ONBOARDING_STEP_SKIPPED]: OnboardingStepSkippedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_SIGN_IN_INITIATED]: OnboardingSignInInitiatedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_PROJECT_SELECTED]: OnboardingProjectSelectedProperties;
-  [ANALYTICS_EVENTS.ONBOARDING_INVITE_CODE_SUBMITTED]: OnboardingInviteCodeSubmittedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_FOLDER_SELECTED]: OnboardingFolderSelectedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_STARTED]: OnboardingGithubConnectStartedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_FAILED]: OnboardingGithubConnectFailedProperties;

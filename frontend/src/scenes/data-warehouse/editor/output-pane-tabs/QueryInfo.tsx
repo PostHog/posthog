@@ -18,11 +18,11 @@ import { DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
 import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGraph'
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
-import { DataQualityChecksPanel } from 'products/data_quality/frontend/DataQualityChecksPanel'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { sqlEditorLogic } from '../sqlEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
+import { ViewDataQualityChecks } from './ViewDataQualityChecks'
 
 interface QueryInfoProps {
     tabId: string
@@ -71,13 +71,7 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                 {targetView ? (
                     <>
                         <MaterializationStatusPanel viewId={targetView.id} />
-                        {featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && (
-                            <DataQualityChecksPanel
-                                subjectType="view"
-                                subjectId={targetView.id}
-                                columns={targetView.columns ?? []}
-                            />
-                        )}
+                        {featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && <ViewDataQualityChecks view={targetView} />}
                     </>
                 ) : (
                     <div>

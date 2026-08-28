@@ -149,6 +149,21 @@
         },
         "feature_flag": "customer-analytics-csp"
     },
+    "accounts-meetings-list": {
+        "description": "List synced calendar meetings for one Customer analytics account, newest first. Each meeting includes its title, start and end times, organizer, status, optional Gong call URL, and participants. Each participant includes their email, display name, RSVP status, organizer status, and resolved PostHog person UUID when available. Pass `search` to filter by meeting title, attendee email, or attendee name. The account must be accessible to the caller. Meetings and participants are read-only because they sync from connected calendars.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account meetings",
+        "title": "List account meetings",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "accounts-notebooks-create": {
         "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; in most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list.",
         "category": "Customer analytics",
@@ -3047,7 +3062,7 @@
         }
     },
     "endpoint-create": {
-        "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Materialization is auto-enabled if the query is eligible.",
+        "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Set is_materialized to true to materialize an eligible query.",
         "category": "Endpoints",
         "feature": "endpoints",
         "summary": "Create endpoint",
@@ -5968,7 +5983,7 @@
         "feature": "llm_analytics",
         "summary": "Get clustering config",
         "title": "Get clustering config",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["ai_observability_clusters:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5982,7 +5997,7 @@
         "feature": "llm_analytics",
         "summary": "Set clustering config filters",
         "title": "Set clustering config filters",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["ai_observability_clusters:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5996,7 +6011,7 @@
         "feature": "llm_analytics",
         "summary": "Create clustering job",
         "title": "Create clustering job",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["ai_observability_clusters:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -6010,7 +6025,7 @@
         "feature": "llm_analytics",
         "summary": "Delete clustering job",
         "title": "Delete clustering job",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["ai_observability_clusters:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -6024,7 +6039,7 @@
         "feature": "llm_analytics",
         "summary": "Get clustering job",
         "title": "Get clustering job",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["ai_observability_clusters:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6038,7 +6053,7 @@
         "feature": "llm_analytics",
         "summary": "List clustering jobs",
         "title": "List clustering jobs",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["ai_observability_clusters:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6052,7 +6067,7 @@
         "feature": "llm_analytics",
         "summary": "Update clustering job",
         "title": "Update clustering job",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["ai_observability_clusters:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -12130,7 +12145,7 @@
         "requires_ai_consent": true
     },
     "visual-review-repos-flakiness-retrieve": {
-        "description": "Snapshots in a repo whose rendering cannot be trusted: those carrying a live tolerated variant against their current baseline, and those under an active quarantine. Recency changes an entry's state rather than excluding it, so a snapshot that has been quiet for weeks is still listed. This is the triage view, and it is far smaller than the baselines universe, so start here when asked why a suite is unreliable, which snapshots to quarantine, or which quarantines to lift. Every `totals` field except `listed` covers the whole population even when the entry list is capped; `listed` counts the entries actually returned, so it stops at the cap. Takes no filter parameters: filter the returned entries yourself, and pass `fields` to keep the response small when you only need a few of them.",
+        "description": "Snapshots in a repo whose rendering cannot be trusted: those carrying a live tolerated variant against their current baseline, those that failed the gate on a recent default-branch run, and those under an active quarantine. Recency changes an entry's state rather than excluding it, so a snapshot that has gone quiet is still listed. This is the triage view, and it is far smaller than the baselines universe, so start here when asked why a suite is unreliable, which snapshots to quarantine, or which quarantines to lift. Each entry carries `hard_rate`, the share of recent default-branch runs that failed the gate, and `soft_rate`, the share a toleration absorbed, plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Every `totals` field except `listed` covers the whole population even when the entry list is capped; `listed` counts the entries actually returned, so it stops at the cap. Takes no filter parameters: filter the returned entries yourself, and pass `fields` to keep the response small when you only need a few of them.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Visual review flakiness overview",
