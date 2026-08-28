@@ -30,6 +30,15 @@ class TestSniffImageContentType(SimpleTestCase):
     def test_rejects_malformed_or_non_svg(self, _name, data):
         assert sniff_image_content_type(data) is None
 
+    def test_rejects_a_high_dimension_image_before_decoding_it(self):
+        # 64 megapixels compresses to well under the byte limit but would decode to
+        # tens of megabytes, so the pixel cap must reject it before the decode.
+        buffer = BytesIO()
+        Image.new("L", (8000, 8000)).save(buffer, format="PNG")
+        oversized = buffer.getvalue()
+        assert len(oversized) < 4 * 1024 * 1024
+        assert sniff_image_content_type(oversized) is None
+
     def test_avif_is_decoded_not_trusted_by_signature(self):
         if not features.check("avif"):
             self.skipTest("Pillow build has no AVIF support; the sniffer falls back to the signature")

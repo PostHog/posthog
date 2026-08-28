@@ -14,7 +14,7 @@ from uuid import UUID
 
 import structlog
 import defusedxml.ElementTree as ET
-from PIL import Image, ImageOps, features
+from PIL import Image, features
 
 from posthog.dataclasses import frozen
 from posthog.storage import object_storage
@@ -51,11 +51,21 @@ def canvas_asset_object_key(team_id: int, canvas_id: str | UUID, sha256: str) ->
     return f"canvas_asset/team_{team_id}/{canvas_id}/{sha256}"
 
 
+# Cap the decoded pixel count to bound peak memory. A compressed image well under
+# the byte limit can decode to hundreds of megabytes, which a shared web worker
+# cannot absorb on every upload and read. 50 megapixels (about 7000x7000) is
+# generous for a canvas image and rejects decompression bombs.
+_MAX_IMAGE_PIXELS = 50_000_000
+
+
 def _verify_raster(data: bytes) -> bool:
     try:
-        image = Image.open(BytesIO(data))
-        ImageOps.mirror(image)
-        image.close()
+        with Image.open(BytesIO(data)) as image:
+            # width and height come from the header, so reject an oversized image
+            # before load() decodes every pixel.
+            if image.width * image.height > _MAX_IMAGE_PIXELS:
+                return False
+            image.load()
         return True
     except Exception:
         return False
