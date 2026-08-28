@@ -12,9 +12,9 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
  */
 export function DismissCorrectedRepoField(): JSX.Element | null {
     const { githubIntegrations } = useValues(integrationsLogic)
-    // The team's first GitHub integration, mirroring the backend's selection-source resolution.
-    // Teams with several installations see the first one's repositories only, which covers the
-    // dominant single-installation case without one search logic per installation in a dialog.
+    // The team's first GitHub integration — a convenience list, not the backend's resolution.
+    // A correction teaches the selection agent regardless of whether the named repository is
+    // connected; only the optional "pin as this report's next selection" needs connectivity.
     const integrationId = githubIntegrations[0]?.id
     if (integrationId == null) {
         return null

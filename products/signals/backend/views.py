@@ -2037,28 +2037,46 @@ class SignalReportViewSet(
             self._cached_connected_repositories = set(list_team_connected_repositories(self.team.id))
         return self._cached_connected_repositories
 
-    def _append_corrected_repo_selection(self, report: SignalReport, corrected_repository: str) -> None:
-        """Persist a wrong-repo correction as the report's newest repo_selection artefact.
+    def _apply_wrong_repo_selection(self, report: SignalReport, corrected_repository: str | None) -> None:
+        """Persist a wrong-repo dismissal onto the report's repo_selection history, latest-wins.
 
-        repo_selection resolves latest-wins, so the report's next research run (once new signals
-        re-promote it) targets the corrected repository instead of repeating the selection the
-        dismisser just rejected; restore itself does not re-research. Only written when the
-        repository is currently connected: research clones through the team integration, and an
-        unconnected repository would turn that next research run into a guaranteed clone failure.
-        The correction itself is still recorded on the dismissal artefact either way.
+        Research reuses the report's newest repo_selection whenever it names a repository, so a
+        wrong-repo dismissal must not leave the rejected pick as that newest row. A correction
+        naming a connected repository becomes the new selection: the report's next research run
+        (once new signals re-promote it; restore itself does not re-research) targets it. Any
+        other wrong-repo dismissal (no correction named, or the named repository not connected;
+        research clones through the team integration, so an unconnected target would guarantee a
+        clone failure) clears the selection instead, so the next run re-selects from scratch with
+        the corrections feed in its prompt rather than reusing the rejected pick. The correction
+        itself is recorded on the dismissal artefact either way.
         """
-        if corrected_repository not in self._connected_repositories():
+        corrected_and_connected = (
+            corrected_repository is not None and corrected_repository in self._connected_repositories()
+        )
+        if not corrected_and_connected and self._latest_selected_repository(str(report.id)) is None:
+            # Nothing to clear: with no reusable selection, the next run re-selects anyway.
             return
-        SignalReportArtefact.append_status(
-            team_id=self.team.id,
-            report_id=str(report.id),
-            content=RepoSelectionResult(
+        if corrected_and_connected:
+            content = RepoSelectionResult(
                 repository=corrected_repository,
                 reason="A reviewer dismissed this report as targeting the wrong repository and named this one instead.",
                 # A correction names the repo a person would target; it never signals PR intent, so
                 # it must not outrank an earlier selection's False stamp on the autostart path.
                 autostart_eligible=False,
-            ),
+            )
+        else:
+            content = RepoSelectionResult(
+                repository=None,
+                reason=(
+                    "A reviewer dismissed this report as targeting the wrong repository; "
+                    "the selection is cleared so the next research run picks again."
+                ),
+                autostart_eligible=False,
+            )
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=content,
             attribution=self._request_attribution(),
         )
 
@@ -2087,8 +2105,9 @@ class SignalReportViewSet(
         passed explicitly rather than splatting caller-supplied kwargs.
 
         `corrected_repository` (validated upstream: wrong_repo dismissals only) is recorded on the
-        dismissal artefact, and additionally appended as the report's newest repo_selection artefact
-        when the repository is connected; see `_append_corrected_repo_selection`.
+        dismissal artefact; a wrong-repo dismissal also rewrites the report's newest repo_selection
+        artefact — the corrected repository when connected, cleared otherwise; see
+        `_apply_wrong_repo_selection`.
         """
         target_status = SignalReport.Status(target)
 
@@ -2190,8 +2209,8 @@ class SignalReportViewSet(
                     ),
                     attribution=self._request_attribution(),
                 )
-                if is_wrong_repo and corrected_repository:
-                    self._append_corrected_repo_selection(report, corrected_repository)
+                if is_wrong_repo:
+                    self._apply_wrong_repo_selection(report, corrected_repository)
                 # The dismissal prefetch may have been evaluated before this artefact
                 # existed; drop the stale cache so a follow-up serializer re-reads the
                 # just-written reason/note instead of the previous (or empty) dismissal.

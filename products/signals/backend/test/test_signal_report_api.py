@@ -1653,13 +1653,16 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
     @parameterized.expand(
         [
             # A connected correction becomes the report's newest repo_selection artefact, so the
-            # next research run targets it; an unconnected one is recorded on the dismissal
-            # only, because research cannot clone a repository the team has not connected.
-            ("connected_repo_appends_corrected_selection", True),
-            ("unconnected_repo_records_dismissal_only", False),
+            # next research run targets it. Without a usable correction (unconnected, or none
+            # named) the selection is cleared instead: research reuses the newest selection
+            # whenever it names a repository, so leaving the rejected pick in place would send a
+            # restored report straight back to the repository the reviewer just rejected.
+            ("connected_repo_appends_corrected_selection", "Acme/Checkout", True, "acme/checkout"),
+            ("unconnected_repo_clears_selection", "Acme/Checkout", False, None),
+            ("no_correction_clears_selection", None, False, None),
         ]
     )
-    def test_wrong_repo_dismissal_with_correction(self, _name, corrected_connected):
+    def test_wrong_repo_dismissal_rewrites_selection(self, _name, corrected, corrected_connected, expected_repository):
         report = self._create_report()
         SignalReportArtefact.append_status(
             team_id=self.team.id,
@@ -1668,22 +1671,22 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             attribution=ArtefactAttribution.system(),
         )
         connected = ["acme/website", "acme/checkout"] if corrected_connected else ["acme/website"]
+        payload = {
+            "state": "suppressed",
+            "dismissal_reason": "wrong_repo",
+            "dismissal_note": "belongs in checkout",
+        }
+        if corrected is not None:
+            # Mixed case on purpose: the API normalizes to the lowercase form used
+            # by candidate lists and the connected-repos check.
+            payload["corrected_repository"] = corrected
         with patch(
             "products.tasks.backend.facade.repo_selection.list_team_connected_repositories",
             return_value=connected,
         ):
             response = self.client.post(
                 self._state_url(str(report.id)),
-                data=json.dumps(
-                    {
-                        "state": "suppressed",
-                        "dismissal_reason": "wrong_repo",
-                        "dismissal_note": "belongs in checkout",
-                        # Mixed case on purpose: the API normalizes to the lowercase form used
-                        # by candidate lists and the connected-repos check.
-                        "corrected_repository": "Acme/Checkout",
-                    }
-                ),
+                data=json.dumps(payload),
                 content_type="application/json",
             )
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -1692,22 +1695,19 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         content = json.loads(dismissal.content)
         assert content["reason"] == "wrong_repo"
         assert content["selected_repository"] == "acme/website"
-        assert content["corrected_repository"] == "acme/checkout"
+        assert content["corrected_repository"] == ("acme/checkout" if corrected else None)
 
         selections = list(
             SignalReportArtefact.objects.filter(
                 report=report, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
             ).order_by("created_at")
         )
-        if corrected_connected:
-            assert len(selections) == 2
-            latest = json.loads(selections[-1].content)
-            assert latest["repository"] == "acme/checkout"
-            assert selections[-1].created_by_id == self.user.id
-            # A correction names a target, not PR intent, so it must never grant autostart.
-            assert latest["autostart_eligible"] is False
-        else:
-            assert len(selections) == 1
+        assert len(selections) == 2
+        latest = json.loads(selections[-1].content)
+        assert latest["repository"] == expected_repository
+        assert selections[-1].created_by_id == self.user.id
+        # Neither a correction nor a clear signals PR intent, so autostart must stay off.
+        assert latest["autostart_eligible"] is False
 
     def test_rejects_unknown_state(self):
         report = self._create_report()

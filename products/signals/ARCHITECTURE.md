@@ -897,7 +897,8 @@ The dismissal artefact denormalizes `selected_repository` (the report's latest `
 When the corrected repository is currently connected to the team, the state action also appends it as a user-attributed `repo_selection` artefact, latest-wins.
 Restoring the report does not itself re-research; the appended selection means the report's next research run, once new signals re-promote it, targets the corrected repository instead of repeating the rejected pick.
 The appended selection carries `autostart_eligible=False`: a correction names the repo a person would target, never PR intent, so it must not outrank an earlier selection's False stamp on the autostart path.
-An unconnected correction stays on the dismissal artefact only; the selection override is written just for a repository connected through the team's own GitHub integration.
+A wrong-repo dismissal without a usable correction (none named, or the named repository is not connected through the team's own GitHub integration, which research clones through) instead clears the selection: a user-attributed `repo_selection` with `repository=None` and `autostart_eligible=False`, so research cannot reuse the rejected pick and the report's next run re-selects with the corrections block in its prompt.
+The clear is skipped when the report has no reusable selection to begin with.
 These records feed back into selection: `repo_corrections.wrong_repo_corrections_block` renders the team's recent wrong-repo dismissals (newest first, one per report and one per distinct selected→corrected lesson, so a bulk dismissal cannot flood the block; capped) and `select_repository_for_team` passes the block into the selection agent's prompt on every signals-side selection — see Repository Selection.
 
 #### `SignalReportArtefactViewSet`
