@@ -1306,6 +1306,13 @@ def _resume_task_with_new_run(
     if previous_state.get("slack_thread_url"):
         extra_state["slack_thread_url"] = previous_state["slack_thread_url"]
 
+    # Carry the PR authorship mode forward. Without it, get_pr_authorship_mode re-derives USER for a
+    # Slack-origin task, so a creator with no personal GitHub install dead-ends every follow-up at the
+    # token guard. The first run already resolved the mode (BOT when there is no install), and the
+    # successor must resume under the same identity, like the cloud resume path.
+    if previous_state.get("pr_authorship_mode"):
+        extra_state["pr_authorship_mode"] = previous_state["pr_authorship_mode"]
+
     # A successor launches its own agent server, so the whole triple is open again —
     # including the runtime a live run could never be moved onto. Resolved rather than
     # carried over, like the keys above: a preference changed since the previous run is

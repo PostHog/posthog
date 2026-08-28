@@ -1044,6 +1044,27 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.state["model"] == SLACK_DEFAULT_MODEL
         assert new_run.state["runtime_adapter"]
 
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_a_resumed_run_carries_the_pr_authorship_mode(self, mock_slack_cls, mock_execute_workflow):
+        # `create_run` builds a fresh state, so without the carry-forward the follow-up re-derives
+        # USER authorship for a Slack task. A creator with no personal GitHub install then dead-ends
+        # at the token guard on every follow-up, while the first run ran as BOT.
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.state = {"pr_authorship_mode": "bot"}
+        self.task_run.save()
+        self._create_mapping()
+        mock_slack_cls.return_value = MagicMock()
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> fix the tests", "1234.5679"
+        )
+
+        assert result is True
+        new_run = self.TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"])
+        assert new_run.state["pr_authorship_mode"] == "bot"
+
     @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
     @patch("posthog.models.integration.SlackIntegration")
     def test_forwards_while_sandbox_is_still_provisioning(self, mock_slack_cls, mock_signal):
