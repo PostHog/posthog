@@ -180,13 +180,13 @@ describe('outbound 429 handling', () => {
             vi.useRealTimers()
         })
 
-        it('retries a 522 with backoff and succeeds', async () => {
+        it('retries a read (POST /query/) after a 522 and succeeds', async () => {
             const mockFetch = vi.fn()
             mockFetch.mockResolvedValueOnce(buildTimeout(522))
-            mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }))
+            mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ results: [] }), { status: 200 }))
             vi.stubGlobal('fetch', mockFetch)
 
-            const resultPromise = buildClient().users().me()
+            const resultPromise = buildClient().insights({ projectId: '2' }).query({ query: {} })
             await vi.runAllTimersAsync()
             const result = await resultPromise
 
@@ -211,6 +211,24 @@ describe('outbound 429 handling', () => {
             expect(result.error.message).toContain('Narrow the request')
             expect(result.error.message).not.toContain('error code: 522')
             expect(mockFetch).toHaveBeenCalledTimes(4)
+        })
+
+        it('does not retry a mutating request and reports the write may have applied', async () => {
+            const mockFetch = vi.fn().mockResolvedValue(buildTimeout(504))
+            vi.stubGlobal('fetch', mockFetch)
+
+            const result = await buildClient()
+                .insights({ projectId: '2' })
+                .create({ data: { name: 'x' } })
+
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected failure')
+            }
+            expect((result.error as PostHogApiError).status).toBe(504)
+            expect(result.error.message).toContain('may have already been applied')
+            expect(result.error.message).not.toContain('error code: 504')
+            expect(mockFetch).toHaveBeenCalledTimes(1)
         })
     })
 
