@@ -6636,6 +6636,12 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     /**
+     * Why PostHog changed this table's sync type on its own, or null if it never did. Set when a
+     * sync run proved the configured sync type can't work for the table, such as an incremental
+     * sync on a table with no primary key.
+     */
+    sync_type_fallback_reason?: string | null
+    /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.
      */

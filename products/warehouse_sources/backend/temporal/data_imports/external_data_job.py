@@ -43,6 +43,8 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
     ExternalDataSchema,
+    ResolvedSyncTypeFallback,
+    resolve_incremental_sync_fallback,
     update_should_sync,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -182,6 +184,51 @@ CANCELLED_RUN_MESSAGE = (
     "This sync run was cancelled before it finished. This usually happens when a newer run replaces "
     "it or the source is paused. It will run again on its next schedule."
 )
+
+# These two failures prove an incremental sync can never succeed for a table: it has no primary key
+# to merge rows on, or its primary key does not identify one row. Neither can resolve itself, so
+# disabling the schema leaves the customer to re-configure a table that will break again the moment
+# it is re-enabled. The schema moves to a sync type it can run instead, and `{fallback}` names that
+# sync type once `resolve_incremental_sync_fallback` has chosen it.
+Unsupported_Incremental_Sync_Errors: dict[str, str] = {
+    "Primary key required for incremental syncs": (
+        "This table has no primary key, so it can't sync incrementally. We switched it to {fallback} "
+        "so it keeps syncing. To sync it incrementally, choose a primary key in the table's sync settings."
+    ),
+    "The primary keys for this table are not unique": (
+        "The primary key set for this table isn't unique, so it can't sync incrementally. We switched it "
+        "to {fallback} so it keeps syncing. To sync it incrementally, choose a unique primary key in the "
+        "table's sync settings."
+    ),
+}
+
+
+async def _resolve_unsupported_incremental_sync(
+    schema_id: str,
+    team_id: int,
+    internal_error_normalized: str,
+) -> ResolvedSyncTypeFallback | None:
+    """Move the schema off `incremental` when this run proved the merge can never work.
+
+    Returns None when the error is a different failure, or when the schema is no longer
+    incremental, and the caller then disables the schema as before.
+    """
+    reason_template = next(
+        (
+            template
+            for error, template in Unsupported_Incremental_Sync_Errors.items()
+            if error_message_matches(internal_error_normalized, [error])
+        ),
+        None,
+    )
+    if reason_template is None:
+        return None
+
+    return await database_sync_to_async_pool(resolve_incremental_sync_fallback)(
+        schema_id=schema_id,
+        team_id=team_id,
+        reason_template=reason_template,
+    )
 
 
 def _customer_facing_error(cause: BaseException | None) -> str:
@@ -368,16 +415,27 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
 
-            # Computed after the friendly error so the teardown records the same message
-            # the job will show. Excluding this workflow keeps the disable's teardown from
-            # cancelling the very run that is already finishing through its failure path.
-            await database_sync_to_async_pool(update_should_sync)(
-                schema_id=inputs.schema_id,
-                team_id=inputs.team_id,
-                should_sync=False,
-                disable_error_message=inputs.latest_error or AUTO_DISABLED_JOB_ERROR,
-                disable_exclude_workflow_id=activity.info().workflow_id,
+            fallback = await _resolve_unsupported_incremental_sync(
+                inputs.schema_id, inputs.team_id, internal_error_normalized
             )
+            if fallback is not None:
+                inputs.latest_error = fallback.reason
+                logger.warning(
+                    "Moved schema off incremental sync",
+                    schema_id=inputs.schema_id,
+                    to_sync_type=fallback.to_sync_type,
+                )
+            else:
+                # Computed after the friendly error so the teardown records the same message
+                # the job will show. Excluding this workflow keeps the disable's teardown from
+                # cancelling the very run that is already finishing through its failure path.
+                await database_sync_to_async_pool(update_should_sync)(
+                    schema_id=inputs.schema_id,
+                    team_id=inputs.team_id,
+                    should_sync=False,
+                    disable_error_message=inputs.latest_error or AUTO_DISABLED_JOB_ERROR,
+                    disable_exclude_workflow_id=activity.info().workflow_id,
+                )
 
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,

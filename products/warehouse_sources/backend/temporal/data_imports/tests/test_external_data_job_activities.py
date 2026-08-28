@@ -258,3 +258,153 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
     assert mock_update_should_sync.called is expect_disabled
     customer_message = mock_update_job_status.call_args.kwargs["latest_error"] or ""
     assert ("tries to write to your database" in customer_message) is expect_disabled
+
+
+# transaction=True for the same reason as the tests above: the activity resolves the schema through
+# database_sync_to_async_pool, and the pool thread's connection can't see a test transaction.
+@parameterized.expand(
+    [
+        # No key to merge on. With a cursor column the table can still read forward, so it appends.
+        (
+            "missing_key_with_cursor",
+            "MissingPrimaryKeysException: Primary key required for incremental syncs",
+            {"incremental_field": "updated_at", "incremental_field_type": "datetime"},
+            ExternalDataSchema.SyncType.APPEND,
+            "has no primary key",
+            "append-only sync",
+        ),
+        # No key and no cursor column, so the only sync it can run re-reads the whole table.
+        (
+            "missing_key_without_cursor",
+            "MissingPrimaryKeysException: Primary key required for incremental syncs",
+            {},
+            ExternalDataSchema.SyncType.FULL_REFRESH,
+            "has no primary key",
+            "full table replication",
+        ),
+        # A key that does not identify one row. Redshift does not enforce primary keys, so a
+        # declared or inferred key can hold duplicates and the merge can never match rows.
+        (
+            "duplicate_key",
+            "DuplicatePrimaryKeysException: The primary keys for this table are not unique. "
+            "Primary keys being used are: ['id']",
+            {"incremental_field": "updated_at", "primary_key_columns": ["id"]},
+            ExternalDataSchema.SyncType.APPEND,
+            "isn't unique",
+            "append-only sync",
+        ),
+    ]
+)
+@pytest.mark.django_db(transaction=True)
+def test_incremental_sync_that_can_never_merge_falls_back_instead_of_disabling(
+    _name: str,
+    internal_error: str,
+    sync_type_config: dict,
+    expected_sync_type: str,
+    expected_cause: str,
+    expected_fallback_label: str,
+) -> None:
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    source = ExternalDataSource.objects.create(team=team, source_type=ExternalDataSourceType.REDSHIFT.value)
+    schema = ExternalDataSchema.objects.create(
+        team=team,
+        source=source,
+        name="table",
+        should_sync=True,
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config=sync_type_config,
+    )
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+    )
+
+    env = ActivityEnvironment()
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id=str(job.id),
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        status=ExternalDataJob.Status.FAILED,
+        internal_error=internal_error,
+        latest_error=internal_error,
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.capture_exception"),
+        mock.patch("posthoganalytics.capture"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_should_sync"
+        ) as mock_update_should_sync,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+        ) as mock_update_job_status,
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    mock_update_should_sync.assert_not_called()
+    schema.refresh_from_db()
+    assert schema.sync_type == expected_sync_type
+    assert schema.should_sync is True
+
+    # The reason has to name the sync type the table actually moved to, not just restate the
+    # failure, or the operator can't tell what their table is doing now.
+    reason = schema.sync_type_fallback_reason or ""
+    assert expected_cause in reason
+    assert expected_fallback_label in reason
+    assert reason == mock_update_job_status.call_args.kwargs["latest_error"]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_missing_primary_key_on_a_non_incremental_schema_still_disables() -> None:
+    # Nothing to fall back to when the schema is already on a sync type that needs no key, so the
+    # failure is a real one the customer has to look at.
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    source = ExternalDataSource.objects.create(team=team, source_type=ExternalDataSourceType.REDSHIFT.value)
+    schema = ExternalDataSchema.objects.create(
+        team=team,
+        source=source,
+        name="table",
+        should_sync=True,
+        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+    )
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+    )
+
+    env = ActivityEnvironment()
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id=str(job.id),
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        status=ExternalDataJob.Status.FAILED,
+        internal_error="MissingPrimaryKeysException: Primary key required for incremental syncs",
+        latest_error="Primary key required for incremental syncs",
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.capture_exception"),
+        mock.patch("posthoganalytics.capture"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_should_sync"
+        ) as mock_update_should_sync,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+        ),
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    mock_update_should_sync.assert_called_once()
+    schema.refresh_from_db()
+    assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+    assert schema.sync_type_fallback_reason is None

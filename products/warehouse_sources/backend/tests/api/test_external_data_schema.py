@@ -529,6 +529,7 @@ class TestExternalDataSchema(APIBaseTest):
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
             sync_time_of_day="12:00:00",
+            sync_type_config={"sync_type_fallback_reason": "This table has no primary key"},
         )
 
         with (
@@ -550,6 +551,8 @@ class TestExternalDataSchema(APIBaseTest):
             schema.refresh_from_db()
             assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+            # The recorded reason explained a sync type PostHog picked, so choosing one clears it.
+            assert schema.sync_type_fallback_reason is None
 
     def test_update_schema_sync_type_is_logged_to_activity(self):
         source = ExternalDataSource.objects.create(

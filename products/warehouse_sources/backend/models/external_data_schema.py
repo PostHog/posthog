@@ -535,6 +535,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def sync_type_fallback_reason(self) -> str | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("sync_type_fallback_reason", None)
+
+        return None
+
+    @property
     def chunk_size_override(self) -> int | None:
         if self.sync_type_config:
             return self.sync_type_config.get("chunk_size_override", None)
@@ -1104,6 +1111,60 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
     return (
         ExternalDataSchema.objects.prefetch_related("source").exclude(deleted=True).get(id=schema_id, team_id=team_id)
     )
+
+
+@frozen
+class ResolvedSyncTypeFallback:
+    """The outcome of moving a schema off an incremental sync it can never run."""
+
+    to_sync_type: str
+    reason: str
+
+
+# How each fallback sync type is named to a customer. The stored enum values ("append",
+# "full_refresh") are internal, and the sync settings UI offers these labels instead.
+_SYNC_TYPE_FALLBACK_LABELS = {
+    ExternalDataSchemaSyncType.APPEND: "append-only sync",
+    ExternalDataSchemaSyncType.FULL_REFRESH: "full table replication",
+}
+
+
+def resolve_incremental_sync_fallback(
+    schema_id: str,
+    team_id: int,
+    reason_template: str,
+) -> ResolvedSyncTypeFallback | None:
+    """Move a schema off `incremental` when a run proved the merge can never work.
+
+    An incremental sync merges rows on a primary key. A table with no key, or with a key that does
+    not identify one row, fails the same way on every run, so leaving the schema on `incremental`
+    only reproduces the failure. `append` keeps reading from the stored cursor when the schema has
+    an incremental field. Without one the table has to be re-read in full.
+
+    `reason_template` takes a `{fallback}` placeholder because the customer-facing reason has to
+    name the sync type the table actually moved to, which is only known here. The formatted reason
+    is persisted so the sync settings UI can show why the sync type changed.
+
+    Returns None when the schema is no longer incremental, so a concurrent edit that already chose
+    a sync type wins instead of being overwritten.
+    """
+    schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
+    if schema.sync_type != ExternalDataSchema.SyncType.INCREMENTAL:
+        return None
+
+    target = (
+        ExternalDataSchema.SyncType.APPEND
+        if (schema.sync_type_config or {}).get("incremental_field")
+        else ExternalDataSchema.SyncType.FULL_REFRESH
+    )
+    reason = reason_template.format(fallback=_SYNC_TYPE_FALLBACK_LABELS[target])
+    update_sync_type_config_keys(
+        schema_id,
+        team_id,
+        updates={"sync_type_fallback_reason": reason},
+        extra_model_fields={"sync_type": target},
+    )
+    return ResolvedSyncTypeFallback(to_sync_type=target.value, reason=reason)
 
 
 def update_should_sync(
