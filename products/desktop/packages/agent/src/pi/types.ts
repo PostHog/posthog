@@ -3,6 +3,7 @@ import type {
   ExtensionError,
   RpcClient,
   RpcExtensionUIRequest,
+  RpcExtensionUIResponse,
   RpcSessionState,
 } from "@earendil-works/pi-coding-agent";
 import { z } from "zod";
@@ -60,6 +61,7 @@ export type PiExtensionError = ExtensionError & {
 };
 
 export type PiExtensionEvent = RpcExtensionUIRequest | PiExtensionError;
+export type PiExtensionSessionEvent = PiExtensionEvent | RpcExtensionUIResponse;
 
 const extensionRequestBase = {
   type: z.literal("extension_ui_request"),
@@ -157,9 +159,34 @@ const piExtensionErrorSchema = z.looseObject({
   stack: z.string().optional(),
 });
 
+export const piExtensionUIResponseSchema = z
+  .union([
+    z.looseObject({
+      type: z.literal("extension_ui_response"),
+      id: z.string(),
+      value: z.string(),
+    }),
+    z.looseObject({
+      type: z.literal("extension_ui_response"),
+      id: z.string(),
+      confirmed: z.boolean(),
+    }),
+    z.looseObject({
+      type: z.literal("extension_ui_response"),
+      id: z.string(),
+      cancelled: z.literal(true),
+    }),
+  ])
+  .transform((response): RpcExtensionUIResponse => response);
+
 export const piExtensionEventSchema = z.union([
   piExtensionUIRequestSchema,
   piExtensionErrorSchema,
+]);
+
+export const piExtensionSessionEventSchema = z.union([
+  piExtensionEventSchema,
+  piExtensionUIResponseSchema,
 ]);
 
 export type PiSessionStats = Awaited<ReturnType<RpcClient["getSessionStats"]>>;

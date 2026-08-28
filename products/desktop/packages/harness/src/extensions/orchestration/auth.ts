@@ -150,6 +150,7 @@ export async function createSubagentModelRuntime(
   modelRuntime.registerProvider(model.provider, {
     baseUrl: model.baseUrl,
     api: model.api,
+    apiKey,
     headers,
     models: [
       {

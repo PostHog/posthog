@@ -3,7 +3,6 @@ import type {
   ExtensionFactory,
   InlineExtension,
 } from "@earendil-works/pi-coding-agent";
-import { createBackgroundJobsExtension } from "./background-jobs/extension";
 import {
   HARNESS_EXTENSION_ENTRYPOINTS,
   type HarnessExtensionName,
@@ -35,7 +34,6 @@ const EXTENSIONS: HarnessExtension[] = [
   { name: "hog-branding", create: createHogBrandingExtension },
   { name: "posthog-provider", create: createPosthogProviderExtension },
   { name: "product-engineer", create: () => createProductEngineerExtension() },
-  { name: "background-jobs", create: () => createBackgroundJobsExtension() },
   { name: "orchestration", create: () => createOrchestrationExtension() },
   { name: "web-access", create: createWebAccessExtension },
   {

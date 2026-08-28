@@ -261,7 +261,11 @@ export function registerWorkflowTool(pi: ExtensionAPI): void {
               onAgentEnd(event) {
                 const entry = snapshot.agents.find((a) => a.id === event.id);
                 if (entry) {
-                  entry.status = event.ok ? "done" : "error";
+                  entry.status = event.aborted
+                    ? "aborted"
+                    : event.ok
+                      ? "done"
+                      : "error";
                   entry.resultPreview = previewOf(event.result);
                 }
                 publish();
@@ -302,7 +306,10 @@ export function registerWorkflowTool(pi: ExtensionAPI): void {
           };
         } catch (error) {
           snapshot.done = true;
-          if (signal?.aborted) throw new Error("Workflow was aborted");
+          if (signal?.aborted) {
+            publish();
+            throw new Error("Workflow was canceled");
+          }
           return workflowError(
             snapshot,
             `Workflow failed: ${error instanceof Error ? error.message : String(error)}`,

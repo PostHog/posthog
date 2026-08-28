@@ -59,6 +59,9 @@ function readWorkflowStatus(
   if (value === "error") {
     return "failed";
   }
+  if (value === "aborted") {
+    return "pending";
+  }
   return "in_progress";
 }
 
@@ -147,7 +150,10 @@ function readSubagentDetails(
       key: result.runId ?? String(index),
       label: result.agent,
       status: readSubagentStatus(result),
-      detail: [result.model, task].filter(Boolean).join(" · "),
+      detail: [result.model, task, result.errorMessage ?? result.resultText]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => compactOrchestrationText(value))
+        .join(" · "),
     };
   });
   const singleAgent = parsed.data.results[0]?.agent;
@@ -169,14 +175,21 @@ function agentCount(count: number): string {
 }
 
 function activeSummary(view: PiOrchestrationViewModel): string {
-  const { running, completed } = view.counts;
+  const { running, completed, failed } = view.counts;
+  const finished: string[] = [];
+  if (completed > 0) {
+    finished.push(`${completed} completed`);
+  }
+  if (failed > 0) {
+    finished.push(`${failed} failed`);
+  }
+  const finishedSuffix =
+    finished.length > 0 ? ` · ${finished.join(" · ")}` : "";
   if (running > 1) {
-    const completedSuffix = completed > 0 ? ` · ${completed} completed` : "";
-    return `${running} agents running in parallel${completedSuffix}`;
+    return `${running} agents running in parallel${finishedSuffix}`;
   }
   if (running === 1) {
-    const completedSuffix = completed > 0 ? ` · ${completed} completed` : "";
-    return `1 agent running${completedSuffix}`;
+    return `1 agent running${finishedSuffix}`;
   }
   if (view.phase) {
     return `Running ${view.phase}`;

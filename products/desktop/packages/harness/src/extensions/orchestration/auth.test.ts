@@ -145,23 +145,37 @@ describe("resolveModelAuthWithFallback", () => {
 });
 
 describe("createSubagentModelRuntime", () => {
-  it("creates an isolated runtime with the resolved model and credentials", async () => {
-    const model = makeModel({ provider: "posthog", id: "claude-sonnet" });
-    const result = await createSubagentModelRuntime({
-      model,
-      apiKey: "secret-key",
-      headers: { "X-Test": "value" },
-    });
+  it.each([
+    {
+      provider: "posthog",
+      id: "claude-sonnet",
+      api: "anthropic-messages" as const,
+    },
+    {
+      provider: "openai-codex",
+      id: "gpt-5-codex",
+      api: "openai-codex-responses" as const,
+    },
+  ])(
+    "creates an isolated $provider runtime with delegated credentials",
+    async ({ provider, id, api }) => {
+      const model = makeModel({ provider, id, api });
+      const result = await createSubagentModelRuntime({
+        model,
+        apiKey: "secret-key",
+        headers: { "X-Test": "value" },
+      });
 
-    expect(result.model.provider).toBe("posthog");
-    expect(result.model.id).toBe("claude-sonnet");
-    expect(await result.modelRuntime.getAuth(result.model)).toEqual(
-      expect.objectContaining({
-        auth: expect.objectContaining({
-          apiKey: "secret-key",
-          headers: { "X-Test": "value" },
+      expect(result.model.provider).toBe(provider);
+      expect(result.model.id).toBe(id);
+      expect(await result.modelRuntime.getAuth(result.model)).toEqual(
+        expect.objectContaining({
+          auth: expect.objectContaining({
+            apiKey: "secret-key",
+            headers: { "X-Test": "value" },
+          }),
         }),
-      }),
-    );
-  });
+      );
+    },
+  );
 });

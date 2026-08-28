@@ -82,6 +82,13 @@ describe("CloudPiSessionClient", () => {
     const onEvent = vi.fn();
     session.onExtensionEvent(onEvent, vi.fn());
 
+    expect(cloud.client.watch).toHaveBeenCalledWith({
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://us.posthog.com",
+      teamId: 1,
+    });
+
     const request = {
       type: "extension_ui_request" as const,
       id: "widget-1",
@@ -134,6 +141,71 @@ describe("CloudPiSessionClient", () => {
       method: "pi/rpc",
       params: { command: response },
     });
+  });
+
+  it("restores only unresolved extension requests from a cloud snapshot", () => {
+    const cloud = createCloudTaskClient();
+    const session = new CloudPiSessionClient(
+      cloud.client,
+      context("in_progress"),
+    );
+    const onEvent = vi.fn();
+    session.onExtensionEvent(onEvent, vi.fn());
+
+    const pendingRequest = {
+      type: "extension_ui_request",
+      id: "pending",
+      method: "confirm",
+      title: "Continue?",
+      message: "Proceed?",
+    };
+    const resolvedRequest = {
+      ...pendingRequest,
+      id: "resolved",
+    };
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "snapshot",
+      status: "in_progress",
+      newEntries: [
+        {
+          type: "pi_extension_event",
+          notification: {
+            method: "_posthog/pi_extension_event",
+            params: pendingRequest,
+          },
+        },
+        {
+          type: "pi_extension_event",
+          notification: {
+            method: "_posthog/pi_extension_event",
+            params: resolvedRequest,
+          },
+        },
+        {
+          type: "pi_extension_event",
+          notification: {
+            method: "_posthog/pi_extension_event",
+            params: {
+              type: "extension_ui_response",
+              id: "resolved",
+              confirmed: true,
+            },
+          },
+        },
+      ],
+      totalEntryCount: 3,
+    });
+
+    expect(onEvent).toHaveBeenCalledTimes(2);
+    expect(onEvent).toHaveBeenCalledWith(pendingRequest);
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "extension_ui_response",
+      id: "resolved",
+      confirmed: true,
+    });
+    expect(onEvent).not.toHaveBeenCalledWith(resolvedRequest);
   });
 
   it("relays MCP permission requests and responses through the cloud task", async () => {

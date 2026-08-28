@@ -180,6 +180,42 @@ describe("ToolCallBlock routing", () => {
     },
   );
 
+  it("shows a failed parallel child reason while other agents continue", () => {
+    renderBlock(
+      {
+        toolCallId: "tc-partial-subagent-failure",
+        title: "subagent",
+        kind: "other",
+        status: "in_progress",
+        details: {
+          mode: "parallel",
+          results: [
+            {
+              runId: "run-1",
+              agent: "Explore",
+              task: "Inspect the API",
+              state: "failed",
+              errorMessage: "Authentication failed",
+            },
+            {
+              runId: "run-2",
+              agent: "Plan",
+              task: "Review the UI",
+              state: "running",
+            },
+          ],
+        },
+      },
+      undefined,
+      false,
+    );
+
+    expect(
+      screen.getByText("· 1 agent running · 1 failed"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Authentication failed/)).toBeInTheDocument();
+  });
+
   it("summarizes a completed workflow while its details are collapsed", () => {
     renderBlock({
       toolCallId: "tc-completed-workflow",

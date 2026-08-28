@@ -168,6 +168,25 @@ describe("runWorkflowScript", () => {
     expect(task).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [undefined, /args must be an object/],
+    [["repository"], /args must be an object/],
+    [{ other: "value" }, /missing declared input.*repository/],
+  ])(
+    "rejects missing strict-plan inputs before running children",
+    async (args, expectedError) => {
+      const task = vi.fn();
+      await expect(
+        runWorkflowScript(
+          `const meta = { name: 'x', inputs: ['repository'], phases: [{ title: 'Scan', inputs: ['repository'], produces: ['inventory'] }], synthesis: { phase: 'Scan', inputs: ['repository'], produces: ['inventory'] } }; phase('Scan'); return await agent('x', { inputs: ['repository'], produces: 'inventory' })`,
+          options({ args }),
+          hooks(task),
+        ),
+      ).rejects.toThrow(expectedError);
+      expect(task).not.toHaveBeenCalled();
+    },
+  );
+
   it("keeps legacy scripts compatible without phase declarations", async () => {
     await expect(
       runWorkflowScript(
@@ -201,7 +220,7 @@ describe("runWorkflowScript", () => {
         label: "first",
         phase: "Scan",
       }),
-      undefined,
+      expect.any(AbortSignal),
     );
   });
 
@@ -234,7 +253,7 @@ describe("runWorkflowScript", () => {
         produces: "route-audit",
         prompt: expect.stringContaining("Workflow context:"),
       }),
-      undefined,
+      expect.any(AbortSignal),
     );
     expect(runAgentTask.mock.calls[0][0].prompt).toContain("Output contract:");
   });
@@ -284,6 +303,39 @@ describe("runWorkflowScript", () => {
       "echo: verify echo: scan b/b/1",
     ]);
     expect(outcome.agentCount).toBe(4);
+  });
+
+  it("cancels an unawaited pipeline before a later stage can start", async () => {
+    const requests: string[] = [];
+    const onAgentEnd = vi.fn();
+    const execution = runWorkflowScript(
+      `pipeline(['item'],
+         () => agent('first'),
+         () => agent('second'),
+       )
+       return 'done'`,
+      options(),
+      hooks(
+        async ({ task }, signal) => {
+          requests.push(task);
+          await new Promise<void>((_resolve, reject) => {
+            signal?.addEventListener(
+              "abort",
+              () => reject(new Error("aborted")),
+              { once: true },
+            );
+          });
+          return { output: "unreachable" };
+        },
+        { onAgentEnd },
+      ),
+    );
+
+    await expect(execution).rejects.toThrow("await every operation");
+    expect(requests).toEqual(["first"]);
+    expect(onAgentEnd).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: false, aborted: true }),
+    );
   });
 
   it("nulls out a pipeline item whose stage fails, others continue", async () => {
@@ -428,7 +480,7 @@ describe("runWorkflowScript", () => {
       );
       expect(runAgentTask).toHaveBeenCalledWith(
         expect.objectContaining({ model: "strong" }),
-        undefined,
+        expect.any(AbortSignal),
       );
     });
 
@@ -443,7 +495,7 @@ describe("runWorkflowScript", () => {
       );
       expect(runAgentTask).toHaveBeenCalledWith(
         expect.objectContaining({ model: undefined }),
-        undefined,
+        expect.any(AbortSignal),
       );
     });
 

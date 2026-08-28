@@ -1,6 +1,6 @@
 import type { PiRemoteRpcClient } from "@posthog/agent/pi/remote-rpc-client";
 import type {
-  PiExtensionEvent,
+  PiExtensionSessionEvent,
   PiNativeModelInfo,
   PiPersistedSessionConfig,
   PiQueueSnapshot,
@@ -99,7 +99,7 @@ export interface PiSession {
     decision: McpToolPermissionDecision,
   ): Promise<void>;
   onExtensionEvent?(
-    onEvent: (event: PiExtensionEvent) => void,
+    onEvent: (event: PiExtensionSessionEvent) => void,
     onError: (error: unknown) => void,
     onComplete?: () => void,
   ): () => void;

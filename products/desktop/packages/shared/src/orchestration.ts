@@ -17,6 +17,7 @@ export const piSubagentRunDetailsSchema = z.object({
   model: z.string().optional(),
   stopReason: z.string().optional(),
   errorMessage: z.string().optional(),
+  resultText: z.string().optional(),
 });
 
 export const piSubagentToolDetailsSchema = z.object({
@@ -25,7 +26,12 @@ export const piSubagentToolDetailsSchema = z.object({
 });
 export type PiSubagentToolDetails = z.infer<typeof piSubagentToolDetailsSchema>;
 
-export const workflowAgentStateSchema = z.enum(["running", "done", "error"]);
+export const workflowAgentStateSchema = z.enum([
+  "running",
+  "done",
+  "error",
+  "aborted",
+]);
 export type WorkflowAgentState = z.infer<typeof workflowAgentStateSchema>;
 
 export const piWorkflowAgentDetailsSchema = z.object({

@@ -7,6 +7,7 @@ import {
   DefaultResourceLoader,
   type ExtensionContext,
   getAgentDir,
+  ProjectTrustStore,
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
@@ -50,7 +51,11 @@ function inheritsParentProjectTrust(
       relativePath === ".." ||
       relativePath.startsWith(`..${sep}`) ||
       isAbsolute(relativePath);
-    return !outsideParent;
+    if (outsideParent) {
+      return false;
+    }
+
+    return new ProjectTrustStore(getAgentDir()).get(childDirectory) !== false;
   } catch {
     return false;
   }
@@ -72,6 +77,7 @@ export interface SingleRunResult {
   task: string;
   state: AgentRunState;
   messages: Message[];
+  resultText?: string;
   usage: UsageStats;
   model?: string;
   stopReason?: string;
@@ -255,9 +261,11 @@ export async function runAgent(
     }
 
     const { model, modelRuntime } = await createSubagentModelRuntime(modelAuth);
-    const settingsManager = SettingsManager.inMemory(undefined, {
-      projectTrusted,
-    });
+    const settingsManager = SettingsManager.create(
+      workingDirectory,
+      getAgentDir(),
+      { projectTrusted },
+    );
     const wantsWebAccess =
       options.includeWebAccess ??
       effectiveAgent.tools?.some(
@@ -273,6 +281,7 @@ export async function runAgent(
       agentDir: getAgentDir(),
       settingsManager,
       noExtensions: true,
+      noContextFiles: !projectTrusted,
       extensionFactories,
       systemPrompt,
     });
@@ -338,14 +347,10 @@ export async function runAgent(
     return result;
   } finally {
     result.endedAt = Date.now();
-    // Every early-return failure/abort path funnels through here, so emit the
-    // terminal snapshot once — otherwise a consumer's activeResults keeps a
-    // stale "running" partial until sibling runs finish. Runs before the
-    // registry cleanup so it can't re-add the entry after removeAgentRun.
     try {
       emitUpdate();
     } catch {
-      /* status emission is best-effort; never fail the run over it */
+      // Status updates must not replace the run result.
     }
     signal?.removeEventListener("abort", onAbort);
     unsubscribeSession?.();

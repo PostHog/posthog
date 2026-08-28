@@ -245,8 +245,17 @@ if (!report) throw new Error('Synthesis failed')
 return report
 ```
 
+Top-level `meta.inputs` names map to keys in the workflow tool's `args` object. For example, a plan with `inputs: ['repository']` requires this tool argument:
+
+```javascript
+args: { repository: cwd }
+```
+
+The runtime rejects non-object `args` and missing declared keys before it starts an agent.
+
 Strict-plan rules:
 
+- Pass every top-level `meta.inputs` value through a matching `args` key.
 - Call declared phases once and in order.
 - Use artifact-name arrays for `inputs`.
 - Give every agent a unique `label` and a specific `objective`.
@@ -268,7 +277,7 @@ Use dynamic phases only when the phase graph genuinely depends on runtime findin
 | `publish(name, value)` | Publishes a declared artifact from JavaScript. Available only in strict declared-plan workflows. |
 | `log(message)` | Adds a workflow-level log line. |
 | `parseJson(text)` | Extracts JSON from text with optional fences or surrounding prose. Prefer `schema` for agent outputs. |
-| `args` | The JSON value supplied through the tool call's `args`. |
+| `args` | The JSON value supplied through the tool call's `args`. Strict plans require an object with every declared `meta.inputs` key. |
 | `cwd` | The workflow working directory. |
 
 Scripts use plain JavaScript. Standard globals such as `JSON`, `Math`, `Array`, and `Object` are available. TypeScript, module imports, `require`, direct filesystem APIs, network APIs, and timers are unavailable. Agents perform real work only through the tools configured for their persona.

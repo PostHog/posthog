@@ -152,7 +152,7 @@ function renderSingle(
   expanded: boolean,
 ) {
   const icon = statusIcon(theme, result);
-  const finalOutput = getFinalOutput(result.messages);
+  const finalOutput = result.resultText ?? getFinalOutput(result.messages);
   const usageStr = formatUsageStats(result.usage, result.model);
 
   if (!expanded) {
@@ -243,9 +243,7 @@ export function renderSubagentResult(
   const successCount = results.filter(
     (result) => result.state === "completed",
   ).length;
-  const running = results.filter(
-    (result) => result.state === "running",
-  ).length;
+  const running = results.filter((result) => result.state === "running").length;
   const status =
     running > 0
       ? `${successCount}/${results.length} done, ${running} running`

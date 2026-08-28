@@ -182,6 +182,57 @@ return { count: inv.files.length }`,
     );
   });
 
+  it("publishes canceled agent state before an aborted workflow exits", async () => {
+    const controller = new AbortController();
+    runAgentMock.mockImplementation(
+      ({
+        signal,
+        onUpdate,
+      }: {
+        signal: AbortSignal;
+        onUpdate: (result: SingleRunResult) => void;
+      }) => {
+        const running = successResult({ state: "running" });
+        onUpdate(running);
+        return new Promise<SingleRunResult>((resolve) => {
+          signal.addEventListener(
+            "abort",
+            () =>
+              resolve(
+                successResult({
+                  state: "aborted",
+                  stopReason: "aborted",
+                  errorMessage: "Subagent was aborted",
+                }),
+              ),
+            { once: true },
+          );
+        });
+      },
+    );
+    const execute = await getExecute();
+    const onUpdate = vi.fn();
+    const execution = execute(
+      "id",
+      { script: "return await agent('slow', { label: 'worker' })" },
+      controller.signal,
+      onUpdate,
+      fakeCtx,
+    );
+
+    await vi.waitFor(() => expect(runAgentMock).toHaveBeenCalledOnce());
+    controller.abort();
+
+    await expect(execution).rejects.toThrow("Workflow was canceled");
+    expect(onUpdate).toHaveBeenCalledWith({
+      content: [],
+      details: expect.objectContaining({
+        done: true,
+        agents: [expect.objectContaining({ status: "aborted" })],
+      }),
+    });
+  });
+
   it.each([
     ["strong", "gpt-5.6-sol"],
     ["medium", "gpt-5.6-terra"],

@@ -93,6 +93,18 @@ function errorResult(
   };
 }
 
+function toToolRunResult(result: SingleRunResult): SingleRunResult {
+  const resultText =
+    result.state === "running"
+      ? undefined
+      : truncateForModel(getResultOutput(result));
+  return {
+    ...result,
+    messages: [],
+    ...(resultText ? { resultText } : {}),
+  };
+}
+
 export function registerSubagentTool(pi: ExtensionAPI): void {
   pi.registerTool(
     defineTool({
@@ -140,27 +152,6 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           );
         }
 
-        const requestedNames = new Set<string>();
-        for (const t of params.tasks ?? []) requestedNames.add(t.agent);
-        if (params.agent) requestedNames.add(params.agent);
-
-        const requestedAgents = Array.from(requestedNames)
-          .map(findAgent)
-          .filter((a): a is AgentConfig => Boolean(a));
-
-        const gate = await gateProjectAgents({
-          ctx,
-          requestedAgents,
-          projectAgentsDir: discovery.projectAgentsDir,
-          confirmProjectAgents: params.confirmProjectAgents,
-        });
-        if (!gate.allowed) {
-          return errorResult(
-            gate.reason ?? "Refused to run project-local agents.",
-            mode,
-          );
-        }
-
         if (
           hasTasks &&
           params.tasks &&
@@ -188,6 +179,29 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           );
         }
 
+        const requestedNames = new Set<string>();
+        for (const task of params.tasks ?? []) {
+          requestedNames.add(task.agent);
+        }
+        if (params.agent) {
+          requestedNames.add(params.agent);
+        }
+        const requestedAgents = Array.from(requestedNames)
+          .map(findAgent)
+          .filter((candidate): candidate is AgentConfig => Boolean(candidate));
+        const gate = await gateProjectAgents({
+          ctx,
+          requestedAgents,
+          projectAgentsDir: discovery.projectAgentsDir,
+          confirmProjectAgents: params.confirmProjectAgents,
+        });
+        if (!gate.allowed) {
+          return errorResult(
+            gate.reason ?? "Refused to run project-local agents.",
+            mode,
+          );
+        }
+
         const publishUpdate = (
           updateMode: SubagentToolDetails["mode"],
           results: SingleRunResult[],
@@ -196,10 +210,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
             content: [],
             details: {
               mode: updateMode,
-              results: results.map((result) => ({
-                ...result,
-                messages: [],
-              })),
+              results: results.map(toToolRunResult),
             },
           });
         };
@@ -238,10 +249,10 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
 
             return {
               content: [{ type: "text", text: formatParallelSummary(results) }],
-              details: { mode: "parallel", results },
-              // Mirror single mode: a batch where every task failed is an error,
-              // so the tool row renders as failed rather than completed. Partial
-              // success stays non-error.
+              details: {
+                mode: "parallel",
+                results: results.map(toToolRunResult),
+              },
               ...(results.length > 0 && results.every(isFailedResult)
                 ? { isError: true }
                 : {}),
@@ -269,7 +280,10 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
                   text: `Agent ${result.stopReason || "failed"}: ${truncateForModel(getResultOutput(result))}`,
                 },
               ],
-              details: { mode: "single", results: [result] },
+              details: {
+                mode: "single",
+                results: [toToolRunResult(result)],
+              },
               isError: true,
             };
           }
@@ -281,7 +295,10 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
                 text: truncateForModel(getResultOutput(result)),
               },
             ],
-            details: { mode: "single", results: [result] },
+            details: {
+              mode: "single",
+              results: [toToolRunResult(result)],
+            },
           };
         };
 

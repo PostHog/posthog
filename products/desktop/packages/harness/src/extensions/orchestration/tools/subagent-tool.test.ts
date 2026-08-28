@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -170,6 +173,7 @@ describe("subagent tool", () => {
     )) as {
       isError?: boolean;
       content: Array<{ text: string }>;
+      details: { results: SingleRunResult[] };
     };
     expect(runAgentMock).toHaveBeenCalledTimes(1);
     expect(onUpdate).toHaveBeenCalledWith({
@@ -187,6 +191,10 @@ describe("subagent tool", () => {
     });
     expect(result.isError).toBeUndefined();
     expect(result.content[0].text).toBe("done");
+    expect(result.details.results[0]).toMatchObject({
+      messages: [],
+      resultText: "done",
+    });
   });
 
   it("reports failure when runAgent returns a failed result", async () => {
@@ -210,6 +218,39 @@ describe("subagent tool", () => {
     };
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toMatch(/boom/);
+  });
+
+  it("validates project-agent calls before requesting approval", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "posthog-subagent-validation-"));
+    try {
+      const agentsDirectory = join(cwd, ".pi", "agents");
+      mkdirSync(agentsDirectory, { recursive: true });
+      writeFileSync(
+        join(agentsDirectory, "Worker.md"),
+        `---\nname: Worker\ndescription: Test worker\ntools: read\n---\n`,
+      );
+      const confirm = vi.fn(async () => true);
+      const execute = await getExecute();
+      const result = (await execute(
+        "id",
+        {
+          agentScope: "both",
+          tasks: Array.from({ length: 5 }, () => ({
+            agent: "Worker",
+            task: "work",
+          })),
+        },
+        undefined,
+        undefined,
+        { ...fakeCtx, cwd, ui: { ...fakeCtx.ui, confirm } },
+      )) as { isError?: boolean; content: Array<{ text: string }> };
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toMatch(/Too many parallel tasks/);
+      expect(confirm).not.toHaveBeenCalled();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
   it("dispatches parallel tasks concurrently", async () => {

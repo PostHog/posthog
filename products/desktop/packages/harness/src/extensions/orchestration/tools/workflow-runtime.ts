@@ -171,6 +171,7 @@ export interface WorkflowHooks {
   onAgentEnd?: (
     event: WorkflowAgentEvent & {
       ok: boolean;
+      aborted?: boolean;
       /** Final value handed back to the script (parsed object when schema was set). */
       result: unknown;
     },
@@ -461,6 +462,32 @@ function validateDeclaredPlan(plan: WorkflowDeclaredPlan): void {
       );
 }
 
+function validateDeclaredInputs(
+  plan: WorkflowDeclaredPlan,
+  args: unknown,
+): Record<string, unknown> {
+  if (plan.inputs.length === 0) {
+    return {};
+  }
+
+  const parsed = unknownRecordSchema.safeParse(args);
+  if (!parsed.success) {
+    throw new WorkflowFatalError(
+      "strict plan args must be an object with every declared meta.inputs key",
+    );
+  }
+  const missing = plan.inputs.filter(
+    (name) =>
+      !Object.hasOwn(parsed.data, name) || parsed.data[name] === undefined,
+  );
+  if (missing.length > 0) {
+    throw new WorkflowFatalError(
+      `strict plan args are missing declared input(s): ${missing.join(", ")}`,
+    );
+  }
+  return parsed.data;
+}
+
 function currentDeclaredPhase(
   plan: WorkflowDeclaredPlan,
   index: number,
@@ -505,14 +532,12 @@ function publishArtifact(
 function buildArtifactContext(
   inputs: string[],
   artifacts: Map<string, { value: unknown }>,
-  args: unknown,
+  argumentValues: Record<string, unknown>,
 ): string | undefined {
-  const argumentValues = unknownRecordSchema.safeParse(args);
   const values = Object.fromEntries(
     inputs.map((name) => [
       name,
-      artifacts.get(name)?.value ??
-        (argumentValues.success ? argumentValues.data[name] : undefined),
+      artifacts.get(name)?.value ?? argumentValues[name],
     ]),
   );
   return `Artifact inputs (use these exact values):\n${JSON.stringify(values, null, 2)}`;
@@ -688,6 +713,7 @@ export async function runWorkflowScript(
   const body = normalizeWorkflowScript(script);
   const plan = extractDeclaredPlan(script);
   if (plan) validateDeclaredPlan(plan);
+  const argumentValues = plan ? validateDeclaredInputs(plan, options.args) : {};
   const artifacts = new Map<
     string,
     { value: unknown; phase: string; producer: string }
@@ -707,9 +733,25 @@ export async function runWorkflowScript(
   let agentCount = 0;
   let tokensSpent = 0;
   const pending = new Set<Promise<unknown>>();
+  const cancellation = new AbortController();
+  const abortWorkflow = () => cancellation.abort();
+  if (options.signal?.aborted) {
+    cancellation.abort();
+  } else {
+    options.signal?.addEventListener("abort", abortWorkflow, { once: true });
+  }
+
+  const track = <T>(operation: Promise<T>): Promise<T> => {
+    pending.add(operation);
+    void operation.finally(() => pending.delete(operation)).catch(() => {});
+    void operation.catch(() => {});
+    return operation;
+  };
 
   const throwIfAborted = () => {
-    if (options.signal?.aborted) throw new Error("Workflow was aborted");
+    if (cancellation.signal.aborted) {
+      throw new Error("Workflow was aborted");
+    }
   };
 
   const log = (message: unknown) => {
@@ -830,7 +872,7 @@ export async function runWorkflowScript(
     const contextBlock = buildWorkflowContext(request);
     const artifactBlock =
       plan && Array.isArray(request.inputs)
-        ? buildArtifactContext(request.inputs, artifacts, options.args)
+        ? buildArtifactContext(request.inputs, artifacts, argumentValues)
         : undefined;
     request.prompt = [
       request.task,
@@ -846,7 +888,7 @@ export async function runWorkflowScript(
       const event: WorkflowAgentEvent = { id, ...request };
       hooks.onAgentStart?.(event);
       try {
-        const outcome = await hooks.runAgentTask(event, options.signal);
+        const outcome = await hooks.runAgentTask(event, cancellation.signal);
         throwIfAborted();
         tokensSpent += outcome.tokens ?? 0;
         // Named artifacts must retain their complete value for downstream
@@ -871,33 +913,38 @@ export async function runWorkflowScript(
         hooks.onAgentEnd?.({ ...event, ok: true, result });
         return result;
       } catch (error) {
-        if (options.signal?.aborted) throw error;
+        const aborted = cancellation.signal.aborted;
+        hooks.onAgentEnd?.({ ...event, ok: false, aborted, result: null });
+        if (aborted) {
+          throw error;
+        }
         log(
           `agent "${request.label}" failed: ${error instanceof Error ? error.message : String(error)}`,
         );
-        hooks.onAgentEnd?.({ ...event, ok: false, result: null });
         return null;
       }
     });
-    pending.add(run);
-    run.finally(() => pending.delete(run)).catch(() => {});
-    return run;
+    return track(run);
   };
 
-  const parallel = async (thunks: unknown) => {
+  const parallel = (thunks: unknown) => {
     throwIfAborted();
     if (!Array.isArray(thunks) || thunks.some((t) => typeof t !== "function")) {
       throw new TypeError(
         "parallel() expects an array of functions, not promises. Wrap each call: () => agent(...)",
       );
     }
-    return Promise.all(
+    const operation = Promise.all(
       thunks.map(async (thunk, index) => {
         try {
           return await (thunk as () => Promise<unknown>)();
         } catch (error) {
-          if (options.signal?.aborted || error instanceof WorkflowFatalError)
+          if (
+            cancellation.signal.aborted ||
+            error instanceof WorkflowFatalError
+          ) {
             throw error;
+          }
           log(
             `parallel[${index}] failed: ${error instanceof Error ? error.message : String(error)}`,
           );
@@ -905,6 +952,7 @@ export async function runWorkflowScript(
         }
       }),
     );
+    return track(operation);
   };
 
   /**
@@ -913,20 +961,25 @@ export async function runWorkflowScript(
    * (previousValue, originalItem, index). A stage failure nulls out that
    * item's slot and logs it; other items continue.
    */
-  const pipeline = async (
+  const pipeline = (
     items: unknown,
     ...stages: Array<
       (prev: unknown, original: unknown, index: number) => unknown
     >
   ) => {
     throwIfAborted();
-    if (!Array.isArray(items))
+    if (!Array.isArray(items)) {
       throw new TypeError("pipeline() expects an array as its first argument");
-    if (stages.length === 0 || stages.some((s) => typeof s !== "function"))
+    }
+    if (
+      stages.length === 0 ||
+      stages.some((stage) => typeof stage !== "function")
+    ) {
       throw new TypeError(
         "pipeline() stages must be functions: pipeline(items, item => agent(...), result => ...)",
       );
-    return Promise.all(
+    }
+    const operation = Promise.all(
       items.map(async (item, index) => {
         let value: unknown = item;
         for (const stage of stages) {
@@ -934,8 +987,12 @@ export async function runWorkflowScript(
             throwIfAborted();
             value = await stage(value, item, index);
           } catch (error) {
-            if (options.signal?.aborted || error instanceof WorkflowFatalError)
+            if (
+              cancellation.signal.aborted ||
+              error instanceof WorkflowFatalError
+            ) {
               throw error;
+            }
             log(
               `pipeline[${index}] failed: ${error instanceof Error ? error.message : String(error)}`,
             );
@@ -945,6 +1002,7 @@ export async function runWorkflowScript(
         return value;
       }),
     );
+    return track(operation);
   };
 
   // Deliberately do NOT pass the host's own `JSON`/`Math`/`Array`/`Object`/etc
@@ -986,6 +1044,11 @@ export async function runWorkflowScript(
     });
     throwIfAborted();
     assertJsonSerializable(result, "workflow result");
+    if (pending.size > 0) {
+      throw new WorkflowFatalError(
+        "workflow returned before parallel or pipeline work completed; await every operation",
+      );
+    }
     if (plan) {
       if (declaredPhaseIndex !== plan.phases.length - 1)
         throw new WorkflowFatalError(
@@ -1006,9 +1069,11 @@ export async function runWorkflowScript(
     }
     return { result, logs, phases, agentCount, tokensSpent };
   } finally {
-    // Never leave child sessions running when the script returns without
-    // awaiting them or throws during fan-out.
-    await Promise.allSettled([...pending]);
+    cancellation.abort();
+    while (pending.size > 0) {
+      await Promise.allSettled([...pending]);
+    }
+    options.signal?.removeEventListener("abort", abortWorkflow);
   }
 }
 
