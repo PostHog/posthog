@@ -39,6 +39,7 @@ import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
+import type { OrganizationNotificationLockApi } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     CoreEvent,
@@ -365,6 +366,8 @@ export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisi
 export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
+    /** Settings an organization admin enforces, which the member cannot change back. */
+    notification_locks?: OrganizationNotificationLockApi[]
     active_realtime_notification_types?: readonly string[]
     requires_credential_review?: boolean
     events_column_config: ColumnConfig
@@ -2141,6 +2144,10 @@ export interface SessionRecordingType {
     external_references?: SessionRecordingExternalReference[]
     /** False when the recording was included in list results via a direct link despite not matching the filters. */
     matches_filters?: boolean
+    /** Total stored size of the recording's snapshot data in bytes. Only present once metadata is loaded. */
+    total_size?: number | null
+    /** Number of captured rrweb events in the recording. Only present once metadata is loaded. */
+    event_count?: number | null
 }
 
 export interface SessionRecordingUpdateType {
@@ -3079,6 +3086,7 @@ export enum ChartDisplayType {
     BoldNumber = 'BoldNumber',
     Metric = 'Metric',
     ActionsPie = 'ActionsPie',
+    ActionsDonut = 'ActionsDonut',
     ActionsBarValue = 'ActionsBarValue',
     ActionsTable = 'ActionsTable',
     WorldMap = 'WorldMap',

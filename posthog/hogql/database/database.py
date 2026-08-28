@@ -150,6 +150,7 @@ from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreagg
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
+from posthog.hogql.editor_assist_metrics import HOGQL_DATABASE_BUILD_DURATION_SECONDS
 from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
@@ -1375,19 +1376,21 @@ class Database(BaseModel):
         if timings is None:
             timings = HogQLTimings()
 
-        sources = Database._fetch_sources(
-            team_id,
-            team=team,
-            user=user,
-            user_access_control=user_access_control,
-            modifiers=modifiers,
-            timings=timings,
-            connection_id=connection_id,
-            bypass_warehouse_access_control=bypass_warehouse_access_control,
-        )
-        return Database._build_from_sources(
-            sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
-        )
+        with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="fetch_sources").time():
+            sources = Database._fetch_sources(
+                team_id,
+                team=team,
+                user=user,
+                user_access_control=user_access_control,
+                modifiers=modifiers,
+                timings=timings,
+                connection_id=connection_id,
+                bypass_warehouse_access_control=bypass_warehouse_access_control,
+            )
+        with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="build_from_sources").time():
+            return Database._build_from_sources(
+                sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
+            )
 
     @staticmethod
     def _fetch_sources(
