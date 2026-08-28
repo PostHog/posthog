@@ -47,6 +47,12 @@ export interface EvidenceCardData {
 
 const MAX_SPARK_POINTS = 60;
 
+export const EVIDENCE_PREVIEW_STALE_TIME = 5 * 60 * 1000;
+
+export function evidencePreviewQueryKey(target: EvidenceLinkTarget) {
+  return ["evidence-preview", target.kind, target.id] as const;
+}
+
 /** Reduce a shaped chart result to the card's headline + sparkline. */
 function fromChartData(
   data: ReportChartData,
@@ -71,9 +77,15 @@ function fromChartData(
     };
   }
   if (data.type === "table") {
+    // Column titles are raw SQL for HogQL sources, not labels; show counts.
     return {
       title: `${data.rows.length.toLocaleString("en-US")} ${data.rows.length === 1 ? "row" : "rows"}`,
-      detail: data.columns.join(", ") || undefined,
+      facts:
+        data.columns.length > 0
+          ? [
+              `${data.columns.length} ${data.columns.length === 1 ? "column" : "columns"}`,
+            ]
+          : undefined,
     };
   }
   return { title: fallbackTitle };
