@@ -24,6 +24,7 @@ import posthoganalytics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
@@ -399,7 +400,7 @@ class AppendCodeReviewArtefactInput:
     review_url: str | None = None
 
 
-@dataclass
+@frozen
 class TrackReviewCompletedInput:
     """One `reviewhog_review_completed` analytics event per finalized review turn."""
 
@@ -417,7 +418,7 @@ class TrackReviewCompletedInput:
     turn_trigger_source: str | None = None
 
 
-@dataclass
+@frozen
 class TrackReviewFailedInput:
     """One `reviewhog_review_failed` analytics event per failed review turn."""
 
