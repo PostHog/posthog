@@ -169,6 +169,10 @@ operations = [
     run_sql_with_exceptions(LOGS_BILLING_METRICS_TABLE_SQL(), node_roles=[NodeRole.LOGS]),
     run_sql_with_exceptions(LOGS_KAFKA_METRICS_TABLE_SQL(), node_roles=[NodeRole.LOGS]),
     run_sql_with_exceptions(LOGS34_DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.LOGS]),
+    # The next statement aims the read alias at a table 0309 drops. 0288 runs
+    # later and aims it at log_attributes3, so an in-order replay ends correct.
+    # Re-running this migration alone against a migrated cluster does not, and
+    # it breaks every attribute read until 0288 runs again.
     run_sql_with_exceptions(LOG_ATTRIBUTES2_DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.LOGS]),
     run_sql_with_exceptions(LOGS_BILLING_METRICS_DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.LOGS]),
     run_sql_with_exceptions(LOGS_KAFKA_METRICS_DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.LOGS]),
