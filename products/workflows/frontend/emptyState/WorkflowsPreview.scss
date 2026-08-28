@@ -1,0 +1,239 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.WorkflowsPreview {
+    --workflows-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden branch state. A direct child of .WorkflowsPreview so `:checked ~` reaches both cards.
+    &__checkbox {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__canvas,
+    &__stat {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    &__stat {
+        padding: 0.5rem 0.75rem 0.625rem;
+    }
+
+    // Yes/no pairs are stacked on one grid cell and crossfaded, so flipping the
+    // branch never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-no {
+        @include preview-swap-hidden;
+    }
+
+    &__when-yes {
+        @include preview-swap-visible;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__live-dot {
+        width: 7px;
+        height: 7px;
+        background: var(--workflows-preview-accent);
+        border-radius: 50%;
+        animation: WorkflowsPreview__pulse 2s ease-in-out infinite;
+    }
+
+    // Canvas
+
+    &__graph {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 0.625rem 0.75rem 0.375rem;
+    }
+
+    &__node {
+        display: flex;
+        flex-direction: column;
+        gap: 0.0625rem;
+        min-width: 11rem;
+        padding: 0.3125rem 0.5rem;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    &__node--hero {
+        cursor: pointer;
+        user-select: none;
+        transition: box-shadow 250ms ease;
+    }
+
+    &__node--hero:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    &__node-kind {
+        font-size: 0.5625rem;
+        font-weight: 700;
+        text-transform: uppercase;
+
+        @include preview-accent-text(var(--workflows-preview-accent));
+    }
+
+    &__node-label {
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        white-space: nowrap;
+    }
+
+    &__edge {
+        position: relative;
+        width: 2px;
+        height: 0.75rem;
+        background: var(--color-border-primary);
+    }
+
+    // A run traveling the trunk, so the canvas feels alive at rest.
+    &__edge-run {
+        position: absolute;
+        top: 0;
+        left: -2px;
+        width: 6px;
+        height: 6px;
+        background: var(--workflows-preview-accent);
+        border-radius: 50%;
+        animation: WorkflowsPreview__run 3s ease-in-out infinite;
+    }
+
+    &__branches {
+        display: flex;
+        gap: 0.75rem;
+    }
+
+    &__node--branch {
+        min-width: 8.5rem;
+        opacity: 0.45;
+        transition:
+            opacity 250ms ease,
+            box-shadow 250ms ease;
+    }
+
+    &__hint {
+        padding: 0.375rem 0.75rem 0.5rem;
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    // Stat card
+
+    &__spark-sub {
+        font-size: 0.6875rem;
+        font-weight: 400;
+        color: var(--color-text-secondary);
+    }
+
+    @include preview-sparkline;
+}
+
+// Active branch follows the condition. Unchecked = yes (opened), checked = no.
+
+.WorkflowsPreview__checkbox:not(:checked) ~ .WorkflowsPreview__canvas .WorkflowsPreview__branch-yes,
+.WorkflowsPreview__checkbox:checked ~ .WorkflowsPreview__canvas .WorkflowsPreview__branch-no {
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--workflows-preview-accent) 55%, transparent);
+    opacity: 1;
+}
+
+.WorkflowsPreview__checkbox:checked ~ * .WorkflowsPreview__when-no {
+    @include preview-swap-visible;
+}
+
+.WorkflowsPreview__checkbox:checked ~ * .WorkflowsPreview__when-yes {
+    @include preview-swap-hidden;
+}
+
+// The checkbox stays keyboard-focusable while visually hidden, so the node it labels
+// needs a visible focus indicator (WCAG 2.4.7).
+.WorkflowsPreview__checkbox:focus-visible ~ .WorkflowsPreview__canvas .WorkflowsPreview__node--hero {
+    outline: 2px solid var(--workflows-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the condition node until it's flipped.
+.WorkflowsPreview:not(.WorkflowsPreview--static)
+    .WorkflowsPreview__checkbox:not(:checked)
+    ~ .WorkflowsPreview__canvas
+    .WorkflowsPreview__node--hero {
+    animation: WorkflowsPreview__nudge 2.4s ease-in-out infinite;
+}
+
+@keyframes WorkflowsPreview__nudge {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--workflows-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--workflows-preview-accent) 20%, transparent);
+    }
+}
+
+@keyframes WorkflowsPreview__pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.35;
+    }
+}
+
+@keyframes WorkflowsPreview__run {
+    0% {
+        top: -10%;
+        opacity: 0;
+    }
+
+    20%,
+    80% {
+        opacity: 1;
+    }
+
+    100% {
+        top: 100%;
+        opacity: 0;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; clicking the
+// condition still flips the state (transitions only).
+@include preview-motion-guards('WorkflowsPreview');

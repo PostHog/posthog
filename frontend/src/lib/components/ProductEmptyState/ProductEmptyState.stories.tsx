@@ -29,6 +29,7 @@ import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysE
 import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
 import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
 import { webVitalsEmptyState } from 'products/web_analytics/frontend/emptyState/webVitalsEmptyState'
+import { workflowsEmptyState } from 'products/workflows/frontend/emptyState/workflowsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
 import { ProductEmptyStateStory, productEmptyStateStory } from './storybookHelpers'
@@ -317,3 +318,8 @@ export const DataWarehouseNeedsSetup: ProductEmptyStateStory = productEmptyState
         },
     }
 )
+
+// Workflows detection counts workflows on mount - answer "none yet".
+export const WorkflowsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(workflowsEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/hog_flows/': [200, { count: 0, results: [] }] } },
+})

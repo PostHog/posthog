@@ -214,7 +214,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     workflows: {
         icon: <IconDecisionTree />,
-        iconColor: ['var(--color-product-workflows-light)'],
+        iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
     },
     notebook: {
         icon: <IconNotebook />,
