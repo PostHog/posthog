@@ -1,3 +1,4 @@
+import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
 import type { Components } from "react-markdown";
 
 const GITHUB_IMAGE_HOSTS = new Set([
@@ -9,7 +10,9 @@ const GITHUB_IMAGE_HOSTS = new Set([
   "user-images.githubusercontent.com",
 ]);
 
-export function isGitHubHostedImage(source: string | undefined): boolean {
+export function isGitHubHostedImage(
+  source: string | undefined,
+): source is string {
   if (!source) return false;
 
   try {
@@ -27,5 +30,7 @@ export function isGitHubHostedImage(source: string | undefined): boolean {
 
 export const githubCommentComponents: Partial<Components> = {
   img: ({ src, alt }) =>
-    isGitHubHostedImage(src) ? <img src={src} alt={alt ?? ""} /> : null,
+    isGitHubHostedImage(src) ? (
+      <img src={cachedImageUrl(src)} alt={alt ?? ""} />
+    ) : null,
 };
