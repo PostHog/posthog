@@ -39,6 +39,15 @@ _PREFERRED_CODE_REFERENCE_LINES = 8
 _FEATURE_SUMMARY_MAX_LENGTH = 2500
 _OWNER_SCOUT_PLAYBOOK_MAX_LENGTH = 800
 _OPEN_QUESTION_MAX_LENGTH = 280
+_FEATURE_SUMMARY_LIMITS = {
+    "overview": 300,
+    "current_status": 280,
+    "user_experience": 360,
+    "implementation": 400,
+    "in_flight_work": 300,
+    "measurement_and_health": 400,
+    "next_steps": 220,
+}
 _FEATURE_SUMMARY_FIELDS = (
     ("## Overview", "overview"),
     ("## Current status", "current_status"),
@@ -224,37 +233,37 @@ class DiscoveredFeatureCodeReference(CodeReference):
 class DiscoveredFeatureSummary(FeatureDiscoverySchema):
     overview: str = Field(
         min_length=1,
-        max_length=300,
+        max_length=_FEATURE_SUMMARY_LIMITS["overview"],
         description="What the feature is for and its intended functionality, without a heading.",
     )
     current_status: str = Field(
         min_length=1,
-        max_length=280,
+        max_length=_FEATURE_SUMMARY_LIMITS["current_status"],
         description="Whether the feature is available, partial, gated, deprecated, or constrained today.",
     )
     user_experience: str = Field(
         min_length=1,
-        max_length=360,
+        max_length=_FEATURE_SUMMARY_LIMITS["user_experience"],
         description="The end-to-end user journey and important variants.",
     )
     implementation: str = Field(
         min_length=1,
-        max_length=400,
+        max_length=_FEATURE_SUMMARY_LIMITS["implementation"],
         description="The main implementation boundaries, components, and related repositories.",
     )
     in_flight_work: str = Field(
         min_length=1,
-        max_length=300,
+        max_length=_FEATURE_SUMMARY_LIMITS["in_flight_work"],
         description="Relevant active work, or one concise sentence naming the sources checked when none applies.",
     )
     measurement_and_health: str = Field(
         min_length=1,
-        max_length=400,
+        max_length=_FEATURE_SUMMARY_LIMITS["measurement_and_health"],
         description="Existing instrumentation and concrete tools or signals an owner can use.",
     )
     next_steps: str = Field(
         min_length=1,
-        max_length=220,
+        max_length=_FEATURE_SUMMARY_LIMITS["next_steps"],
         description="Known maintenance, optimization, or completion work grounded in evidence.",
     )
 
@@ -390,6 +399,8 @@ Build `feature_candidates` as an ordered ledger before returning. Include every 
 
 Record repository-host and version-control checks in `active_work_sources`, including unavailable sources. Put only relevant work in `active_work`, then connect it to candidates by exact title. Do not repeat this ledger in `codebase_overview`. Keep `codebase_overview` to a compact architecture and product description and `discovery_strategy` to one short paragraph.
 
+Before responding, enforce these hard limits: `discovery_strategy` at most 600 characters; each candidate `title` at most 80, `user_goal` at most 180, and `boundary` at most 220. Use only keys declared in the schema.
+
 This first turn is exploration only. Do not emit a feature report yet. Return exactly one JSON object matching this schema. Do not wrap it in a Markdown code fence or add prose before or after it.
 
 <jsonschema>
@@ -399,6 +410,10 @@ This first turn is exploration only. Do not emit a feature report yet. Return ex
 
 def build_feature_document_prompt(existing_titles: list[str], focus: str, candidate_title: str) -> str:
     schema = _schema_for_prompt(DiscoveredFeatureDocument)
+    summary_budget = "\n".join(
+        f"- `summary.{field}`: at most {max_length} characters."
+        for field, max_length in _FEATURE_SUMMARY_LIMITS.items()
+    )
     previous = "\n".join(f"- {title}" for title in existing_titles) or "- None"
     scope_reminder = f"The feature must match this direction: {focus.strip()}\n\n" if focus.strip() else ""
     return f"""Document the feature candidate `{candidate_title}` from your exploration ledger.
@@ -414,9 +429,16 @@ Ground every claim in code you inspected and account for the wider codebase and 
 
 Separate features by distinct user goals, journeys, lifecycles, success measures, or ownership and monitoring needs, not by source-tree layout. Do not merge distinct workflows merely because they share files, components, routes, or storage. Conversely, do not split a coherent user-facing capability into separate features only because it uses several implementation mechanisms.
 
-Keep `priority_explanation` to two sentences. Write `owner_scout_playbook` as three to five compact bullets covering what to monitor, how to investigate regressions, and where safe optimization work may exist.
+Keep `priority_explanation` to two sentences. Return `owner_scout_playbook` as one Markdown string, never an array. Use three or four one-sentence bullets, at most 150 characters per bullet and {_OWNER_SCOUT_PLAYBOOK_MAX_LENGTH} characters total, covering what to monitor, how to investigate regressions, and where safe optimization work may exist.
 
 Return two to five code references where evidence exists. Keep each to the smallest excerpt that proves the claim: target 4 to {_PREFERRED_CODE_REFERENCE_LINES} contiguous lines and never exceed {MAX_DISCOVERY_CODE_REFERENCE_LINES}. Before responding, count the lines in every `contents` value and set `end_line = start_line + line_count - 1`.
+
+Hard response budgets:
+{summary_budget}
+- Each `open_questions` item: at most {_OPEN_QUESTION_MAX_LENGTH} characters.
+- Use only keys declared in the schema; do not add placeholders or helper fields.
+
+Before returning, check every string against these budgets and check every code-reference line span. Do not rely on a correction turn to shorten the response.
 
 Return exactly one JSON object matching this schema. Do not wrap it in a Markdown code fence or add prose before or after it.
 
@@ -447,6 +469,8 @@ def _build_structured_correction_prompt(error: ValueError) -> str:
 Correct the full response and return the complete JSON object again. Preserve valid evidence and fix every validation error below.
 
 For a code-reference error, replace the invalid excerpt with 4 to {_PREFERRED_CODE_REFERENCE_LINES} contiguous lines, never more than {MAX_DISCOVERY_CODE_REFERENCE_LINES}. Count the lines in `contents`, then set `end_line = start_line + line_count - 1`. Do not return the same invalid excerpt unchanged.
+
+For an `owner_scout_playbook` error, return one Markdown string, never an array, with three or four one-sentence bullets and at most 150 characters per bullet. For an extra-field error, remove the undeclared key instead of renaming it. Recheck every reported maximum length before returning.
 
 <validation_errors>
 {error_details[:_MAX_VALIDATION_ERROR_LENGTH]}

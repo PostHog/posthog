@@ -202,6 +202,8 @@ async def test_feature_discovery_follows_candidate_ledger_until_agent_stops() ->
     assert "Build `feature_candidates` as an ordered ledger" in exploration_prompt
     assert "Administrative management and public consumption are separate candidates" in exploration_prompt
     assert "Do not repeat this ledger in `codebase_overview`" in exploration_prompt
+    assert "`discovery_strategy` at most 600 characters" in exploration_prompt
+    assert "candidate `title` at most 80, `user_goal` at most 180, and `boundary` at most 220" in exploration_prompt
     feature_prompt = session.send_followup_raw.await_args_list[0].args[0]
     assert "Only replay features" in feature_prompt
     assert "candidate `Session replay`" in feature_prompt
@@ -212,7 +214,16 @@ async def test_feature_discovery_follows_candidate_ledger_until_agent_stops() ->
     assert "Do not merge distinct workflows merely because they share files" in feature_prompt
     assert "target 4 to 8 contiguous lines and never exceed 10" in feature_prompt
     assert "end_line = start_line + line_count - 1" in feature_prompt
+    assert "Return `owner_scout_playbook` as one Markdown string, never an array" in feature_prompt
+    assert (
+        "three or four one-sentence bullets, at most 150 characters per bullet and 800 characters total"
+        in feature_prompt
+    )
+    assert "Use only keys declared in the schema; do not add placeholders or helper fields" in feature_prompt
     prompt_schema = json.loads(feature_prompt.split("<jsonschema>\n", 1)[1].split("\n</jsonschema>", 1)[0])
+    summary_schema = prompt_schema["$defs"]["DiscoveredFeatureSummary"]["properties"]
+    for field, field_schema in summary_schema.items():
+        assert f"`summary.{field}`: at most {field_schema['maxLength']} characters" in feature_prompt
     assert "title" in prompt_schema["properties"]
     assert "title" not in prompt_schema
     continuation_prompt = session.send_followup_raw.await_args_list[1].args[0]
@@ -257,7 +268,10 @@ async def test_feature_discovery_corrects_an_invalid_feature_document() -> None:
 
     assert [feature.title for feature in result.features] == ["Session replay"]
     assert session.send_followup_raw.await_count == 4
-    assert "questions must not be blank" in session.send_followup_raw.await_args_list[1].args[0]
+    first_correction_prompt = session.send_followup_raw.await_args_list[1].args[0]
+    assert "questions must not be blank" in first_correction_prompt
+    assert "return one Markdown string, never an array" in first_correction_prompt
+    assert "remove the undeclared key instead of renaming it" in first_correction_prompt
     assert "questions must not be blank" in session.send_followup_raw.await_args_list[2].args[0]
     session.end.assert_awaited_once_with()
 
