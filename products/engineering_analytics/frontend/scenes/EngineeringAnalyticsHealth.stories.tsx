@@ -125,8 +125,12 @@ const meta: Meta = {
         mockDate: '2026-07-15',
         featureFlags: [FEATURE_FLAGS.ENGINEERING_ANALYTICS],
         testOptions: {
-            // Past the skeletons once the box-plot chart has rendered.
-            waitForSelector: '[data-attr="engineering-analytics-dora-box-plot"] canvas',
+            // Past the skeletons once all three stacked box-plot charts have rendered.
+            waitForSelector: [
+                '[data-attr="engineering-analytics-dora-open-to-deploy-box-plot"] canvas',
+                '[data-attr="engineering-analytics-dora-open-to-merge-box-plot"] canvas',
+                '[data-attr="engineering-analytics-dora-box-plot"] canvas',
+            ],
         },
     },
     decorators: [
