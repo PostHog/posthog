@@ -9,6 +9,7 @@ facade results to responses; auth stays in each route.
 import uuid
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from prometheus_client import Counter
 from rest_framework import serializers, status
 from rest_framework.request import Request
@@ -149,6 +150,7 @@ class ExternalAccountCreateSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]})
 class _CustomPropertyScalarField(serializers.Field):
     """A custom property value sent over the external API — a JSON scalar.
 

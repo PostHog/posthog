@@ -31,7 +31,7 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -430,7 +430,6 @@ class ExternalAccountListView(APIView):
         return Response(ExternalAccountListPageSerializer(page).data)
 
 
-@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]})
 class ExternalAccountCustomPropertiesView(APIView):
     """
     PATCH /api/customer_analytics/external/account/custom_property_values — Set an account's custom

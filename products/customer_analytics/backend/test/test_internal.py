@@ -135,6 +135,13 @@ class TestInternalAccountAPI(APIBaseTest):
         self.assertEqual(patch_response.status_code, expected_status)
         self.assertEqual(self.account.tagged_items.count(), 0)
 
+    def test_missing_claim_does_not_match_an_account_named_none(self):
+        # A missing claim stringified would read "None"; it must never authorize an account
+        # whose external_id is literally that.
+        create_account(team_id=self.team.id, name="Edge", external_id="None")
+        response = self.client.get(self.url, data={"external_id": "None"}, **self._headers({"team_id": self.team.id}))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_request_external_id_must_match_the_claim(self):
         # A token pinned to one account must not read or write another, even in the same team.
         response = self.client.get(self.url, data={"external_id": "someone-else"}, **self._headers())
