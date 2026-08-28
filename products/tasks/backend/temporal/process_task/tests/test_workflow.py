@@ -1087,6 +1087,35 @@ class TestFollowupDeliveryFailureBookkeeping:
         assert emitted == []
 
 
+async def test_agent_shadow_result_is_reported_separately(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    execute_activity = AsyncMock(return_value={"launched": True, "outcome": "ready", "observed_ready_ms": 12})
+    track_event = AsyncMock()
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(workflow_instance, "_track_workflow_event", track_event)
+
+    await workflow_instance._collect_agent_shadow_result("sandbox-123")
+
+    activity_input = execute_activity.call_args.args[1]
+    assert activity_input.sandbox_id == "sandbox-123"
+    assert activity_input.run_id == "run-id"
+    track_event.assert_awaited_once_with(
+        "agent_shadow_observed",
+        {
+            "run_id": "run-id",
+            "task_id": "task-id",
+            "sandbox_id": "sandbox-123",
+            "launched": True,
+            "outcome": "ready",
+            "observed_ready_ms": 12,
+            "production_ready_ms": None,
+            "failure_class": None,
+            "read_timed_out": None,
+        },
+    )
+
+
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
     def test_quota_recheck_not_scheduled_for_non_pr_runs(self):
