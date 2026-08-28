@@ -256,6 +256,22 @@ def test_table_from_py_list_with_lists():
     )
 
 
+def test_table_from_py_list_with_same_length_tuple_columns():
+    # A column of same-length tuples (e.g. a Postgres composite/record type) makes the NumPy
+    # object-array fallback build a 2D array. Without the ndim guard, pa.Table.from_pydict raises
+    # ArrowInvalid ("only handle 1-dimensional arrays"). The column must JSON-stringify instead.
+    table = table_from_py_list([{"column": ("a", 1)}, {"column": ("b", 2)}])
+
+    assert table.equals(pa.table({"column": ['["a",1]', '["b",2]']}))
+    assert table.schema.equals(
+        pa.schema(
+            [
+                ("column", pa.string()),
+            ]
+        )
+    )
+
+
 def test_table_from_py_list_with_nan():
     table = table_from_py_list([{"column": 1.0}, {"column": float("NaN")}])
 
