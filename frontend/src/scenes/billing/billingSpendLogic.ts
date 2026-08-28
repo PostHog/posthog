@@ -2,6 +2,7 @@ import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
 
@@ -9,7 +10,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { toParams } from 'lib/utils/url'
@@ -75,7 +75,7 @@ export interface BillingSpendLogicProps {
 export interface billingSpendLogicValues {
     billing: BillingType | null // billingLogic
     billingPeriodUTC: BillingPeriod // billingLogic
-    canAccessBilling: boolean // billingLogic
+    canViewUsageAndSpend: boolean // billingLogic
     currentOrganization: OrganizationType | null // billingLogic
     isHobby: boolean // preflightLogic
     billingPeriodMarkers: BillingPeriodMarker[]
@@ -247,7 +247,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
     connect(() => ({
         values: [
             billingLogic,
-            ['billing', 'billingPeriodUTC', 'canAccessBilling', 'currentOrganization'],
+            ['billing', 'billingPeriodUTC', 'canViewUsageAndSpend', 'currentOrganization'],
             preflightLogic,
             ['isHobby'],
         ],
@@ -274,7 +274,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             null as BillingSpendResponse | null,
             {
                 loadBillingSpend: async () => {
-                    if (!values.canAccessBilling || values.isHobby) {
+                    if (!values.canViewUsageAndSpend || values.isHobby) {
                         return null
                     }
                     const { usage_types, team_ids, breakdowns, interval } = values.filters
@@ -585,25 +585,19 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         setFilters: async ({ shouldDebounce }, breakpoint) => {
             if (shouldDebounce) {
                 await breakpoint(200)
-                actions.reportBillingSpendInteraction(
-                    buildSpendTrackingProperties('filters_changed', values, featureFlagLogic.values.featureFlags)
-                )
+                actions.reportBillingSpendInteraction(buildSpendTrackingProperties('filters_changed', values))
             }
             actions.loadBillingSpend()
         },
         setDateRange: async ({ shouldDebounce }, breakpoint) => {
             if (shouldDebounce) {
                 await breakpoint(200)
-                actions.reportBillingSpendInteraction(
-                    buildSpendTrackingProperties('date_changed', values, featureFlagLogic.values.featureFlags)
-                )
+                actions.reportBillingSpendInteraction(buildSpendTrackingProperties('date_changed', values))
             }
             actions.loadBillingSpend()
         },
         resetFilters: async () => {
-            actions.reportBillingSpendInteraction(
-                buildSpendTrackingProperties('filters_cleared', values, featureFlagLogic.values.featureFlags)
-            )
+            actions.reportBillingSpendInteraction(buildSpendTrackingProperties('filters_cleared', values))
             actions.loadBillingSpend()
         },
         toggleAllSeries: () => {
@@ -613,9 +607,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 : series
             const ids = potentiallyVisible.map((s) => s.id)
             const isAllVisible = ids.length > 0 && ids.every((id) => !userHiddenSeries.includes(id))
-            actions.reportBillingSpendInteraction(
-                buildSpendTrackingProperties('series_toggled', values, featureFlagLogic.values.featureFlags)
-            )
+            actions.reportBillingSpendInteraction(buildSpendTrackingProperties('series_toggled', values))
 
             if (isAllVisible) {
                 // Hide all series
@@ -627,10 +619,20 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         },
         toggleBreakdown: async (_payload, breakpoint) => {
             await breakpoint(200)
-            actions.reportBillingSpendInteraction(
-                buildSpendTrackingProperties('breakdown_toggled', values, featureFlagLogic.values.featureFlags)
-            )
+            actions.reportBillingSpendInteraction(buildSpendTrackingProperties('breakdown_toggled', values))
             actions.loadBillingSpend()
+        },
+    })),
+    subscriptions(({ actions, values }) => ({
+        canViewUsageAndSpend: (canViewUsageAndSpend: boolean, previousCanViewUsageAndSpend: boolean | undefined) => {
+            if (canViewUsageAndSpend && previousCanViewUsageAndSpend === false && !values.isHobby) {
+                actions.loadBillingSpend()
+            }
+        },
+        isHobby: (isHobby: boolean, previousIsHobby: boolean | undefined) => {
+            if (!isHobby && previousIsHobby === true && values.canViewUsageAndSpend) {
+                actions.loadBillingSpend()
+            }
         },
     })),
     afterMount((logic: billingSpendLogicType) => {

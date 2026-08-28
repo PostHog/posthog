@@ -1,6 +1,8 @@
+import re
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -130,6 +132,83 @@ def is_csp_violation(data: dict) -> bool:
     return "type" in data and data["type"] == "csp-violation"
 
 
+# Browsers only deliver crash reports to the Reporting-Endpoints entry named `default`,
+# so these arrive here only for sites whose header defines one.
+# https://developer.mozilla.org/en-US/docs/Web/API/Reporting_API#crash_reports
+def is_crash_report(data: dict) -> bool:
+    return "type" in data and data["type"] == "crash"
+
+
+# Crash reports carry the crashed document's URL, and auth routes embed live credentials
+# as path segments (password reset, 2FA reset, email verification, invite and sharing
+# links), so storing the URL verbatim would put redeemable tokens into events. Query
+# strings are dropped wholesale, and a path segment is masked when it is token-shaped:
+# 16+ URL-safe characters including a digit, which matches Django auth tokens, UUIDs,
+# and sharing tokens but not route names.
+_TOKEN_LIKE_PATH_SEGMENT = re.compile(r"[A-Za-z0-9_.~-]{16,}")
+
+
+def sanitize_crash_report_url(url: object) -> Optional[str]:
+    if not isinstance(url, str) or not url:
+        return None
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    path = "/".join(
+        "<redacted>" if _TOKEN_LIKE_PATH_SEGMENT.fullmatch(segment) and any(c.isdigit() for c in segment) else segment
+        for segment in parts.path.split("/")
+    )
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
+def parse_crash_report(data: dict) -> dict:
+    body = data.get("body")
+    if not isinstance(body, dict):
+        # A malformed body still leaves the envelope's signal: the tab crashed.
+        body = {}
+    document_url = sanitize_crash_report_url(data.get("url"))
+    return {
+        "reason": body.get("reason") or "unknown",
+        "id": body.get("crashId"),
+        "is_top_level": body.get("is_top_level"),
+        "visibility_state": body.get("visibility_state"),
+        "age_ms": data.get("age"),
+        "document_url": document_url,
+        "user_agent": data.get("user_agent"),
+        # Keep the raw report for debugging, but not its unsanitized url.
+        "raw_report": {**data, "url": document_url},
+    }
+
+
+# The browser queues crash reports and delivers them on a later visit to the origin, so
+# receipt time can be far from the crash itself; `age` recovers the actual crash time.
+# Bounded so a garbage value can't backdate the event arbitrarily.
+MAX_CRASH_REPORT_AGE_MS = 7 * 24 * 3600 * 1000
+
+
+def build_crash_event(props: dict, distinct_id: str, session_id: str, user_agent: Optional[str]) -> dict:
+    timestamp = datetime.now(UTC)
+    age_ms = props.get("age_ms")
+    if isinstance(age_ms, (int, float)) and 0 <= age_ms <= MAX_CRASH_REPORT_AGE_MS:
+        timestamp -= timedelta(milliseconds=age_ms)
+
+    props = {f"$browser_crash_{k}": v for k, v in props.items()}
+
+    return {
+        "event": "$browser_crash_report",
+        "distinct_id": distinct_id,
+        "timestamp": timestamp.isoformat(),
+        "properties": {
+            "$session_id": session_id,
+            "$current_url": props["$browser_crash_document_url"],
+            "$process_person_profile": False,
+            "$raw_user_agent": props.get("$browser_crash_user_agent") or user_agent,
+            **props,
+        },
+    }
+
+
 class CSPReportTooLarge(Exception):
     pass
 
@@ -154,10 +233,11 @@ def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str
 
 def process_csp_report(request):
     """
-    Process a Content Security Policy (CSP) report from a browser.
+    Process a Reporting API payload from a browser.
 
-    Takes the incoming CSP report JSON, formats it as a PostHog event,
-    and returns it for ingestion through the regular event pipeline.
+    Takes the incoming report JSON (CSP violations, plus crash reports when the site
+    routes its `default` reporting endpoint here), formats each report as a PostHog
+    event, and returns them for ingestion through the regular event pipeline.
 
     Returns:
         tuple: (csp_report, error_response)
@@ -183,13 +263,13 @@ def process_csp_report(request):
         csp_data = json.loads(request.body)
 
         # A reports+json bundle can carry other Reporting API types (deprecation, intervention, ...)
-        # alongside csp-violation entries; only the latter become events, so bound on that count
-        # rather than the raw bundle length to avoid rejecting legitimate mixed-type batches.
+        # alongside the entries we ingest (csp-violation, crash); only those become events, so bound
+        # on that count rather than the raw bundle length to avoid rejecting legitimate mixed-type batches.
         if isinstance(csp_data, list):
-            violation_count = sum(1 for item in csp_data if is_csp_violation(item))
-            if violation_count > settings.CSP_REPORT_MAX_REPORTS:
+            report_count = sum(1 for item in csp_data if is_csp_violation(item) or is_crash_report(item))
+            if report_count > settings.CSP_REPORT_MAX_REPORTS:
                 CSP_REPORT_REJECTED.labels(reason="too_many_reports").inc()
-                raise CSPReportTooLarge(f"CSP report bundle of {violation_count} violations exceeds the limit")
+                raise CSPReportTooLarge(f"CSP report bundle of {report_count} reports exceeds the limit")
 
         distinct_id = request.GET.get("distinct_id") or str(uuid7())
         session_id = request.GET.get("session_id") or str(uuid7())
@@ -231,18 +311,27 @@ def process_csp_report(request):
 
         if request.content_type == "application/reports+json":
             if isinstance(csp_data, list):
-                violations_props = [parse_report_to(item) for item in csp_data if is_csp_violation(item)]
-            elif isinstance(csp_data, dict) and is_csp_violation(csp_data):
-                violations_props = [parse_report_to(csp_data)]
+                items = csp_data
+            elif isinstance(csp_data, dict) and (is_csp_violation(csp_data) or is_crash_report(csp_data)):
+                items = [csp_data]
             else:
                 raise ValueError("Invalid CSP report")
+
+            violations_props = [parse_report_to(item) for item in items if is_csp_violation(item)]
+            crash_props = [parse_crash_report(item) for item in items if is_crash_report(item)]
 
             sampled_violations = []
             for prop in violations_props:
                 if sample_csp_report(prop, sample_rate, add_metadata=True):
                     sampled_violations.append(prop)
 
-            if not sampled_violations:
+            # Crash reports skip sampling: they are rare and each one is a dead tab, so
+            # applying the CSP sample rate would silently discard most of the signal.
+            events = [
+                build_csp_event(prop, distinct_id, session_id, version, user_agent) for prop in sampled_violations
+            ] + [build_crash_event(prop, distinct_id, session_id, user_agent) for prop in crash_props]
+
+            if not events:
                 logger.warning(
                     "CSP report sampled out - report-to format",
                     total_violations=len(violations_props),
@@ -250,9 +339,7 @@ def process_csp_report(request):
                 )
                 return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
-            return [
-                build_csp_event(prop, distinct_id, session_id, version, user_agent) for prop in sampled_violations
-            ], None
+            return events, None
 
         else:
             raise ValueError("Invalid CSP report")

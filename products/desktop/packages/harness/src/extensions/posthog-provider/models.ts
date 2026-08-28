@@ -1,6 +1,7 @@
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import type { CloudRegion } from "@posthog/shared";
+import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import { getLlmGatewayUrl } from "./gateway";
 
 export const DEFAULT_MODEL = "claude-opus-4-8";
@@ -231,10 +232,17 @@ export function fallbackModelConfigs(
 export async function fetchPosthogGatewayModels(
   baseUrl: string,
   apiKey?: string,
+  projectId?: number,
 ): Promise<GatewayModel[]> {
   try {
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}/v1/models`, {
-      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+      headers:
+        apiKey || projectId
+          ? {
+              ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+              ...buildPosthogProjectHeaderRecord(projectId),
+            }
+          : undefined,
       signal: AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS),
     });
     if (!response.ok) {
@@ -266,6 +274,7 @@ export async function resolveModelConfigs(
   region: CloudRegion,
   baseUrl?: string,
   apiKey?: string,
+  projectId?: number,
 ): Promise<ProviderModelConfig[]> {
   if (process.env.PI_OFFLINE || process.env.HARNESS_STATIC_MODELS) {
     return fallbackModelConfigs(region);
@@ -274,6 +283,7 @@ export async function resolveModelConfigs(
   const models = await fetchPosthogGatewayModels(
     baseUrl ?? getLlmGatewayUrl(region),
     apiKey,
+    projectId,
   );
   return resolveModelConfigsFromGatewayModels(models, region);
 }

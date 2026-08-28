@@ -1,7 +1,11 @@
 import { delimiter, dirname } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { Logger } from "../../utils/logger";
-import { buildAppServerArgs, spawnCodexAppServerProcess } from "./spawn";
+import {
+  buildAppServerArgs,
+  SANDBOX_STREAM_IDLE_TIMEOUT_MS,
+  spawnCodexAppServerProcess,
+} from "./spawn";
 
 const BINARY_PATH = "/bundle/codex";
 
@@ -138,6 +142,19 @@ describe("buildAppServerArgs", () => {
     expect(args).toContain('model_verbosity="low"');
   });
 
+  it("shortens the gateway stream idle timeout only in cloud sandboxes", () => {
+    const idleTimeoutArg = `model_providers.posthog.stream_idle_timeout_ms=${SANDBOX_STREAM_IDLE_TIMEOUT_MS}`;
+    const options = {
+      binaryPath: "/bundle/codex",
+      apiBaseUrl: "https://gateway.example/v1",
+    };
+
+    expect(buildAppServerArgs(options, { IS_SANDBOX: "1" })).toContain(
+      idleTimeoutArg,
+    );
+    expect(buildAppServerArgs(options, {})).not.toContain(idleTimeoutArg);
+  });
+
   it("pins the cloud BASH_ENV into tool shells for secondary checkouts", () => {
     const args = buildAppServerArgs(
       { binaryPath: "/bundle/codex" },
@@ -218,6 +235,42 @@ describe("spawnCodexAppServerProcess", () => {
       restoreEnv("ELECTRON_RUN_AS_NODE", saved.runAsNode);
       restoreEnv("ELECTRON_NO_ASAR", saved.noAsar);
       restoreEnv("PATH", saved.path);
+    }
+  });
+
+  // Codex snapshots process.env at spawn time, so the per-session mount must
+  // win over conflicting global values, and a session without a publish token
+  // (impersonation) must not inherit another session's.
+  it("applies the per-session context wiki over conflicting process.env and scrubs a missing token", () => {
+    const saved = {
+      wikiPath: process.env.POSTHOG_CONTEXT_LAYER_PATH,
+      commitsPath: process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH,
+      personalKey: process.env.POSTHOG_PERSONAL_API_KEY,
+    };
+    process.env.POSTHOG_CONTEXT_LAYER_PATH = "/stale/wiki";
+    process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH = "/stale/commits";
+    process.env.POSTHOG_PERSONAL_API_KEY = "other-sessions-token";
+    mockSpawn.mockReturnValue(fakeChild() as never);
+    try {
+      spawnCodexAppServerProcess({
+        binaryPath: BINARY_PATH,
+        contextWiki: {
+          path: "/wiki/a",
+          commitsPath: "/api/organizations/a/context_layer/commits/",
+        },
+        logger: silentLogger,
+      });
+
+      const env = mockSpawn.mock.lastCall?.[2].env as NodeJS.ProcessEnv;
+      expect(env.POSTHOG_CONTEXT_LAYER_PATH).toBe("/wiki/a");
+      expect(env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH).toBe(
+        "/api/organizations/a/context_layer/commits/",
+      );
+      expect(env.POSTHOG_PERSONAL_API_KEY).toBeUndefined();
+    } finally {
+      restoreEnv("POSTHOG_CONTEXT_LAYER_PATH", saved.wikiPath);
+      restoreEnv("POSTHOG_CONTEXT_LAYER_COMMITS_PATH", saved.commitsPath);
+      restoreEnv("POSTHOG_PERSONAL_API_KEY", saved.personalKey);
     }
   });
 });

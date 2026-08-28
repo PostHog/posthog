@@ -26,7 +26,7 @@ class TestInlineScanServiceBounds(BaseTest):
                 session_ids=["s1"],
                 scanner_type=ScannerType.CLASSIFIER,
                 scanner_config=self._config(),
-                model=ScannerModel.GEMINI_3_6_FLASH,
+                model=ScannerModel.GEMINI_3_7_FLASH,
             )
         assert not ReplayScanner.all_origins.filter(team=self.team).exists()
 
@@ -40,6 +40,6 @@ class TestInlineScanServiceBounds(BaseTest):
                 session_ids=[f"s{i}" for i in range(MAX_SESSIONS_PER_SCAN + 1)],
                 scanner_type=ScannerType.MONITOR,
                 scanner_config=self._config(),
-                model=ScannerModel.GEMINI_3_6_FLASH,
+                model=ScannerModel.GEMINI_3_7_FLASH,
             )
         assert not ReplayScanner.all_origins.filter(team=self.team).exists()

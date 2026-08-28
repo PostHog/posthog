@@ -24,6 +24,7 @@ from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.direct_connection import resolve_database_for_connection
+from posthog.hogql.editor_assist_metrics import EDITOR_ASSIST_DURATION_SECONDS
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -35,9 +36,9 @@ from posthog.exceptions import DatabaseSchemaUnavailable
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner_or_none
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.schema_migrations.upgrade import upgrade
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.data_tools.backend.models.join import DataWarehouseJoin
 
 from common.hogvm.python.debugger import color_bytecode
@@ -191,7 +192,12 @@ def process_database_schema_query(
             modifiers=create_default_modifiers_for_team(team),
         )
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
-        serialized_tables = database.serialize(context, include_hidden_posthog_tables=True)
+        serialized_tables = database.serialize(
+            context,
+            include_only=set(query.tables) if query.tables else None,
+            include_hidden_posthog_tables=True,
+            include_fields=query.includeFields is not False,
+        )
     except (APIException, ExposedHogQLError, ResolutionError, UserAccessControlError):
         # These already carry an actionable message, and the query view maps them to a 4xx.
         raise
@@ -293,18 +299,20 @@ def process_query_model(
     result: dict | BaseModel | RawCachedQueryResponse
 
     if isinstance(query, HogQLAutocomplete):
-        _, database = resolve_database_for_connection(
-            team,
-            query.connectionId,
-            user=user,
-            error_factory=ValidationError,
-            modifiers=create_default_modifiers_for_team(team),
-        )
-        return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
+        with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="autocomplete").time():
+            _, database = resolve_database_for_connection(
+                team,
+                query.connectionId,
+                user=user,
+                error_factory=ValidationError,
+                modifiers=create_default_modifiers_for_team(team),
+            )
+            return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
 
     if isinstance(query, HogQLMetadata):
-        metadata_query = HogQLMetadata.model_validate(query)
-        return get_hogql_metadata(query=metadata_query, team=team, user=user)
+        with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="metadata").time():
+            metadata_query = HogQLMetadata.model_validate(query)
+            return get_hogql_metadata(query=metadata_query, team=team, user=user)
 
     if isinstance(query, DatabaseSchemaQuery):
         return process_database_schema_query(team, query, user=user)

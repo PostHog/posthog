@@ -92,7 +92,9 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
 
             # HogQL automatically adds team_id filter, so we only need cohort_id (and version)
             if is_static:
-                subquery = f"(SELECT person_id, 1 AS matched FROM static_cohort_people WHERE cohort_id = {{{cohort_id_placeholder}}})"
+                # DISTINCT because `person_static_cohort` can hold repeated rows for the same member
+                # (its sort key includes a per-row UUID), which would fan out through the LEFT JOIN.
+                subquery = f"(SELECT DISTINCT person_id, 1 AS matched FROM static_cohort_people WHERE cohort_id = {{{cohort_id_placeholder}}})"
             else:
                 version_placeholder = f"version_{idx}"
                 placeholders[version_placeholder] = ast.Constant(value=version)

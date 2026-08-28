@@ -21,6 +21,7 @@ import {
   Stop,
 } from "phosphor-react-native";
 import { useFeatureFlag } from "posthog-react-native";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -96,6 +97,8 @@ interface TaskChatComposerProps {
   /** True while editing a queued message in place; the next send saves it. */
   editing?: boolean;
   onCancelEdit?: () => void;
+  /** Run artifacts trigger, rendered in the composer toolbar row. */
+  artifactsSlot?: ReactNode;
 }
 
 export function TaskChatComposer({
@@ -124,6 +127,7 @@ export function TaskChatComposer({
   restoredDraft,
   editing = false,
   onCancelEdit,
+  artifactsSlot,
 }: TaskChatComposerProps) {
   const themeColors = useThemeColors();
   const { configOptions: liveConfigOptions, hasLiveConfig } =
@@ -397,6 +401,8 @@ export function TaskChatComposer({
                   weight={attachments.length > 0 ? "fill" : "regular"}
                 />
               </Pressable>
+
+              {artifactsSlot}
 
               <ScrollView
                 horizontal

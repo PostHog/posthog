@@ -11,7 +11,10 @@ from products.marketing_analytics.backend.services.utm_matching import (
     build_source_lookup,
     get_match_field,
     get_match_value,
+    get_match_value_raw,
+    group_campaigns_by_source,
     load_team_mappings,
+    normalize_source_name,
     resolve_source,
 )
 
@@ -239,3 +242,41 @@ class TestCampaignsQueryShape(BaseTest):
             interval=None,
             now=timezone.now(),
         )
+
+
+class TestSharedMatchHelpers(BaseTest):
+    """These existed as private copies in both suggesters before they moved here."""
+
+    PREFERS_ID = TeamMappings(
+        source_to_integration={}, campaign_aliases={}, field_preferences={"google": "campaign_id"}
+    )
+
+    def test_the_lowercased_value_is_the_raw_one_folded(self):
+        # They differ only by casing; a second copy of the *field choice* is what drifts.
+        campaign = _campaign("Spring_Sale_2024", "PROMO_1234", "google")
+
+        for mappings in (NO_MAPPINGS, self.PREFERS_ID):
+            assert get_match_value(campaign, mappings) == get_match_value_raw(campaign, mappings).lower()
+
+    def test_the_raw_value_keeps_platform_casing(self):
+        # What gets stored in campaign_name_mappings has to equal what the platform calls it.
+        campaign = _campaign("Spring_Sale_2024", "PROMO_1234", "google")
+
+        assert get_match_value_raw(campaign, NO_MAPPINGS) == "Spring_Sale_2024"
+        assert get_match_value_raw(campaign, self.PREFERS_ID) == "PROMO_1234"
+
+    def test_grouping_skips_campaigns_with_no_source(self):
+        # A blank source would otherwise form its own "" group.
+        campaigns = [
+            _campaign("a", "1", "GOOGLE"),
+            _campaign("b", "2", "  google  "),
+            _campaign("c", "3", "   "),
+        ]
+
+        grouped = group_campaigns_by_source(campaigns)
+
+        assert set(grouped) == {"google"}
+        assert [c.campaign_name for c in grouped["google"]] == ["a", "b"]
+
+    def test_source_names_normalize_consistently(self):
+        assert normalize_source_name("  GoogleAds  ") == "googleads"

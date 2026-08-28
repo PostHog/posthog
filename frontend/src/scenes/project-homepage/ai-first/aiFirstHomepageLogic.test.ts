@@ -7,8 +7,13 @@ import { maxLogic } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { recentItemsModel } from '~/models/recentItemsModel'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { DashboardBasicType } from '~/types'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
@@ -74,5 +79,34 @@ describe('aiFirstHomepageLogic', () => {
         expect(logic.values.mode).toEqual(expectedMode)
         // The prompt rides along as `ask`, which the new surface's composer seeds and submits.
         expect(router.values.searchParams.ask).toEqual(sandboxFlagOn ? 'what is my dau' : undefined)
+    })
+
+    it('shows up to eight pinned dashboards, recents, and starred items', () => {
+        const createFileSystemEntries = (prefix: string): FileSystemEntry[] =>
+            Array.from({ length: 9 }, (_, index) => ({
+                id: `${prefix}-${index}`,
+                path: `${prefix} ${index}`,
+                type: 'insight',
+            }))
+
+        dashboardsModel.actions.loadDashboardsSuccess({
+            count: 9,
+            next: null,
+            previous: null,
+            results: Array.from({ length: 9 }, (_, index) => ({
+                id: index,
+                name: `Dashboard ${index}`,
+                pinned: true,
+            })) as DashboardBasicType[],
+        })
+        recentItemsModel.actions.loadRecentsSuccess(createFileSystemEntries('Recent'))
+        projectTreeDataLogic.actions.loadShortcutsSuccess([
+            ...createFileSystemEntries('Starred'),
+            { id: 'starred-folder', path: 'Starred folder', type: 'folder' },
+        ])
+
+        expect(logic.values.gridItems.filter((item) => item.kind === 'dashboard')).toHaveLength(8)
+        expect(logic.values.gridItems.filter((item) => item.kind === 'recent')).toHaveLength(8)
+        expect(logic.values.gridItems.filter((item) => item.kind === 'starred')).toHaveLength(8)
     })
 })

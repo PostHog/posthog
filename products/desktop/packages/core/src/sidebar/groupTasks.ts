@@ -24,6 +24,23 @@ export interface TaskGroup<T extends GroupableTask> {
   tasks: T[];
 }
 
+/**
+ * A repository as a reader names it: `organization/name`, or the bare name
+ * where we never learned the organization. One definition, because a list that
+ * groups by repository and a row that prints one have to agree.
+ */
+export function repositoryLabel(
+  repository:
+    | Pick<TaskRepositoryInfo, "name" | "organization">
+    | null
+    | undefined,
+): string | undefined {
+  if (!repository) return undefined;
+  return repository.organization
+    ? `${repository.organization}/${repository.name}`
+    : repository.name;
+}
+
 export function getRepositoryInfo(
   task: { repository?: string | null },
   folderPath?: string,
@@ -44,7 +61,9 @@ export function getRepositoryInfo(
     // of colliding with a real owner/repo group.
   }
   if (folderPath) {
-    const name = folderPath.split("/").pop() ?? folderPath;
+    // Both separators: a Windows checkout would otherwise take its whole path
+    // as the repository's name, which a row then prints in full.
+    const name = folderPath.split(/[/\\]/).filter(Boolean).pop() ?? folderPath;
     return {
       fullPath: folderPath,
       name,
@@ -127,7 +146,8 @@ export function groupByRepository<T extends GroupableTask>(
     if ((nameCounts.get(group.name) ?? 0) > 1) {
       const organization = group.tasks[0]?.repository?.organization;
       if (organization) {
-        group.name = `${organization}/${group.name}`;
+        group.name =
+          repositoryLabel({ name: group.name, organization }) ?? group.name;
       }
     }
   }

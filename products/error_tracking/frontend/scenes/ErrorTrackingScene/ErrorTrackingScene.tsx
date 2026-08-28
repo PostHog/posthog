@@ -81,10 +81,12 @@ export function ErrorTrackingScene(): JSX.Element {
             label: 'Issues',
             content: (
                 <ErrorTrackingSetupPrompt>
-                    <ErrorTrackingIssueFilteringTool />
                     {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
                     <SourceMapsBanner />
                     <IssuesList />
+                    {/* Renders a hidden div — keep it after IssuesList so the sticky bar's
+                        first:-mt-4 can detect whether a banner renders above it */}
+                    <ErrorTrackingIssueFilteringTool />
                 </ErrorTrackingSetupPrompt>
             ),
         },

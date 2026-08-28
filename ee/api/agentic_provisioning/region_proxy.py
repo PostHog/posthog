@@ -31,6 +31,7 @@ from django.http import HttpRequest, HttpResponse
 import requests
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.utils import get_instance_region
@@ -61,6 +62,7 @@ PROXY_HEADER_ALLOWLIST = frozenset(
         "accept",
         "authorization",
         "user-agent",
+        "x-forwarded-for",
     }
 )
 
@@ -69,11 +71,17 @@ PROXY_HEADER_ALLOWLIST = frozenset(
 _JSON_SEPARATORS = (",", ":")
 
 
-def _region_domains() -> tuple[str, str]:
+@frozen
+class RegionDomains:
+    us: str
+    eu: str
+
+
+def _region_domains() -> RegionDomains:
     """Read at call time, not import time, so @override_settings works in tests."""
-    return (
-        getattr(settings, "REGION_US_DOMAIN", DEFAULT_US_DOMAIN),
-        getattr(settings, "REGION_EU_DOMAIN", DEFAULT_EU_DOMAIN),
+    return RegionDomains(
+        us=getattr(settings, "REGION_US_DOMAIN", DEFAULT_US_DOMAIN),
+        eu=getattr(settings, "REGION_EU_DOMAIN", DEFAULT_EU_DOMAIN),
     )
 
 
@@ -85,10 +93,10 @@ def _current_region() -> str | None:
 
 
 def _other_region_domain(current: str) -> str:
-    us_domain, eu_domain = _region_domains()
+    domains = _region_domains()
     if current == "US":
-        return eu_domain
-    return us_domain
+        return domains.eu
+    return domains.us
 
 
 def _request_payload(request: HttpRequest) -> dict[str, Any]:

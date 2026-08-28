@@ -465,6 +465,40 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             )
         }
 
+        const sideActionContent = !isEmptyFolder && size === 'default' ? itemSideAction?.(item) : undefined
+        const sideActionButton = sideActionContent !== undefined ? itemSideActionButton?.(item) : undefined
+        const sideAction =
+            sideActionContent !== undefined ? (
+                sideActionContent !== null ? (
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            {sideActionButton ?? (
+                                <ButtonPrimitive
+                                    iconOnly
+                                    isSideActionRight
+                                    className="
+                                        absolute right-0
+                                        opacity-0
+                                        group-hover/lemon-tree-button-group:opacity-100
+                                        z-10
+                                        data-[state=open]:opacity-100
+                                        -outline-offset-2
+                                        focus-visible:opacity-100
+                                    "
+                                >
+                                    <IconEllipsis className="text-tertiary size-3 group-hover/lemon-tree-button-group:text-primary z-10" />
+                                </ButtonPrimitive>
+                            )}
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
+                            {sideActionContent}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                ) : (
+                    sideActionButton
+                )
+            ) : null
+
         const content = (
             <AccordionPrimitive.Item
                 value={item.id}
@@ -521,38 +555,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                             button
                         )}
 
-                        {itemSideAction &&
-                            itemSideAction(item) !== undefined &&
-                            !isEmptyFolder &&
-                            size === 'default' && (
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        {itemSideActionButton?.(item) ?? (
-                                            <ButtonPrimitive
-                                                iconOnly
-                                                isSideActionRight
-                                                className="
-                                                    absolute right-0
-                                                    opacity-0
-                                                    group-hover/lemon-tree-button-group:opacity-100
-                                                    z-10
-                                                    data-[state=open]:opacity-100
-                                                    -outline-offset-2
-                                                    focus-visible:opacity-100
-                                                "
-                                            >
-                                                <IconEllipsis className="text-tertiary size-3 group-hover/lemon-tree-button-group:text-primary z-10" />
-                                            </ButtonPrimitive>
-                                        )}
-                                    </DropdownMenuTrigger>
-
-                                    {!!itemSideAction(item) && (
-                                        <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
-                                            {itemSideAction(item)}
-                                        </DropdownMenuContent>
-                                    )}
-                                </DropdownMenu>
-                            )}
+                        {sideAction}
                     </ButtonGroupPrimitive>
                 </AccordionPrimitive.Trigger>
 

@@ -15,7 +15,6 @@ import { AgentRunCard } from "@posthog/ui/features/inbox/components/AgentRunCard
 import { CardSkeleton } from "@posthog/ui/features/inbox/components/CardSkeleton";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
-import { Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 
 const RECENTLY_FINISHED_LIMIT = 10;
@@ -73,12 +72,12 @@ export function RunsTab() {
 
   if (isLoading && scopedReports.length === 0) {
     return (
-      <Flex direction="column" gap="4" className="mx-auto max-w-3xl px-6 py-4">
-        <Flex direction="column" gap="2">
+      <div className="@container mx-auto flex w-full max-w-3xl flex-col gap-4 px-6 py-4">
+        <div className="flex flex-col gap-2">
           <span className="h-4 w-28 animate-pulse rounded bg-(--gray-3)" />
           <CardSkeleton count={3} variant="rows" />
-        </Flex>
-      </Flex>
+        </div>
+      </div>
     );
   }
 
@@ -86,7 +85,7 @@ export function RunsTab() {
     queuedRuns.length > 0 || liveRuns.length > 0 || finishedRuns.length > 0;
 
   return (
-    <Flex direction="column" gap="4" className="mx-auto max-w-3xl px-6 py-4">
+    <div className="@container mx-auto flex w-full max-w-3xl flex-col gap-4 px-6 py-4">
       {!hasAnyRuns ? (
         <Empty className="mx-auto max-w-md py-16">
           <EmptyHeader>
@@ -107,7 +106,7 @@ export function RunsTab() {
           </EmptyHeader>
         </Empty>
       ) : (
-        <Flex direction="column" gap="5">
+        <div className="flex flex-col gap-5">
           {queuedRuns.length > 0 && (
             <RunsSection
               title="Queued"
@@ -135,9 +134,9 @@ export function RunsTab() {
               showAll={finishedShowAll}
             />
           )}
-        </Flex>
+        </div>
       )}
-    </Flex>
+    </div>
   );
 }
 
@@ -181,16 +180,16 @@ function RunsSection({
   showAll,
 }: RunsSectionProps) {
   return (
-    <Flex direction="column" gap="2">
-      <Flex direction="column" gap="0.5" className="cursor-default select-none">
-        <Flex align="center" gap="2">
-          <Text className="font-semibold text-[13px] text-gray-12">
+    <div className="flex flex-col gap-2">
+      <div className="flex cursor-default select-none flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-[13px] text-gray-12">
             {title}
-          </Text>
+          </span>
           {count > 0 && (
-            <Text className="text-[12px] text-gray-10 tabular-nums">
+            <span className="text-[12px] text-gray-10 tabular-nums">
               {count}
-            </Text>
+            </span>
           )}
           {isLive && count > 0 && (
             <span
@@ -198,41 +197,33 @@ function RunsSection({
               aria-hidden
             />
           )}
-        </Flex>
+        </div>
         {description && (
-          <Text className="text-[12px] text-gray-11 leading-snug">
+          <span className="text-[12px] text-gray-11 leading-snug">
             {description}
-          </Text>
+          </span>
         )}
-      </Flex>
+      </div>
       {runs.length === 0 && empty ? (
-        <Flex
-          align="center"
-          gap="3"
-          className="cursor-default select-none rounded-(--radius-2) border border-(--gray-5) border-dashed bg-(--gray-1) px-4 py-3.5"
-        >
-          <Flex
-            align="center"
-            justify="center"
-            className="h-8 w-8 shrink-0 rounded-full bg-(--gray-3) ring-(--gray-5) ring-1 ring-inset"
-          >
+        <div className="flex cursor-default select-none items-center gap-3 rounded-(--radius-2) border border-(--gray-5) border-dashed bg-(--gray-1) px-4 py-3.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-(--gray-3) ring-(--gray-5) ring-1 ring-inset">
             <RobotIcon size={14} className="text-gray-10" />
-          </Flex>
-          <Flex direction="column" gap="0.5" className="min-w-0 flex-1">
-            <Text className="font-medium text-[13px] text-gray-12">
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="font-medium text-[13px] text-gray-12">
               {empty.title}
-            </Text>
-            <Text className="text-[12px] text-gray-10 leading-snug">
+            </span>
+            <span className="text-[12px] text-gray-10 leading-snug">
               {empty.description}
-            </Text>
-          </Flex>
-        </Flex>
+            </span>
+          </div>
+        </div>
       ) : (
-        <Flex direction="column" gap="3">
+        <div className="flex flex-col gap-3">
           {runs.map((report) => (
             <AgentRunCard key={report.id} report={report} />
           ))}
-        </Flex>
+        </div>
       )}
       {showAll && (
         <button
@@ -245,6 +236,6 @@ function RunsSection({
             : `Show all ${showAll.hiddenCount} more`}
         </button>
       )}
-    </Flex>
+    </div>
   );
 }

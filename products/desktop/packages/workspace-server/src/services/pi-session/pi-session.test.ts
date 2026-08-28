@@ -233,12 +233,28 @@ describe("PiSessionService start", () => {
     );
 
     await service.start({
-      taskId: "task-1",
-      cwd: "/tmp",
+      taskContext: {
+        taskId: "task-1",
+        cwd: "/tmp",
+        customInstructions: "Keep the patch small.",
+        additionalDirectories: ["/tmp/shared"],
+        channelMode: true,
+      },
       prompt: "hello",
       thinkingLevel: "high",
     });
 
+    expect(runtimeFactory.create).toHaveBeenCalledWith({
+      taskContext: {
+        taskId: "task-1",
+        cwd: "/tmp",
+        customInstructions: "Keep the patch small.",
+        additionalDirectories: ["/tmp/shared"],
+        channelMode: true,
+      },
+      model: undefined,
+      projectTrusted: false,
+    });
     expect(setThinkingLevel).toHaveBeenCalledWith("high");
     expect(setThinkingLevel.mock.invocationCallOrder[0]).toBeLessThan(
       prompt.mock.invocationCallOrder[0],
@@ -347,8 +363,7 @@ describe("PiSessionService project trust", () => {
     );
 
     await service.start({
-      taskId: "task-1",
-      cwd: worktree,
+      taskContext: { taskId: "task-1", cwd: worktree },
       projectTrustPath: repository,
       prompt: "hello",
     });
@@ -357,8 +372,7 @@ describe("PiSessionService project trust", () => {
       hasProjectResources: true,
     });
     expect(runtimeFactory.create).toHaveBeenLastCalledWith({
-      taskId: "task-1",
-      cwd: worktree,
+      taskContext: { taskId: "task-1", cwd: worktree },
       model: undefined,
       projectTrusted: false,
     });
@@ -372,14 +386,12 @@ describe("PiSessionService project trust", () => {
     expect(processTracking.unregister).not.toHaveBeenCalled();
 
     await service.resume({
-      taskId: "task-1",
-      cwd: worktree,
+      taskContext: { taskId: "task-1", cwd: worktree },
       projectTrustPath: repository,
     });
     expect(clients[0].stop).toHaveBeenCalledTimes(2);
     expect(runtimeFactory.create).toHaveBeenLastCalledWith({
-      taskId: "task-1",
-      cwd: worktree,
+      taskContext: { taskId: "task-1", cwd: worktree },
       sessionFile: "/tmp/session.jsonl",
       projectTrusted: false,
     });
@@ -392,13 +404,11 @@ describe("PiSessionService project trust", () => {
     );
 
     await service.resume({
-      taskId: "task-1",
-      cwd: worktree,
+      taskContext: { taskId: "task-1", cwd: worktree },
       projectTrustPath: repository,
     });
     expect(runtimeFactory.create).toHaveBeenLastCalledWith({
-      taskId: "task-1",
-      cwd: worktree,
+      taskContext: { taskId: "task-1", cwd: worktree },
       sessionFile: "/tmp/session.jsonl",
       projectTrusted: true,
     });
@@ -424,8 +434,7 @@ describe("PiSessionService project trust", () => {
 
     await expect(
       service.start({
-        taskId: "task-1",
-        cwd: unrelatedRepository,
+        taskContext: { taskId: "task-1", cwd: unrelatedRepository },
         projectTrustPath: trustedRepository,
         prompt: "hello",
       }),
@@ -478,7 +487,10 @@ describe("PiSessionService extension UI", () => {
       rootLogger,
     );
     const abortController = new AbortController();
-    await service.start({ taskId: "task-1", cwd: "/tmp", prompt: "hello" });
+    await service.start({
+      taskContext: { taskId: "task-1", cwd: "/tmp" },
+      prompt: "hello",
+    });
     extensionHandlers[0]({
       type: "extension_ui_request",
       id: "startup-notification",
@@ -559,8 +571,7 @@ describe("PiSessionService extension UI", () => {
     const oldEvent = oldIterator.next();
     extensionHandlers[0]({ ...request, id: "buffered-old-extension" });
     await service.start({
-      taskId: "task-1",
-      cwd: "/tmp/replacement",
+      taskContext: { taskId: "task-1", cwd: "/tmp/replacement" },
       prompt: "hello again",
     });
     await expect(oldEvent).resolves.toEqual({
@@ -678,14 +689,18 @@ describe("PiSessionService RPC request pinning", () => {
       rootLogger,
     );
 
-    await service.resume({ taskId: "first", cwd: "/tmp" });
+    await service.resume({
+      taskContext: { taskId: "first", cwd: "/tmp" },
+    });
     const bashRequest = service.request("first", {
       type: "bash",
       command: "sleep 1",
     });
     const queueRequest = service.getQueue("first");
 
-    await service.resume({ taskId: "second", cwd: "/tmp" });
+    await service.resume({
+      taskContext: { taskId: "second", cwd: "/tmp" },
+    });
     expect(firstClient.stop).not.toHaveBeenCalled();
 
     requestResolvers[0](successfulResponse("bash"));
@@ -697,7 +712,9 @@ describe("PiSessionService RPC request pinning", () => {
     await queueRequest;
     expect(firstClient.stop).not.toHaveBeenCalled();
 
-    await service.resume({ taskId: "third", cwd: "/tmp" });
+    await service.resume({
+      taskContext: { taskId: "third", cwd: "/tmp" },
+    });
     expect(firstClient.stop).toHaveBeenCalledOnce();
     expect(thirdClient.stop).not.toHaveBeenCalled();
   });

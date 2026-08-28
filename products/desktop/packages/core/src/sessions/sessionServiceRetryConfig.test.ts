@@ -1,4 +1,8 @@
-import type { AcpMessage, AgentSession } from "@posthog/shared";
+import {
+  type AcpMessage,
+  type AgentSession,
+  ANALYTICS_EVENTS,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -231,6 +235,7 @@ function assertRunConfigPersisted(setSession: ReturnType<typeof vi.fn>): void {
 describe("SessionService.connectToTask start failure", () => {
   it("persists the run configuration on the error session so retry keeps the model", async () => {
     const setSession = vi.fn();
+    const track = vi.fn();
     const deps = {
       store: {
         getSessionByTaskId: () => undefined,
@@ -238,6 +243,7 @@ describe("SessionService.connectToTask start failure", () => {
         setSession,
       },
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      track,
       settings: { customInstructions: "" },
       DEFAULT_GATEWAY_MODEL: "claude-opus-4-8",
       // Online for the create-branch check, offline in the catch so the
@@ -278,6 +284,10 @@ describe("SessionService.connectToTask start failure", () => {
     await service.connectToTask(CONNECT_PARAMS);
 
     assertRunConfigPersisted(setSession);
+    expect(track).toHaveBeenCalledWith(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+      task_id: "task-1",
+      error_type: "connect_failed",
+    });
   });
 });
 

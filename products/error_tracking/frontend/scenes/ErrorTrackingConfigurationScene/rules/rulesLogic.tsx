@@ -41,6 +41,14 @@ function createNewRule(ruleType: ErrorTrackingRuleType, order_key: number): Erro
                 filters: { type: FilterLogicalOperator.Or, values: [] },
                 order_key,
             }
+        case 'severity_rules':
+            return {
+                id: 'new',
+                disabled_data: null,
+                filters: { type: FilterLogicalOperator.And, values: [] },
+                order_key,
+                severity: null,
+            }
         default:
             throw new Error(`Unsupported rule type: ${ruleType}`)
     }

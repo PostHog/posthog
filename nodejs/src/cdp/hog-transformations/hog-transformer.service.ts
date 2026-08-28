@@ -168,16 +168,11 @@ export class HogTransformerService implements HogTransformer {
         }
 
         const results: CyclotronJobInvocationResult[] = []
-        const transformationsSucceeded: string[] = []
-        const transformationsFailed: string[] = []
-        const transformationsSkipped: string[] = []
 
         // Create globals once and update the event properties after each transformation
         const globals = this.createInvocationGlobals(event)
 
         for (const hogFunction of teamHogFunctions) {
-            const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
-
             // Create filterGlobals for each iteration - it references globals.event.properties
             // which gets updated after each successful transformation
             const filterGlobals = convertToHogFunctionFilterGlobal(globals)
@@ -195,7 +190,6 @@ export class HogTransformerService implements HogTransformer {
                 this.hogFunctionMonitoringService.queueLogs(filterResults.logs, 'hog_function')
 
                 if (!filterResults.match) {
-                    transformationsSkipped.push(transformationIdentifier)
                     continue
                 }
             }
@@ -220,14 +214,12 @@ export class HogTransformerService implements HogTransformer {
                     },
                     'hog_function'
                 )
-                transformationsFailed.push(transformationIdentifier)
                 continue
             }
 
             results.push(result)
 
             if (result.error) {
-                transformationsFailed.push(transformationIdentifier)
                 continue
             }
 
@@ -243,7 +235,6 @@ export class HogTransformerService implements HogTransformer {
                     },
                     'hog_function'
                 )
-                transformationsFailed.push(transformationIdentifier)
                 return {
                     event: null,
                     invocationResults: results,
@@ -263,7 +254,6 @@ export class HogTransformerService implements HogTransformer {
                 logger.error('⚠️', 'Invalid transformation result - missing or invalid properties', {
                     function_id: hogFunction.id,
                 })
-                transformationsFailed.push(transformationIdentifier)
                 continue
             }
 
@@ -276,7 +266,6 @@ export class HogTransformerService implements HogTransformer {
                         function_id: hogFunction.id,
                         event: transformedEvent.event,
                     })
-                    transformationsFailed.push(transformationIdentifier)
                     continue
                 }
                 event.event = transformedEvent.event
@@ -288,7 +277,6 @@ export class HogTransformerService implements HogTransformer {
                         function_id: hogFunction.id,
                         distinct_id: transformedEvent.distinct_id,
                     })
-                    transformationsFailed.push(transformationIdentifier)
                     continue
                 }
                 event.distinct_id = transformedEvent.distinct_id
@@ -298,26 +286,6 @@ export class HogTransformerService implements HogTransformer {
             globals.event.properties = event.properties
             globals.event.event = event.event
             globals.event.distinct_id = event.distinct_id
-
-            transformationsSucceeded.push(transformationIdentifier)
-        }
-
-        // Use direct property assignment instead of spreading to avoid copying the entire object
-        if (
-            transformationsFailed.length > 0 ||
-            transformationsSkipped.length > 0 ||
-            transformationsSucceeded.length > 0
-        ) {
-            event.properties = event.properties || {}
-            if (transformationsFailed.length > 0) {
-                event.properties.$transformations_failed = transformationsFailed
-            }
-            if (transformationsSkipped.length > 0) {
-                event.properties.$transformations_skipped = transformationsSkipped
-            }
-            if (transformationsSucceeded.length > 0) {
-                event.properties.$transformations_succeeded = transformationsSucceeded
-            }
         }
 
         return {
@@ -327,7 +295,7 @@ export class HogTransformerService implements HogTransformer {
     }
 
     public transformEvent(event: PluginEvent, teamHogFunctions: HogFunctionType[]): Promise<TransformationResult> {
-        // Sanitize transform event properties
+        // These properties are retired, so drop any a client sends rather than letting them through
         if (event.properties) {
             for (const key of ['$transformations_failed', '$transformations_skipped', '$transformations_succeeded']) {
                 if (key in event.properties) {

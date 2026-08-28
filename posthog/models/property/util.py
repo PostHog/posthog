@@ -931,6 +931,14 @@ def process_ok_values(ok_values: Any, operator: OperatorType) -> list[str]:
         return [re.escape(text) for text in ok_values]
 
 
+def _chain_escaped_value(value: str) -> str:
+    # A quoted value in the chain escapes double quotes as \" (_escape in
+    # posthog/models/element/element.py). A selector can write the quote either
+    # pre-escaped ([title="say \"hi\""]) or bare inside single quotes
+    # ([title='say "hi"']), so normalize to the chain's form to match both.
+    return value.replace(r"\"", '"').replace('"', r"\"")
+
+
 def build_selector_regex(selector: Selector) -> str:
     regex = r""
     for tag in selector.parts:
@@ -942,8 +950,11 @@ def build_selector_regex(selector: Selector) -> str:
         if tag.ch_attributes:
             regex += r".*?"
             for key, value in sorted(tag.ch_attributes.items()):
-                regex += rf'{re.escape(key)}="{re.escape(str(value))}".*?'
-        regex += r'([-_a-zA-Z0-9\.:"= \[\]\(\),]*?)?($|;|:([^;^\s]*(;|$|\s)))'
+                regex += rf'{re.escape(key)}="{re.escape(_chain_escaped_value(str(value)))}".*?'
+        # The rest of the element can carry characters an allowlist cannot
+        # anticipate (classes like w-1/2 or !mt-0), so skip anything up to the
+        # `;` element separator.
+        regex += r"[^;]*?($|;|:([^;^\s]*(;|$|\s)))"
         if tag.direct_descendant:
             regex += r".*"
     if regex:

@@ -6,7 +6,8 @@ folder, join, and query-tab-state surfaces). Light — Django models loaded at s
 """
 
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
+from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_tools.backend.models.query_tab_state import QueryTabState
 
-__all__ = ["DataWarehouseJoin", "DataWarehouseSavedQueryFolder", "QueryTabState"]
+__all__ = ["DataWarehouseExpression", "DataWarehouseJoin", "DataWarehouseSavedQueryFolder", "QueryTabState"]

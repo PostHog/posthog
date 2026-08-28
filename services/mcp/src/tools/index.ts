@@ -3,6 +3,8 @@ import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 
 // AI observability
 import getLLMCosts from './aiObservability/getLLMCosts'
+import parserRecipeCreate from './aiObservability/parserRecipeCreate'
+import parserRecipeReference from './aiObservability/parserRecipeReference'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
@@ -38,6 +40,8 @@ import {
     externalDataSyncLogs,
     readDataSchema,
 } from './posthogAiTools'
+// PostHog connections (run this project's tools against a connected project in another org/region)
+import { createConnectionCallTool } from './posthogConnections/call'
 // Projects
 import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
@@ -45,7 +49,6 @@ import updateEventDefinition from './projects/updateEventDefinition'
 import updatePathCleaning from './projects/updatePathCleaning'
 import updatePropertyDefinition from './projects/updatePropertyDefinition'
 // Replay
-import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
 import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
 import { tasksArtifactsList, tasksCommentsList, tasksCommentsRetrieve } from './tasksContext'
@@ -97,6 +100,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // AI observability
     'get-llm-total-costs-for-project': getLLMCosts,
+    'llma-parser-recipe-create': parserRecipeCreate,
+    'llma-parser-recipe-reference': parserRecipeReference,
 
     // Notebooks
     'notebook-edit': notebookEdit,
@@ -122,7 +127,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'read-data-schema': readDataSchema,
 
     // Replay
-    'session-recording-summarize': sessionRecordingSummarize,
 
     // Data warehouse (custom handlers for non-standard request shapes)
     'external-data-sources-db-schema': externalDataSourcesDbSchema,
@@ -141,8 +145,17 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-run-batch': workflowsRunBatch,
     'workflows-schedule-create': workflowsScheduleCreate,
 
+    // PostHog connections — runs any other tool in this map (or a generated one) against a connected
+    // project. The registry is injected rather than imported over there so the two don't form a cycle.
+    'posthog-connection-call': () => createConnectionCallTool(resolveToolBase),
+
     // Skills — deprecated llma-skill-* aliases forwarding to the renamed skill-* tools.
     ...SKILL_DEPRECATED_ALIASES,
+}
+
+/** Build one tool by name, from the hand-written and generated registries alike. */
+function resolveToolBase(name: string): ToolBase<ZodObjectAny> | undefined {
+    return { ...TOOL_MAP, ...GENERATED_TOOL_MAP }[name]?.()
 }
 
 export const getToolsFromContext = async (

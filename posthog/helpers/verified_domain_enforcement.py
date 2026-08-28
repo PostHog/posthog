@@ -1,4 +1,7 @@
 import re
+from typing import Optional
+
+from django.db.models import Q
 
 import structlog
 from loginas.utils import is_impersonated_session
@@ -6,7 +9,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 
 from posthog.helpers.two_factor_session import is_path_whitelisted
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
 
@@ -27,6 +30,24 @@ def is_enforcement_disable_request(request: Request) -> bool:
     standard admin-write permission still applies.
     """
     return request.method == "PATCH" and bool(_ORGANIZATION_DETAIL_PATH.match(request.path))
+
+
+def verified_domain_email_q(organization: Organization) -> Optional[Q]:
+    """
+    Q matching `OrganizationMembership` rows whose user's email is on one of the organization's
+    verified domains, or None when the organization has no verified domains (every membership is
+    then outside them). Independent of `enforce_verified_domains`, so callers can preview the
+    impact of enabling it.
+    """
+    domains = list(
+        OrganizationDomain.objects.verified_domains().filter(organization=organization).values_list("domain", flat=True)
+    )
+    if not domains:
+        return None
+    admitted = Q()
+    for domain in domains:
+        admitted |= Q(user__email__iendswith=f"@{domain}")
+    return admitted
 
 
 def enforce_verified_domain(request: Request, user: User) -> None:

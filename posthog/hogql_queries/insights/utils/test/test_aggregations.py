@@ -136,6 +136,26 @@ class TestFirstTimeForUserEventsQueryAlternator:
         assert query.select[1].expr.name == "minIf"
         assert query.select[1].expr.args == [ast.Field(chain=["timestamp"]), ast.And(exprs=[date_from, filters])]
 
+    def test_group_by_person_id_by_default(self):
+        query = ast.SelectQuery(select=[])
+        date_from, date_to = parse_expr("1 = 1"), parse_expr("2 = 2")
+
+        FirstTimeForUserEventsQueryAlternator(query, date_from, date_to).build()
+
+        assert isinstance(query.group_by, list)
+        assert isinstance(query.group_by[0], ast.Field)
+        assert query.group_by[0].chain == ["person_id"]
+
+    def test_group_by_group_field_when_group_type_index_set(self):
+        query = ast.SelectQuery(select=[])
+        date_from, date_to = parse_expr("1 = 1"), parse_expr("2 = 2")
+
+        FirstTimeForUserEventsQueryAlternator(query, date_from, date_to, math_group_type_index=2).build()
+
+        assert isinstance(query.group_by, list)
+        assert isinstance(query.group_by[0], ast.Field)
+        assert query.group_by[0].chain == ["$group_2"]
+
     def test_query_with_event_or_action_filter(self):
         query = ast.SelectQuery(select=[])
         date_from, date_to, event_filter = parse_expr("1 = 1"), parse_expr("2 = 2"), parse_expr("3 = 3")

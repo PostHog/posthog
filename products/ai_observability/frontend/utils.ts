@@ -11,9 +11,10 @@ import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import {
     EVALUATION_NOT_SKIPPED_HOGQL,
     EVALUATION_PASSED_HOGQL,
-    EVALUATION_SUMMARY_MAX_RUNS,
+    EVALUATION_RUNS_QUERY_LIMIT,
 } from './evaluations/constants'
 import type { EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
+import type { SummarizeRequestApi } from './generated/api.schemas'
 import {
     AnthropicDocumentMessage,
     AnthropicImageMessage,
@@ -290,6 +291,33 @@ export function isLLMEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEven
  */
 export function isTraceLevel(item: LLMTrace | LLMTraceEvent): item is LLMTrace {
     return !isLLMEvent(item)
+}
+
+/**
+ * Days either side of the entity's own timestamp to search for it, instead of the endpoint's 30-day
+ * default. Narrow keeps the lookup off traces that reuse a customer-supplied ID, and a single trace
+ * rarely spans longer than this.
+ */
+const SUMMARIZATION_LOOKUP_WINDOW_DAYS = 1
+
+/**
+ * Date window for summarization requests that reference a trace or event by ID.
+ *
+ * The endpoint refetches the entity itself, so the window is all it has to find it by. Callers that
+ * cannot produce a usable timestamp get an empty range, which leaves the endpoint's own default in
+ * place rather than sending a window that excludes the entity.
+ */
+export function getSummarizationLookupDateRange(
+    createdAt: string | undefined
+): Pick<SummarizeRequestApi, 'date_from' | 'date_to'> {
+    const timestamp = createdAt ? dayjs(createdAt) : null
+    if (!timestamp?.isValid()) {
+        return {}
+    }
+    return {
+        date_from: timestamp.subtract(SUMMARIZATION_LOOKUP_WINDOW_DAYS, 'day').toISOString(),
+        date_to: timestamp.add(SUMMARIZATION_LOOKUP_WINDOW_DAYS, 'day').toISOString(),
+    }
 }
 
 function normalizeSessionId(value: unknown): string | null {
@@ -828,30 +856,9 @@ export function isOTelPartsMessage(input: unknown): input is OTelPartsMessage {
     )
 }
 
-export const roleMap: Record<string, string> = {
-    user: 'user',
-    human: 'user',
-
-    assistant: 'assistant',
-    model: 'assistant',
-    ai: 'assistant',
-    bot: 'assistant',
-
-    system: 'system',
-    instructions: 'system',
-    context: 'system',
-}
-
-export function normalizeRole(rawRole: unknown, fallback: string): string {
-    if (typeof rawRole !== 'string') {
-        return fallback
-    }
-    const lowercased = rawRole.toLowerCase()
-    return roleMap[lowercased] || lowercased
-}
-
-// Synthetic role used to surface the `$ai_tools` payload as a pseudo-message
-export const AVAILABLE_TOOLS_ROLE = 'available tools'
+// Role helpers live in the portable normalizer module (leaf, no browser deps);
+// re-exported here so the many frontend consumers keep their import paths.
+export { roleMap, normalizeRole, AVAILABLE_TOOLS_ROLE } from '@posthog/llm-normalizer'
 
 export const INTERNAL_THINKING_ROLE = 'assistant (thinking)'
 export const INTERNAL_TOOL_RESULT_ROLE = 'assistant (tool result)'
@@ -1208,7 +1215,7 @@ export async function queryEvaluationRuns(params: {
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
             ${lookbackDays ? hogql.raw(`AND timestamp >= now() - INTERVAL ${Math.floor(lookbackDays)} DAY`) : hogql.raw('')}
         ORDER BY timestamp DESC
-        LIMIT ${EVALUATION_SUMMARY_MAX_RUNS}
+        LIMIT ${EVALUATION_RUNS_QUERY_LIMIT}
     `
 
     const response = await api.queryHogQL(
@@ -1227,7 +1234,7 @@ export interface EvaluationRunsStats {
 }
 
 // Counts every matching run server-side. queryEvaluationRuns caps its fetch at
-// EVALUATION_SUMMARY_MAX_RUNS, so summary stats can't be derived from that list without
+// EVALUATION_RUNS_QUERY_LIMIT, so summary stats can't be derived from that list without
 // undercounting. Counting semantics mirror the evaluations list view (evaluationMetricsLogic)
 // so both surfaces report the same totals.
 export async function queryEvaluationRunsStats(params: {

@@ -26,6 +26,40 @@ def test_cleanup_sandbox_skips_agent_server_shutdown_for_regular_cleanup(activit
 
 
 @pytest.mark.django_db
+def test_cleanup_sandbox_records_cpu_usage_before_destroy(activity_environment, mocker):
+    sandbox = mocker.Mock(id="sandbox-123")
+    sandbox.read_cpu_usage_usec.return_value = 12_345_678
+    sandbox.read_billed_cpu_usage_usec.return_value = 15_000_000
+    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    close_session = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.close_sandbox_session"
+    )
+
+    async_to_sync(activity_environment.run)(cleanup_sandbox, CleanupSandboxInput(sandbox_id="sandbox-123"))
+
+    sandbox.read_cpu_usage_usec.assert_called_once_with()
+    sandbox.destroy.assert_called_once_with()
+    close_session.assert_called_once_with(
+        "sandbox-123",
+        reason="cleanup",
+        cpu_usage_usec=12_345_678,
+        billed_cpu_usage_usec=15_000_000,
+        cpu_usage_measured_at=mocker.ANY,
+    )
+
+
+@pytest.mark.django_db
+def test_cleanup_sandbox_ignores_cpu_usage_read_failure(activity_environment, mocker):
+    sandbox = mocker.Mock(id="sandbox-123")
+    sandbox.read_cpu_usage_usec.side_effect = RuntimeError("unavailable")
+    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+
+    async_to_sync(activity_environment.run)(cleanup_sandbox, CleanupSandboxInput(sandbox_id="sandbox-123"))
+
+    sandbox.destroy.assert_called_once_with()
+
+
+@pytest.mark.django_db
 def test_cleanup_sandbox_requests_agent_server_shutdown_when_completing_stream(activity_environment, mocker):
     sandbox = mocker.Mock(id="sandbox-123")
     sandbox.stop_agent_server.return_value.exit_code = 0
@@ -46,8 +80,13 @@ def test_cleanup_sandbox_requests_agent_server_shutdown_when_completing_stream(a
 def test_cleanup_sandbox_retries_when_final_destroy_fails(activity_environment, mocker):
     run_id = str(uuid.uuid4())
     sandbox = mocker.Mock(id="sandbox-123")
+    sandbox.read_cpu_usage_usec.return_value = 12_345_678
+    sandbox.read_billed_cpu_usage_usec.return_value = 15_000_000
     sandbox.destroy.side_effect = RuntimeError("destroy failed")
     mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    close_session = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.close_sandbox_session"
+    )
     publish_complete = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete"
     )
@@ -64,6 +103,13 @@ def test_cleanup_sandbox_retries_when_final_destroy_fails(activity_environment, 
 
     sandbox.destroy.assert_called_once_with()
     sandbox.execute.assert_not_called()
+    close_session.assert_called_once_with(
+        "sandbox-123",
+        reason="cleanup",
+        cpu_usage_usec=12_345_678,
+        billed_cpu_usage_usec=15_000_000,
+        cpu_usage_measured_at=mocker.ANY,
+    )
     publish_complete.assert_not_called()
 
 

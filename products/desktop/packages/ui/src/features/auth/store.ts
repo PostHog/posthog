@@ -11,7 +11,7 @@ export const ANONYMOUS_AUTH_STATE: AuthState = {
   orgProjectsMap: {},
   currentOrgId: null,
   currentProjectId: null,
-  hasCodeAccess: null,
+  desktopAccess: { projectId: null, status: "unchecked", reason: null },
   needsScopeReauth: false,
   sessionType: null,
   sessionExpiresAt: null,

@@ -1,7 +1,7 @@
-"""Upsert warehouse columns onto person properties from the rows a sync staged to S3.
+"""Upsert warehouse columns onto person properties from the rows a warehouse run staged to S3.
 
-Runs in a post-sync Temporal activity (see data_imports/person_property_sync_job.py). Per enabled
-person-target source for the schema it:
+Runs in a post-run Temporal activity (see data_imports/person_property_sync_job.py). Per enabled
+person-target source for the binding it:
 
 1. reads the staged parquet (already just this run's changed rows),
 2. builds each row's {property: value} bundle keyed by distinct_id,
@@ -11,6 +11,10 @@ person-target source for the schema it:
 5. produces one $set intent per survivor to Kafka (a throttling consumer sends them to capture),
 6. updates the snapshot, stamps provenance on the person PropertyDefinitions, and clears the staged
    files.
+
+A source binds to either an imported schema or a materialized view (see ``WarehouseBinding``). Both
+write a Delta table on S3 and stage the same row projections, so everything from step 2 on is shared;
+only the staged/snapshot prefix and the full-table Delta location differ per kind.
 
 The source configs (key column + column -> property map) are resolved through the
 ``person_property_sync_sources_for`` hook so this module never imports the customer_analytics
@@ -22,8 +26,12 @@ import json
 import asyncio
 import hashlib
 import dataclasses
+from datetime import date, datetime, time
+from decimal import Decimal
+from typing import Any
 
 from django.conf import settings
+from django.db.models import Q
 
 import structlog
 import pyarrow.parquet as pq
@@ -33,7 +41,7 @@ from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
 from posthog.models import PropertyDefinition, Team
 from posthog.models.group.util import get_groups_by_identifiers
-from posthog.models.group_type_mapping import get_group_types_for_team
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.sync import database_sync_to_async
 
@@ -42,11 +50,16 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertySyncRunRecord,
     PersonPropertySyncSource,
+    WarehouseBinding,
     person_property_sync_sources_for,
     record_person_property_sync_run,
 )
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import delta_storage_options
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_paths import (
+    job_staged_prefix,
+    snapshot_prefix,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -55,6 +68,23 @@ EVENT_SOURCE = "customer_analytics_person_property_sync"
 # target_type value for group sources (kept as a literal so this module doesn't import the
 # customer_analytics config models, matching the isolation the hooks already preserve).
 _GROUP_TARGET = "group"
+
+# Keep this in lockstep with property-defs-rs: it admits property names up to half Django's
+# CharField limit, measured as UTF-8 bytes, and sanitizes NULs immediately before persistence.
+_MAX_PROPERTY_NAME_BYTES = 200
+
+
+def _log_fields(binding: WarehouseBinding) -> dict[str, str]:
+    """Structlog fields naming the warehouse object a run read from."""
+    return {"binding_kind": binding.kind, "binding_id": binding.id}
+
+
+# Identifiers per existence-lookup call. Both personhog helpers return whole Person/Group models,
+# properties included, and accumulate every model before returning. This activity only needs the
+# identifier back, so chunking here caps peak memory at one chunk's models instead of the entire
+# changed set — an organization group carries tens of KB of properties, so a six-figure changed set
+# would otherwise materialize gigabytes and get the worker OOM-killed.
+_EXISTENCE_LOOKUP_CHUNK_SIZE = 1_000
 
 
 @dataclasses.dataclass
@@ -96,16 +126,36 @@ def bundle_hash(bundle: dict) -> str:
     return hashlib.sha256(json.dumps(bundle, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
+def _json_safe(value: Any) -> Any:
+    """Coerce a warehouse column value into something ``json.dumps`` accepts. Timestamp/date/time
+    columns arrive as datetime objects and numeric columns as Decimal — neither is JSON-serializable,
+    so the Kafka produce (which serializes the intent with plain ``json.dumps``) would raise. Mirrors
+    ``bundle_hash``'s ``default=str`` posture: temporal types get an ISO-8601 string PostHog reads as a
+    DateTime property, decimals become floats, and anything else falls back to ``str``."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return str(value)
+
+
 def build_bundles(rows: list[dict], key_column: str, column_property_map: dict[str, str]) -> list[tuple[str, dict]]:
     """(distinct_id, {person_property: value}) for each row with a non-null key and at least one
     non-null mapped value. Missing columns are simply absent (a misconfigured source degrades to
-    fewer properties rather than erroring)."""
+    fewer properties rather than erroring). Values are coerced to JSON-safe scalars so a timestamp or
+    numeric column doesn't crash the downstream Kafka produce."""
     bundles: list[tuple[str, dict]] = []
     for row in rows:
         key = row.get(key_column)
         if key is None:
             continue
-        bundle = {prop: row[col] for col, prop in column_property_map.items() if row.get(col) is not None}
+        bundle = {prop: _json_safe(row[col]) for col, prop in column_property_map.items() if row.get(col) is not None}
         if bundle:
             bundles.append((str(key), bundle))
     return bundles
@@ -135,27 +185,23 @@ def select_changed(
 # --- S3 / Kafka / personhog boundaries (mocked in tests) ---------------------------------
 
 
-def _staged_prefix(team_id: int, schema_id: str, job_id: str) -> str:
-    return f"{settings.DATAWAREHOUSE_BUCKET}/person_property_sync/{team_id}/{schema_id}/{job_id}"
-
-
-def _snapshot_prefix(team_id: int, schema_id: str, source_id: str) -> str:
+def _snapshot_prefix(team_id: int, binding: WarehouseBinding, source_id: str) -> str:
     # A folder, not a single file: each run drops a uniquely-named parquet of the hashes it produced,
     # and the reader unions every file in the folder. Two writers (a scheduled sync and a backfill)
     # for the same source can't clobber each other, since they write different filenames. Growth is
     # bounded by _write_snapshot_hashes, which compacts the folder back down as it writes.
-    return f"{settings.DATAWAREHOUSE_BUCKET}/person_property_snapshot/{team_id}/{source_id}/{schema_id}"
+    return snapshot_prefix(team_id, binding, source_id)
 
 
-async def _read_staged_rows(team_id: int, schema_id: str, job_id: str) -> list[dict]:
-    prefix = _staged_prefix(team_id, schema_id, job_id)
+async def _read_staged_rows(team_id: int, binding: WarehouseBinding, job_id: str) -> list[dict]:
+    prefix = job_staged_prefix(team_id, binding, job_id)
     rows: list[dict] = []
     async with aget_s3_client() as s3_client:
         try:
             listing = await s3_client._ls(f"s3://{prefix}/", detail=True)
         except FileNotFoundError:
-            # No staged folder — the sync staged nothing for this run (common on a no-change sync).
-            logger.debug("person-property sync: no staged rows folder", team_id=team_id, schema_id=schema_id)
+            # No staged folder — the run staged nothing (common on a no-change incremental run).
+            logger.debug("person-property sync: no staged rows folder", team_id=team_id, **_log_fields(binding))
             return []
         values = listing.values() if isinstance(listing, dict) else listing
         files = [f["Key"] for f in values if f.get("type") != "directory"]
@@ -218,17 +264,17 @@ async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> dict[str, st
     return hashes
 
 
-async def _read_snapshot_hashes(team_id: int, schema_id: str, source_id: str) -> dict[str, str]:
+async def _read_snapshot_hashes(team_id: int, binding: WarehouseBinding, source_id: str) -> dict[str, str]:
     """Union every parquet file in the source's snapshot folder into {distinct_id: sent_hash}, reading
     oldest file first so a newer run's hash wins for a repeated distinct_id (a stale hash would only
     cost an idempotent re-send, but newest-wins avoids even that). Ordering never affects correctness."""
-    prefix = _snapshot_prefix(team_id, schema_id, source_id)
+    prefix = _snapshot_prefix(team_id, binding, source_id)
     async with aget_s3_client() as s3_client:
         return await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
 
 
 async def _write_snapshot_hashes(
-    team_id: int, schema_id: str, source_id: str, run_token: str, hashes: dict[str, str]
+    team_id: int, binding: WarehouseBinding, source_id: str, run_token: str, hashes: dict[str, str]
 ) -> None:
     """Persist this run's produced ``hashes`` and compact the source's snapshot folder in one pass.
     Writes the union of every existing snapshot file and ``hashes`` into ``{run_token}.parquet`` (this
@@ -242,7 +288,7 @@ async def _write_snapshot_hashes(
     between the two harmless — the reader unions both the new file and the not-yet-deleted old ones."""
     import pyarrow as pa  # noqa: PLC0415
 
-    prefix = _snapshot_prefix(team_id, schema_id, source_id)
+    prefix = _snapshot_prefix(team_id, binding, source_id)
     write_path = f"{prefix}/{run_token}.parquet"
     async with aget_s3_client() as s3_client:
         existing_keys = await _list_snapshot_files(s3_client, prefix)
@@ -263,8 +309,8 @@ async def _write_snapshot_hashes(
                 pass
 
 
-async def _clear_staged(team_id: int, schema_id: str, job_id: str) -> None:
-    prefix = _staged_prefix(team_id, schema_id, job_id)
+async def _clear_staged(team_id: int, binding: WarehouseBinding, job_id: str) -> None:
+    prefix = job_staged_prefix(team_id, binding, job_id)
     async with aget_s3_client() as s3_client:
         try:
             await s3_client._rm(f"s3://{prefix}/", recursive=True)
@@ -286,19 +332,33 @@ def _get_schema(team_id: int, schema_id: str) -> ExternalDataSchema | None:
 
 def _filter_existing_ids(team_id: int, source: PersonPropertySyncSource, ids: list[str]) -> set[str]:
     """The subset of ``ids`` that resolve to an existing person (or group, for group targets). We only
-    enrich entities that already exist — the same rule for both, just a different lookup."""
+    enrich entities that already exist — the same rule for both, just a different lookup.
+
+    Chunked so only one chunk's models are alive at a time (see ``_EXISTENCE_LOOKUP_CHUNK_SIZE``);
+    each chunk's identifiers are kept and its models dropped before the next call."""
     if not ids:
         return set()
-    if source.target == _GROUP_TARGET:
-        if source.group_type_index is None:
-            return set()
-        return {group.group_key for group in get_groups_by_identifiers(team_id, source.group_type_index, ids)}
-    return set(get_persons_mapped_by_distinct_id(team_id, ids).keys())
+    # Stays None for person targets, so the loop below picks its lookup off this alone.
+    is_group = source.target == _GROUP_TARGET
+    group_type_index = source.group_type_index if is_group else None
+    if is_group and group_type_index is None:
+        return set()
+
+    existing: set[str] = set()
+    for start in range(0, len(ids), _EXISTENCE_LOOKUP_CHUNK_SIZE):
+        chunk = ids[start : start + _EXISTENCE_LOOKUP_CHUNK_SIZE]
+        if group_type_index is not None:
+            existing.update(group.group_key for group in get_groups_by_identifiers(team_id, group_type_index, chunk))
+        else:
+            existing.update(get_persons_mapped_by_distinct_id(team_id, chunk).keys())
+    return existing
 
 
-def _group_type_name(team_id: int, group_type_index: int) -> str | None:
+def _group_type_name(project_id: int, group_type_index: int) -> str | None:
     # $groupidentify carries the group-type *name*; the config stores the index, so resolve it.
-    for group_type in get_group_types_for_team(team_id):
+    # Group types are project-scoped, and GroupTypeMapping stores the project's root team id, so a
+    # team that is a child environment has no rows of its own — resolve by project, not by team.
+    for group_type in get_group_types_for_project(project_id, caller_tag="warehouse_sources/person_property_sync"):
         if group_type.get("group_type_index") == group_type_index:
             return group_type.get("group_type")
     return None
@@ -349,33 +409,89 @@ def _produce_intents(
     return produced
 
 
-def _stamp_provenance(
-    team_id: int, schema_id: str, source: PersonPropertySyncSource, property_names: list[str]
+def _reconcile_property_definitions(
+    team_id: int,
+    project_id: int,
+    binding: WarehouseBinding,
+    source: PersonPropertySyncSource,
+    property_names: list[str],
 ) -> None:
-    # UPDATE-only on purpose: definitions are created by ingestion's propdef upsert when the $set /
-    # $groupidentify lands, so a brand-new property may not have a row yet on the first sync — the next
-    # sync's stamp catches it. Never inserting means this can't race that upsert.
-    origin = {
+    origin: dict[str, str] = {
         "source_id": str(source.definition_id),
-        "schema_id": str(schema_id),
         "custom_property_source_id": str(source.source_id),
+        "binding_kind": binding.kind,
+        "binding_id": binding.id,
     }
-    query = PropertyDefinition.objects.filter(team_id=team_id)
+    # Kept for schema bindings: rows stamped before views were supported carry this key, so dropping
+    # it would leave two stamps of the same schema describing it differently.
+    if not binding.is_saved_query:
+        origin["schema_id"] = binding.id
+
+    descriptions = source.property_descriptions or {}
+    canonical_descriptions: dict[str, str] = {}
+    for name in property_names:
+        if len(name.encode()) > _MAX_PROPERTY_NAME_BYTES:
+            continue
+        canonical_name = name.replace("\x00", "\ufffd")
+        canonical_descriptions.setdefault(canonical_name, descriptions.get(name, ""))
+
+    if not canonical_descriptions:
+        return
+
+    property_names = list(canonical_descriptions)
+    definition_type = PropertyDefinition.Type.PERSON
+    group_type_index = None
+    if source.target == _GROUP_TARGET:
+        if source.group_type_index is None:
+            return
+        definition_type = PropertyDefinition.Type.GROUP
+        group_type_index = source.group_type_index
+
+    # Property definitions are unique and read by effective project. Include legacy rows whose
+    # project_id is null so the conflict-safe insert and the final stamp address the same identity.
+    query = PropertyDefinition.objects.filter(Q(project_id=project_id) | Q(project_id__isnull=True, team_id=project_id))
     if source.target == _GROUP_TARGET:
         # Group propdefs are keyed per group type, so the index predicate is mandatory.
         query = query.filter(type=PropertyDefinition.Type.GROUP, group_type_index=source.group_type_index)
     else:
         query = query.filter(type=PropertyDefinition.Type.PERSON)
 
-    # Properties given a description carry it inside their provenance, so stamp those one at a time;
-    # the rest share the base origin and go in a single bulk update.
-    descriptions = source.property_descriptions or {}
-    described = [name for name in property_names if descriptions.get(name)]
-    plain = [name for name in property_names if not descriptions.get(name)]
+    current_origins = dict(query.filter(name__in=property_names).values_list("name", "warehouse_origin"))
+    missing = [name for name in property_names if name not in current_origins]
+    if missing:
+        # Ingestion may create the same effective-project identity after the read above. Ignore that
+        # conflict, then read back the winner before deciding which origins still need a write.
+        PropertyDefinition.objects.bulk_create(
+            [
+                PropertyDefinition(
+                    team_id=team_id,
+                    project_id=project_id,
+                    name=name,
+                    type=definition_type,
+                    group_type_index=group_type_index,
+                    warehouse_origin={
+                        **origin,
+                        **({"description": canonical_descriptions[name]} if canonical_descriptions[name] else {}),
+                    },
+                )
+                for name in missing
+            ],
+            ignore_conflicts=True,
+        )
+        current_origins.update(query.filter(name__in=missing).values_list("name", "warehouse_origin"))
+
+    plain = [
+        name for name in property_names if not canonical_descriptions[name] and current_origins.get(name) != origin
+    ]
     if plain:
         query.filter(name__in=plain).update(warehouse_origin=origin)
-    for name in described:
-        query.filter(name=name).update(warehouse_origin={**origin, "description": descriptions[name]})
+    for name in property_names:
+        description = canonical_descriptions[name]
+        if not description:
+            continue
+        described_origin = {**origin, "description": description}
+        if current_origins.get(name) != described_origin:
+            query.filter(name=name).update(warehouse_origin=described_origin)
 
 
 # --- orchestration -----------------------------------------------------------------------
@@ -384,7 +500,8 @@ def _stamp_provenance(
 async def _process_source_bundles(
     *,
     team_id: int,
-    schema_id: str,
+    project_id: int,
+    binding: WarehouseBinding,
     team_api_token: str,
     team_uuid: str,
     source: PersonPropertySyncSource,
@@ -397,7 +514,10 @@ async def _process_source_bundles(
     Shared by the incremental sync and the backfill — they differ only in how ``bundles`` are sourced
     (staged rows vs a full Delta read)."""
     ps = PerSourceResult(source_id=str(source.source_id), rows_read=rows_read)
-    prior = await _read_snapshot_hashes(team_id, schema_id, str(source.source_id))
+    prior = await _read_snapshot_hashes(team_id, binding, str(source.source_id))
+    await database_sync_to_async(_reconcile_property_definitions, thread_sensitive=False)(
+        team_id, project_id, binding, source, list((source.column_property_map or {}).values())
+    )
     changed, new_hashes = select_changed(bundles, prior)
     ps.changed = len(changed)
     if not changed:
@@ -413,7 +533,7 @@ async def _process_source_bundles(
         logger.info(
             "person-property sync: no existing entities among changed rows for source",
             team_id=team_id,
-            schema_id=schema_id,
+            **_log_fields(binding),
             source_id=str(source.source_id),
             target=source.target,
             changed=len(changed),
@@ -423,7 +543,7 @@ async def _process_source_bundles(
     group_type_name = None
     if source.target == _GROUP_TARGET and source.group_type_index is not None:
         group_type_name = await database_sync_to_async(_group_type_name, thread_sensitive=False)(
-            team_id, source.group_type_index
+            project_id, source.group_type_index
         )
         if group_type_name is None:
             # Without the group-type name the consumer can't build a valid $groupidentify and would
@@ -431,7 +551,7 @@ async def _process_source_bundles(
             logger.warning(
                 "person-property sync: group type not found, skipping source",
                 team_id=team_id,
-                schema_id=schema_id,
+                **_log_fields(binding),
                 source_id=str(source.source_id),
                 group_type_index=source.group_type_index,
             )
@@ -441,22 +561,15 @@ async def _process_source_bundles(
     )
     ps.produced = produced
 
-    # Stamp provenance before advancing the snapshot: the snapshot is the checkpoint that makes
-    # these rows look unchanged on the next run, so anything that must accompany a produce has to
-    # happen first. Stamping is an idempotent update, safe to repeat if a retry re-produces.
-    await database_sync_to_async(_stamp_provenance, thread_sensitive=False)(
-        team_id, schema_id, source, list((source.column_property_map or {}).values())
-    )
-
     # Record only the distinct_ids we actually produced, as this run's snapshot file.
     sent_ids = {distinct_id for distinct_id, _ in to_send}
     produced_hashes = {d: h for d, h in new_hashes.items() if d in sent_ids}
-    await _write_snapshot_hashes(team_id, schema_id, str(source.source_id), run_token, produced_hashes)
+    await _write_snapshot_hashes(team_id, binding, str(source.source_id), run_token, produced_hashes)
 
     logger.info(
         "person-property sync: source processed",
         team_id=team_id,
-        schema_id=schema_id,
+        **_log_fields(binding),
         source_id=str(source.source_id),
         bundles=len(bundles),
         changed=len(changed),
@@ -474,26 +587,26 @@ def _accumulate(result: SyncResult, ps: PerSourceResult) -> None:
     result.skipped_missing_person += ps.skipped_missing_person
 
 
-async def run_person_property_sync(*, team_id: int, schema_id: str, job_id: str) -> SyncResult:
+async def run_person_property_sync(*, team_id: int, binding: WarehouseBinding, job_id: str) -> SyncResult:
     result = SyncResult()
-    sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(team_id, schema_id)
+    sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(team_id, binding)
     if not sources:
         logger.info(
-            "person-property sync: no enabled person sources for schema, nothing to do",
+            "person-property sync: no enabled person sources for binding, nothing to do",
             team_id=team_id,
-            schema_id=str(schema_id),
+            **_log_fields(binding),
             job_id=job_id,
         )
         return result
 
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
-    rows = await _read_staged_rows(team_id, str(schema_id), job_id)
+    rows = await _read_staged_rows(team_id, binding, job_id)
     result.sources = len(sources)
     result.rows_read = len(rows)
     logger.info(
         "person-property sync: read staged rows",
         team_id=team_id,
-        schema_id=str(schema_id),
+        **_log_fields(binding),
         job_id=job_id,
         sources=len(sources),
         rows_read=len(rows),
@@ -503,7 +616,8 @@ async def run_person_property_sync(*, team_id: int, schema_id: str, job_id: str)
         bundles = build_bundles(rows, source.key_column, source.column_property_map or {})
         ps = await _process_source_bundles(
             team_id=team_id,
-            schema_id=str(schema_id),
+            project_id=team.project_id,
+            binding=binding,
             team_api_token=team.api_token,
             team_uuid=str(team.uuid),
             source=source,
@@ -513,7 +627,7 @@ async def run_person_property_sync(*, team_id: int, schema_id: str, job_id: str)
         )
         _accumulate(result, ps)
 
-    await _clear_staged(team_id, str(schema_id), job_id)
+    await _clear_staged(team_id, binding, job_id)
     return result
 
 
@@ -575,46 +689,66 @@ def _read_delta_bundles(
     return accumulated, rows_read
 
 
-async def run_person_property_backfill(*, team_id: int, schema_id: str, trigger: str) -> SyncResult:
-    """Populate person properties from a warehouse table's full Delta data (rather than the
-    incrementally staged rows) — for a new/changed mapping that never saw historical rows. Reads the
-    table once and upserts every enabled person source on the schema; the snapshot diff still skips
-    unchanged values, so re-running is cheap."""
-    result = SyncResult()
-    sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(team_id, schema_id)
-    if not sources:
-        logger.info(
-            "person-property backfill: no enabled person sources for schema, nothing to do",
-            team_id=team_id,
-            schema_id=str(schema_id),
-            trigger=trigger,
-        )
-        return result
-
-    schema = await database_sync_to_async(_get_schema, thread_sensitive=False)(team_id, schema_id)
+def _schema_delta_uri(team_id: int, schema_id: str) -> str | None:
+    """The Delta table an imported schema's rows live in, or None when the schema is gone."""
+    schema = _get_schema(team_id, schema_id)
     if schema is None:
-        logger.warning(
-            "person-property backfill: schema no longer exists, nothing to do",
-            team_id=team_id,
-            schema_id=str(schema_id),
-            trigger=trigger,
-        )
-        return result
-
-    team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
+        return None
     # Resolve the Delta folder leaf the same way the loader wrote it: `resolved_s3_folder_name`
     # (or the schema name) normalized, never `normalized_name`. For schema-qualified/migration-pinned
     # sources (e.g. Postgres `public.users` → folder `users`) these diverge, and `normalized_name`
     # would point at a prefix with no Delta log — a silent 0-row no-op.
     folder_leaf = NamingConvention.normalize_identifier(schema.resolved_s3_folder_name or schema.name)
-    uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{folder_leaf}"
+    return f"{settings.BUCKET_URL}/{schema.folder_path()}/{folder_leaf}"
+
+
+def _delta_uri_for_binding(team_id: int, binding: WarehouseBinding) -> str | None:
+    """The Delta table a binding's full row set lives in, or None when there is nothing to read."""
+    if binding.is_saved_query:
+        # Resolved lazily: the data_modeling facade is PEP 562 lazy-loaded over HogQL/temporal-heavy
+        # modules, so a module-top import would pull that chain onto this module's import path.
+        from products.data_modeling.backend.facade.api import get_materialized_table_uri  # noqa: PLC0415
+
+        return get_materialized_table_uri(team_id, binding.id)
+    return _schema_delta_uri(team_id, binding.id)
+
+
+async def run_person_property_backfill(*, team_id: int, binding: WarehouseBinding, trigger: str) -> SyncResult:
+    """Populate person properties from a warehouse table's full Delta data (rather than the
+    incrementally staged rows) — for a new/changed mapping that never saw historical rows. Reads the
+    table once and upserts every enabled person source on the binding; the snapshot diff still skips
+    unchanged values, so re-running is cheap."""
+    result = SyncResult()
+    sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(team_id, binding)
+    if not sources:
+        logger.info(
+            "person-property backfill: no enabled person sources for binding, nothing to do",
+            team_id=team_id,
+            **_log_fields(binding),
+            trigger=trigger,
+        )
+        return result
+
+    uri = await database_sync_to_async(_delta_uri_for_binding, thread_sensitive=False)(team_id, binding)
+    if uri is None:
+        # The schema or view was deleted, or the view was never materialized — either way there is no
+        # Delta table to read, so there is nothing to backfill from.
+        logger.warning(
+            "person-property backfill: no warehouse table to read, nothing to do",
+            team_id=team_id,
+            **_log_fields(binding),
+            trigger=trigger,
+        )
+        return result
+
+    team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
     accumulated, rows_read = await asyncio.to_thread(_read_delta_bundles, uri, delta_storage_options(), sources)
     result.sources = len(sources)
     result.rows_read = rows_read
     logger.info(
         "person-property backfill: read full Delta table",
         team_id=team_id,
-        schema_id=str(schema_id),
+        **_log_fields(binding),
         trigger=trigger,
         sources=len(sources),
         rows_read=rows_read,
@@ -624,7 +758,8 @@ async def run_person_property_backfill(*, team_id: int, schema_id: str, trigger:
         bundles = list(accumulated[str(source.source_id)].items())
         ps = await _process_source_bundles(
             team_id=team_id,
-            schema_id=str(schema_id),
+            project_id=team.project_id,
+            binding=binding,
             team_api_token=team.api_token,
             team_uuid=str(team.uuid),
             source=source,
@@ -643,7 +778,7 @@ async def run_person_property_backfill(*, team_id: int, schema_id: str, trigger:
 def _record(
     *,
     team_id: int,
-    schema_id: str,
+    binding: WarehouseBinding,
     job_id: str | None,
     trigger: str,
     status: str,
@@ -655,7 +790,8 @@ def _record(
     record_person_property_sync_run(
         PersonPropertySyncRunRecord(
             team_id=team_id,
-            schema_id=schema_id,
+            binding_kind=binding.kind,
+            binding_id=binding.id,
             source_id=ps.source_id,
             job_id=job_id,
             trigger=trigger,
@@ -673,19 +809,19 @@ def _record(
 
 
 async def record_started_runs(
-    *, team_id: int, schema_id: str, job_id: str | None, trigger: str, started_at: str
+    *, team_id: int, binding: WarehouseBinding, job_id: str | None, trigger: str, started_at: str
 ) -> None:
-    """Open a 'running' run row per source the schema feeds, so a sync in flight shows up in the UI
+    """Open a 'running' run row per source the binding feeds, so a sync in flight shows up in the UI
     instead of appearing only once it finishes. The terminal record reconciles the same row (see
     record_sync_run). Never raises — bookkeeping must not fail the sync it describes."""
     try:
         sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(
-            team_id, schema_id
+            team_id, binding
         )
         for source in sources or []:
             await database_sync_to_async(_record, thread_sensitive=False)(
                 team_id=team_id,
-                schema_id=schema_id,
+                binding=binding,
                 job_id=job_id,
                 trigger=trigger,
                 status="running",
@@ -698,17 +834,17 @@ async def record_started_runs(
         logger.exception(
             "person-property run: failed to record started runs",
             team_id=team_id,
-            schema_id=schema_id,
+            **_log_fields(binding),
             job_id=job_id,
             trigger=trigger,
         )
-        capture_exception(e, {"team_id": team_id, "schema_id": schema_id, "trigger": trigger})
+        capture_exception(e, {"team_id": team_id, **_log_fields(binding), "trigger": trigger})
 
 
 async def record_completed_runs(
     *,
     team_id: int,
-    schema_id: str,
+    binding: WarehouseBinding,
     job_id: str | None,
     trigger: str,
     started_at: str,
@@ -722,7 +858,7 @@ async def record_completed_runs(
         for ps in result.per_source:
             await database_sync_to_async(_record, thread_sensitive=False)(
                 team_id=team_id,
-                schema_id=schema_id,
+                binding=binding,
                 job_id=job_id,
                 trigger=trigger,
                 status="completed",
@@ -735,28 +871,35 @@ async def record_completed_runs(
         logger.exception(
             "person-property run: failed to record completed runs",
             team_id=team_id,
-            schema_id=schema_id,
+            **_log_fields(binding),
             job_id=job_id,
             trigger=trigger,
         )
-        capture_exception(e, {"team_id": team_id, "schema_id": schema_id, "trigger": trigger})
+        capture_exception(e, {"team_id": team_id, **_log_fields(binding), "trigger": trigger})
 
 
 async def record_failed_runs(
-    *, team_id: int, schema_id: str, job_id: str | None, trigger: str, started_at: str, finished_at: str, error: str
+    *,
+    team_id: int,
+    binding: WarehouseBinding,
+    job_id: str | None,
+    trigger: str,
+    started_at: str,
+    finished_at: str,
+    error: str,
 ) -> None:
-    """Persist a failed run row per source the schema feeds, so a failure is visible in the UI (not
+    """Persist a failed run row per source the binding feeds, so a failure is visible in the UI (not
     only in error tracking). Never raises — this runs on the already-failing path, so any error here
     (a bad DB state while resolving sources, or the record write itself) is captured, not propagated,
     to avoid masking the original failure that Temporal needs to see."""
     try:
         sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(
-            team_id, schema_id
+            team_id, binding
         )
         for source in sources or []:
             await database_sync_to_async(_record, thread_sensitive=False)(
                 team_id=team_id,
-                schema_id=schema_id,
+                binding=binding,
                 job_id=job_id,
                 trigger=trigger,
                 status="failed",
@@ -769,8 +912,8 @@ async def record_failed_runs(
         logger.exception(
             "person-property run: failed to record failed runs",
             team_id=team_id,
-            schema_id=schema_id,
+            **_log_fields(binding),
             job_id=job_id,
             trigger=trigger,
         )
-        capture_exception(e, {"team_id": team_id, "schema_id": schema_id, "trigger": trigger})
+        capture_exception(e, {"team_id": team_id, **_log_fields(binding), "trigger": trigger})

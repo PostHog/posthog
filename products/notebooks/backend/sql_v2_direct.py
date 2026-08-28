@@ -35,7 +35,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
 from products.notebooks.backend.models import NotebookNodeRun
 from products.notebooks.backend.sandbox.kernel import envelope as kernel_envelope
-from products.notebooks.backend.sql_v2 import DISPLAY_PAGE_LIMIT, RESULT_CACHE_ROWS
+from products.notebooks.backend.sql_v2 import DELIVERY_DIRECT, DISPLAY_PAGE_LIMIT, RESULT_CACHE_ROWS
 from products.notebooks.backend.sql_v2_metrics import OUTCOME_TIMED_OUT
 from products.notebooks.backend.sql_v2_runs import finish_node_run
 
@@ -273,8 +273,8 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
     except QueryNotFoundError:
         age_seconds = (timezone.now() - run.created_at).total_seconds()
         if run.status == NotebookNodeRun.Status.RUNNING and age_seconds > DIRECT_RUN_RESULT_GRACE_SECONDS:
-            # The watchdog the kernel lane never had: with no status left to complete
-            # this run, waiting longer cannot help.
+            # With no status left to complete this run, waiting longer cannot help.
+            # `expire_stale_kernel_run` is the kernel lane's counterpart.
             finish_node_run(
                 run,
                 NotebookNodeRun.Status.FAILED,
@@ -309,6 +309,10 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
         timings = _query_status_timings(status)
         if timings:
             envelope["timings"] = timings
+        # The direct lane never involves the sandbox or the frame store, so labeling it
+        # keeps those runs out of the inline bucket they would otherwise fall into and makes
+        # a transport comparison count only the runs a transport choice applies to.
+        envelope["delivery"] = DELIVERY_DIRECT
         finish_node_run(run, NotebookNodeRun.Status.DONE, envelope=envelope, error=None)
         # Lost transitions land here too (an interrupt, or another poller); the
         # refreshed row's status decides whether the rows may be served.

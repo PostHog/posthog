@@ -25,6 +25,7 @@ import {
     PersonHogClient,
     parseRolloutTeamIds,
     resolveConsistencyHeader,
+    resolvePersonRoutingKey,
     shouldUseGrpcForTeam,
     shouldUseGrpcForTeamItems,
     shouldUseGrpcForTeams,
@@ -133,6 +134,11 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     deletePersons: () => ({ deletedCount: 0n }),
     deletePersonsBatchForTeam: () => ({ deletedCount: 0n }),
     splitPerson: () => ({ splits: [] }),
+    setPersonDistinctIdVersionFloor: () => ({}),
+    setPersonVersionFloor: () => ({ updated: false }),
+    fencePerson: () => ({}),
+    releaseFence: () => ({}),
+    foldPersonDocument: () => ({}),
 }
 
 function createMockClient(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): PersonHogClient {
@@ -253,6 +259,28 @@ describe('resolveConsistencyHeader', () => {
 
     it('returns "eventual" when consistency is unset (0)', () => {
         expect(resolveConsistencyHeader({ readOptions: { consistency: 0 } })).toBe('eventual')
+    })
+})
+
+describe('resolvePersonRoutingKey', () => {
+    const routingKey = { teamId: 7n, personId: 42n }
+
+    it.each([
+        ['UpdatePersonProperties', ConsistencyLevel.UNSPECIFIED],
+        ['FencePerson', ConsistencyLevel.UNSPECIFIED],
+        ['ReleaseFence', ConsistencyLevel.UNSPECIFIED],
+        ['FoldPersonDocument', ConsistencyLevel.UNSPECIFIED],
+        ['GetPerson', ConsistencyLevel.STRONG],
+    ])('returns the key for leader-bound %s', (method, consistency) => {
+        expect(resolvePersonRoutingKey(method, { ...routingKey, readOptions: { consistency } })).toEqual(routingKey)
+    })
+
+    it.each([
+        ['GetPerson', ConsistencyLevel.EVENTUAL],
+        ['GetPersons', ConsistencyLevel.STRONG],
+        ['GetPersonsByDistinctIds', ConsistencyLevel.UNSPECIFIED],
+    ])('returns null for replica-bound %s', (method, consistency) => {
+        expect(resolvePersonRoutingKey(method, { ...routingKey, readOptions: { consistency } })).toBeNull()
     })
 })
 

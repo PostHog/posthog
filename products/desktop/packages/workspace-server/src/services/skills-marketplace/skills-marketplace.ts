@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { SKILL_EXISTS_MARKER } from "@posthog/shared";
+import { isIgnoredSkillPath, SKILL_EXISTS_MARKER } from "@posthog/shared";
 import type { Unzipped } from "fflate";
 import { injectable } from "inversify";
 import { unzipAsync } from "../posthog-plugin/extract-zip";
@@ -16,6 +16,9 @@ import {
 
 const SKILLS_SH_SEARCH_URL = "https://skills.sh/api/search";
 const REPO_SOURCE_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+// SHAs, tags, and slashless branch names; anything else could rewrite the
+// codeload URL path.
+const GIT_REF_PATTERN = /^[A-Za-z0-9_.-]+$/;
 const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024;
 const MAX_UNZIPPED_BYTES = 500 * 1024 * 1024;
 const MAX_PREVIEW_FILE_BYTES = 256 * 1024;
@@ -98,7 +101,7 @@ export function collectSkillFiles(
   for (const [key, bytes] of Object.entries(entries)) {
     if (!key.startsWith(prefix) || key.endsWith("/")) continue;
     const relPath = key.slice(prefix.length);
-    if (!isSafeRelativePath(relPath)) continue;
+    if (!isSafeRelativePath(relPath) || isIgnoredSkillPath(relPath)) continue;
     files.set(relPath, bytes);
   }
   return files;
@@ -197,7 +200,7 @@ export class SkillsMarketplaceService {
   private async getSkillFiles(
     ref: MarketplaceSkillRef,
   ): Promise<Map<string, Uint8Array>> {
-    const entries = await this.getRepoArchive(ref.source);
+    const entries = await this.getRepoArchive(ref.source, ref.ref);
     const prefix = findSkillDirPrefix(entries, ref.skillId);
     if (!prefix) {
       throw new Error(`Skill "${ref.skillId}" was not found in ${ref.source}`);
@@ -211,21 +214,28 @@ export class SkillsMarketplaceService {
     return files;
   }
 
-  private async getRepoArchive(source: string): Promise<Unzipped> {
+  private async getRepoArchive(
+    source: string,
+    gitRef?: string,
+  ): Promise<Unzipped> {
     if (!REPO_SOURCE_PATTERN.test(source)) {
       throw new Error(`Invalid repository reference: ${source}`);
     }
+    if (gitRef !== undefined && !GIT_REF_PATTERN.test(gitRef)) {
+      throw new Error(`Invalid git ref: ${gitRef}`);
+    }
 
-    const cached = this.archives.get(source);
+    const cacheKey = `${source}@${gitRef ?? "HEAD"}`;
+    const cached = this.archives.get(cacheKey);
     if (cached && Date.now() - cached.fetchedAt < ARCHIVE_CACHE_TTL_MS) {
       // LRU: refresh recency on hit.
-      this.archives.delete(source);
-      this.archives.set(source, cached);
+      this.archives.delete(cacheKey);
+      this.archives.set(cacheKey, cached);
       return cached.entries;
     }
 
     const response = await fetch(
-      `https://codeload.github.com/${source}/zip/HEAD`,
+      `https://codeload.github.com/${source}/zip/${gitRef ?? "HEAD"}`,
       { signal: AbortSignal.timeout(ARCHIVE_DOWNLOAD_TIMEOUT_MS) },
     );
     if (!response.ok) {
@@ -239,7 +249,7 @@ export class SkillsMarketplaceService {
     const buffer = await readBodyWithLimit(response, MAX_ARCHIVE_BYTES, source);
     const entries = await unzipWithLimit(buffer, MAX_UNZIPPED_BYTES, source);
 
-    this.archives.set(source, { fetchedAt: Date.now(), entries });
+    this.archives.set(cacheKey, { fetchedAt: Date.now(), entries });
     while (this.archives.size > ARCHIVE_CACHE_MAX_ENTRIES) {
       const oldest = this.archives.keys().next().value;
       if (oldest === undefined) break;

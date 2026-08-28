@@ -8,11 +8,82 @@ export function buildDefinedGroupsBlock(groupTypes?: GroupType[]): string {
     return `Defined group types: ${groupTypes.map((gt) => gt.group_type).join(', ')}`
 }
 
+/** Bounds the onboarded-products line for intent-heavy teams; the environment
+ *  prompt is repeated context, so the tail is summarized as a count instead. */
+const MAX_ONBOARDED_PRODUCTS = 12
+
+/**
+ * Per-product enablement facts for the active project, so an agent knows which
+ * PostHog products it can rely on (and which are off) without calling
+ * `project-get` and interpreting a raw settings payload. Facts only, stated
+ * neutrally: whether to recommend enabling something is the agent's call.
+ */
+function buildProductLines(project: CachedProject): string[] {
+    // Only flag-backed products get an enabled/not-enabled verdict, because their
+    // Team opt-in is an authoritative on/off switch. Products with no such switch
+    // (feature flags, experiments, ...) are reported via completed onboarding below.
+    const optIns = [
+        { label: 'session replay', enabled: project.session_recording_opt_in },
+        { label: 'exception autocapture (error tracking)', enabled: project.autocapture_exceptions_opt_in },
+        { label: 'surveys', enabled: project.surveys_opt_in },
+        { label: 'heatmaps', enabled: project.heatmaps_opt_in },
+    ]
+    const lines: string[] = []
+    const enabled = optIns.filter((p) => p.enabled === true).map((p) => p.label)
+    const notEnabled = optIns.filter((p) => p.enabled !== true).map((p) => p.label)
+    if (enabled.length > 0) {
+        lines.push(`Products enabled in this project: ${enabled.join(', ')}.`)
+    }
+    if (notEnabled.length > 0) {
+        lines.push(`Products not enabled: ${notEnabled.join(', ')}.`)
+    }
+    // Intent rows without `onboarding_completed_at` can be a single abandoned
+    // click, so only completed onboarding counts as "set up".
+    const onboarded = [
+        ...new Set(
+            (project.product_intents ?? [])
+                .filter((intent) => intent.onboarding_completed_at && intent.product_type)
+                .map((intent) => (intent.product_type as string).replace(/_/g, ' '))
+        ),
+    ].sort()
+    if (onboarded.length > 0) {
+        const shown = onboarded.slice(0, MAX_ONBOARDED_PRODUCTS)
+        const more = onboarded.length - shown.length
+        lines.push(`Products set up (onboarding completed): ${shown.join(', ')}${more > 0 ? ` (+${more} more)` : ''}.`)
+    }
+    return lines
+}
+
+/**
+ * `undefined` means unknown (key lacks `integration:read`, or the fetch failed):
+ * say nothing rather than a false "none". An empty list is a real answer and is
+ * rendered, since "no integrations connected" is itself useful to an agent.
+ */
+function buildIntegrationsLine(integrationKinds?: string[]): string | undefined {
+    if (!integrationKinds) {
+        return undefined
+    }
+    if (integrationKinds.length === 0) {
+        return 'Integrations connected: none.'
+    }
+    return `Integrations connected: ${[...new Set(integrationKinds)].sort().join(', ')}.`
+}
+
+export interface EnvironmentContextOptions {
+    /** Integration kinds connected in the active project; `undefined` means unknown. */
+    integrationKinds?: string[]
+    /** Set to false for character-budgeted surfaces (the claude.ai exec command
+     *  reference counts against a ~16 KiB registry cap on the serialized
+     *  inputSchema) where the product/integration lines do not fit. */
+    includeProductContext?: boolean
+}
+
 export function buildActiveEnvironmentContextPrompt(
     user?: CachedUser,
     org?: CachedOrg,
     project?: CachedProject,
-    regionalBaseUrl?: string
+    regionalBaseUrl?: string,
+    opts?: EnvironmentContextOptions
 ): string | undefined {
     if (!user && !org && !project) {
         return undefined
@@ -58,12 +129,37 @@ export function buildActiveEnvironmentContextPrompt(
                 "Person properties are query-time in this project. `person.properties.*` on the events table always returns the person's current (latest) value, regardless of when the event occurred."
             )
         }
+        if (opts?.includeProductContext !== false) {
+            lines.push(...buildProductLines(project))
+            const integrationsLine = buildIntegrationsLine(opts?.integrationKinds)
+            if (integrationsLine) {
+                lines.push(integrationsLine)
+            }
+        }
     }
     if (user) {
         const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown'
         lines.push(`The user's name is ${fullName} (${user.email}).`)
     }
-    return `### Active environment\n\nAll tool calls and queries default to this environment; you can switch projects or organizations at any time.\n\n${lines.join('\n')}`
+    // No prose preamble: the heading plus the lines themselves already say the agent
+    // is in this project, and the sentence it replaced ("All tool calls and queries
+    // default to this environment…") cost 111 characters of a budgeted payload to
+    // restate that.
+    return `### Active environment\n\n${lines.join('\n')}`
+}
+
+/**
+ * The tools the MCP actually advertises in single-exec mode. Without this the domain
+ * index is the only list in the payload, and it names PostHog resources rather than
+ * callable tools — so a model that reads `scout|survey|…` as the tool list has no
+ * callable name to reach for. `render-ui` is listed only where it is mounted.
+ */
+export function buildAvailableToolsBlock(renderUiEnabled?: boolean): string {
+    const lines = ['exec – run any PostHog command; its `command` description has the syntax.']
+    if (renderUiEnabled) {
+        lines.push('render-ui – show a tool result as an interactive app.')
+    }
+    return lines.join('\n')
 }
 
 export interface ToolInfo {
@@ -99,7 +195,11 @@ interface ToolItem {
 export class ToolDomainExtractor {
     /** A family at or below this many tools stays one domain; above it, split
      *  into sub-family roots. ~25 keeps flat CRUD families (e.g. experiment) whole
-     *  while breaking up large multi-family areas (e.g. AI observability). */
+     *  while breaking up large multi-family areas (e.g. AI observability).
+     *
+     *  This is the preferred split, not a hard one: {@link toCompact} raises the
+     *  threshold when the rendered index has to fit a character budget, trading
+     *  sub-family precision for keeping every family represented. */
     private static readonly MAX_FAMILY_SIZE = 25
     /** Cap on rendered segments so a singleton/leaf family becomes a short
      *  domain (`activity-log`) rather than its full tool name. */
@@ -128,6 +228,29 @@ export class ToolDomainExtractor {
         'retrieve',
         'destroy',
         'run',
+        'archive',
+        'calculate',
+        'copy',
+        'discard',
+        'duplicate',
+        'edit',
+        'emit',
+        'enable',
+        'end',
+        'freeze',
+        'launch',
+        'patch',
+        'pause',
+        'publish',
+        'record',
+        'reset',
+        'restore',
+        'resume',
+        'ship',
+        'show',
+        'test',
+        'unarchive',
+        'unfreeze',
     ])
 
     private readonly items: ToolItem[]
@@ -147,7 +270,7 @@ export class ToolDomainExtractor {
             })
     }
 
-    getDomains(): string[] {
+    getDomains(maxFamilySize: number = ToolDomainExtractor.MAX_FAMILY_SIZE): string[] {
         const byRoot = new Map<string, ToolItem[]>()
         for (const item of this.items) {
             const root = item.key[0]
@@ -163,7 +286,7 @@ export class ToolDomainExtractor {
         }
         const domains = new Set<string>()
         for (const bucket of byRoot.values()) {
-            this.cut(bucket, 1, domains)
+            this.cut(bucket, 1, domains, maxFamilySize)
         }
         if (this.hasQueryTools) {
             domains.add('query')
@@ -177,23 +300,47 @@ export class ToolDomainExtractor {
             .join('\n')
     }
 
-    toCompact(): string {
-        return this.getDomains().join('|')
+    /**
+     * Render the index as a single pipe-delimited line, collapsing sub-families
+     * until it fits `maxChars`.
+     *
+     * The index is a routing hint — every domain is a literal tool-name prefix
+     * that `search` expands — so `scout` costs 120 fewer characters than its ten
+     * `scout-*` roots and still reaches the same tools. Dropping precision is
+     * therefore much cheaper than dropping domains, which is what a client-side
+     * truncation does: the list is alphabetical, so an overrun silently deletes
+     * the tail (every `scout`, `survey`, `workflows`, `web-analytics` domain)
+     * while the model has no way to know they exist.
+     *
+     * Raising the family-size threshold only ever merges families, so the
+     * rendered length decreases monotonically and doubling converges quickly.
+     * The floor is one domain per root; if even that overruns, the caller gets
+     * the too-long string rather than a silently trimmed one.
+     */
+    toCompact(maxChars?: number): string {
+        let maxFamilySize = ToolDomainExtractor.MAX_FAMILY_SIZE
+        for (;;) {
+            const rendered = this.getDomains(maxFamilySize).join('|')
+            if (maxChars === undefined || rendered.length <= maxChars || maxFamilySize >= this.items.length) {
+                return rendered
+            }
+            maxFamilySize *= 2
+        }
     }
 
     /** Reduce a group sharing a `depth`-segment prefix to one or more domains,
      *  splitting only when the group is too large to scan in one search. */
-    private cut(group: ToolItem[], depth: number, out: Set<string>): void {
+    private cut(group: ToolItem[], depth: number, out: Set<string>, maxFamilySize: number): void {
         depth = this.compressUnary(group, depth)
-        if (group.length <= ToolDomainExtractor.MAX_FAMILY_SIZE) {
+        if (group.length <= maxFamilySize) {
             out.add(this.render(group, depth))
             return
         }
         for (const [childKey, childGroup] of this.childrenBySegment(group, depth)) {
-            if (childKey === null || childGroup.length <= ToolDomainExtractor.MAX_FAMILY_SIZE) {
+            if (childKey === null || childGroup.length <= maxFamilySize) {
                 out.add(this.render(childGroup, depth + 1))
             } else {
-                this.cut(childGroup, depth + 1, out)
+                this.cut(childGroup, depth + 1, out, maxFamilySize)
             }
         }
     }
@@ -268,8 +415,8 @@ export function buildToolDomainsBlock(tools: ToolInfo[]): string {
     return new ToolDomainExtractor(tools).toMarkdown()
 }
 
-export function buildToolDomainsCompact(tools: ToolInfo[]): string {
-    return new ToolDomainExtractor(tools).toCompact()
+export function buildToolDomainsCompact(tools: ToolInfo[], maxChars?: number): string {
+    return new ToolDomainExtractor(tools).toCompact(maxChars)
 }
 
 export interface QueryToolInfo {

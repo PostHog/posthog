@@ -64,9 +64,8 @@ describe('PushNotificationService', () => {
     let service: PushNotificationService
     let integrationManager: IntegrationManagerService
     let fetchUtils: PushNotificationFetchUtils
-    let redisStore: Map<string, string>
-    let mockRedisSet: jest.Mock
-    let mockRedis: any
+    let valkeyStore: Map<string, string>
+    let mockValkeySet: jest.Mock
     let mockValkey: any
 
     const mockTrackedFetch = jest.fn()
@@ -92,35 +91,21 @@ describe('PushNotificationService', () => {
             backoffMaxMs: 30000,
         }
 
-        redisStore = new Map<string, string>()
-        mockRedisSet = jest.fn((key: string, value: string) => {
-            redisStore.set(key, value)
+        valkeyStore = new Map<string, string>()
+        mockValkeySet = jest.fn((key: string, value: string) => {
+            valkeyStore.set(key, value)
             return 'OK'
         })
-        mockRedis = {
-            useClient: jest.fn((_opts: any, fn: any) =>
-                fn({
-                    get: (key: string) => redisStore.get(key) ?? null,
-                    set: mockRedisSet,
-                })
-            ),
-        } as any
-
-        // Backed by its own store so mirror writes never show up in `mockRedisSet` assertions.
-        const valkeyStore = new Map<string, string>()
         mockValkey = {
             useClient: jest.fn((_opts: any, fn: any) =>
                 fn({
                     get: (key: string) => valkeyStore.get(key) ?? null,
-                    set: (key: string, value: string) => {
-                        valkeyStore.set(key, value)
-                        return 'OK'
-                    },
+                    set: mockValkeySet,
                 })
             ),
         } as any
 
-        service = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, mockRedis, mockValkey)
+        service = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, mockValkey)
     })
 
     afterEach(() => {
@@ -307,7 +292,6 @@ describe('PushNotificationService', () => {
                     integrationManager,
                     encryptedFields,
                     fetchUtils,
-                    mockRedis,
                     mockValkey,
                     new MessageAssetsService({ produce: jest.fn() } as any)
                 )
@@ -369,7 +353,6 @@ describe('PushNotificationService', () => {
                     integrationManager,
                     encryptedFields,
                     fetchUtils,
-                    mockRedis,
                     mockValkey,
                     {
                         buildRowForPush: () => {
@@ -665,54 +648,52 @@ describe('PushNotificationService', () => {
             await send()
             await send()
 
-            // The JWT is written to Redis once and read back on the second send. Minting a new token per
+            // The JWT is written to Valkey once and read back on the second send. Minting a new token per
             // send is what makes Apple return 429 TooManyProviderTokenUpdates.
-            expect(mockRedisSet).toHaveBeenCalledTimes(1)
+            expect(mockValkeySet).toHaveBeenCalledTimes(1)
+            // Apple accepts a provider token for up to an hour, so the TTL has to stay under that.
+            expect(mockValkeySet).toHaveBeenCalledWith(
+                expect.stringContaining('@posthog/apns-provider-jwt/'),
+                expect.any(String),
+                'EX',
+                2700
+            )
         })
 
-        it('mirrors APNS provider token reads and writes to Valkey', async () => {
-            const mirrorStore = new Map<string, string>()
-            const mirrorSet = jest.fn((key: string, value: string) => {
-                mirrorStore.set(key, value)
-                return 'OK'
-            })
-            const mirrorRedis = {
-                useClient: jest.fn((_opts: any, fn: any) =>
-                    fn({
-                        get: (key: string) => mirrorStore.get(key) ?? null,
-                        set: mirrorSet,
-                    })
-                ),
+        it('reuses the pod-local APNS token when Valkey is unavailable', async () => {
+            // Both Valkey calls are failOpen, so an outage makes the read return null. Without the
+            // pod-local fallback every send mints a token and Apple answers 429 TooManyProviderTokenUpdates.
+            const failingValkey = {
+                useClient: jest.fn().mockResolvedValue(null),
             } as any
-            const mirroredService = new PushNotificationService(
+            const offlineService = new PushNotificationService(
                 integrationManager,
                 encryptedFields,
                 fetchUtils,
-                mockRedis,
-                mirrorRedis
+                failingValkey
             )
             mockTrackedFetch.mockResolvedValue({
                 fetchError: null,
                 fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
                 fetchDuration: 15,
             })
-            const invocation = createSendPushNotificationInvocation({
-                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
-            })
+            const send = (): Promise<any> =>
+                offlineService.executeSendPushNotification(
+                    createSendPushNotificationInvocation({
+                        '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+                    })
+                )
 
-            await mirroredService.executeSendPushNotification(invocation)
+            mockTrackedFetch.mockClear()
+            await send()
+            await send()
 
-            expect(mirrorRedis.useClient).toHaveBeenCalledWith(
-                expect.objectContaining({ name: 'apns-jwt-read' }),
-                expect.any(Function)
+            const authHeaders = mockTrackedFetch.mock.calls.map(
+                (call: any) => call[0].fetchParams.headers.Authorization
             )
-            expect(mirrorSet).toHaveBeenCalledWith(
-                expect.stringContaining('@posthog/apns-provider-jwt/'),
-                expect.any(String),
-                'EX',
-                2700
-            )
-            expect([...mirrorStore.values()]).toEqual([...redisStore.values()])
+            expect(authHeaders).toHaveLength(2)
+            expect(authHeaders[0]).toEqual(expect.stringContaining('bearer '))
+            expect(authHeaders[0]).toBe(authHeaders[1])
         })
 
         it('sets apns-priority to 5 for passive interruption level', async () => {

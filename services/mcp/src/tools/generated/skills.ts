@@ -245,6 +245,7 @@ const skillList = (): ToolBase<typeof SkillListSchema, Schemas.PaginatedLLMSkill
                 created_by_id: params.created_by_id,
                 limit: params.limit,
                 offset: params.offset,
+                owner_id: params.owner_id,
                 search: params.search,
             },
         })
@@ -321,6 +322,9 @@ const skillUpdate = (): ToolBase<typeof SkillUpdateSchema, Schemas.LLMSkill> => 
         }
         if (params.base_version !== undefined) {
             body['base_version'] = params.base_version
+        }
+        if (params.version_description !== undefined) {
+            body['version_description'] = params.version_description
         }
         const result = await context.api.request<Schemas.LLMSkill>({
             method: 'PATCH',

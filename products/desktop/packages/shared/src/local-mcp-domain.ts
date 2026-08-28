@@ -38,11 +38,28 @@ export interface McpServerConnection {
   name: string;
   url: string;
   headers: Array<{ name: string; value: string }>;
+  /**
+   * One line on what the server does. pi's `mcp` tool matches this when the model
+   * searches for tools, which is the only way a server that has never been connected
+   * can be found — its tool list isn't known yet. Strip it before handing servers to
+   * claude or codex: those go over ACP, whose McpServer schema doesn't declare it.
+   */
+  description?: string;
+}
+
+/** The subset of a server config the ACP `McpServer` schema declares. */
+export type AcpMcpServer = Omit<McpServerConnection, "description">;
+
+/** Drop the pi-only fields, leaving the shape claude and codex accept over ACP. */
+export function toAcpMcpServers(
+  servers: McpServerConnection[],
+): AcpMcpServer[] {
+  return servers.map(({ description: _description, ...server }) => server);
 }
 
 /**
  * A desktop-only local MCP server designated for relaying into a cloud run
- * (docs/cloud-mcp-relay.md). Names only — the sandbox never learns the
+ * (docs/CLOUD-MCP-RELAY.md). Names only — the sandbox never learns the
  * server's command, env, URL, or headers; the desktop resolves the name
  * against local config at execution time.
  */

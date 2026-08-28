@@ -38,10 +38,10 @@ SLACK_APP_OAUTH_FLAG = "slack-app-oauth"
 SLACK_APP_HOME_FLAG = "slack-app-home"
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_ASSISTANT_FLAG = "slack-app-assistant"
-SLACK_APP_BOT_PRS_FLAG = "slack-app-bot-prs"
 SLACK_APP_LIVING_ARTIFACTS_FLAG = "slack-app-living-artifacts"
 SLACK_APP_CANVAS_FILE_ARTIFACTS_FLAG = "slack-app-canvas-file-artifacts"
 SLACK_APP_MODEL_CLASSIFIER_FLAG = "slack-app-model-classifier"
+SLACK_APP_FORKING_FLAG = "slack-app-forking"
 UNTAGGED_THREAD_FOLLOWUPS_FLAG = "posthog-slack-app-untagged-thread-followups"
 
 
@@ -116,6 +116,10 @@ def is_slack_app_model_classifier_enabled(integration: Integration) -> bool:
     so this is the flag alone. Keyed on the Slack workspace + PostHog org, matching
     the other Slack-app gates.
 
+    Also gates the provenance footer under a finished reply: naming a model in a mention
+    and being told which model ran are two halves of the same feature, and splitting them
+    across two flags would let a workspace pick a model and then not be shown it.
+
     Independent of ``slack-app-home``: an override applies whether or not the
     workspace has opted into the settings tab."""
     try:
@@ -167,7 +171,9 @@ def is_slack_app_canvas_file_artifacts_enabled(integration: Integration) -> bool
     install authorized earlier won't have them until it reconnects.
 
     The flag alone: the two adapters need one scope each, so they check theirs at point
-    of use and can name the one to grant. Keyed on the Slack workspace + PostHog org."""
+    of use and can name the one to grant, and chart images post by public url on
+    ``chat:write`` alone, so this flag can roll charts out ahead of those grants. Keyed
+    on the Slack workspace + PostHog org."""
     try:
         return bool(
             posthoganalytics.feature_enabled(
@@ -240,28 +246,6 @@ def is_slack_app_untagged_thread_followups_enabled(integration: Integration, sla
         return False
 
 
-def is_slack_app_bot_prs_enabled(team: Team) -> bool:
-    """Gate for the workspace's team GitHub install contributing repos alongside the
-    mentioner's personal one. A GitHub-side capability, so this is the flag alone."""
-    organization_id = str(team.organization_id)
-    project_id = str(team.id)
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                SLACK_APP_BOT_PRS_FLAG,
-                str(team.uuid),
-                groups={"organization": organization_id, "project": project_id},
-                group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
-                person_properties=_region_properties(),
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("slack_app_bot_prs_flag_check_failed", team_id=team.id)
-        return False
-
-
 def is_slack_app_assistant_flag_enabled(team: Team) -> bool:
     """Kill-switch for the DM assistant. Evaluated on the workspace's team (a
     stable key) so the feature can be checked before resolving the DMing user —
@@ -292,3 +276,34 @@ def is_slack_app_assistant_enabled(integration: Integration) -> bool:
     if not has_scopes(integration, ASSISTANT_REQUIRED_SCOPES):
         return False
     return is_slack_app_assistant_flag_enabled(integration.team)
+
+
+def is_slack_app_forking_enabled(integration: Integration) -> bool:
+    """Gate for the "Fork to DM" menu under a reply.
+
+    A fork lands in a DM and is answered there, so it inherits the assistant
+    surface's scope requirements wholesale — ``im:history`` in particular, without
+    which the forked thread would answer once and then go deaf to follow-ups.
+    Gating on the assistant scopes rather than its flag keeps the two rollouts
+    independent: a workspace can get forking without opting into cold-start DMs.
+
+    Keyed on the Slack workspace like its neighbours, not the team: the menu hangs off
+    a reply, and a workspace connected to two projects would otherwise show it on some
+    replies and not others.
+    """
+    if not has_scopes(integration, ASSISTANT_REQUIRED_SCOPES):
+        return False
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SLACK_APP_FORKING_FLAG,
+                f"slack_workspace:{integration.integration_id}",
+                groups={"organization": str(integration.team.organization_id)},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("slack_app_forking_feature_flag_check_failed", integration_id=integration.id)
+        return False

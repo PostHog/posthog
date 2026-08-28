@@ -79,7 +79,7 @@ class TestTemporalMetricTwins:
         with (
             patch.object(temporal_metrics.workflow, "metric_meter", return_value=meter),
             patch.object(temporal_metrics.workflow, "in_workflow", return_value=True),
-            patch("products.managed_warehouse.backend.metrics.workflow.unsafe.is_replaying", return_value=False),
+            patch("temporalio.workflow.unsafe.is_replaying", return_value=False),
             patch("products.managed_warehouse.backend.metrics.posthoganalytics.default_client", client),
         ):
             metric = getattr(temporal_metrics, getter_name)(**getter_kwargs)
@@ -102,7 +102,7 @@ class TestDucklingBackfillMetrics:
 
         with (
             patch("products.managed_warehouse.backend.metrics.posthoganalytics.default_client", client),
-            patch("products.managed_warehouse.backend.metrics.workflow.in_workflow", return_value=False),
+            patch("temporalio.workflow.in_workflow", return_value=False),
             patch("products.managed_warehouse.backend.metrics.time.perf_counter", side_effect=perf_counter_values),
             patch("products.managed_warehouse.backend.metrics.time.time", return_value=123.0),
         ):
@@ -148,7 +148,7 @@ class TestDucklingBackfillMetrics:
 
         with (
             patch("products.managed_warehouse.backend.metrics.posthoganalytics.default_client", client),
-            patch("products.managed_warehouse.backend.metrics.workflow.in_workflow", return_value=False),
+            patch("temporalio.workflow.in_workflow", return_value=False),
         ):
             record_duckling_backfill_workload(
                 team_id=7,
@@ -181,8 +181,8 @@ class TestDucklingBackfillMetrics:
 
         with (
             patch("products.managed_warehouse.backend.metrics.posthoganalytics.default_client", client),
-            patch("products.managed_warehouse.backend.metrics.workflow.in_workflow", return_value=True),
-            patch("products.managed_warehouse.backend.metrics.workflow.unsafe.is_replaying", return_value=True),
+            patch("temporalio.workflow.in_workflow", return_value=True),
+            patch("temporalio.workflow.unsafe.is_replaying", return_value=True),
         ):
             record_counter("warehouse.ducklake.copy.started", 1, {"status": "completed"})
 

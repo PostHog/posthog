@@ -9,7 +9,12 @@ import {
 } from 'lib/components/InsightLegend/utils'
 import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import {
+    FEATURE_FLAGS,
+    NON_TIME_SERIES_DISPLAY_TYPES,
+    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
+    PIE_DISPLAY_TYPES,
+} from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
@@ -162,6 +167,7 @@ export const DISPLAYS_WITH_IN_CHART_LEGEND = [
     ChartDisplayType.ActionsBar,
     ChartDisplayType.ActionsUnstackedBar,
     ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsDonut,
 ]
 
 // Omit must distribute over the query-node union: a plain Omit would collapse the update type
@@ -202,6 +208,7 @@ export interface insightVizDataLogicValues {
     hasFormula: boolean
     hasLegend: boolean
     hasOnlyDataWarehouseSeries: boolean
+    hasRenderableResults: boolean
     insightFilter: InsightFilter | null | undefined
     interval: IntervalType | null | undefined
     isAllEventsQuery: boolean
@@ -1197,6 +1204,7 @@ export interface insightVizDataLogicMeta {
         validationError: (insightDataError: Record<string, any> | null) => string | null
         validationErrorCode: (insightDataError: Record<string, any> | null) => string | null
         timezone: (insightData: Record<string, any>) => any
+        hasRenderableResults: (insightData: Record<string, any>) => boolean
         allEventNames: (
             querySource:
                 | FunnelsQuery
@@ -2299,7 +2307,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     ((isTrends || isStickiness || isLifecycle) &&
                         (insightFilter as TrendsFilter)?.showValuesOnSeries) ||
                     (isTrends &&
-                        (insightFilter as TrendsFilter)?.display === ChartDisplayType.ActionsPie &&
+                        PIE_DISPLAY_TYPES.includes((insightFilter as TrendsFilter)?.display as ChartDisplayType) &&
                         (insightFilter as TrendsFilter)?.showValuesOnSeries === undefined)
                 )
             },
@@ -2433,6 +2441,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         timezone: [(s) => [s.insightData], (insightData: Record<string, any>) => insightData?.timezone || 'UTC'],
 
+        hasRenderableResults: [
+            (s) => [s.insightData],
+            (insightData: Record<string, any>): boolean => insightData?.result != null || insightData?.results != null,
+        ],
+
         // all events used in the insight (useful for fetching only relevant property definitions)
         allEventNames: [
             (s) => [s.querySource, actionsModel.selectors.actions],
@@ -2507,7 +2520,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return (
                     querySource?.kind === NodeKind.TrendsQuery &&
                     querySource?.series?.some((s: { math?: string }) =>
-                        ['first_matching_event_for_user', 'first_time_for_user'].includes(s.math || '')
+                        [
+                            'first_matching_event_for_user',
+                            'first_time_for_user',
+                            'first_matching_event_for_group',
+                            'first_time_for_group',
+                        ].includes(s.math || '')
                     )
                 )
             },
@@ -2873,6 +2891,22 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as LifecycleQuery).properties = undefined
         ;(mergedUpdate as LifecycleQuery).filterTestAccounts = false
         ;(mergedUpdate as LifecycleQuery).samplingFactor = undefined
+    }
+
+    // Switching a retention entity away from the data warehouse invalidates the "Custom entities"
+    // aggregation target, which the backend rejects for non-warehouse entities.
+    if (isRetentionQuery(currentState) && maybeChangedInsightFilter) {
+        const nextRetentionFilter = maybeChangedInsightFilter as RetentionFilter
+        if (
+            nextRetentionFilter.customAggregationTarget &&
+            (nextRetentionFilter.targetEntity?.type !== 'data_warehouse' ||
+                nextRetentionFilter.returningEntity?.type !== 'data_warehouse')
+        ) {
+            ;(mergedUpdate as RetentionQuery).retentionFilter = {
+                ...nextRetentionFilter,
+                customAggregationTarget: undefined,
+            }
+        }
     }
 
     // We do not support properties, filtering test accounts, and sampling for DWH nodes

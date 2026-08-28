@@ -201,6 +201,133 @@ export interface CurrentBranchHealthApi {
     failing_workflow_names: string[]
 }
 
+export interface DeploymentFrequencyBucketApi {
+    /** Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). */
+    bucket_start: string
+    /** Deployments whose first success status landed in this bucket, within the environment scope. Zero-filled: 0 means nothing shipped. */
+    deployment_count: number
+}
+
+export interface MergeToDeployBucketApi {
+    /** Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). Keyed on deploy time: a PR lands in the bucket its first post-merge deploy succeeded in. */
+    bucket_start: string
+    /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). */
+    deployed_pr_count: number
+    /**
+     * Fastest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+     * @nullable
+     */
+    min_seconds: number | null
+    /**
+     * 25th percentile merge-to-deploy seconds. Null when nothing deployed.
+     * @nullable
+     */
+    p25_seconds: number | null
+    /**
+     * Median merge-to-deploy seconds. Null when nothing deployed.
+     * @nullable
+     */
+    p50_seconds: number | null
+    /**
+     * Mean merge-to-deploy seconds. Null when nothing deployed.
+     * @nullable
+     */
+    mean_seconds: number | null
+    /**
+     * 75th percentile merge-to-deploy seconds. Null when nothing deployed.
+     * @nullable
+     */
+    p75_seconds: number | null
+    /**
+     * Slowest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+     * @nullable
+     */
+    max_seconds: number | null
+}
+
+export interface DoraOverviewApi {
+    /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
+    deployment_frequency_series: DeploymentFrequencyBucketApi[]
+    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
+    merge_to_deploy_series: MergeToDeployBucketApi[]
+    /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
+    deploy_data_available: boolean
+    /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
+    environment_scope: string
+    /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
+    environments: string[]
+    /** True when the optional team-membership snapshot is synced. When false, a github_team filter cannot be honored and the merge-to-deploy figures go empty rather than silently unfiltered. */
+    has_membership_data: boolean
+    /** Distinct GitHub team slugs from the membership snapshot, sorted — the team picker's options. Empty when membership isn't synced. */
+    github_teams: string[]
+    /** Deployments whose first success status landed in the window, within the environment scope. */
+    deployment_count: number
+    /** Same count over the equal-length window before date_from. */
+    deployment_count_prev: number
+    /**
+     * deployment_count normalized by the window length in days. Null only when the deploy tables aren't synced.
+     * @nullable
+     */
+    deployments_per_day: number | null
+    /**
+     * Previous-window twin of deployments_per_day. Null only when the deploy tables aren't synced.
+     * @nullable
+     */
+    deployments_per_day_prev: number | null
+    /**
+     * Median seconds from a PR's merge to the first successful deployment containing it (bots/drafts excluded; narrowed by github_team when given). Containment is resolved through the deploy's head commit, not the deploy's success time. Keyed on deploy time. This is merge-to-deploy, not full commit-to-deploy DORA lead time. Null when nothing deployed in the window.
+     * @nullable
+     */
+    median_merge_to_deploy_seconds: number | null
+    /**
+     * Previous-window twin of median_merge_to_deploy_seconds.
+     * @nullable
+     */
+    median_merge_to_deploy_seconds_prev: number | null
+    /** PRs first deployed in the window — the population behind the merge-to-deploy median and box plot. */
+    deployed_pr_count: number
+    /** Previous-window twin of deployed_pr_count. */
+    deployed_pr_count_prev: number
+    /** Deployments with at least one failure/error status, keyed on the first failure time. */
+    failed_deployment_count: number
+    /** Previous-window twin of failed_deployment_count. */
+    failed_deployment_count_prev: number
+    /**
+     * Failed deployments over deployments that reached any outcome (success or failure). A change-failure proxy: no incident data is linked, so a deploy that succeeded but broke production is not counted. Null when nothing reached an outcome.
+     * @nullable
+     */
+    failed_deployment_share: number | null
+    /**
+     * Previous-window twin of failed_deployment_share.
+     * @nullable
+     */
+    failed_deployment_share_prev: number | null
+    /**
+     * Median seconds from a deployment's first failure status to the next successful deployment in the same environment. A time-to-restore proxy: recovery by anything other than a deploy is invisible, and failures not yet recovered are excluded. Null when no failed deploy recovered in the window.
+     * @nullable
+     */
+    median_failed_deploy_to_next_success_seconds: number | null
+    /**
+     * Previous-window twin of median_failed_deploy_to_next_success_seconds.
+     * @nullable
+     */
+    median_failed_deploy_to_next_success_seconds_prev: number | null
+    /** PRs merged in the window (bots and drafts excluded; narrowed by github_team when given) — the denominator behind unattributed_merged_pr_share. */
+    merged_pr_count: number
+    /**
+     * Share of merged_pr_count no successful in-scope deployment attributed: recent merges still waiting for their deploy, plus merges whose deploy the scope or scan bounds miss. Null when nothing merged in the window.
+     * @nullable
+     */
+    unattributed_merged_pr_share: number | null
+    /**
+     * The newest deployment status row synced, any environment — how fresh the deploy data is. Windows ending after this instant undercount. Null when the deploy tables are empty.
+     * @nullable
+     */
+    latest_deploy_status_at: string | null
+    /** Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'. */
+    series_granularity: string
+}
+
 /**
  * * `pytest` - PYTEST
  * * `jest` - JEST
@@ -838,7 +965,7 @@ export interface TimeToGreenBucketApi {
     /** Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday). */
     bucket_start: string
     /**
-     * Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. Null when the bucket had no successful PR run (a gap, not instant CI).
+     * Median wall-clock seconds from a PR push round's first run start until every workflow on that head SHA first completed benign, over rounds started in this bucket (merge-queue gates and partially-attributed fork rounds excluded). Null when the bucket had no fully green round (a gap, not instant CI).
      * @nullable
      */
     p50_seconds: number | null
@@ -864,15 +991,27 @@ export interface OpenToMergeBucketApi {
     p50_seconds: number | null
 }
 
+export interface ReadyToMergeBucketApi {
+    /** Bucket start, aligned to ready_to_merge_series_granularity (top of hour, midnight, or Monday). */
+    bucket_start: string
+    /**
+     * Median per-PR ready_to_merge_seconds (merged_at minus the last observed ready-for-review transition) over PRs merged in this bucket, bots and drafts excluded. Null when nothing merged with an observed value (a gap, never zero).
+     * @nullable
+     */
+    p50_seconds: number | null
+}
+
 export interface RepoOverviewApi {
     /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
     cost_series: CostPerMergeBucketApi[]
-    /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
+    /** Median time-to-green (p50 wall clock for a PR push round to settle fully green) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     time_to_green_series: TimeToGreenBucketApi[]
     /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     success_rate_series: PassRateBucketApi[]
     /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     open_to_merge_series: OpenToMergeBucketApi[]
+    /** Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when the issue-events table isn't synced or include_series=false, so fall back to open_to_merge_series. */
+    ready_to_merge_series: ReadyToMergeBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
     /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -906,6 +1045,16 @@ export interface RepoOverviewApi {
      */
     median_open_to_merge_seconds_prev: number | null
     /**
+     * Median per-PR ready_to_merge_seconds (the true cycle time: merged_at minus the last observed ready-for-review transition) over PRs merged in the window, bots and drafts excluded. Null when the issue-events table isn't synced or no merged PR has an observed value; fall back to median_open_to_merge_seconds and label it open-to-merge.
+     * @nullable
+     */
+    median_ready_to_merge_seconds: number | null
+    /**
+     * The same median over the previous window. Null when not observed.
+     * @nullable
+     */
+    median_ready_to_merge_seconds_prev: number | null
+    /**
      * Billable (self-hosted) job minutes in the window; null when the job-level source isn't synced.
      * @nullable
      */
@@ -926,6 +1075,16 @@ export interface RepoOverviewApi {
      */
     estimated_cost_usd_prev: number | null
     /**
+     * estimated_cost_usd divided by merged_pr_count — the window's CI cost per merged PR. Null when the job-level source isn't synced or nothing merged.
+     * @nullable
+     */
+    cost_per_merge_usd: number | null
+    /**
+     * The same ratio over the previous window. Null when the job-level source isn't synced or nothing merged.
+     * @nullable
+     */
+    cost_per_merge_usd_prev: number | null
+    /**
      * Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); null when the job-level source isn't synced.
      * @nullable
      */
@@ -935,6 +1094,112 @@ export interface RepoOverviewApi {
      * @nullable
      */
     merge_queue_billable_minutes_prev: number | null
+    /** PRs merged in the window with at least one corroborated merge-queue gate run — the population behind every merge_queue_* landing stat. All authors, bots included. */
+    merge_queue_merged_pr_count: number
+    /** Queue-landed merges over the previous window. */
+    merge_queue_merged_pr_count_prev: number
+    /**
+     * Median seconds from a PR's first observed merge-queue gate run starting to the PR merging. Pending time before gate testing starts is not included. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_median_first_gate_to_merge_seconds: number | null
+    /**
+     * The same median over the previous window. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_median_first_gate_to_merge_seconds_prev: number | null
+    /**
+     * p90 of the same first-gate-run-to-merge measure — the tail, where queue pain concentrates. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_p90_first_gate_to_merge_seconds: number | null
+    /**
+     * The same p90 over the previous window. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_p90_first_gate_to_merge_seconds_prev: number | null
+    /**
+     * p95 of the same first-gate-run-to-merge measure. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_p95_first_gate_to_merge_seconds: number | null
+    /**
+     * The same p95 over the previous window. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_p95_first_gate_to_merge_seconds_prev: number | null
+    /**
+     * p99 of the same first-gate-run-to-merge measure. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_p99_first_gate_to_merge_seconds: number | null
+    /**
+     * The same p99 over the previous window. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_p99_first_gate_to_merge_seconds_prev: number | null
+    /**
+     * Mean distinct gate attempts (distinct gate branches, flake-bisection branches collapsed) per queue-landed merge. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_avg_attempts_per_merge: number | null
+    /**
+     * The same mean over the previous window. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_avg_attempts_per_merge_prev: number | null
+    /**
+     * Fraction (0-1) of queue-landed merges that needed more than one gate attempt. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_multi_attempt_merge_share: number | null
+    /**
+     * The same fraction over the previous window. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_multi_attempt_merge_share_prev: number | null
+    /**
+     * Fraction (0-1) of queue-landed merges with at least one failed gate run before merging. Derived from CI run conclusions, not the queue's own eviction records. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_failed_gate_merge_share: number | null
+    /**
+     * The same fraction over the previous window. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_failed_gate_merge_share_prev: number | null
+    /** Whether the team's TrunkIo warehouse source has the opt-in merge-queue endpoint synced and readable by the requesting user. When false, every merge_queue_failed_or_cancelled_* and merge_queue_skip_the_line_* field is null; fall back to merge_queue_failed_gate_merge_share. */
+    merge_queue_trunk_available: boolean
+    /**
+     * Fraction (0-1) of concluded queue entries (merged, failed, or cancelled) that ended failed or cancelled, from the queue's own records. Windowed on each entry's last state change. Null when the Trunk source isn't synced or nothing concluded.
+     * @nullable
+     */
+    merge_queue_failed_or_cancelled_share: number | null
+    /**
+     * The same fraction over the previous window. Null when the Trunk source isn't synced or nothing concluded.
+     * @nullable
+     */
+    merge_queue_failed_or_cancelled_share_prev: number | null
+    /**
+     * Queue entries flagged skip-the-line (prioritized past the queue order) in the window, whatever state they reached. Null when the Trunk source isn't synced.
+     * @nullable
+     */
+    merge_queue_skip_the_line_count: number | null
+    /**
+     * Skip-the-line entries over the previous window. Null when the Trunk source isn't synced.
+     * @nullable
+     */
+    merge_queue_skip_the_line_count_prev: number | null
+    /**
+     * Median wall clock for a PR push round to settle fully green over the window — the window-level twin of time_to_green_series, same population and exclusions. Null when no fully green rounds.
+     * @nullable
+     */
+    median_time_to_green_seconds: number | null
+    /**
+     * The same median over the previous window. Null when no fully green rounds.
+     * @nullable
+     */
+    median_time_to_green_seconds_prev: number | null
     /** Whether the job-level source is synced (cost and queue figures exist). */
     jobs_available: boolean
     /** 'master' or 'main', picked by observed run volume in the window. */
@@ -947,6 +1212,8 @@ export interface RepoOverviewApi {
     success_rate_series_granularity: string
     /** Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'. */
     open_to_merge_series_granularity: string
+    /** Bucket width of the ready_to_merge_series trend: 'hour', 'day', or 'week'. */
+    ready_to_merge_series_granularity: string
 }
 
 export interface WorkflowRunActivityPointApi {
@@ -1306,6 +1573,33 @@ export type EngineeringAnalyticsCiFailureLogsParams = {
 }
 
 export type EngineeringAnalyticsCurrentBranchHealthParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsDoraParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Exact deploy environment to scope to (from the response's `environments` list). Omit to scope to production-marked deployments, falling back to every persistent (non-transient) environment when none are marked production.
+     */
+    environment?: string
+    /**
+     * GitHub team slug (from the response's `github_teams` list) to narrow the PR-scoped merge-to-deploy figures to that team's authors. Deploy counts stay repo-wide. Needs the team-membership snapshot synced; without it the merge-to-deploy figures return empty rather than silently unfiltered.
+     */
+    github_team?: string
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */

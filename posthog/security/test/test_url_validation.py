@@ -118,9 +118,21 @@ class TestUrlValidation:
         ok, err = uv.is_url_allowed("http://localhost")
         assert ok and err is None
 
-    def test_is_url_allowed_private_resolution_blocked(self, monkeypatch):
+    @pytest.mark.parametrize(
+        "resolved_ip",
+        [
+            "192.168.1.10",
+            # CGNAT (RFC 6598): neither is_private nor is_global, so the attribute flags
+            # alone let it through; guards the explicit _CGNAT_NETWORK check.
+            "100.64.0.1",
+            "100.127.255.255",
+            # IPv4-mapped form of a CGNAT address, which network membership alone misses.
+            "::ffff:100.64.0.1",
+        ],
+    )
+    def test_is_url_allowed_private_resolution_blocked(self, resolved_ip, monkeypatch):
         def fake_resolve(host: str):
-            return {ipaddress.ip_address("192.168.1.10")}
+            return {ipaddress.ip_address(resolved_ip)}
 
         monkeypatch.setattr(uv, "resolve_host_ips", fake_resolve)
         ok, err = uv.is_url_allowed("https://example.com")
@@ -132,6 +144,27 @@ class TestUrlValidation:
 
         monkeypatch.setattr(uv, "resolve_host_ips", fake_resolve)
         ok, err = uv.is_url_allowed("https://example.com/path")
+        assert ok and err is None
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://user%40corp.example:pass@example.com/path",
+            "https://user:p%2Fss@example.com/path",
+            "https://user:p%3Fss@example.com/path",
+            "https://user:p%23ss@example.com/path",
+        ],
+    )
+    def test_is_url_allowed_permits_percent_encoded_credentials(self, url, monkeypatch):
+        # Integrations and warehouse sources supply connection URLs with basic auth, and an
+        # email username or a password holding a reserved character has to percent-encode it.
+        # Every parser resolves these to example.com, so the fetch path takes the lenient
+        # rule. Swapping it for has_ambiguous_authority would break all of them.
+        def fake_resolve(host: str):
+            return {ipaddress.ip_address("93.184.216.34")}
+
+        monkeypatch.setattr(uv, "resolve_host_ips", fake_resolve)
+        ok, err = uv.is_url_allowed(url)
         assert ok and err is None
 
     @pytest.mark.parametrize(
@@ -284,7 +317,43 @@ class TestUrlValidation:
             ("http://example.com/path\\with-backslash", True),
             ("http://example.com%5Cpath", True),
             ("http://attacker.com\\@example.com", True),
+            # Percent-encoded credentials are ordinary basic auth. Every parser resolves
+            # these to example.com, so blocking them would break outbound fetches that
+            # carry an email username or a password containing a reserved character.
+            ("https://user%40corp.example:pass@example.com/path", False),
+            ("https://user:p%2Fss@example.com/path", False),
+            ("https://user:p%23ss@example.com/path", False),
         ],
     )
     def test_has_authority_bypass_chars(self, url, expected):
         assert uv.has_authority_bypass_chars(url) is expected
+
+    @pytest.mark.parametrize(
+        "url,expected",
+        [
+            # A consumer that percent-decodes before splitting the authority sees it end
+            # at the terminator, landing on a different host than urlparse reports.
+            ("https://example.com%2F@attacker.com/", True),
+            ("https://example.com%3f@attacker.com/", True),
+            ("https://example.com%23@attacker.com/", True),
+            ("https://example.com%40@attacker.com/", True),
+            ("https://example.com%2Fpath", True),
+            # Credentials are legitimate on a fetch but not on a URL we hand back, and
+            # the encoded characters in them are exactly what makes the authority
+            # ambiguous, so the strict rule rejects them where the lenient one allows.
+            ("https://user%40corp.example:pass@example.com/path", True),
+            # The strict rule subsumes the backslash cases.
+            ("http://attacker.com\\@example.com", True),
+            ("http://example.com%5Cpath", True),
+            ("https://example.com/", False),
+            # The same sequences outside the authority are ordinary encoded data.
+            ("https://example.com/repos/group%2Fproject", False),
+            ("https://example.com/send?to=someone%40example.com", False),
+            ("https://example.com/search#q=a%23b", False),
+            # Unparseable authorities fail closed rather than raising.
+            ("https://[::1", True),
+            ("https://exa℀mple.com/", True),
+        ],
+    )
+    def test_has_ambiguous_authority(self, url, expected):
+        assert uv.has_ambiguous_authority(url) is expected

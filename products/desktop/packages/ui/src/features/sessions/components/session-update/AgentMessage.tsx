@@ -74,11 +74,13 @@ export const AgentMessage = memo(function AgentMessage({
       {isStreaming ? (
         <StreamingMarkdown
           content={smoothed}
+          renderObjectTags
           componentsOverride={agentComponents}
         />
       ) : (
         <MarkdownRenderer
           content={content}
+          renderObjectTags
           componentsOverride={agentComponents}
         />
       )}

@@ -147,8 +147,7 @@ class CustomerIOSource(
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
-            featureFlag="dwh-customer-io",
+            releaseStatus=ReleaseStatus.GA,
             webhookSetupCaption=(
                 "PostHog tries to register the reporting webhook for you using your App API Key. "
                 "Customer.io doesn't return the signing key in the API response, so you still need "

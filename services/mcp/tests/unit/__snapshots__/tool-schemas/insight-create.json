@@ -141,7 +141,7 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable."
+                                    "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`."
                                 },
                                 "showLegend": {
                                     "description": "Show the chart legend.",
@@ -164,7 +164,7 @@
                                     "type": "boolean"
                                 },
                                 "xAxis": {
-                                    "description": "Column used as the X axis. Typically a time bucket or categorical column.",
+                                    "description": "Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too.",
                                     "properties": {
                                         "column": {
                                             "description": "Name of a column returned by the SQL query to map onto this axis.",
@@ -213,12 +213,12 @@
                                                             "type": "string"
                                                         },
                                                         "style": {
-                                                            "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.",
+                                                            "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.",
                                                             "enum": ["none", "number", "short", "percent"],
                                                             "type": "string"
                                                         },
                                                         "suffix": {
-                                                            "description": "Text appended to each value (e.g. `%` or ` ms`).",
+                                                            "description": "Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.",
                                                             "type": "string"
                                                         }
                                                     },
@@ -286,12 +286,12 @@
                                                                 "type": "string"
                                                             },
                                                             "style": {
-                                                                "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.",
+                                                                "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.",
                                                                 "enum": ["none", "number", "short", "percent"],
                                                                 "type": "string"
                                                             },
                                                             "suffix": {
-                                                                "description": "Text appended to each value (e.g. `%` or ` ms`).",
+                                                                "description": "Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.",
                                                                 "type": "string"
                                                             }
                                                         },
@@ -310,7 +310,7 @@
                             "type": "object"
                         },
                         "display": {
-                            "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`.",
+                            "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Otherwise → `ActionsTable`.",
                             "enum": [
                                 "ActionsTable",
                                 "BoldNumber",
@@ -319,7 +319,8 @@
                                 "ActionsPie",
                                 "ActionsStackedBar",
                                 "ActionsAreaGraph",
-                                "TwoDimensionalHeatmap"
+                                "TwoDimensionalHeatmap",
+                                "ScatterPlot"
                             ],
                             "type": "string"
                         },
@@ -390,12 +391,12 @@
                                                                 "type": "string"
                                                             },
                                                             "style": {
-                                                                "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.",
+                                                                "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.",
                                                                 "enum": ["none", "number", "short", "percent"],
                                                                 "type": "string"
                                                             },
                                                             "suffix": {
-                                                                "description": "Text appended to each value (e.g. `%` or ` ms`).",
+                                                                "description": "Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.",
                                                                 "type": "string"
                                                             }
                                                         },

@@ -1,3 +1,5 @@
+import type { AgentTurnFeedbackProperties } from "@posthog/shared";
+import { ANALYTICS_EVENTS as SHARED_ANALYTICS_EVENTS } from "@posthog/shared";
 import { type PostHog, usePostHog } from "posthog-react-native";
 import { useEffect, useMemo } from "react";
 
@@ -18,6 +20,7 @@ export const ANALYTICS_EVENTS = {
   SIGN_IN_FAILED: "Sign in failed",
   PROMPT_SENT: "Prompt sent",
   TASK_RUN_STOPPED: "Task run stopped",
+  AGENT_TURN_FEEDBACK: SHARED_ANALYTICS_EVENTS.AGENT_TURN_FEEDBACK,
 } as const;
 
 export type SignInMethod = "oauth" | "dev_api_key" | "qr_scan";
@@ -228,6 +231,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SIGN_IN_FAILED]: SignInFailedProperties;
   [ANALYTICS_EVENTS.PROMPT_SENT]: PromptSentProperties;
   [ANALYTICS_EVENTS.TASK_RUN_STOPPED]: TaskRunStoppedProperties;
+  [ANALYTICS_EVENTS.AGENT_TURN_FEEDBACK]: AgentTurnFeedbackProperties;
 };
 
 export interface Analytics {

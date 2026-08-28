@@ -132,111 +132,6 @@ class TestGetFullRepoNames:
         assert result == ["posthog/alpha", "posthog/middle", "posthog/zebra"]
 
 
-@patch("products.slack_app.backend.api.GitHubIntegration")
-@patch("products.slack_app.backend.api.UserGitHubIntegration")
-class TestGetFullRepoNamesBotPRs:
-    @pytest.fixture(autouse=True)
-    def setup(self, db):
-        cache.clear()
-        self.organization = Organization.objects.create(name="Bot Org")
-        self.team = Team.objects.create(organization=self.organization, name="Bot Team")
-        self.user = User.objects.create(email="bot@example.com", distinct_id="user-bot")
-        self.slack_integration = Integration.objects.create(
-            team=self.team,
-            kind="slack",
-            integration_id="T_BOT",
-            sensitive_config={"access_token": "xoxb-bot"},
-        )
-
-    def _create_team_github_integration(self) -> Integration:
-        return Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="gh-team-1",
-            config={"account": {"name": "posthog"}},
-            sensitive_config={"access_token": "gh-team-token"},
-        )
-
-    @patch("products.slack_app.backend.api.posthoganalytics.feature_enabled", return_value=False)
-    def test_flag_off_excludes_team_repos(self, _mock_feature_enabled, mock_user_github_class, mock_team_github_class):
-        _create_user_github_integration(self.user)
-        self._create_team_github_integration()
-
-        mock_user_github = MagicMock()
-        mock_user_github.list_all_cached_repositories.return_value = [
-            _repo_dict("posthog", "posthog", 1),
-            _repo_dict("posthog", "posthog-js", 2),
-        ]
-        mock_user_github_class.return_value = mock_user_github
-
-        result = _get_full_repo_names(self.slack_integration, user_id=self.user.id)
-
-        # The team install is present but, with the flag off, must never be consulted.
-        assert result == ["posthog/posthog", "posthog/posthog-js"]
-        mock_team_github_class.assert_not_called()
-
-    @patch("products.slack_app.backend.api.posthoganalytics.feature_enabled", return_value=True)
-    def test_flag_on_no_team_install_returns_only_user_repos(
-        self, _mock_feature_enabled, mock_user_github_class, mock_team_github_class
-    ):
-        _create_user_github_integration(self.user)
-
-        mock_user_github = MagicMock()
-        mock_user_github.list_all_cached_repositories.return_value = [
-            _repo_dict("posthog", "posthog", 1),
-            _repo_dict("posthog", "posthog-js", 2),
-        ]
-        mock_user_github_class.return_value = mock_user_github
-
-        result = _get_full_repo_names(self.slack_integration, user_id=self.user.id)
-
-        assert result == ["posthog/posthog", "posthog/posthog-js"]
-        mock_team_github_class.assert_not_called()
-
-    @patch("products.slack_app.backend.api.posthoganalytics.feature_enabled", return_value=True)
-    def test_flag_on_unions_user_and_team_repos(
-        self, _mock_feature_enabled, mock_user_github_class, mock_team_github_class
-    ):
-        _create_user_github_integration(self.user)
-        self._create_team_github_integration()
-
-        mock_user_github = MagicMock()
-        mock_user_github.list_all_cached_repositories.return_value = [
-            _repo_dict("posthog", "posthog-js", 1),
-            _repo_dict("posthog", "shared", 2),
-        ]
-        mock_user_github_class.return_value = mock_user_github
-
-        mock_team_github = MagicMock()
-        mock_team_github.list_all_cached_repositories.return_value = [
-            _repo_dict("posthog", "posthog", 3),
-            _repo_dict("posthog", "shared", 2),
-        ]
-        mock_team_github_class.return_value = mock_team_github
-
-        result = _get_full_repo_names(self.slack_integration, user_id=self.user.id)
-
-        assert result == ["posthog/posthog", "posthog/posthog-js", "posthog/shared"]
-
-    @patch("products.slack_app.backend.api.posthoganalytics.feature_enabled", return_value=True)
-    def test_flag_on_no_personal_install_returns_team_repos(
-        self, _mock_feature_enabled, mock_user_github_class, mock_team_github_class
-    ):
-        self._create_team_github_integration()
-
-        mock_team_github = MagicMock()
-        mock_team_github.list_all_cached_repositories.return_value = [
-            _repo_dict("posthog", "posthog", 1),
-            _repo_dict("posthog", "plugin-server", 2),
-        ]
-        mock_team_github_class.return_value = mock_team_github
-
-        result = _get_full_repo_names(self.slack_integration, user_id=self.user.id)
-
-        assert result == ["posthog/plugin-server", "posthog/posthog"]
-        mock_user_github_class.assert_not_called()
-
-
 @patch("products.slack_app.backend.api.UserGitHubIntegration")
 class TestGetFullRepoNamesCache:
     @pytest.fixture(autouse=True)
@@ -424,23 +319,15 @@ class TestPostRepoPickerPrewarm:
 
 
 class TestExtractExplicitRepo:
+    # Matching is covered where the helpers live, in posthog/test/test_git.py. All this
+    # wrapper adds is stripping the bot mention and composing the token tier over the link tier.
     @parameterized.expand(
         [
-            ("simple", "fix posthog/posthog-js please", "posthog/posthog-js"),
-            ("no_match", "hello world", None),
-            ("case_insensitive", "check PostHog/PostHog", "posthog/posthog"),
-            ("url_false_positive", "see https://github.com/posthog/posthog/issues/1", None),
-            ("backticks", "please fix `posthog/posthog-js`", "posthog/posthog-js"),
-            (
-                "slack_link_label",
-                "use <https://github.com/posthog/posthog-js|posthog/posthog-js>",
-                "posthog/posthog-js",
-            ),
-            ("multiple_first_wins", "check posthog/posthog-js then posthog/posthog", "posthog/posthog-js"),
-            ("with_bot_mention", "<@U123> fix posthog/posthog-js", "posthog/posthog-js"),
+            ("typed_token", "<@U123> fix posthog/posthog-js", "posthog/posthog-js"),
+            ("github_link", "<@U123> is https://github.com/posthog/posthog/actions/runs/2 flaky?", "posthog/posthog"),
         ]
     )
-    def test_extract_explicit_repo(self, _name, text, expected):
+    def test_strips_bot_mention_and_matches_both_tiers(self, _name, text, expected):
         repos = ["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"]
         assert _extract_explicit_repo(text, repos) == expected
 
@@ -556,6 +443,7 @@ class TestHandleRulesCommandActivity:
             event={"text": text, "channel": self.channel, "thread_ts": self.thread_ts, "user": self.slack_user_id},
             integration_id=self.integration.id,
             slack_team_id="T12345",
+            user_id=self.user.id,
         )
 
     @patch("posthog.models.integration.SlackIntegration")

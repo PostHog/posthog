@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
@@ -28,6 +29,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -46,7 +48,7 @@ from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
-from products.skills.backend.models.skills import LLMSkill
+from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -538,6 +540,26 @@ class TestScoutHarnessRecentEmissionsAPI(APIBaseTest):
         assert [row["finding_id"] for row in response.json()] == ["older"]
 
 
+class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/recent-per-scout/"
+
+    def test_returns_each_scouts_newest_runs(self) -> None:
+        # Wiring guard: the action reaches `recent_runs_per_scout` and honours `per_scout_limit`.
+        # The probe rules themselves are covered against the helper in test_scout_harness_tools.
+        for skill_name in ("signals-scout-errors", "signals-scout-surveys"):
+            SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        busy = [_make_run(self.team, skill_name="signals-scout-errors") for _ in range(3)]
+        quiet = _make_run(self.team, skill_name="signals-scout-surveys")
+        response = self.client.get(self._url(), data={"per_scout_limit": 1})
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["run_id"] for row in response.json()} == {str(busy[-1].id), str(quiet.id)}
+
+    def test_rejects_a_per_scout_limit_over_the_cap(self) -> None:
+        response = self.client.get(self._url(), data={"per_scout_limit": 5000})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
 class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/findings/summary/"
@@ -556,6 +578,8 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         body = response.json()
         assert body["count"] == 3
         assert body["scout_count"] == 2
+        # The quiet run counts as a run; the other team's does not.
+        assert body["run_count"] == 3
         assert body["latest_at"] is not None
 
     def test_summary_counts_report_channel_activity(self) -> None:
@@ -603,6 +627,7 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         body = response.json()
         assert body["count"] == 1
         assert body["scout_count"] == 1
+        assert body["run_count"] == 1
 
 
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):
@@ -1247,6 +1272,55 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["content"] == "abcd"
 
+    @parameterized.expand([("default", "", ["live"]), ("include_expired", "?include_expired=true", ["live", "lapsed"])])
+    def test_search_hides_expired_entries_unless_asked_for(
+        self, _name: str, query: str, expected_keys: list[str]
+    ) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="live", content="still true")
+        SignalScratchpad.objects.create(
+            team=self.team, key="lapsed", content="cooldown", expires_at=timezone.now() - timedelta(days=1)
+        )
+        response = self.client.get(f"{self._list_url()}{query}")
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(row["key"] for row in response.json()) == sorted(expected_keys)
+
+    def test_remember_stores_and_returns_expires_at(self) -> None:
+        expiry = timezone.now() + timedelta(days=2)
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "cooldown", "content": "hold off", "expires_at": expiry.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["expires_at"] == expiry.isoformat()
+        assert SignalScratchpad.objects.get(team=self.team, key="cooldown").expires_at == expiry
+
+    def test_remember_rejects_expiry_on_a_followup_queue_entry(self) -> None:
+        # Wiring guard: the invariant lives in `remember`, so the endpoint has to surface it as a
+        # 400 rather than writing a follow-up that vanishes from the scout's queue.
+        response = self.client.post(
+            self._list_url(),
+            data={
+                "key": f"{FOLLOWUP_KEY_PREFIX}signals-scout-errors:checkout",
+                "content": "pending",
+                "expires_at": (timezone.now() + timedelta(days=3)).isoformat(),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalScratchpad.objects.filter(team=self.team).exists()
+
+    def test_remember_rejects_expires_at_in_the_past(self) -> None:
+        # A memory that's already lapsed on write is invisible the moment it lands, so it's a
+        # mistake worth a 400 rather than a silently useless row.
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "v", "expires_at": "2020-01-01T00:00:00Z"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
         SignalScratchpad.objects.create(team=other, key="theirs", content="leaked?")
@@ -1464,8 +1538,9 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         # notes instead — writes consult the same `llm_skill` RBAC gate as skill edits.
         # Deny only the `llm_skill` resource: a blanket False would also fail unrelated
         # resource checks in the request cycle and 403 the read path for the wrong reason.
-        from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
         from posthog.scopes import APIScopeObject
+
+        from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 
         note = SignalScoutNote.objects.create(team=self.team, content="pre-existing")
         real_check = UserAccessControl.check_access_level_for_resource
@@ -1818,6 +1893,64 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["scout_origin"] == expected_origin
 
+    @parameterized.expand(["list", "partial_update", "sync"])
+    def test_config_responses_carry_the_skills_owners(self, action: str) -> None:
+        # Every response path builds the serializer's context by hand, and one that forgets the
+        # owners map reports the whole fleet as unowned instead of failing.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout", enabled=False)
+        self._make_skill("signals-scout-checkout")
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", None, first_name="Ada")
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-checkout", user=owner
+        )
+
+        if action == "list":
+            response = self.client.get(self._list_url())
+        elif action == "sync":
+            response = self.client.post(self._sync_url())
+        else:
+            response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        rows = body if isinstance(body, list) else [body]
+        serialized = next(row for row in rows if row["skill_name"] == "signals-scout-checkout")
+        assert [o["email"] for o in serialized["owners"]] == ["owner@example.com"]
+
+    def test_list_reports_no_owners_when_an_owner_lost_project_access(self) -> None:
+        # An owner row outlives the member losing access, and the scout page turns owners into
+        # "who to talk to" — pointing at someone who can't even open the project is worse than
+        # saying nobody owns it.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self._make_skill("signals-scout-checkout")
+        outsider = User.objects.create_user("outsider@example.com", None, first_name="Bo")
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-checkout", user=outsider
+        )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["owners"] == []
+
+    def test_list_hides_owners_from_a_scout_sandbox_token(self) -> None:
+        # The sandbox token carries `signal_scout:read`, so this is the one config path a scout run
+        # can reach. Owners are member PII that the skill API withholds from a sandbox caller unless
+        # the skill opted into the report channel, and a config list that ignored that would
+        # hand every custom scout's owners to any run.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self._make_skill("signals-scout-checkout")
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", None, first_name="Ada")
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-checkout", user=owner
+        )
+        _authenticate_as_scout(self)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["owners"] == []
+
     def test_list_origin_defaults_to_custom_when_skill_absent(self) -> None:
         # A config with no live skill row isn't a canonical scout.
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
@@ -1842,6 +1975,22 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.emit is True
         assert config.run_interval_minutes == 60
         assert config.enabled_by_id == self.user.id
+
+    def test_partial_update_stores_mcp_gateway_server_ids_as_strings(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        server_id = str(uuid4())
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"mcp_gateway_server_ids": [server_id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["mcp_gateway_server_ids"] == [server_id]
+        config.refresh_from_db()
+        # The JSON column must hold canonical strings, or the row save crashes on UUID instances.
+        assert config.mcp_gateway_server_ids == [server_id]
 
     def test_partial_update_disable_records_a_user_pause(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
@@ -1931,21 +2080,29 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("default_marks_exempt", {"enabled": True}, True),
-            ("explicit_false_wins", {"enabled": True, "auto_pause_exempt": False}, False),
+            ("no_output", SignalScoutConfig.PauseReason.NO_OUTPUT, {"enabled": True}, False),
+            ("ignored", SignalScoutConfig.PauseReason.IGNORED, {"enabled": True}, False),
+            ("repeated_failures", SignalScoutConfig.PauseReason.REPEATED_FAILURES, {"enabled": True}, False),
+            (
+                "explicit_true_wins",
+                SignalScoutConfig.PauseReason.IGNORED,
+                {"enabled": True, "auto_pause_exempt": True},
+                True,
+            ),
         ]
     )
-    def test_re_enabling_an_inactivity_paused_scout_marks_it_exempt(
-        self, _name: str, payload: dict, expected_exempt: bool
+    def test_re_enabling_a_system_paused_scout_does_not_mark_it_exempt(
+        self, _name: str, pause_reason: SignalScoutConfig.PauseReason, payload: dict, expected_exempt: bool
     ) -> None:
-        # A re-enable is a human overruling the sweep, and the sweep must not overrule them back:
-        # the same quiet fortnight would re-qualify the scout as soon as its grace window lapses.
+        # A resume re-anchors the cold-start grace, which already keeps the sweep from
+        # re-judging the scout soon; minting the exemption here would remove it from the
+        # sweep's jurisdiction forever on every revert. Exemption stays an explicit choice.
         config = SignalScoutConfig.objects.create(
             team=self.team,
             skill_name="signals-scout-foo",
             enabled=False,
             status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
-            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+            pause_reason=pause_reason,
         )
 
         response = self.client.patch(self._detail_url(str(config.id)), data=payload, format="json")
@@ -1977,24 +2134,6 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         (call,) = [c for c in capture.call_args_list if c.kwargs.get("event") == "signals_scout_auto_pause_reverted"]
         assert call.kwargs["properties"]["pause_reason"] == SignalScoutConfig.PauseReason.IGNORED
         assert call.kwargs["properties"]["reverted_within_24h"] is True
-
-    def test_re_enabling_a_breaker_paused_scout_does_not_mark_it_exempt(self) -> None:
-        # The exemption belongs to the inactivity sweep; a re-enable after repeated failures says
-        # nothing about whether the scout's silence is wanted.
-        config = SignalScoutConfig.objects.create(
-            team=self.team,
-            skill_name="signals-scout-foo",
-            enabled=False,
-            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
-            pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
-        )
-
-        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
-
-        assert response.status_code == status.HTTP_200_OK
-        config.refresh_from_db()
-        assert config.status == SignalScoutConfig.Status.ACTIVE
-        assert config.auto_pause_exempt is False
 
     def test_exempting_a_scout_clears_its_pending_warning(self) -> None:
         # Exempting takes the scout out of the sweep, so nothing else would ever clear the
@@ -2083,7 +2222,12 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["output_destinations"] == destination
+        # A partial update skips the `thread_reports` default, so the flag reaches the reader
+        # through the response only and the stored destination keeps the shape it was sent in.
+        assert response.json()["output_destinations"] == {
+            "slack": {**destination["slack"], "thread_reports": False},
+            "webhook": None,
+        }
         config.refresh_from_db()
         assert config.output_destinations == destination
 
@@ -2817,6 +2961,7 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
 
 
 _QUOTA = "products.signals.backend.scout_harness.views.is_team_signals_quota_limited"
+_DAILY_GATE = "products.signals.backend.scout_harness.views.daily_report_limit_gate"
 _START = "products.signals.backend.temporal.agentic.scout_scheduler.start_manual_signals_scout_run"
 _CONNECT = "products.signals.backend.scout_harness.views.sync_connect"
 _WITHHELD = "products.signals.backend.scout_harness.views.withheld_skills_for_team"
@@ -2857,6 +3002,18 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
     def test_run_over_quota_returns_429_without_dispatching(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with patch(_QUOTA, return_value=True), patch(_START) as start:
+            response = self.client.post(self._run_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        start.assert_not_called()
+
+    def test_run_over_daily_report_limit_returns_429_without_dispatching(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        with (
+            patch(_QUOTA, return_value=False),
+            patch(_DAILY_GATE, return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2)),
+            patch(_START) as start,
+        ):
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
@@ -3102,6 +3259,22 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
             created_at=run.created_at + created_offset, updated_at=run.created_at + updated_offset
         )
         assert self._stamp(run)["has_self_validation"] is expected
+
+    def test_self_validation_still_counts_a_followup_entry_that_has_expired(self) -> None:
+        # The follow-up queue is read straight off the manager, deliberately unfiltered: this flag
+        # records that the run did the work, and an entry lapsing afterwards doesn't undo that.
+        # Routing this read through `search_scratchpad` would silently start dropping such runs.
+        run = _make_run(self.team)
+        entry = SignalScratchpad.objects.create(
+            team=self.team,
+            key=f"{FOLLOWUP_KEY_PREFIX}{run.skill_name}:checkout-errors",
+            content="validated",
+            expires_at=timezone.now() - timedelta(days=1),
+        )
+        SignalScratchpad.all_teams.filter(pk=entry.pk).update(
+            created_at=run.created_at - timedelta(hours=2), updated_at=run.created_at + timedelta(minutes=1)
+        )
+        assert self._stamp(run)["has_self_validation"] is True
 
     def test_sibling_skills_queue_does_not_count(self) -> None:
         run = _make_run(self.team)

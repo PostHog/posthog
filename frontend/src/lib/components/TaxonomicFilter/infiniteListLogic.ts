@@ -16,7 +16,7 @@ import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiMethodOptions } from 'lib/api'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import {
     expandRecentsForDisplay,
@@ -142,6 +142,7 @@ export const NO_ITEM_SELECTED = -1
 const DATA_WAREHOUSE_GROUP_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.DataWarehouse,
     TaxonomicFilterGroupType.DataWarehouseSourceTables,
+    TaxonomicFilterGroupType.DataWarehouseMaterializedViews,
 ]
 
 export function getInitialPinnedRowIndex({
@@ -202,6 +203,9 @@ const createEmptyListStorage = (searchQuery = '', first = false): ListStorage =>
 
 // simple cache with a setTimeout expiry
 const API_CACHE_TIMEOUT = 60000
+// Well under the gateway's own ceiling, so a wedged list request surfaces as a retryable error
+// here rather than spinning until the proxy returns a 504.
+const REMOTE_ITEMS_REQUEST_TIMEOUT_MS = 30000
 let apiCache: Record<string, ListStorage> = {}
 let apiCacheTimers: Record<string, number> = {}
 
@@ -221,12 +225,16 @@ export function clearApiCache(): void {
     apiCacheTimers = {}
 }
 
-async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
+async function fetchCachedListResponse(
+    path: string,
+    searchParams: Record<string, any>,
+    options?: ApiMethodOptions
+): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
     if (apiCache[url]) {
         return apiCache[url]
     }
-    const response = await api.get(url)
+    const response = await api.get(url, options)
     // Never cache an empty response. A transient empty result (a backend blip, a race) would
     // otherwise be pinned for the full timeout, so an event that actually exists keeps reading as
     // "No results" for up to a minute — retrying the same query just re-reads the cached blank.
@@ -323,6 +331,7 @@ export interface infiniteListLogicValues {
         value: TaxonomicFilterValue | undefined
     }
     showEmptyState: boolean
+    showErrorState: boolean
     showLoadingState: boolean
     showNonCapturedEventOption: boolean
     showPopover: boolean
@@ -427,6 +436,9 @@ export interface infiniteListLogicActions {
         searchQuery: string
     }
     resetPinnedRowState: () => {
+        value: true
+    }
+    retryRemoteItems: () => {
         value: true
     }
     selectSelected: () => {
@@ -554,6 +566,12 @@ export interface infiniteListLogicMeta {
             anyGroupStale: boolean,
             searchQuery: string
         ) => boolean
+        showErrorState: (
+            remoteFetchFailed: string | null,
+            searchQuery: string,
+            isLoading: boolean,
+            totalListCount: number
+        ) => boolean
         showEmptyState: (
             totalListCount: number,
             isLoading: boolean,
@@ -562,7 +580,8 @@ export interface infiniteListLogicMeta {
             hasRemoteDataSource: boolean,
             showNonCapturedEventOption: boolean,
             needsMoreSearchCharacters: boolean,
-            remoteResultsAreFresh: boolean
+            remoteResultsAreFresh: boolean,
+            showErrorState: boolean
         ) => boolean
         showLoadingState: (
             isLoading: boolean,
@@ -845,6 +864,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         abortAnyRunningQuery: true,
         setHasMore: (hasMore: boolean) => ({ hasMore }),
         remoteItemsFetchFailedForQuery: (searchQuery: string) => ({ searchQuery }),
+        retryRemoteItems: true,
     }),
     loaders(({ actions, values, cache, props }) => ({
         remoteItems: [
@@ -903,17 +923,23 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     let response: any
                     let expandedCountResponse: any = null
 
+                    const runAbortController = cache.abortController
+                    const requestOptions = { signal: runAbortController?.signal }
+
                     try {
                         // Querying groups from /groups/ endpoint may result in query timeouts. Let's query clickhouse instead
                         const isGroupNamesFilter = values.listGroupType.startsWith(
                             TaxonomicFilterGroupType.GroupNamesPrefix
                         )
                         if (isGroupNamesFilter && values.group?.groupTypeIndex !== undefined) {
-                            const groupsResponse = await api.groups.listClickhouse({
-                                group_type_index: values.group.groupTypeIndex as GroupTypeIndex,
-                                search: searchQuery || '',
-                                limit,
-                            })
+                            const groupsResponse = await api.groups.listClickhouse(
+                                {
+                                    group_type_index: values.group.groupTypeIndex as GroupTypeIndex,
+                                    search: searchQuery || '',
+                                    limit,
+                                },
+                                requestOptions
+                            )
 
                             const transformedGroups = mapGroupQueryResponse(groupsResponse)
                             response = {
@@ -930,33 +956,61 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                                 // get the list of results
                                 fetchCachedListResponse(
                                     scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
-                                    searchParams
+                                    searchParams,
+                                    requestOptions
                                 ),
                                 // if this is an unexpanded scoped list, get the count for the full list
                                 scopedRemoteEndpoint && !isExpanded
-                                    ? fetchCachedListResponse(remoteEndpoint, {
-                                          ...searchParams,
-                                          limit: 1,
-                                          offset: 0,
-                                      })
+                                    ? fetchCachedListResponse(
+                                          remoteEndpoint,
+                                          {
+                                              ...searchParams,
+                                              limit: 1,
+                                              offset: 0,
+                                          },
+                                          requestOptions
+                                      )
                                     : null,
                             ])
                             response = apiResponse
                             expandedCountResponse = expandedApiResponse
                         }
                     } catch (error: any) {
-                        if (!isBreakpoint(error)) {
+                        // An abort means either a newer query superseded this run, which owns the
+                        // outcome now, or the request timeout fired, which already recorded the
+                        // failure itself. Neither case belongs to this query.
+                        const aborted = error?.name === 'AbortError'
+                        if (aborted) {
+                            // A superseded run must not settle the loader. kea-loaders keeps one
+                            // loading flag per loader, so failing here would clear the flag the
+                            // newer run just set, and the SuggestedFilters reveal barrier opens on
+                            // `!anyGroupLoading` — it would drop its skeletons and reveal partial
+                            // results while that run is still in flight. This throws for a
+                            // superseded run and does nothing for the watchdog's own abort, which
+                            // does need to settle as a failure.
+                            breakpoint()
+                        }
+                        if (!isBreakpoint(error) && !aborted) {
                             // Carry the query that was in flight when this run errored so the
                             // reducer can attribute the failure to the right query string.
                             actions.remoteItemsFetchFailedForQuery(searchQuery)
                         }
                         throw error
+                    } finally {
+                        // Disarm the watchdog now this run has settled. It only bounds a request
+                        // that is still in flight, and left armed it would fire against a finished
+                        // one and turn a legitimately empty result into an error 30s later. A newer
+                        // run owns the shared disposable, so leave that one alone or we abort its
+                        // request instead.
+                        if (cache.abortController === runAbortController) {
+                            cache.disposables.dispose('abortController')
+                            cache.abortController = null
+                        }
                     }
                     breakpoint()
 
                     const queryChanged = values.remoteItems.searchQuery !== searchQuery
                     const existingResults = values.remoteItems.results
-                    cache.abortController = null
 
                     return {
                         results: appendAtIndex(
@@ -1267,6 +1321,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 searchQuery: string
             ): boolean => isSuggestedFilters && (anyGroupLoading || anyGroupStale) && searchQuery.trim().length > 0,
         ],
+        // A fetch that failed for the *current* query with nothing usable to fall back on. Kept
+        // separate from `showEmptyState` so a timeout or a 5xx doesn't read as "this project has
+        // no matching properties", which sends people looking for a tracking bug that isn't there.
+        showErrorState: [
+            (s) => [s.remoteFetchFailed, s.searchQuery, s.isLoading, s.totalListCount],
+            (
+                remoteFetchFailed: string | null,
+                searchQuery: string,
+                isLoading: boolean,
+                totalListCount: number
+            ): boolean =>
+                // Compare the exact query for the same reason `remoteResultsAreFresh` does: a stale
+                // failure from a superseded run must not surface against a newer query.
+                remoteFetchFailed === searchQuery && !isLoading && totalListCount === 0,
+        ],
         showEmptyState: [
             (s) => [
                 s.totalListCount,
@@ -1277,6 +1346,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.showNonCapturedEventOption,
                 s.needsMoreSearchCharacters,
                 s.remoteResultsAreFresh,
+                s.showErrorState,
             ],
             (
                 totalListCount: number,
@@ -1286,10 +1356,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 hasRemoteDataSource: boolean,
                 showNonCapturedEventOption: boolean,
                 needsMoreSearchCharacters: boolean,
-                remoteResultsAreFresh: boolean
+                remoteResultsAreFresh: boolean,
+                showErrorState: boolean
             ): boolean =>
                 (totalListCount === 0 &&
                     !isLoading &&
+                    !showErrorState &&
                     // Don't declare "No results" until the fetch for the *current* query has landed —
                     // otherwise a stale/empty list from the previous query masquerades as no matches.
                     remoteResultsAreFresh &&
@@ -2230,12 +2302,34 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             cache.disposables.dispose('abortController')
 
             // Add new abort controller
-            cache.disposables.add(() => {
-                const abortController = new AbortController()
-                // Store reference in cache for the fetch operation to use
-                cache.abortController = abortController
-                return () => abortController.abort()
-            }, 'abortController')
+            cache.disposables.add(
+                () => {
+                    const abortController = new AbortController()
+                    // Store reference in cache for the fetch operation to use
+                    cache.abortController = abortController
+                    // Some of these list endpoints have no server-side statement timeout, so a query
+                    // that wedges only fails when the gateway gives up two minutes later. Giving up
+                    // first bounds how long the list can sit in its loading state. The failure is
+                    // recorded here rather than in the loader's catch, because the catch cannot tell
+                    // this abort apart from the one a newer query triggers.
+                    const timeoutId = window.setTimeout(() => {
+                        actions.remoteItemsFetchFailedForQuery(values.searchQuery)
+                        abortController.abort()
+                    }, REMOTE_ITEMS_REQUEST_TIMEOUT_MS)
+                    return () => {
+                        window.clearTimeout(timeoutId)
+                        abortController.abort()
+                    }
+                },
+                'abortController',
+                // This disposable bounds one specific request, so pausing it on hide would abort a
+                // live fetch and re-running setup on show would arm a fresh 30s watchdog against a
+                // request that no longer exists, failing the list 30s after the user comes back.
+                { pauseOnPageHidden: false }
+            )
+        },
+        retryRemoteItems: () => {
+            actions.loadRemoteItems({ offset: 0, limit: values.limit })
         },
     })),
     events(({ actions, values, props, cache }) => ({

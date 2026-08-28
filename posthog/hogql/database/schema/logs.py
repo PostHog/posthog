@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     DateTimeDatabaseField,
@@ -10,6 +12,9 @@ from posthog.hogql.database.models import (
 )
 
 from posthog.clickhouse.workload import Workload
+
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
 
 # 50GB - limit for user-provided HogQL queries on log tables to prevent expensive full scans
 HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES = 50_000_000_000
@@ -96,6 +101,49 @@ class LogsTable(Table):
 
     def to_printed_hogql(self):
         return "logs"
+
+
+class LogsVolumeBucketsTable(Table):
+    description: str = (
+        "Log volume rollup on a 5-minute UTC grid, one row per (service, namespace, environment, severity) "
+        "series per bucket. Holds partial counts: always GROUP BY the key columns and sum(log_count)."
+    )
+    workload: Workload | None = Workload.LOGS
+    fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "time_bucket": DateTimeDatabaseField(
+            name="time_bucket",
+            nullable=False,
+            description="Start of the 5-minute UTC bucket the counts fall in.",
+        ),
+        "service_name": StringDatabaseField(
+            name="service_name", nullable=False, description="Name of the service that emitted the logs."
+        ),
+        "namespace": StringDatabaseField(
+            name="namespace",
+            nullable=False,
+            description="Kubernetes or service namespace of the emitting resource; empty string when absent.",
+        ),
+        "environment": StringDatabaseField(
+            name="environment",
+            nullable=False,
+            description="Deployment environment of the emitting resource; empty string when absent.",
+        ),
+        "severity_text": StringDatabaseField(
+            name="severity_text", nullable=False, description="Lowercased log severity (for example info, warn, error)."
+        ),
+        "log_count": IntegerDatabaseField(
+            name="log_count",
+            nullable=False,
+            description="Partial log count for the bucket; sum() across rows for the true count.",
+        ),
+    }
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        return "logs_volume_buckets_distributed"
+
+    def to_printed_hogql(self) -> str:
+        return "logs_volume_buckets"
 
 
 class LogAttributesTable(Table):

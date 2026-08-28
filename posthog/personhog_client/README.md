@@ -29,7 +29,6 @@ Do not query them directly — use the routed helpers or client RPCs.
 | `posthog_pendingpersonoverride`      | `PendingPersonOverride`      | Pending person merge overrides     |
 | `posthog_flatpersonoverride`         | `FlatPersonOverride`         | Flattened person overrides         |
 | `posthog_featureflaghashkeyoverride` | `FeatureFlagHashKeyOverride` | Feature flag hash key overrides    |
-| `posthog_personlessdistinctid`       | `PersonlessDistinctId`       | Personless distinct IDs            |
 | `posthog_personoverridemapping`      | `PersonOverrideMapping`      | Person override mappings           |
 
 ## Client singleton
