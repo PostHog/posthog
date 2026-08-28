@@ -255,8 +255,8 @@ export function GatewayAddServer({
                     <div className="font-medium text-sm">Share with agents</div>
                     <div className="text-[13px] text-gray-11">
                       {values.agentScope === "team"
-                        ? "PostHog agents can use your connection for every run in this project."
-                        : "PostHog agents can use your connection only on runs for you."}
+                        ? "Agents use this connection on every run in this project."
+                        : "Agents use this connection only on your runs."}
                     </div>
                   </div>
                   <AgentScopeToggle

@@ -214,8 +214,8 @@ export function GatewayAddServerModal(): JSX.Element | null {
                             <div className="font-semibold">Share with agents</div>
                             <div className="text-sm text-secondary">
                                 {addServerForm.agentScope === 'team'
-                                    ? 'PostHog agents can use your connection for every run in this project. You can change this or revoke access on the server page.'
-                                    : 'PostHog agents can use your connection only on runs for you. You can change this or revoke access on the server page.'}
+                                    ? 'Agents use this connection on every run in this project.'
+                                    : 'Agents use this connection only on your runs.'}
                             </div>
                         </div>
                         <LemonSegmentedButton
