@@ -862,6 +862,11 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.",
     )
+    sends_email = serializers.BooleanField(
+        default=True,
+        help_text="Whether the workflow contains an email step. The tiered audience limit only applies to "
+        "email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.",
+    )
 
 
 class BlastRadiusSerializer(serializers.Serializer):
@@ -4269,7 +4274,7 @@ class HogFlowViewSet(
                     {
                         "affected": get_account_audience_count(self.team, filters),
                         "total": get_account_audience_count(self.team, {"audience_type": "accounts"}),
-                        "limit": get_hogflow_batch_trigger_limit(self.team_id),
+                        "limit": get_hogflow_batch_trigger_limit(self.team_id, sends_email=params["sends_email"]),
                         "dedupe_key": None,
                         "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
                     }
@@ -4298,7 +4303,7 @@ class HogFlowViewSet(
                 {
                     "affected": blast_radius.affected,
                     "total": blast_radius.total,
-                    "limit": get_hogflow_batch_trigger_limit(self.team_id),
+                    "limit": get_hogflow_batch_trigger_limit(self.team_id, sends_email=params["sends_email"]),
                     "dedupe_key": applied_dedupe_key,
                     "confirm_token": mint_audience_confirm_token(
                         self.team_id, filters, group_type_index, applied_dedupe_key
@@ -4984,7 +4989,9 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                     {
                         "affected": result.affected,
                         "total": result.total,
-                        "limit": get_hogflow_batch_trigger_limit(team.id),
+                        "limit": get_hogflow_batch_trigger_limit(
+                            team.id, sends_email=bool(request.data.get("sends_email", True))
+                        ),
                         "dedupe_key": None,
                     }
                 ).data
