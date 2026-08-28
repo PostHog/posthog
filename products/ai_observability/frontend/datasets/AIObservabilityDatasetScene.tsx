@@ -677,6 +677,7 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                     <RefreshButton
                         onClick={() => {
                             loadDatasetItems(true)
+                            loadDatasetRevisions()
                         }}
                         isRefreshing={datasetItemsLoading}
                     />
