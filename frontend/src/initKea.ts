@@ -10,6 +10,7 @@ import posthog from 'posthog-js'
 
 import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { createGuardedStorageEngine } from 'lib/utils/guardedStorageEngine'
 import {
     addProjectIdIfMissing,
     ensureRoutablePathname,
@@ -100,7 +101,7 @@ export function initKea({
     const plugins = [
         ...(beforePlugins || []),
         disposablesPlugin,
-        localStoragePlugin(),
+        localStoragePlugin({ storageEngine: createGuardedStorageEngine() }),
         windowValuesPlugin({ window: window }),
         routerPlugin({
             history: routerHistory,
