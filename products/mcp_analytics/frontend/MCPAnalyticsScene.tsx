@@ -4,6 +4,8 @@ import { router, combineUrl } from 'kea-router'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
@@ -19,7 +21,13 @@ import { mcpAnalyticsEmptyState } from './emptyState/mcpAnalyticsEmptyState'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
-import { MCPAnalyticsTab, TAB_AI_PROMPTS, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
+import {
+    MCPAnalyticsTab,
+    TAB_AI_PROMPTS,
+    TAB_DESCRIPTIONS,
+    intentClusteringTabVisible,
+    mcpAnalyticsSceneLogic,
+} from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
 import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotifications'
@@ -48,6 +56,11 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
     const { notificationCount } = useValues(mcpAnalyticsNotificationsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showIntentClustering = intentClusteringTabVisible(
+        !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_CLUSTERING],
+        activeTab
+    )
 
     // search is Sessions-only — drop it when leaving the tab; the date range stays shared.
     const { search: _search, ...sharedParams } = searchParams
@@ -86,13 +99,17 @@ function MCPAnalyticsSceneContent(): JSX.Element {
             link: combineUrl(urls.mcpAnalyticsToolQuality(), sharedParams).url,
             'data-attr': 'mcp-analytics-tool-quality-tab',
         },
-        {
-            key: 'intent-clustering',
-            label: 'Intent clustering',
-            content: <MCPAnalyticsClustering />,
-            link: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
-            'data-attr': 'mcp-analytics-intent-clustering-tab',
-        },
+        ...(showIntentClustering
+            ? [
+                  {
+                      key: 'intent-clustering' as const,
+                      label: 'Intent clustering',
+                      content: <MCPAnalyticsClustering />,
+                      link: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
+                      'data-attr': 'mcp-analytics-intent-clustering-tab',
+                  },
+              ]
+            : []),
         {
             key: 'notifications',
             label: (

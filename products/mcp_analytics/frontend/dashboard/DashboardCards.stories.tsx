@@ -3,6 +3,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { type ChartTheme } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import {
     type DailyActivity,
@@ -145,8 +146,8 @@ function withTheme(render: (theme: ChartTheme) => JSX.Element): () => JSX.Elemen
     return () => <div className="w-[680px]">{render(buildTheme())}</div>
 }
 
-export const KeyMetrics: Story = {
-    render: () => (
+function keyMetrics(incompleteTail: boolean): () => JSX.Element {
+    return () => (
         <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
@@ -155,26 +156,26 @@ export const KeyMetrics: Story = {
                 kpisLoading={false}
                 usersLoading={false}
                 theme={buildTheme()}
-                incompleteTail={false}
+                incompleteTail={incompleteTail}
             />
         </div>
-    ),
+    )
+}
+
+// The six-tile grid, which needs the intent clustering flag for its last tile.
+export const KeyMetrics: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_CLUSTERING] },
+    render: keyMetrics(false),
 }
 
 export const KeyMetricsInProgressBucket: Story = {
-    render: () => (
-        <div className="w-[960px]">
-            <KpiTiles
-                kpis={KPIS}
-                users={metric(1840, 1655, [], 'up')}
-                intentClusterCount={metric(6, 0, [], 'up')}
-                kpisLoading={false}
-                usersLoading={false}
-                theme={buildTheme()}
-                incompleteTail
-            />
-        </div>
-    ),
+    parameters: { featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_CLUSTERING] },
+    render: keyMetrics(true),
+}
+
+// What everyone without the flag sees: five tiles, on the grid that keeps them in even rows.
+export const KeyMetricsWithoutIntentClustering: Story = {
+    render: keyMetrics(false),
 }
 
 export const DailyCallsAndErrors: Story = {

@@ -727,16 +727,18 @@ export const ToolQuality: Story = {
     },
 }
 
+// Without the intent clustering flag the tab is absent from the nav, but opening it directly
+// still renders it — so this also covers that anyone holding a link to it keeps working.
 export const IntentClustering: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
     },
 }
 
-// The intent view is no longer linked from the tab, so this story is the only thing keeping
-// it rendered. Without it the cluster list could break unnoticed.
-export const IntentClusteringByIntent: Story = {
+// What someone added to the intent clustering flag sees: the tab back in the nav, and the
+// dashboard's sixth KPI tile. Re-lists MCP_ANALYTICS since per-story flags replace meta's.
+export const DashboardWithIntentClustering: Story = {
     parameters: {
-        pageUrl: `${urls.mcpAnalyticsIntentClustering()}?view=intents`,
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS, FEATURE_FLAGS.MCP_ANALYTICS_INTENT_CLUSTERING],
     },
 }

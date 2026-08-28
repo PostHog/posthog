@@ -27,7 +27,9 @@ import {
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
@@ -507,6 +509,8 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
     const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
     const { timezone } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showIntentClustering = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_CLUSTERING]
 
     const theme = useChartTheme()
     const callsSeries = useMemo<Series[]>(
@@ -622,12 +626,18 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                 </div>
             </div>
 
-            <LemonDivider />
+            {/* One of the intent clustering surfaces, so it goes behind the same flag. The
+                divider goes with it, or the page keeps a separator around nothing. */}
+            {showIntentClustering && (
+                <>
+                    <LemonDivider />
 
-            <div className="flex flex-col gap-3 px-4 pb-4">
-                <SectionHeader title="Intents served" subtitle="From the latest intent cluster snapshot" />
-                <ToolDetailIntentsSection toolName={toolName} />
-            </div>
+                    <div className="flex flex-col gap-3 px-4 pb-4">
+                        <SectionHeader title="Intents served" subtitle="From the latest intent cluster snapshot" />
+                        <ToolDetailIntentsSection toolName={toolName} />
+                    </div>
+                </>
+            )}
 
             <LemonDivider />
 

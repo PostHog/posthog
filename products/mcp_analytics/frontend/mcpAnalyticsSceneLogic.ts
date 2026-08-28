@@ -21,7 +21,7 @@ export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
     sessions: 'Sessions where users interacted with your MCP tools.',
     'tool-quality': 'Understand how reliably your MCP tools support user workflows.',
     'intent-clustering':
-        'See which intents each of your tools serves, how often agents discover it, and which tools compete for the same work.',
+        'Cluster semantically similar user intents and see which tools each cluster routes to. Highlights inconsistent routing.',
     notifications:
         'Recurring summaries of what agents are doing, plus instant alerts for the things you need to know about right away.',
 }
@@ -40,6 +40,16 @@ export const TAB_AI_PROMPTS: Record<MCPAnalyticsTab, string> = {
         "What's the biggest unmet need agents have that my MCP tools don't cover? Look at $mcp_intent on failing tool calls.",
     notifications:
         'What MCP events should I be notified about? Summarize what agents were trying to do on failing $mcp_tool_call events.',
+}
+
+/**
+ * Whether the intent clustering tab belongs in the tab list. It is off by default: clustering
+ * barely groups the intents it samples, so the tab is shown only to people added to the flag.
+ * The open tab always counts, so a link to it still renders instead of landing on a scene whose
+ * active tab matches nothing in the list.
+ */
+export function intentClusteringTabVisible(flagEnabled: boolean, activeTab: MCPAnalyticsTab): boolean {
+    return flagEnabled || activeTab === 'intent-clustering'
 }
 
 const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {

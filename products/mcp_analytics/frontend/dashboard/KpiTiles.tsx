@@ -1,6 +1,10 @@
+import { useValues } from 'kea'
+
 import { Link } from '@posthog/lemon-ui'
 import { type ChartTheme } from '@posthog/quill-charts'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -82,6 +86,9 @@ export function KpiTiles({
     // silently renders the partial bucket as settled data.
     incompleteTail: boolean
 }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showIntentClustering = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_CLUSTERING]
+
     const tiles: TileSpec[] = [
         {
             label: 'Users',
@@ -129,27 +136,34 @@ export function KpiTiles({
             loading: kpisLoading,
             summaryLabel: 'Latest',
         },
-        {
-            label: 'Intent clusters',
-            metric: intentClusterCount,
-            href: urls.mcpAnalyticsIntentClustering(),
-            format: formatNumber,
-            color: theme.colors[6],
-            loading: false,
-            summaryLabel: 'Total',
-            // Clusters come from the latest clustering snapshot across all sessions, so
-            // unlike the other tiles this count isn't scoped by the date or test-account
-            // filters. Label it so the grid doesn't read as a single consistent scope.
-            subtitle: 'Latest run · all sessions',
-        },
+        // Intent clustering is behind its own flag, so this tile drops out with the rest of it.
+        ...(showIntentClustering
+            ? [
+                  {
+                      label: 'Intent clusters',
+                      metric: intentClusterCount,
+                      href: urls.mcpAnalyticsIntentClustering(),
+                      format: formatNumber,
+                      color: theme.colors[6],
+                      loading: false,
+                      summaryLabel: 'Total',
+                      // Clusters come from the latest clustering snapshot across all sessions, so
+                      // unlike the other tiles this count isn't scoped by the date or test-account
+                      // filters. Label it so the grid doesn't read as a single consistent scope.
+                      subtitle: 'Latest run · all sessions',
+                  },
+              ]
+            : []),
     ]
 
-    // Wrap the six tiles only into rows that divide evenly (6 → 3+3 → 2+2+2), never a lone
-    // trailing card. Container queries key off the card area's own width, so the sidebar can't
-    // push it to an awkward 5+1 the way viewport breakpoints or plain auto-fit would.
+    // Wrap into rows that divide evenly from the middle breakpoint up, so the widest layouts
+    // never end on a lone trailing card: six tiles go 3+3 then 2+2+2, five go 3+2 then one row.
+    // Container queries key off the card area's own width, so the sidebar can't push it to an
+    // awkward 5+1 the way viewport breakpoints or plain auto-fit would.
+    const widestColumns = tiles.length === 6 ? '@6xl:grid-cols-6' : '@6xl:grid-cols-5'
     return (
         <div className="@container">
-            <div className="grid grid-cols-2 gap-3 @xl:grid-cols-3 @6xl:grid-cols-6">
+            <div className={`grid grid-cols-2 gap-3 @xl:grid-cols-3 ${widestColumns}`}>
                 {tiles.map((tile) => (
                     <KPITile key={tile.label} tile={tile} theme={theme} incompleteTail={incompleteTail} />
                 ))}

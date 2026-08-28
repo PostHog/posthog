@@ -12,9 +12,34 @@ import { ClusteringCoverageBanner } from './ClusteringCoverageBanner'
 import { ClusteringSplitPane } from './ClusteringSplitPane'
 import { ClusterListPanel } from './ClusterListPanel'
 import { ClusterScorecards } from './ClusterScorecards'
-import { mcpClusteringLogic } from './mcpClusteringLogic'
+import { ClusteringViewMode, mcpClusteringLogic } from './mcpClusteringLogic'
 import { ToolDetailPanel } from './ToolDetailPanel'
 import { ToolsListPanel } from './ToolsListPanel'
+
+const VIEW_LABELS: Record<ClusteringViewMode, string> = {
+    intents: 'By intent',
+    tools: 'By tool',
+}
+
+function ViewToggle(): JSX.Element {
+    const { viewMode } = useValues(mcpClusteringLogic)
+    const { setViewMode } = useActions(mcpClusteringLogic)
+    return (
+        <div className="flex items-center gap-2">
+            {(Object.keys(VIEW_LABELS) as ClusteringViewMode[]).map((key) => (
+                <Button
+                    key={key}
+                    size="sm"
+                    variant={viewMode === key ? 'default' : 'outline'}
+                    onClick={() => setViewMode(key)}
+                    data-attr={`mcp-analytics-clustering-view-${key}`}
+                >
+                    {VIEW_LABELS[key]}
+                </Button>
+            ))}
+        </div>
+    )
+}
 
 /**
  * Scopes both views to tools in the chosen categories. Hidden until a category is worth
@@ -198,8 +223,11 @@ export function MCPAnalyticsClustering(): JSX.Element {
     return (
         <div className="flex flex-col gap-4" data-quill>
             <StatusRow />
-            <CategoryScope />
-            {viewMode === 'intents' ? <IntentsView /> : <ToolsView />}
+            <div className="flex flex-wrap items-center gap-3">
+                <ViewToggle />
+                <CategoryScope />
+            </div>
+            {viewMode === 'tools' ? <ToolsView /> : <IntentsView />}
         </div>
     )
 }
