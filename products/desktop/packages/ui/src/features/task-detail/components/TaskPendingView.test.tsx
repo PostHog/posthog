@@ -1,5 +1,5 @@
 import { Theme } from "@radix-ui/themes";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The record-present branches render heavy session/composer trees this test
@@ -55,5 +55,33 @@ describe("TaskPendingView hydration gate", () => {
     expect(
       screen.getByRole("button", { name: "Start a new task" }),
     ).toBeInTheDocument();
+  });
+
+  it("keeps the pending view while its prompt moves to the created task", () => {
+    usePendingTaskPromptStore.setState({ _hasHydrated: true });
+    usePendingTaskPromptStore.getState().set("pending-key", {
+      promptText: "Create a task",
+      attachments: [],
+    });
+    const { unmount } = render(
+      <Theme>
+        <TaskPendingView pendingTaskKey="pending-key" />
+      </Theme>,
+    );
+
+    act(() => {
+      usePendingTaskPromptStore.getState().move("pending-key", "task-1");
+    });
+
+    expect(screen.getByText("pending-chat")).toBeInTheDocument();
+    expect(screen.queryByText(UNAVAILABLE_TEXT)).not.toBeInTheDocument();
+
+    unmount();
+    render(
+      <Theme>
+        <TaskPendingView pendingTaskKey="pending-key" />
+      </Theme>,
+    );
+    expect(screen.getByText(UNAVAILABLE_TEXT)).toBeInTheDocument();
   });
 });
