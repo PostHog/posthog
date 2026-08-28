@@ -62,15 +62,6 @@ let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
 
-// The reasons that mean we put the product in the sidebar, rather than the person choosing it.
-const RECOMMENDED_PRODUCT_REASONS = new Set<UserProductListReason>([
-    UserProductListReason.USED_BY_COLLEAGUES,
-    UserProductListReason.USED_SIMILAR_PRODUCTS,
-    UserProductListReason.USED_ON_SEPARATE_TEAM,
-    UserProductListReason.NEW_PRODUCT,
-    UserProductListReason.SALES_LED,
-])
-
 // Show active state for items that are active in the URL
 const isItemActive = (item: TreeDataItem): boolean => {
     if (!item.record?.href) {
@@ -459,7 +450,6 @@ export function ProjectTree({
                     root === 'custom-products://'
                 ) {
                     const key = item.record?.sceneKey
-                    const reason = item.record?.reason as UserProductListReason | undefined
 
                     return (
                         <>
@@ -467,13 +457,6 @@ export function ProjectTree({
                                 <>
                                     <p className="mb-1 font-semibold">{item.displayName}</p>
                                 </>
-                            )}
-                            {reason && RECOMMENDED_PRODUCT_REASONS.has(reason) && (
-                                <p className="mb-1">
-                                    <LemonTag type="success" size="small">
-                                        Recommended
-                                    </LemonTag>
-                                </p>
                             )}
                             {sceneConfigurations[key]?.description || item.name}
 
