@@ -37,6 +37,33 @@ import {
 } from '@/generated/canvas/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const CanvasAssetAttachSchema = CanvasesAssetsAttachCreateParams.omit({ project_id: true })
+    .extend(CanvasesAssetsAttachCreateBody.shape)
+    .extend({
+        id: CanvasesAssetsAttachCreateParams.shape['id'].describe('ID of the canvas to attach the image to.'),
+        file_name: CanvasesAssetsAttachCreateBody.shape['file_name']
+            .unwrap()
+            .describe('The attached file\'s name exactly as it appears in the conversation (e.g. "photo.png").'),
+    })
+
+const canvasAssetAttach = (): ToolBase<typeof CanvasAssetAttachSchema, Schemas.CanvasAsset> => ({
+    name: 'canvas-asset-attach',
+    schema: CanvasAssetAttachSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasAssetAttachSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.file_name !== undefined) {
+            body['file_name'] = params.file_name
+        }
+        const result = await context.api.request<Schemas.CanvasAsset>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/assets/attach/`,
+            body,
+        })
+        return result
+    },
+})
+
 const CanvasBuildsRetrieveSchema = CanvasesBuildsRetrieveParams.omit({ project_id: true })
     .extend(CanvasesBuildsRetrieveQueryParams.shape)
     .extend({ id: CanvasesBuildsRetrieveParams.shape['id'].describe('ID of the canvas whose builds to read.') })
@@ -140,33 +167,6 @@ const canvasDraftsRetrieve = (): ToolBase<typeof CanvasDraftsRetrieveSchema, Sch
                 limit: params.limit,
                 offset: params.offset,
             },
-        })
-        return result
-    },
-})
-
-const CanvasAssetAttachSchema = CanvasesAssetsAttachCreateParams.omit({ project_id: true })
-    .extend(CanvasesAssetsAttachCreateBody.shape)
-    .extend({
-        id: CanvasesAssetsAttachCreateParams.shape['id'].describe('ID of the canvas to attach the image to.'),
-        file_name: CanvasesAssetsAttachCreateBody.shape['file_name']
-            .unwrap()
-            .describe('The attached file\'s name exactly as it appears in the conversation (e.g. "photo.png").'),
-    })
-
-const canvasAssetAttach = (): ToolBase<typeof CanvasAssetAttachSchema, Schemas.CanvasAsset> => ({
-    name: 'canvas-asset-attach',
-    schema: CanvasAssetAttachSchema,
-    handler: async (context: Context, params: z.infer<typeof CanvasAssetAttachSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.file_name !== undefined) {
-            body['file_name'] = params.file_name
-        }
-        const result = await context.api.request<Schemas.CanvasAsset>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/assets/attach/`,
-            body,
         })
         return result
     },
@@ -482,11 +482,11 @@ const canvasValidateCreate = (): ToolBase<typeof CanvasValidateCreateSchema, Sch
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'canvas-asset-attach': canvasAssetAttach,
     'canvas-builds-retrieve': canvasBuildsRetrieve,
     'canvas-create': canvasCreate,
     'canvas-draft-create': canvasDraftCreate,
     'canvas-drafts-retrieve': canvasDraftsRetrieve,
-    'canvas-asset-attach': canvasAssetAttach,
     'canvas-edit-create': canvasEditCreate,
     'canvas-layout-get': canvasLayoutGet,
     'canvas-layout-patch': canvasLayoutPatch,
