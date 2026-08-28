@@ -103,7 +103,6 @@ describe("evidence preview shaping", () => {
       metricType: "primary",
       outcomeLabel: "Conversions",
       state: "ready",
-      controlOutcome: "100 · 10.0% · 1K samples",
       bestVariant: {
         key: "test",
         uplift: "+25.0%",

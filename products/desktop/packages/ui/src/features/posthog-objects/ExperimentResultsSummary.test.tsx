@@ -14,6 +14,8 @@ const variant = (
   outcome: "125 · 12.5%",
   sampleContext: "1K samples · 1K exposed",
   uplift: key === "control" ? null : "+25.0%",
+  upliftValue: key === "control" ? null : 0.25,
+  intervalBounds: key === "control" ? null : ([0.05, 0.45] as [number, number]),
   upliftDirection: key === "control" ? null : ("positive" as const),
   isImprovement: key === "control" ? null : true,
   interval: key === "control" ? null : "+5.00% to +45.0%",
@@ -37,7 +39,7 @@ const metric = (
   state: "ready" as const,
   error: null,
   outcomeLabel: "Conversions",
-  controlOutcome: "100 · 10.0% · 1K samples",
+  axisRange: 0.45,
   bestVariant: {
     key: "test",
     uplift: "+25.0%",
@@ -70,7 +72,7 @@ const results: ExperimentResultsPresentation = {
 };
 
 describe("ExperimentResultsSummary", () => {
-  it("summarizes hover metrics and reveals a selected metric on demand", () => {
+  it("reduces a hover card to primary metric headlines", () => {
     render(
       <ExperimentResultsSummary
         display="compact"
@@ -79,17 +81,15 @@ describe("ExperimentResultsSummary", () => {
       />,
     );
 
-    expect(screen.getAllByText("Best observed: test +25.0%")).toHaveLength(2);
+    expect(screen.getByText("Checkout conversion")).toBeInTheDocument();
+    expect(screen.getByText("test vs control")).toBeInTheDocument();
+    expect(screen.getByText("+25.0%")).toBeInTheDocument();
+    expect(screen.getByText("Significant")).toBeInTheDocument();
+    expect(screen.queryByText("Orders per user")).not.toBeInTheDocument();
     expect(screen.queryByText("p-value 0.020")).not.toBeInTheDocument();
-    expect(screen.queryByText("p-value 0.120")).not.toBeInTheDocument();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: /Checkout conversion/ }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: /Orders per user/ }));
-
-    expect(screen.getByText("p-value 0.020")).toBeInTheDocument();
-    expect(screen.getByText("p-value 0.120")).toBeInTheDocument();
+    expect(
+      screen.getByText("+1 more metric on the full page"),
+    ).toBeInTheDocument();
   });
 
   it("opens primary metrics on the full page and keeps secondary metrics collapsed", () => {
@@ -102,9 +102,7 @@ describe("ExperimentResultsSummary", () => {
     );
 
     expect(screen.getByText("p-value 0.020")).toBeInTheDocument();
-    expect(
-      screen.getByText("Control (control): 100 · 10.0% · 1K samples"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Uplift vs baseline")).toBeInTheDocument();
     expect(screen.queryByText("p-value 0.120")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Orders per user/ }));
@@ -112,7 +110,7 @@ describe("ExperimentResultsSummary", () => {
     expect(screen.getByText("p-value 0.120")).toBeInTheDocument();
   });
 
-  it("caps hover cards at four metrics with a pointer to the full page", () => {
+  it("caps hover cards at three metrics with a pointer to the full page", () => {
     const manyMetrics = {
       ...results,
       primaryMetrics: [
@@ -134,10 +132,10 @@ describe("ExperimentResultsSummary", () => {
       />,
     );
 
-    expect(screen.getByText("Metric four")).toBeInTheDocument();
-    expect(screen.queryByText("Metric five")).not.toBeInTheDocument();
+    expect(screen.getByText("Metric three")).toBeInTheDocument();
+    expect(screen.queryByText("Metric four")).not.toBeInTheDocument();
     expect(
-      screen.getByText("+2 more metrics on the full page"),
+      screen.getByText("+3 more metrics on the full page"),
     ).toBeInTheDocument();
   });
 

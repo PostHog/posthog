@@ -7,9 +7,6 @@ import {
   AccordionItem,
   AccordionTrigger,
   Badge,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
   Table,
   TableBody,
   TableCell,
@@ -19,6 +16,10 @@ import {
   Text,
 } from "@posthog/quill";
 import type { ReactElement } from "react";
+import {
+  ExperimentDeltaAxis,
+  ExperimentDeltaBar,
+} from "./ExperimentDeltaChart";
 import { ExperimentResultNotice } from "./ExperimentResultNotice";
 
 const SIGNIFICANCE_LABELS = {
@@ -26,6 +27,14 @@ const SIGNIFICANCE_LABELS = {
   not_significant: "Not significant",
   insufficient_data: "Insufficient data",
 } as const;
+
+// `--success` and `--destructive` are surface tokens, so text has to use the
+// paired foreground tokens to stay readable.
+function directionClass(isImprovement: boolean | null): string {
+  if (isImprovement === true) return "text-success-foreground";
+  if (isImprovement === false) return "text-destructive-foreground";
+  return "text-foreground";
+}
 
 function MetricStateBadge({
   metric,
@@ -75,11 +84,9 @@ function BestVariantLine({
   return (
     <span
       className={`shrink-0 font-medium text-xs tabular-nums ${
-        best.significance === "significant" && best.isImprovement === true
-          ? "text-success"
-          : best.significance === "significant" && best.isImprovement === false
-            ? "text-destructive"
-            : "text-muted-foreground"
+        best.significance === "significant"
+          ? directionClass(best.isImprovement)
+          : "text-muted-foreground"
       }`}
     >
       Best observed: {best.key} {best.uplift}
@@ -89,33 +96,19 @@ function BestVariantLine({
 
 function MetricHeading({
   metric,
-  compact,
 }: {
   metric: ExperimentMetricResultPresentation;
-  compact: boolean;
 }): ReactElement {
   return (
     <span className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-1">
-      <span className="min-w-0">
-        <Text
-          render={<span />}
-          size={compact ? "xs" : "sm"}
-          weight="semibold"
-          className="block truncate text-foreground"
-        >
-          {metric.name}
-        </Text>
-        {compact && (
-          <Text
-            render={<span />}
-            size="xxs"
-            variant="muted"
-            className="block capitalize"
-          >
-            {metric.metricType} metric
-          </Text>
-        )}
-      </span>
+      <Text
+        render={<span />}
+        size="sm"
+        weight="semibold"
+        className="min-w-0 truncate text-foreground"
+      >
+        {metric.name}
+      </Text>
       <span className="flex shrink-0 items-center gap-2">
         <BestVariantLine metric={metric} />
         <MetricStateBadge metric={metric} />
@@ -144,154 +137,160 @@ function MetricDetail({
     );
   }
 
-  const control = metric.variants.find((variant) => variant.isControl);
+  const { axisRange } = metric;
   return (
-    <div className="flex flex-col gap-2.5">
-      {metric.controlOutcome && control && (
-        <Text size="xxs" variant="muted" className="block tabular-nums">
-          Control ({control.key}): {metric.controlOutcome}
-        </Text>
-      )}
-      <div className="overflow-x-auto">
-        <Table size="sm" className="min-w-[720px]">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Variant</TableHead>
-              <TableHead>{metric.outcomeLabel}</TableHead>
-              <TableHead>Sample and exposure</TableHead>
-              <TableHead>Uplift</TableHead>
-              <TableHead>95% interval</TableHead>
-              <TableHead>Statistical measure</TableHead>
-              <TableHead>Significance</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {metric.variants.map((variant) => (
-              <TableRow
-                key={variant.key}
-                className={
-                  variant.significance === "significant" &&
-                  variant.isImprovement === true
-                    ? "bg-success/5"
-                    : variant.isControl
-                      ? "text-muted-foreground"
-                      : undefined
-                }
+    <div className="@container">
+      <Table size="sm" fullWidth>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Variant</TableHead>
+            <TableHead align="right">{metric.outcomeLabel}</TableHead>
+            <TableHead align="right">Uplift</TableHead>
+            <TableHead align="right">Significance</TableHead>
+            {axisRange !== null && (
+              <TableHead
+                expand
+                valign="bottom"
+                className="@3xl:table-cell hidden"
               >
-                <TableCell className="whitespace-nowrap font-medium">
+                <ExperimentDeltaAxis axisRange={axisRange} />
+              </TableHead>
+            )}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {metric.variants.map((variant) => (
+            <TableRow key={variant.key}>
+              <TableCell valign="middle">
+                <span className="block truncate font-medium">
                   {variant.key}
                   {variant.isControl ? " (control)" : ""}
-                </TableCell>
-                <TableCell className="whitespace-nowrap tabular-nums">
-                  {variant.outcome}
-                </TableCell>
-                <TableCell className="whitespace-nowrap tabular-nums">
-                  {variant.sampleContext}
-                </TableCell>
-                <TableCell
-                  className={`whitespace-nowrap font-medium tabular-nums ${
-                    variant.isImprovement === true
-                      ? "text-success"
-                      : variant.isImprovement === false
-                        ? "text-destructive"
-                        : ""
-                  }`}
+                </span>
+                <Text
+                  render={<span />}
+                  size="xxs"
+                  variant="muted"
+                  className="block truncate tabular-nums"
                 >
-                  {variant.uplift ?? "Baseline"}
-                </TableCell>
-                <TableCell className="whitespace-nowrap tabular-nums">
-                  {variant.isControl
-                    ? "Baseline"
-                    : (variant.interval ?? "Not available")}
-                </TableCell>
-                <TableCell className="whitespace-nowrap tabular-nums">
-                  {variant.isControl
-                    ? "Baseline"
-                    : variant.pValue
-                      ? `p-value ${variant.pValue}`
-                      : variant.chanceToWin
-                        ? `${variant.chanceToWin} chance to win`
-                        : "Not available"}
-                </TableCell>
-                <TableCell className="whitespace-nowrap">
-                  {variant.isControl ? (
-                    <span className="text-muted-foreground">Baseline</span>
-                  ) : (
+                  {variant.sampleContext}
+                </Text>
+              </TableCell>
+              <TableCell
+                align="right"
+                valign="middle"
+                className="whitespace-nowrap tabular-nums"
+              >
+                {variant.outcome}
+              </TableCell>
+              <TableCell align="right" valign="middle">
+                {variant.isControl || !variant.uplift ? (
+                  <span className="text-muted-foreground">&mdash;</span>
+                ) : (
+                  <span
+                    className={`whitespace-nowrap font-medium tabular-nums ${directionClass(variant.isImprovement)}`}
+                  >
+                    {variant.uplift}
+                  </span>
+                )}
+              </TableCell>
+              <TableCell align="right" valign="middle">
+                {variant.isControl ? (
+                  <span className="text-muted-foreground">&mdash;</span>
+                ) : (
+                  <>
                     <SignificanceBadge variant={variant} />
-                  )}
+                    {(variant.pValue || variant.chanceToWin) && (
+                      <Text
+                        render={<span />}
+                        size="xxs"
+                        variant="muted"
+                        className="mt-0.5 block whitespace-nowrap tabular-nums"
+                      >
+                        {variant.pValue
+                          ? `p-value ${variant.pValue}`
+                          : `${variant.chanceToWin} chance to win`}
+                      </Text>
+                    )}
+                  </>
+                )}
+              </TableCell>
+              {axisRange !== null && (
+                <TableCell
+                  expand
+                  valign="middle"
+                  className="@3xl:table-cell hidden pr-0"
+                >
+                  <ExperimentDeltaBar variant={variant} axisRange={axisRange} />
                 </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+              )}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }
 
-function CompactVariantRows({
+/**
+ * Hover cards get a read-only headline per metric. Nothing expands there: the
+ * full page owns the variant tables.
+ */
+function CompactMetricRow({
   metric,
 }: {
   metric: ExperimentMetricResultPresentation;
 }): ReactElement {
-  if (metric.error) {
-    return (
-      <ExperimentResultNotice tone="destructive">
-        {metric.error}
-      </ExperimentResultNotice>
-    );
-  }
-  if (metric.variants.length === 0) {
-    return (
-      <ExperimentResultNotice tone="neutral">
-        No variant results yet.
-      </ExperimentResultNotice>
-    );
-  }
+  const best = metric.bestVariant;
+  const detail = metric.error
+    ? "Query failed"
+    : best
+      ? `${best.key} vs control`
+      : "No comparison yet";
+  const significance =
+    metric.state === "insufficient_data"
+      ? "Insufficient data"
+      : best?.significance
+        ? SIGNIFICANCE_LABELS[best.significance]
+        : null;
   return (
-    <div className="flex flex-col gap-2">
-      {metric.variants.map((variant) => (
-        <div key={variant.key} className="min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <Text size="xs" weight="medium" className="block truncate">
-                {variant.key}
-                {variant.isControl ? " (control)" : ""}
-              </Text>
-              <Text
-                size="xxs"
-                variant="muted"
-                className="block break-words tabular-nums"
-              >
-                {variant.outcome} · {variant.sampleContext}
-              </Text>
-            </div>
-            <Text
-              size="xs"
-              weight="semibold"
-              className={`shrink-0 tabular-nums ${
-                variant.isImprovement === true
-                  ? "text-success"
-                  : variant.isImprovement === false
-                    ? "text-destructive"
-                    : ""
-              }`}
-            >
-              {variant.uplift ?? "Baseline"}
-            </Text>
-          </div>
-          {!variant.isControl && (
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground tabular-nums">
-              {variant.interval && <span>95% interval {variant.interval}</span>}
-              {variant.pValue && <span>p-value {variant.pValue}</span>}
-              {variant.chanceToWin && (
-                <span>{variant.chanceToWin} chance to win</span>
-              )}
-              <SignificanceBadge variant={variant} />
-            </div>
-          )}
-        </div>
-      ))}
+    <div className="flex items-baseline justify-between gap-3 px-2.5 py-2">
+      <span className="min-w-0">
+        <Text
+          render={<span />}
+          size="xs"
+          weight="medium"
+          className="block truncate text-foreground"
+        >
+          {metric.name}
+        </Text>
+        <Text
+          render={<span />}
+          size="xxs"
+          variant="muted"
+          className="block truncate"
+        >
+          {detail}
+        </Text>
+      </span>
+      <span className="shrink-0 text-right">
+        <Text
+          render={<span />}
+          size="xs"
+          weight="semibold"
+          className={`block tabular-nums ${
+            best && best.significance === "significant"
+              ? directionClass(best.isImprovement)
+              : "text-foreground"
+          }`}
+        >
+          {best?.uplift ?? "—"}
+        </Text>
+        {significance && (
+          <Text render={<span />} size="xxs" variant="muted" className="block">
+            {significance}
+          </Text>
+        )}
+      </span>
     </div>
   );
 }
@@ -299,40 +298,24 @@ function CompactVariantRows({
 export function ExperimentMetricResult({
   metric,
   display,
-  defaultOpen = false,
 }: {
   metric: ExperimentMetricResultPresentation;
   display: "compact" | "full";
-  defaultOpen?: boolean;
 }): ReactElement {
-  if (display === "full") {
-    return (
-      <AccordionItem value={metric.id}>
-        <AccordionTrigger
-          data-attr="experiment-metric-toggle"
-          className="[&>span:first-child]:min-w-0 [&>span:first-child]:flex-1"
-        >
-          <MetricHeading metric={metric} compact={false} />
-        </AccordionTrigger>
-        <AccordionContent>
-          <MetricDetail metric={metric} />
-        </AccordionContent>
-      </AccordionItem>
-    );
+  if (display === "compact") {
+    return <CompactMetricRow metric={metric} />;
   }
   return (
-    <Collapsible defaultOpen={defaultOpen}>
-      <CollapsibleTrigger
+    <AccordionItem value={metric.id}>
+      <AccordionTrigger
         data-attr="experiment-metric-toggle"
-        className="w-full rounded-md border border-border bg-card px-2.5 py-2 text-left"
+        className="[&>span:first-child]:min-w-0 [&>span:first-child]:flex-1"
       >
-        <MetricHeading metric={metric} compact />
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="mt-2">
-          <CompactVariantRows metric={metric} />
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+        <MetricHeading metric={metric} />
+      </AccordionTrigger>
+      <AccordionContent>
+        <MetricDetail metric={metric} />
+      </AccordionContent>
+    </AccordionItem>
   );
 }

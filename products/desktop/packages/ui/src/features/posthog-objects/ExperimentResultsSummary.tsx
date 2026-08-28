@@ -10,9 +10,9 @@ export interface ExperimentResultsSummaryProps {
   results: ExperimentResultsPresentation | null | undefined;
 }
 
-// Hover cards summarize the strongest metrics and leave the rest to the full
+// Hover cards show the headline metrics only and leave the rest to the full
 // page, so a metric-heavy experiment stays a short scannable list.
-const MAX_COMPACT_METRICS = 4;
+const MAX_COMPACT_METRICS = 3;
 
 export function ExperimentResultsSummary({
   display,
@@ -56,10 +56,13 @@ export function ExperimentResultsSummary({
   }
 
   const allMetrics = [...results.primaryMetrics, ...results.secondaryMetrics];
-  const metrics =
-    display === "compact"
-      ? allMetrics.slice(0, MAX_COMPACT_METRICS)
-      : allMetrics;
+  // Hover cards lead with the primary metrics, and fall back to the secondary
+  // ones when an experiment has no primary metric at all.
+  const headlineMetrics =
+    results.primaryMetrics.length > 0
+      ? results.primaryMetrics
+      : results.secondaryMetrics;
+  const metrics = headlineMetrics.slice(0, MAX_COMPACT_METRICS);
   const hiddenMetricCount = allMetrics.length - metrics.length;
 
   return (
@@ -126,14 +129,15 @@ export function ExperimentResultsSummary({
           )}
         </div>
       ) : (
-        metrics.map((metric, index) => (
-          <ExperimentMetricResult
-            key={metric.id}
-            metric={metric}
-            display="compact"
-            defaultOpen={allMetrics.length === 1 && index === 0}
-          />
-        ))
+        <div className="divide-y divide-border overflow-hidden rounded-md border border-border bg-card">
+          {metrics.map((metric) => (
+            <ExperimentMetricResult
+              key={metric.id}
+              metric={metric}
+              display="compact"
+            />
+          ))}
+        </div>
       )}
       {display === "compact" && hiddenMetricCount > 0 && (
         <Text size="xxs" variant="muted">

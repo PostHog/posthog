@@ -30,6 +30,9 @@ export interface ExperimentVariantResultPresentation {
   outcome: string;
   sampleContext: string;
   uplift: string | null;
+  /** Raw uplift and interval bounds, as fractions, for the delta chart. */
+  upliftValue: number | null;
+  intervalBounds: [number, number] | null;
   upliftDirection: "positive" | "negative" | null;
   isImprovement: boolean | null;
   interval: string | null;
@@ -45,7 +48,8 @@ export interface ExperimentMetricResultPresentation {
   state: "ready" | "error" | "insufficient_data";
   error: string | null;
   outcomeLabel: string;
-  controlOutcome: string | null;
+  /** Half-width of the shared delta axis, as a fraction. Null hides the chart. */
+  axisRange: number | null;
   /** Strongest test variant by uplift, so collapsed metric rows stay scannable. */
   bestVariant: {
     key: string;
@@ -658,6 +662,21 @@ function hasInsufficientData(
   );
 }
 
+// The delta axis is symmetric, and clamped so one wild interval cannot squash
+// every other bar to a hairline.
+const MIN_AXIS_RANGE = 0.05;
+const MAX_AXIS_RANGE = 1.5;
+
+function deltaAxisRange(
+  rows: ExperimentVariantResultPresentation[],
+): number | null {
+  const bounds = rows.flatMap((row) =>
+    row.intervalBounds ? row.intervalBounds.map(Math.abs) : [],
+  );
+  if (bounds.length === 0) return null;
+  return Math.min(MAX_AXIS_RANGE, Math.max(MIN_AXIS_RANGE, ...bounds));
+}
+
 function shapeMetricResult(
   definition: ExperimentMetricDefinition,
   queryResult: ExperimentMetricQueryResult | undefined,
@@ -673,7 +692,7 @@ function shapeMetricResult(
       state: "insufficient_data",
       error: null,
       outcomeLabel: "Outcome",
-      controlOutcome: null,
+      axisRange: null,
       bestVariant: null,
       variants: [],
     };
@@ -686,7 +705,7 @@ function shapeMetricResult(
       state: "error",
       error: "Couldn't calculate this metric.",
       outcomeLabel: "Outcome",
-      controlOutcome: null,
+      axisRange: null,
       bestVariant: null,
       variants: [],
     };
@@ -702,7 +721,7 @@ function shapeMetricResult(
       state: "insufficient_data",
       error: null,
       outcomeLabel: "Outcome",
-      controlOutcome: null,
+      axisRange: null,
       bestVariant: null,
       variants: [],
     };
@@ -756,6 +775,9 @@ function shapeMetricResult(
         .filter(Boolean)
         .join(" · "),
       uplift: isControl || uplift === null ? null : formatPercent(uplift, true),
+      upliftValue: isControl ? null : uplift,
+      intervalBounds:
+        isControl || !interval ? null : [interval[0], interval[1]],
       upliftDirection:
         uplift === null || uplift === 0
           ? null
@@ -809,7 +831,7 @@ function shapeMetricResult(
     state: insufficient ? "insufficient_data" : "ready",
     error: null,
     outcomeLabel: baselineOutcome.label,
-    controlOutcome: `${baselineOutcome.display} · ${compactCount(baseline.number_of_samples)} samples`,
+    axisRange: deltaAxisRange(rows),
     bestVariant: best
       ? {
           key: best.row.key,
