@@ -88,7 +88,15 @@ def _split_bucket_and_key(path: str) -> _ObjectLocation | None:
     return _ObjectLocation(bucket=bucket, key=key)
 
 
-def _scope_for_s3_uri(uri: str) -> str:
+def _scope_for_object_uri(uri: str) -> str:
+    """Narrowest scope that still covers everything the table reads.
+
+    DuckDB resolves a secret by longest matching scope prefix, so a scope wider than the table's
+    own URI lends that table's credentials to every sibling object under it: another table in the
+    same directory, carrying credentials of its own, would be read with whichever secret sorts
+    first. Keeping the whole URI when it holds no wildcard leaves each table's key bound to the
+    object it was saved for; a glob can only be cut back to the literal text before the wildcard.
+    """
     wildcard_positions = [position for token in ("*", "?", "[") if (position := uri.find(token)) >= 0]
     return uri[: min(wildcard_positions)] if wildcard_positions else uri
 
@@ -109,14 +117,6 @@ def _parse_s3_virtual_host(hostname: str) -> _S3VirtualHost | None:
     return None
 
 
-def _scope_for_azure_uri(uri: str) -> str:
-    prefix = _scope_for_s3_uri(uri)
-    if prefix.endswith("/"):
-        return prefix
-    parent, separator, _ = prefix.rpartition("/")
-    return f"{parent}/" if separator else f"{prefix}/"
-
-
 def parse_duckdb_azure_source(url: str) -> DuckDBAzureSource | None:
     parsed = urlparse(url)
     if parsed.scheme != "https" or parsed.hostname is None:
@@ -135,7 +135,7 @@ def parse_duckdb_azure_source(url: str) -> DuckDBAzureSource | None:
     uri = f"az://{hostname}/{location.bucket}/{location.key}"
     return DuckDBAzureSource(
         uri=uri,
-        scope=_scope_for_azure_uri(uri),
+        scope=_scope_for_object_uri(uri),
         account_name=account_name,
     )
 
@@ -226,7 +226,7 @@ def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
         uri = f"s3://{parsed.netloc}/{parsed.path.lstrip('/')}"
         return DuckDBS3Source(
             uri=uri,
-            scope=_scope_for_s3_uri(uri),
+            scope=_scope_for_object_uri(uri),
             endpoint=None,
             region="us-east-1",
             use_ssl=True,
@@ -263,7 +263,7 @@ def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
     uri = f"s3://{bucket}/{key}"
     return DuckDBS3Source(
         uri=uri,
-        scope=_scope_for_s3_uri(uri),
+        scope=_scope_for_object_uri(uri),
         endpoint=endpoint,
         region=region,
         use_ssl=parsed.scheme == "https",

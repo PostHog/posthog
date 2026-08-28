@@ -195,11 +195,13 @@ class TestParseDuckDBAzureSource:
                 ),
             ),
             (
+                # Scoping this to the parent directory would let a sibling blob be read with this
+                # table's account key, because DuckDB picks a secret by longest scope prefix.
                 "exact_file",
                 "https://account.blob.core.windows.net/container/data/items.parquet",
                 DuckDBAzureSource(
                     uri="az://account.blob.core.windows.net/container/data/items.parquet",
-                    scope="az://account.blob.core.windows.net/container/data/",
+                    scope="az://account.blob.core.windows.net/container/data/items.parquet",
                     account_name="account",
                 ),
             ),
