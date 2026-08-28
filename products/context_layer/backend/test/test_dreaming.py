@@ -49,7 +49,8 @@ class TestDreamPrompt(SimpleTestCase):
         assert "never edit, delete, move, or replace them" in prompt
         assert "The server scaffolds every public Space and regenerates its indexes" in prompt
         assert "include every public Space page with no substantive content in the activity scan" in prompt
-        assert "Do not impose a fixed item cap" in prompt
+        assert "at most 100 newest activity items across all channel-scoped sources for each Space" in prompt
+        assert "at most 100 newest items from each organization-wide source" in prompt
         assert "next_cursor" in prompt
         assert "offset" in prompt
         assert "name: context-layer-dreaming" not in prompt
