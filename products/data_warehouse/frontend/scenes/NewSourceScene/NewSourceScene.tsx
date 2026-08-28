@@ -356,7 +356,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                             <h4 className="text-lg font-semibold mb-0">{modalTitle}</h4>
                             <p className="text-sm text-muted-alt mb-0">
                                 {selectedAccessMethod === 'direct'
-                                    ? `Query selected ${selectedConnector.label ?? selectedConnector.name} tables live from PostHog. Tables stay in the source database and are not synced into the data warehouse. Direct queries have no additional cost today.`
+                                    ? `Query selected ${selectedConnector.label ?? selectedConnector.name} tables live from PostHog. Tables stay in the source database and are not synced into the data warehouse. PostHog doesn't charge extra for direct queries today.`
                                     : `Sync data from ${selectedConnector.label ?? selectedConnector.name} into the PostHog data warehouse.`}
                             </p>
                         </div>
