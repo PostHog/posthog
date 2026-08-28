@@ -43,7 +43,9 @@ Authorisation: `PGAPI_ALLOWED_DOMAINS` (default `posthog.com`) and/or
 `PGAPI_ALLOWED_EMAILS`. Everything is read-only; the DB session is forced
 `default_transaction_read_only`, and the raw-SQL tool runs each statement in a
 read-only transaction with a 15 s timeout followed by `DISCARD ALL`, so
-advisory locks or session settings cannot outlive a request. Every request is
+advisory locks or session settings cannot outlive a request, and refuses calls
+to known side-effecting functions (`pg_sleep`, advisory locks, `set_config`,
+backend signalling, stats resets, file/backup functions, `dblink`). Every request is
 logged with the caller's email and identity source.
 
 This mirrors hosthog-api's dual-host pattern: humans use the Cognito-gated

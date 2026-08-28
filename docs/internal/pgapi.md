@@ -49,7 +49,10 @@ authenticate. Keep the audience to engineering.
 
 `GET /api/v1/sql` and the `query_stats_db` MCP tool run a single
 `SELECT`/`WITH`/`EXPLAIN` against the stats database inside a read-only
-transaction with a 15 s timeout, then `DISCARD ALL` the session. The database
+transaction with a 15 s timeout, then `DISCARD ALL` the session. Calls to
+side-effecting functions (`pg_sleep`, advisory locks, `set_config`,
+`pg_terminate_backend`, stats resets, file/backup functions, `dblink`, …) are
+refused up front. The database
 user is a read-only role. This is for agents answering questions the fixed
 tools do not cover.
 

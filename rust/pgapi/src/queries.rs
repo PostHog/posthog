@@ -321,6 +321,9 @@ pub async fn raw_sql(db: &Db, sql: &str, limit: i64) -> Result<Value> {
         "only SELECT / WITH / EXPLAIN statements are allowed"
     );
     anyhow::ensure!(!trimmed.contains(';'), "one statement only");
+    if let Some(f) = denied_function(trimmed) {
+        anyhow::bail!("function {f}() is not allowed here");
+    }
     let statement = if head == "EXPLAIN" {
         // EXPLAIN cannot be wrapped in a subquery; it returns text rows itself.
         trimmed.to_string()
@@ -333,8 +336,91 @@ pub async fn raw_sql(db: &Db, sql: &str, limit: i64) -> Result<Value> {
     db.query_isolated(&statement).await
 }
 
+/// Functions that have effects beyond returning rows and are therefore refused in raw
+/// SQL even though the statement is a SELECT. Session isolation (`query_isolated`)
+/// already contains most of these; the denylist makes the intent explicit and stops
+/// the cheap ones (sleeping, signalling backends, resetting stats) before they run.
+const DENIED_FUNCTIONS: &[&str] = &[
+    "pg_sleep",
+    "pg_sleep_for",
+    "pg_sleep_until",
+    "pg_advisory_lock",
+    "pg_advisory_lock_shared",
+    "pg_advisory_xact_lock",
+    "pg_advisory_xact_lock_shared",
+    "pg_try_advisory_lock",
+    "pg_try_advisory_lock_shared",
+    "pg_try_advisory_xact_lock",
+    "pg_try_advisory_xact_lock_shared",
+    "pg_advisory_unlock",
+    "pg_advisory_unlock_all",
+    "pg_terminate_backend",
+    "pg_cancel_backend",
+    "pg_reload_conf",
+    "pg_rotate_logfile",
+    "pg_stat_reset",
+    "pg_stat_reset_shared",
+    "pg_stat_reset_single_table_counters",
+    "pg_stat_reset_single_function_counters",
+    "pg_stat_statements_reset",
+    "set_config",
+    "pg_notify",
+    "pg_switch_wal",
+    "pg_create_restore_point",
+    "pg_backup_start",
+    "pg_backup_stop",
+    "pg_start_backup",
+    "pg_stop_backup",
+    "pg_read_file",
+    "pg_read_binary_file",
+    "pg_ls_dir",
+    "pg_stat_file",
+    "lo_import",
+    "lo_export",
+    "lo_unlink",
+    "dblink",
+    "dblink_connect",
+    "dblink_exec",
+    "nextval",
+    "setval",
+    "txid_current",
+    "pg_current_xact_id",
+];
+
+fn denied_function(sql: &str) -> Option<&'static str> {
+    static CALL: once_cell::sync::Lazy<regex::Regex> =
+        once_cell::sync::Lazy::new(|| regex::Regex::new(r"(?i)\b([a-z_][a-z0-9_]*)\s*\(").unwrap());
+    CALL.captures_iter(sql).find_map(|c| {
+        let name = c[1].to_ascii_lowercase();
+        DENIED_FUNCTIONS.iter().copied().find(|d| *d == name)
+    })
+}
+
 pub async fn schema_of_stats_db(db: &Db) -> Result<Value> {
     Ok(json!(db.query("SELECT c.relname AS table_name, string_agg(a.attname || ' ' || format_type(a.atttypid, a.atttypmod), ', ' ORDER BY a.attnum) AS columns
          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
          WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND c.relname !~ '_[0-9]{8}$' GROUP BY 1 ORDER BY 1", &[]).await?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::denied_function;
+
+    #[test]
+    fn denylist_catches_side_effecting_calls() {
+        assert_eq!(denied_function("select pg_sleep(20)"), Some("pg_sleep"));
+        assert_eq!(
+            denied_function("select PG_Advisory_Lock (1)"),
+            Some("pg_advisory_lock")
+        );
+        assert_eq!(
+            denied_function("select set_config('x', 'y', false)"),
+            Some("set_config")
+        );
+        assert_eq!(
+            denied_function("select count(*), max(collected_at) from ts_query_stats"),
+            None
+        );
+        assert_eq!(denied_function("select pg_sleepy from t"), None);
+    }
 }

@@ -14,7 +14,9 @@ clap = { workspace = true, features = ["env"] }
 deadpool-postgres = "0.14"
 humantime = { workspace = true }
 jsonwebtoken = "8"
+once_cell = { workspace = true }
 prometheus = "0.13"
+regex = { workspace = true }
 reqwest = { workspace = true }
 rmcp = { version = "3", features = ["server", "macros", "transport-streamable-http-server"] }
 rust_decimal = { version = "1", features = ["db-tokio-postgres"] }
