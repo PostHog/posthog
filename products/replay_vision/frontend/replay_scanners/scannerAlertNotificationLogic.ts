@@ -65,6 +65,7 @@ export interface scannerAlertNotificationLogicActions {
             created_by?: null | import('~/types').UserBasicType | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
@@ -124,6 +125,7 @@ export interface scannerAlertNotificationLogicActions {
             created_by?: null | import('~/types').UserBasicType | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined

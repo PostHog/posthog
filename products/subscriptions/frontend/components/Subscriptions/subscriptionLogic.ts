@@ -30,6 +30,7 @@ import type { SubscriptionResourceType, UserBasicType, WeekdayType } from '../..
 import type { OrganizationType, UserType } from '../../../../../frontend/src/types'
 import type { AIPromptConfigApi } from '../../generated/api.schemas'
 import type { AIWindowConfigModeEnumApi } from '../../generated/api.schemas'
+import type { DeliveryConfigApi } from '../../generated/api.schemas'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import { SUBSCRIPTION_PREFILL_PARAMS } from './subscriptionNudge'
 import { subscriptionsLogic } from './subscriptionsLogic'
@@ -267,6 +268,7 @@ export interface subscriptionLogicActions {
             dashboard?: number | undefined
             dashboard_export_insights?: number[] | undefined
             deleted?: boolean | undefined
+            delivery_config?: DeliveryConfigApi | undefined
             enabled?: boolean | undefined
             frequency?: 'daily' | 'monthly' | 'weekly' | 'yearly' | undefined
             id?: number | undefined
@@ -299,6 +301,7 @@ export interface subscriptionLogicActions {
             dashboard?: number | undefined
             dashboard_export_insights?: number[] | undefined
             deleted?: boolean | undefined
+            delivery_config?: DeliveryConfigApi | undefined
             enabled?: boolean | undefined
             frequency?: 'daily' | 'monthly' | 'weekly' | 'yearly' | undefined
             id?: number | undefined
