@@ -489,12 +489,20 @@ describe('ConversationMessagesDisplay', () => {
             'The provider reported 442 reasoning tokens but no content was captured. The model may have spent its budget on reasoning.',
         ],
         [
-            'reasoning accounts for the whole billed output',
+            'reasoning matches the billed output exactly',
             442,
             442,
             undefined,
             undefined,
-            'The provider reported 442 output tokens and 442 reasoning tokens but no content was captured. The model may have spent its budget on reasoning.',
+            'The provider reported 442 output tokens but no content was captured. All of them may have been reasoning.',
+        ],
+        [
+            'reasoning exceeds the output count, so the output is missing content',
+            400,
+            500,
+            undefined,
+            undefined,
+            'The provider reported 400 output tokens and 500 reasoning tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
         ],
         [
             'a provider reported the count as a string',
@@ -545,12 +553,12 @@ describe('ConversationMessagesDisplay', () => {
             'The provider reported 2,048 output tokens and 12 reasoning tokens but no content was captured. The response may have been cut short, or the SDK may not have captured it.',
         ],
         [
-            'the text-token split says every billed token was reasoning',
+            'the text-token split says none of the output was text',
             169,
             56,
             0,
             undefined,
-            'The provider reported 169 output tokens and 56 reasoning tokens but no content was captured. The model may have spent its budget on reasoning.',
+            'The provider reported 169 output tokens and 56 reasoning tokens but no content was captured. None of them were text.',
         ],
         [
             'the text-token split says text was billed too',

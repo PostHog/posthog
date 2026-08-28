@@ -131,10 +131,19 @@ function describeEmptyOutput(
     const output = billedTokenCount(outputTokens)
     const reasoning = billedTokenCount(reasoningTokens)
     const namedCause = describeStopReason(stopReason)
+    const textOutput = tokenCountOf(textOutputTokens)
+
+    // `$ai_text_output_tokens` at zero is the provider's own statement that nothing textual was
+    // generated. Without it, matching counts read as a provider that counts reasoning inside the
+    // output and spent all of it there. A reasoning count above a nonzero output count proves the
+    // opposite: the provider counts them separately, so the output tokens are missing content.
+    const providerSaysNoText = textOutput === 0 && output !== null
+    const reasoningMatchesOutput = textOutput === null && output !== null && reasoning !== null && reasoning === output
 
     const counts = [
         output !== null ? `${humanFriendlyNumber(output)} output tokens` : null,
-        reasoning !== null ? `${humanFriendlyNumber(reasoning)} reasoning tokens` : null,
+        // When the counts match, listing both reads as two amounts. One number, one claim about it.
+        reasoning !== null && !reasoningMatchesOutput ? `${humanFriendlyNumber(reasoning)} reasoning tokens` : null,
     ].filter(Boolean)
 
     // A provider can block a response before billing anything, so a known cause stands on its own.
@@ -142,18 +151,15 @@ function describeEmptyOutput(
         return namedCause
     }
 
-    // Reasoning only explains the gap when it accounts for the whole billed output.
-    // `$ai_text_output_tokens` states that directly when a provider reports it. Comparing the
-    // counts is the fallback: exact for providers that count reasoning inside the output, and
-    // conservative for those that count it separately.
-    const textOutput = tokenCountOf(textOutputTokens)
-    const reasoningExplainsOutput =
-        reasoning !== null && (textOutput !== null ? textOutput === 0 : output === null || reasoning >= output)
     const cause =
         namedCause ??
-        (reasoningExplainsOutput
-            ? 'The model may have spent its budget on reasoning.'
-            : 'The response may have been cut short, or the SDK may not have captured it.')
+        (providerSaysNoText
+            ? 'None of them were text.'
+            : reasoningMatchesOutput
+              ? 'All of them may have been reasoning.'
+              : output === null && reasoning !== null
+                ? 'The model may have spent its budget on reasoning.'
+                : 'The response may have been cut short, or the SDK may not have captured it.')
 
     return `The provider reported ${counts.join(' and ')} but no content was captured. ${cause}`
 }
