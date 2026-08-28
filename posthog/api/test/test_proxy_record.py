@@ -533,6 +533,29 @@ class TestProxyRecordAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert not ProxyRecord.objects.filter(id=record.id).exists()
 
+    @patch("posthog.api.proxy_record.sync_connect")
+    @patch("posthoganalytics.capture")
+    def test_destroy_pre_active_cloudflare_proxy_starts_cleanup_workflow(self, _capture, mock_sync_connect):
+        mock_temporal = AsyncMock()
+        mock_sync_connect.return_value = mock_temporal
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="cloudflare-destroy.example.com",
+            target_cname="abc123.cf-proxy.example.net",
+            status=ProxyRecord.Status.ERRORING,
+        )
+
+        with self.settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-proxy.example.net"):
+            response = self.client.delete(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        record.refresh_from_db()
+        assert record.status == ProxyRecord.Status.DELETING
+        mock_temporal.start_workflow.assert_awaited_once()
+
     @parameterized.expand(
         [
             ("valid", ProxyRecord.Status.VALID),

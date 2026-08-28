@@ -155,12 +155,11 @@ async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
         logger.warning("Failed to delete Cloudflare Custom Hostname for domain %s: %s", inputs.domain, e)
         errors.append(f"Custom Hostname deletion failed: {e}")
 
-    if inputs.root_redirect_url:
-        try:
-            await asyncio.to_thread(update_cloudflare_proxy_root_redirect, inputs.domain, None)
-        except CloudflareAPIError as e:
-            logger.warning("Failed to delete root redirect for domain %s: %s", inputs.domain, e)
-            errors.append(f"Root redirect deletion failed: {e}")
+    try:
+        await asyncio.to_thread(update_cloudflare_proxy_root_redirect, inputs.domain, None)
+    except CloudflareAPIError as e:
+        logger.warning("Failed to delete root redirect for domain %s: %s", inputs.domain, e)
+        errors.append(f"Root redirect deletion failed: {e}")
 
     if errors:
         raise NonRetriableException(f"Cloudflare API errors: {'; '.join(errors)}")

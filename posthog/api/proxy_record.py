@@ -526,7 +526,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             ProxyRecord.Status.WAITING,
             ProxyRecord.Status.ERRORING,
             ProxyRecord.Status.TIMED_OUT,
-        ):
+        ) and not is_cloudflare_proxy_by_cname(record.target_cname):
             _capture_proxy_event(request, record, "deleted")
             record.delete()
         else:
