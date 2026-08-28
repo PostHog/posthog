@@ -6593,9 +6593,9 @@ snapshots:
     scenes-app-experiments--experiment-with-ratio-metric--light:
         hash: v1.k794b7964.eb1c966798493a74d3ead27852a7c52627cdf21530275c5135b6eead2eaa41a2.YbslELtaYfK4tfEl9upeV7fUmMoi9_jppoCmaj-wUpk
     scenes-app-experiments--experiments--dark:
-        hash: v1.k794b7964.70b099ab31a4d95201bec15b209f4be5870d1c223af00881039ee6017c2bfd8b.mhGzyTB70VdAAThY7t9y6NgM6SkqDJsc0LC6eJ9mAsk
+        hash: v1.k794b7964.61b4c40bce7a44f5cb04dc7f7ab67ef4ffbd912dad41d38877f1c340f4532c25.DvqUr_8DyFydDtl_sPdkJ0sbz829LDYxkiihUgUHLQE
     scenes-app-experiments--experiments--light:
-        hash: v1.k794b7964.db9eee27935de0304ad94bc74ae90d7ea1833fd09090b0eae7532feddc05beb2.XLKMV4Y8Jre4uxS56w2k_yFaA8YFU4nNlJX1pLKqvy4
+        hash: v1.k794b7964.06dda43c9cdc94af71dbef779984681e94f5100f5d3380a12f51452a3b9965d6.gbZIR84UX-_vPHuafc0S9QwvrPbd-XaF7FAGTQvxzKg
     scenes-app-feature-flags--edit-encrypted-remote-config-feature-flag--dark:
         hash: v1.k794b7964.4f3b66427a371ca87ed7ff3437e4e05fa321a2f1ad219b5d4424a8e1b7348b11.YfwgimzWA69iIlL9McssTirk4C2ey_bcZyKYTquJLew
     scenes-app-feature-flags--edit-encrypted-remote-config-feature-flag--light:

@@ -17,7 +17,7 @@ export interface BulkUpdateTagsResult {
     skipped: Array<{ id: number | string; reason: string }>
 }
 
-export type BulkTaggableResource = 'feature_flags' | 'dashboards' | 'insights' | 'event_definitions'
+export type BulkTaggableResource = 'feature_flags' | 'dashboards' | 'insights' | 'event_definitions' | 'experiments'
 
 export interface BulkUpdateTagsFormProps {
     resource: BulkTaggableResource

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 38 enabled ops
+ * PostHog API - MCP 39 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -739,6 +739,12 @@ export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.'
         ),
+    excluded_tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.'
+        ),
     feature_flag_id: zod.number().optional().describe('Filter to experiments linked to the given feature flag ID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -760,6 +766,12 @@ export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Filter by experiment status. \"running\", \"paused\", and \"exposure_frozen\" are mutually exclusive: \"running\" returns launched experiments with an active feature flag, \"paused\" returns launched experiments whose feature flag is deactivated, and \"exposure_frozen\" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. \"complete\" is an alias for \"stopped\". \"all\" disables status filtering.'
+        ),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded list of tag names. Returns experiments carrying at least one of the given tags, e.g. `[\"growth\", \"checkout\"]`.'
         ),
 })
 
@@ -919,6 +931,9 @@ export const experimentsCreateBodyConclusionCommentMax = 4000
 export const experimentsCreateBodyRepositoryMax = 255
 
 export const experimentsCreateBodyUpdateFeatureFlagParamsDefault = false
+export const experimentsCreateBodyTagsItemMax = 255
+
+export const experimentsCreateBodyTagsMax = 100
 
 export const ExperimentsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -6665,6 +6680,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.'
             ),
+        tags: zod
+            .array(zod.string().max(experimentsCreateBodyTagsItemMax))
+            .max(experimentsCreateBodyTagsMax)
+            .optional()
+            .describe('Organizational tags for this experiment (up to 100, 255 characters each).'),
     })
     .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
@@ -6833,6 +6853,10 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercen
 export const experimentsPartialUpdateBodyConclusionCommentMax = 4000
 
 export const experimentsPartialUpdateBodyRepositoryMax = 255
+
+export const experimentsPartialUpdateBodyTagsItemMax = 255
+
+export const experimentsPartialUpdateBodyTagsMax = 100
 
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -12587,6 +12611,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.'
             ),
+        tags: zod
+            .array(zod.string().max(experimentsPartialUpdateBodyTagsItemMax))
+            .max(experimentsPartialUpdateBodyTagsMax)
+            .optional()
+            .describe('Organizational tags for this experiment (up to 100, 255 characters each).'),
     })
     .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
@@ -12831,6 +12860,9 @@ export const experimentsDuplicateCreateBodyConclusionCommentMax = 4000
 export const experimentsDuplicateCreateBodyRepositoryMax = 255
 
 export const experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault = false
+export const experimentsDuplicateCreateBodyTagsItemMax = 255
+
+export const experimentsDuplicateCreateBodyTagsMax = 100
 
 export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
     .object({
@@ -18481,6 +18513,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .describe(
                 'The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.'
             ),
+        tags: zod
+            .array(zod.string().max(experimentsDuplicateCreateBodyTagsItemMax))
+            .max(experimentsDuplicateCreateBodyTagsMax)
+            .optional()
+            .describe('Organizational tags for this experiment (up to 100, 255 characters each).'),
     })
     .describe(
         'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``\/``metrics_secondary``\/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
@@ -18898,6 +18935,56 @@ export const ExperimentsUnfreezeExposureCreateParams = /* @__PURE__ */ zod.objec
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Bulk update tags on multiple objects.
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
+ */
+export const ExperimentsBulkUpdateTagsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentsBulkUpdateTagsCreateBodyIdsMax = 500
+
+export const experimentsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const experimentsBulkUpdateTagsCreateBodyTagsMax = 100
+
+export const ExperimentsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number())
+        .max(experimentsBulkUpdateTagsCreateBodyIdsMax)
+        .describe('List of object IDs to update tags on.'),
+    action: zod
+        .enum(['add', 'remove', 'set'])
+        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
+        .describe(
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
+        ),
+    tags: zod
+        .array(zod.string().max(experimentsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(experimentsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 /**

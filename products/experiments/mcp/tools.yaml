@@ -251,6 +251,7 @@ tools:
             - holdout_id
             - allow_unknown_events
             - exposure_criteria
+            - tags
         param_overrides:
             feature_flag:
                 description: >
@@ -288,6 +289,7 @@ tools:
                 - metrics_secondary
                 - conclusion
                 - conclusion_comment
+                - tags
     experiment-create-from-prompt:
         operation: experiments_create_from_prompt_create
         enabled: true
@@ -703,10 +705,11 @@ tools:
 
 
             Supports filtering by status ("draft", "running", "paused", "exposure_frozen", "stopped", "complete" which
-            maps to stopped, or "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and
-            free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed
-            "duration" and "status"). Returns paginated results with each experiment's status, dates, feature flag key,
-            and metrics summary. Use the returned ID for get/update/lifecycle tools.
+            maps to stopped, or "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, tags
+            / excluded_tags (JSON-encoded lists of tag names), and free-text search on name. Supports ordering by an
+            allowlisted set of fields (model fields plus computed "duration" and "status"). Returns paginated results
+            with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for
+            get/update/lifecycle tools.
         param_overrides:
             status:
                 description: >
@@ -735,6 +738,7 @@ tools:
                 - status
                 - created_at
                 - updated_at
+                - tags
     experiment-metrics-recalculation-create:
         operation: experiments_metrics_recalculation_create
         enabled: true
@@ -1361,6 +1365,7 @@ tools:
             - archived
             - allow_unknown_events
             - update_feature_flag_params
+            - tags
         param_overrides:
             id:
                 cast: string-int
@@ -1402,11 +1407,29 @@ tools:
                 - saved_metrics
                 - conclusion
                 - conclusion_comment
+                - tags
+    experiments-bulk-update-tags-create:
+        operation: experiments_bulk_update_tags_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Bulk update tags on experiments
+        description: >
+            Add, remove, or replace tags on multiple experiments in one call. Provide `ids` (up to 500), an `action`
+            ('add', 'remove', or 'set'), and a list of tag names. Returns `updated` (per-experiment final tag list) and
+            `skipped` (experiments missing or without edit permission, with reason).
     experiments-create-exposure-cohort:
         operation: experiments_create_exposure_cohort_for_experiment_create
         enabled: false
     experiments-flag-cleanup-target-retrieve:
         operation: experiments_flag_cleanup_target_retrieve
+        enabled: false
+    experiments-matching-ids-retrieve:
+        operation: experiments_matching_ids_retrieve
         enabled: false
     experiments-recalculate-timeseries:
         operation: experiments_recalculate_timeseries_create

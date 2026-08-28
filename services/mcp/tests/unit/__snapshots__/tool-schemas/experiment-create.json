@@ -5882,7 +5882,16 @@
             ],
             "description": "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here."
         },
-        "stats_config": {}
+        "stats_config": {},
+        "tags": {
+            "description": "Organizational tags for this experiment (up to 100, 255 characters each).",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        }
     },
     "required": ["name", "feature_flag_key"],
     "type": "object"

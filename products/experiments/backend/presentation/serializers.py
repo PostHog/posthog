@@ -28,6 +28,7 @@ from posthog.schema import (
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH, TaggedItemSerializerMixin
 from posthog.models.team.team import Team
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
@@ -132,7 +133,9 @@ class ExperimentRunningTimeCalculationField(serializers.JSONField):
     pass
 
 
-class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+class ExperimentBaseSerializer(
+    TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
+):
     """Shared read-side fields for the full and list experiment serializers.
 
     ``ExperimentSerializer`` (detail + write) and ``ExperimentBasicSerializer`` (list) both
@@ -237,6 +240,12 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support "
             "them, such as duplicate and copy-to-project."
         ),
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=TAG_NAME_MAX_LENGTH),
+        max_length=BULK_UPDATE_TAGS_MAX_TAGS,
+        required=False,
+        help_text="Organizational tags for this experiment (up to 100, 255 characters each).",
     )
 
     @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "exposure_frozen", "stopped"]})
@@ -493,6 +502,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "can_freeze_exposure",
             "resolved_exposure_event",
             "user_access_level",
+            "tags",
         ]
         read_only_fields = [
             "id",
@@ -804,6 +814,9 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
         # Pop fields not needed for DTO but needed for validation
         validated_data.pop("update_feature_flag_params", None)
+        # Tags live in the shared TaggedItem table, not on the experiment row; pop them so the
+        # expected_fields check below doesn't reject them as an unknown key.
+        tags = validated_data.pop("tags", None)
         # Concurrency keys are update-only; ignore them on create so clients can share payload builders
         validated_data.pop("version", None)
         validated_data.pop("original_experiment", None)
@@ -856,14 +869,17 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         )
 
         # Load instance for return (DRF expects model instance)
-        return Experiment.objects.get(id=experiment_dto.id)
+        instance = Experiment.objects.get(id=experiment_dto.id)
+        self._attempt_set_tags(tags, instance)
+        return instance
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         allow_unknown_events = validated_data.pop("allow_unknown_events", False)
         feature_flag_config = validated_data.pop("feature_flag", None)
+        tags = validated_data.pop("tags", None)
         team = Team.objects.get(id=self.context["team_id"])
         service = ExperimentService(team=team, user=self.context["request"].user)
-        return service.update_experiment(
+        updated_instance = service.update_experiment(
             instance,
             validated_data,
             feature_flag_config=feature_flag_config,
@@ -871,6 +887,8 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             allow_unknown_events=allow_unknown_events,
             deprecated_flag_config_changed=getattr(self, "_deprecated_flag_config_changed", False),
         )
+        self._attempt_set_tags(tags, updated_instance)
+        return updated_instance
 
 
 class _StrictFieldsMixin:
@@ -1068,6 +1086,7 @@ class ExperimentBasicSerializer(ExperimentBaseSerializer):
             "status",
             "is_legacy",
             "user_access_level",
+            "tags",
         ]
         # Shared fields take their definitions from ExperimentBaseSerializer, so their types
         # already match ExperimentSerializer. read_only_fields still has to mirror the full
@@ -1085,6 +1104,14 @@ class ExperimentBasicSerializer(ExperimentBaseSerializer):
             "status",
             "user_access_level",
         ]
+
+
+class ExperimentMatchingIdsResponseSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text="IDs of all experiments matching the current list filters that the user can edit.",
+    )
+    total = serializers.IntegerField(help_text="Number of matching editable experiments.")
 
 
 class EndExperimentSerializer(serializers.Serializer):

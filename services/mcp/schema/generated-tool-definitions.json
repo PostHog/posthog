@@ -4117,7 +4117,7 @@
         }
     },
     "experiment-list": {
-        "description": "List experiments in the current project. This is the primary tool for resolving experiment references — load the finding-experiments skill for guidance on searching by name, status, recency, or description.\n\nSupports filtering by status (\"draft\", \"running\", \"paused\", \"exposure_frozen\", \"stopped\", \"complete\" which maps to stopped, or \"all\"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed \"duration\" and \"status\"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for get/update/lifecycle tools.",
+        "description": "List experiments in the current project. This is the primary tool for resolving experiment references — load the finding-experiments skill for guidance on searching by name, status, recency, or description.\n\nSupports filtering by status (\"draft\", \"running\", \"paused\", \"exposure_frozen\", \"stopped\", \"complete\" which maps to stopped, or \"all\"), archived state (defaults to non-archived), feature_flag_id, created_by_id, tags / excluded_tags (JSON-encoded lists of tag names), and free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed \"duration\" and \"status\"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for get/update/lifecycle tools.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get all experiments",
@@ -4377,6 +4377,20 @@
         "required_scopes": ["experiment:write"],
         "annotations": {
             "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiments-bulk-update-tags-create": {
+        "description": "Add, remove, or replace tags on multiple experiments in one call. Provide `ids` (up to 500), an `action` ('add', 'remove', or 'set'), and a list of tag names. Returns `updated` (per-experiment final tag list) and `skipped` (experiments missing or without edit permission, with reason).",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Bulk update tags on experiments",
+        "title": "Bulk update tags on experiments",
+        "required_scopes": ["experiment:write"],
+        "annotations": {
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false

@@ -270,6 +270,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         getKey: resolveRowKey,
         isRowSelectable: bulkSelection?.isRowSelectable,
         initialSelectedKeys: bulkSelection?.initialSelectedKeys,
+        clearSelectionKey: bulkSelection?.clearSelectionKey,
     })
 
     const effectiveNoun = bulkSelection?.noun ?? nouns

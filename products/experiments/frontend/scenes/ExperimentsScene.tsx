@@ -1,16 +1,19 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { TagSelect } from 'lib/components/TagSelect'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -23,6 +26,7 @@ import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTa
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -59,6 +63,8 @@ import {
     confirmDeleteExperiment,
 } from 'products/experiments/frontend/experimentActions'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
+import { experimentsMatchingIdsRetrieve } from 'products/experiments/frontend/generated/api'
+import type { ExperimentsMatchingIdsRetrieveParams } from 'products/experiments/frontend/generated/api.schemas'
 /**
  * these scenes are handled as child components. This works fine, but breaks the expectation of scenes
  * having their own routes.
@@ -182,6 +188,33 @@ const ExperimentsTableFilters = ({
                         }}
                     />
                     <span className="ml-1">
+                        <b>Tags</b>
+                    </span>
+                    <TagSelect
+                        defaultLabel="Any tags"
+                        value={filters.tags || []}
+                        size="xsmall"
+                        onChange={(tags) => {
+                            onFiltersChange({ tags: tags.length > 0 ? tags : undefined, page: 1 })
+                        }}
+                        data-attr="experiment-select-tags"
+                    />
+                    <span className="ml-1">
+                        <b>Exclude tags</b>
+                    </span>
+                    <TagSelect
+                        defaultLabel="No tags"
+                        value={filters.excluded_tags || []}
+                        size="xsmall"
+                        onChange={(excludedTags) => {
+                            onFiltersChange({
+                                excluded_tags: excludedTags.length > 0 ? excludedTags : undefined,
+                                page: 1,
+                            })
+                        }}
+                        data-attr="experiment-select-excluded-tags"
+                    />
+                    <span className="ml-1">
                         <b>Archived</b>
                     </span>
                     <LemonSelect
@@ -219,6 +252,19 @@ const ExperimentsTable = ({
         useActions(experimentsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
+
+    const [matchingExperimentIds, setMatchingExperimentIds] = useState<readonly number[] | null>(null)
+    const [matchingExperimentIdsLoading, setMatchingExperimentIdsLoading] = useState(false)
+    // State rather than a ref so mounting the slot re-renders and the bar's portal finds it.
+    const [bulkSelectionBarContainer, setBulkSelectionBarContainer] = useState<HTMLDivElement | null>(null)
+
+    // Changing a filter changes which experiments the bulk bar refers to, so drop the selection and
+    // any cached "all matching" IDs. Page is excluded: selections deliberately span pages.
+    const { page: _page, ...filtersWithoutPage } = filters
+    const filterIdentity = JSON.stringify(filtersWithoutPage)
+    useEffect(() => {
+        setMatchingExperimentIds(null)
+    }, [filterIdentity])
 
     const page = filters.page || 1
     const startCount = count === 0 ? 0 : (page - 1) * EXPERIMENTS_PER_PAGE + 1
@@ -276,6 +322,17 @@ const ExperimentsTable = ({
                 )
             },
         },
+        {
+            title: 'Tags',
+            dataIndex: 'tags' as keyof Experiment,
+            render: function Render(_, experiment: Experiment) {
+                const tags = experiment.tags
+                if (!tags || tags.length === 0) {
+                    return null
+                }
+                return <ObjectTags tags={tags} staticOnly />
+            },
+        } as LemonTableColumn<Experiment, keyof Experiment | undefined>,
         createdByColumn<Experiment>() as LemonTableColumn<Experiment, keyof Experiment | undefined>,
         createdAtColumn<Experiment>() as LemonTableColumn<Experiment, keyof Experiment | undefined>,
         atColumn('start_date', 'Started') as LemonTableColumn<Experiment, keyof Experiment | undefined>,
@@ -513,10 +570,13 @@ const ExperimentsTable = ({
             <ExperimentsTableFilters filters={filters} onFiltersChange={setExperimentsFilters} />
             <LemonDivider className="my-0" />
             {count ? (
-                <div>
+                // min-h-9 matches the bulk selection bar's own height so the row doesn't jump
+                // when a selection appears. The bar portals into the right-hand slot.
+                <div className="flex items-center justify-between gap-2 min-h-9" data-attr="experiments-count-row">
                     <span className="text-secondary">
                         {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'experiment')}`}
                     </span>
+                    <div ref={setBulkSelectionBarContainer} className="flex items-center" />
                 </div>
             ) : null}
 
@@ -543,6 +603,95 @@ const ExperimentsTable = ({
                             page: 1,
                         })
                     }
+                    bulkSelection={{
+                        barPortalTarget: bulkSelectionBarContainer,
+                        clearSelectionKey: filterIdentity,
+                        getKey: (experiment: Experiment): number =>
+                            typeof experiment.id === 'number' ? experiment.id : -1,
+                        isRowSelectable: (experiment: Experiment) =>
+                            typeof experiment.id !== 'number'
+                                ? false
+                                : !experiment.user_access_level ||
+                                    accessLevelSatisfied(
+                                        AccessControlResourceType.Experiment,
+                                        experiment.user_access_level,
+                                        AccessControlLevel.Editor
+                                    )
+                                  ? true
+                                  : { disabledReason: "You don't have permission to edit this experiment." },
+                        rowAriaLabel: (experiment: Experiment) => `Select experiment ${experiment.name}`,
+                        headerAriaLabel: 'Select all experiments on this page',
+                        noun: ['experiment', 'experiments'],
+                        renderActions: (ctx) => {
+                            const selectedKeysSet = new Set(ctx.selectedKeys)
+                            const isAllMatchingSelected =
+                                matchingExperimentIds !== null &&
+                                ctx.selectedCount === matchingExperimentIds.length &&
+                                matchingExperimentIds.every((id) => selectedKeysSet.has(id))
+                            const showSelectAllMatchingBanner =
+                                !isAllMatchingSelected &&
+                                ctx.selectedCount >= EXPERIMENTS_PER_PAGE &&
+                                count > ctx.selectedCount
+                            return (
+                                <>
+                                    {isAllMatchingSelected && (
+                                        <span className="text-muted text-sm">
+                                            All {ctx.selectedCount} matching experiments selected
+                                        </span>
+                                    )}
+                                    {showSelectAllMatchingBanner && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            loading={matchingExperimentIdsLoading}
+                                            onClick={async () => {
+                                                setMatchingExperimentIdsLoading(true)
+                                                try {
+                                                    const response = await experimentsMatchingIdsRetrieve(
+                                                        String(currentProjectId),
+                                                        {
+                                                            search: filters.search,
+                                                            status: filters.status as ExperimentsMatchingIdsRetrieveParams['status'],
+                                                            archived: filters.archived,
+                                                            order: filters.order,
+                                                            created_by_id: filters.created_by_id?.length
+                                                                ? JSON.stringify(filters.created_by_id)
+                                                                : undefined,
+                                                            tags: filters.tags?.length
+                                                                ? JSON.stringify(filters.tags)
+                                                                : undefined,
+                                                            excluded_tags: filters.excluded_tags?.length
+                                                                ? JSON.stringify(filters.excluded_tags)
+                                                                : undefined,
+                                                        }
+                                                    )
+                                                    setMatchingExperimentIds(response.ids)
+                                                    ctx.setSelectedKeys(response.ids)
+                                                } catch {
+                                                    lemonToast.error(
+                                                        "Couldn't select all matching experiments. Please try again."
+                                                    )
+                                                } finally {
+                                                    setMatchingExperimentIdsLoading(false)
+                                                }
+                                            }}
+                                        >
+                                            Select all {count} matching experiments
+                                        </LemonButton>
+                                    )}
+                                    <BulkUpdateTagsButton
+                                        resource="experiments"
+                                        selectedIds={ctx.selectedKeys}
+                                        onSuccess={() => {
+                                            ctx.clearSelection()
+                                            setMatchingExperimentIds(null)
+                                            loadExperiments()
+                                        }}
+                                    />
+                                </>
+                            )
+                        },
+                    }}
                 />
             </div>
         </SceneContent>

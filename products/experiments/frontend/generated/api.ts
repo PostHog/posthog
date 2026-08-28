@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ActivityLogPaginatedResponseApi,
     ArchiveExperimentApi,
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
     CopyExperimentToProjectApi,
     CreateFromPromptInputApi,
     EndExperimentApi,
@@ -19,6 +21,7 @@ import type {
     ExperimentFlagCleanupTaskApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
+    ExperimentMatchingIdsResponseApi,
     ExperimentMetricsRecalculationApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
@@ -31,6 +34,7 @@ import type {
     ExperimentWriteApi,
     ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
+    ExperimentsMatchingIdsRetrieveParams,
     ExperimentsPromptTemplatesRetrieve200Item,
     ExperimentsSessionContextRetrieveParams,
     ExperimentsTimeseriesResultsRetrieveParams,
@@ -1059,6 +1063,42 @@ export const experimentsUnfreezeExposureCreate = async (
     })
 }
 
+export const getExperimentsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/bulk_update_tags/`
+}
+
+/**
+ * Bulk update tags on multiple objects.
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
+ */
+export const experimentsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getExperimentsBulkUpdateTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
+    })
+}
+
 export const getExperimentsCalculateRunningTimeCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/calculate_running_time/`
 }
@@ -1106,6 +1146,41 @@ export const experimentsCreateFromPromptCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(createFromPromptInputApi),
+    })
+}
+
+export const getExperimentsMatchingIdsRetrieveUrl = (
+    projectId: string,
+    params?: ExperimentsMatchingIdsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/matching_ids/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/matching_ids/`
+}
+
+/**
+ * Get IDs of all experiments matching the current list filters.
+ * Accepts the same query params as the list endpoint and returns only
+ * IDs of experiments the user has permission to edit.
+ */
+export const experimentsMatchingIdsRetrieve = async (
+    projectId: string,
+    params?: ExperimentsMatchingIdsRetrieveParams,
+    options?: RequestInit
+): Promise<ExperimentMatchingIdsResponseApi> => {
+    return apiMutator<ExperimentMatchingIdsResponseApi>(getExperimentsMatchingIdsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

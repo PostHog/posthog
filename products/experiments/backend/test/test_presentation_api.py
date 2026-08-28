@@ -8954,6 +8954,138 @@ class TestExperimentApiExposureCriteriaParity(unittest.TestCase):
         )
 
 
+class TestExperimentTags(APILicensedTest):
+    def _create_experiment(self, name: str, flag_key: str, tags: list[str] | None = None) -> dict:
+        payload: dict[str, Any] = {"name": name, "feature_flag_key": flag_key}
+        if tags is not None:
+            payload["tags"] = tags
+        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()
+
+    def test_create_with_tags_persists_and_normalizes_them(self):
+        # Guards the expected_fields allowlist in ExperimentSerializer.create: if tags stops being
+        # popped before that check, every tagged create fails with "Can't create keys: tags".
+        experiment = self._create_experiment("Tagged", "tags-create-flag", tags=["Growth", "checkout"])
+        assert sorted(experiment["tags"]) == ["checkout", "growth"]
+        detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment['id']}/").json()
+        assert sorted(detail["tags"]) == ["checkout", "growth"]
+
+    def test_update_replaces_tags_and_untagged_update_preserves_them(self):
+        experiment = self._create_experiment("Tagged", "tags-update-flag", tags=["one"])
+
+        # A PATCH that doesn't mention tags must not wipe them (tags=None no-op in update()).
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"description": "still tagged"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["one"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"tags": ["two", "three"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert sorted(response.json()["tags"]) == ["three", "two"]
+
+        # tags: [] clears (None preserves, [] clears — both ride the same pop in update())
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment['id']}/",
+            {"tags": []},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == []
+        detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment['id']}/").json()
+        assert detail["tags"] == []
+
+    @parameterized.expand(
+        [
+            ("tags_match", 'tags=["growth"]', {"A"}),
+            ("tags_no_match", 'tags=["nonexistent"]', set()),
+            ("excluded_tags", 'excluded_tags=["growth"]', {"B", "C"}),
+            ("tags_and_excluded", 'tags=["shared"]&excluded_tags=["growth"]', {"B"}),
+        ]
+    )
+    def test_list_filters_by_tags(self, _name: str, query: str, expected_names: set[str]):
+        self._create_experiment("A", "tags-list-flag-a", tags=["growth", "shared"])
+        self._create_experiment("B", "tags-list-flag-b", tags=["shared"])
+        self._create_experiment("C", "tags-list-flag-c")
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?{query}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {row["name"] for row in response.json()["results"]} == expected_names
+
+    def test_list_includes_tags(self):
+        # ExperimentBasicSerializer takes a different (deferred) queryset path than the detail
+        # serializer; this catches the list prefetch/serialization of tags breaking independently.
+        experiment = self._create_experiment("Tagged", "tags-list-flag", tags=["growth"])
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        row = next(r for r in response.json()["results"] if r["id"] == experiment["id"])
+        assert row["tags"] == ["growth"]
+
+    def test_bulk_update_tags(self):
+        # Wiring guard for TaggedItemViewSetMixin on the experiments viewset: team-scoped queryset,
+        # per-object mutation, and missing IDs reported as skipped.
+        experiment = self._create_experiment("Bulk", "tags-bulk-flag", tags=["existing"])
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/bulk_update_tags/",
+            {"ids": [experiment["id"], 999999], "action": "add", "tags": ["added"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["updated"] == [{"id": experiment["id"], "tags": ["added", "existing"]}]
+        assert body["skipped"] == [{"id": 999999, "reason": "Not found or no edit access"}]
+
+    def test_bulk_update_tags_works_with_personal_api_key(self):
+        # scope_object_write_actions must include bulk_update_tags for PAT access — a config-only
+        # regression that no session-auth test would catch.
+        experiment = self._create_experiment("PAT", "tags-pat-flag")
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=["experiment:write"],
+            secure_value=hash_key_value(personal_api_key),
+        )
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/bulk_update_tags/",
+            {"ids": [experiment["id"]], "action": "set", "tags": ["via-pat"]},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["updated"] == [{"id": experiment["id"], "tags": ["via-pat"]}]
+
+    def test_matching_ids_applies_list_filters(self):
+        tagged = self._create_experiment("Tagged", "tags-matching-flag-a", tags=["growth"])
+        self._create_experiment("Untagged", "tags-matching-flag-b")
+        response = self.client.get(f'/api/projects/{self.team.id}/experiments/matching_ids/?tags=["growth"]')
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"ids": [tagged["id"]], "total": 1}
+
+    def test_matching_ids_excludes_view_only_experiments(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        editable = self._create_experiment("Mine", "tags-acl-flag-a")
+
+        other_user = self._create_user("other-tags-acl@posthog.com")
+        flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key="tags-acl-flag-b")
+        view_only = Experiment.objects.create(team=self.team, name="Theirs", created_by=other_user, feature_flag=flag)
+        AccessControl.objects.create(
+            resource="experiment", resource_id=view_only.id, team=self.team, access_level="viewer"
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/matching_ids/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert view_only.id not in response.json()["ids"]
+        assert editable["id"] in response.json()["ids"]
+
+
 class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
     """Optimistic concurrency on experiment updates: stale writes carrying `version` +
     `original_experiment` merge concurrent metric changes per uuid and 409 on everything else.
