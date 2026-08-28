@@ -17,7 +17,7 @@ function InputPreprocessingStory(props: Pick<EvaluationInputPreprocessingProps, 
     const [transformations, setTransformations] = useState(props.transformations)
 
     return (
-        <div className="@container/main-content max-w-4xl">
+        <div className="@container/main-content w-[800px] max-w-full">
             <EvaluationInputPreprocessing
                 transformations={transformations}
                 onAdd={() => setTransformations([...transformations, { pattern: '', replacement: '' }])}

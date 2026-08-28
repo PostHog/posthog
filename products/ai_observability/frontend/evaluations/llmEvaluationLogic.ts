@@ -1179,7 +1179,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (s) => [s.evaluation],
             (evaluation: EvaluationConfig | null): boolean =>
                 !isLLMJudgeEvaluation(evaluation) ||
-                inputTransformationsAreValid(evaluation.evaluation_config.input_transformations ?? []),
+                inputTransformationsAreValid(evaluation.evaluation_config?.input_transformations ?? []),
         ],
 
         evaluationBackTarget: [
