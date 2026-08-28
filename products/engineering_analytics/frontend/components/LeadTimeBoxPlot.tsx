@@ -18,11 +18,15 @@ export interface BoxPlotBucket {
     maxSeconds: number | null
 }
 
-export interface MergeToDeployBoxPlotProps {
+export interface LeadTimeBoxPlotProps {
+    /** Series identity: chart key and the label shown in the tooltip legend. */
+    seriesKey: string
+    seriesLabel: string
     /** One entry per bucket, oldest first. */
     buckets: BoxPlotBucket[]
     /** Value formatter for the tooltip rows (seconds in, short label out). */
     formatSeconds: (seconds: number) => string
+    dataAttr: string
     className?: string
 }
 
@@ -56,33 +60,41 @@ function toDatum(bucket: BoxPlotBucket): BoxPlotDatum | null {
 /**
  * One box-and-whisker per bucket (quill BoxPlot): whisker min→max, box p25→p75, a median line
  * and a mean dot, on a shared seconds scale. Empty buckets stay empty slots so a quiet stretch
- * reads as "nothing deployed", not missing data.
+ * reads as "nothing deployed", not missing data. One lead-time stage per instance; the Health
+ * tab stacks three so the stages compare bucket by bucket.
  */
-export function MergeToDeployBoxPlot({ buckets, formatSeconds, className }: MergeToDeployBoxPlotProps): JSX.Element {
+export function LeadTimeBoxPlot({
+    seriesKey,
+    seriesLabel,
+    buckets,
+    formatSeconds,
+    dataAttr,
+    className,
+}: LeadTimeBoxPlotProps): JSX.Element {
     const theme = useChartTheme()
     const labels = useMemo(() => buckets.map((bucket) => bucket.label), [buckets])
     const series = useMemo<BoxPlotSeries<BucketMeta>[]>(
         () => [
             {
-                key: 'merge_to_deploy',
-                label: 'Merge to deploy',
+                key: seriesKey,
+                label: seriesLabel,
                 data: buckets.map(toDatum),
                 meta: { counts: buckets.map((bucket) => bucket.count) },
             },
         ],
-        [buckets]
+        [seriesKey, seriesLabel, buckets]
     )
     return (
         // The chart's root is a `flex-1` child, so the sized wrapper must be a flex column —
         // in a plain block parent the canvas measures 0px tall and paints nothing.
-        <div className={cn('flex h-64 flex-col', className)}>
+        <div className={cn('flex h-48 flex-col', className)}>
             <BoxPlot<BucketMeta>
                 series={series}
                 labels={labels}
                 theme={theme}
                 config={{ yTickFormatter: formatSeconds }}
-                dataAttr="merge-to-deploy-box-plot"
-                tooltip={(ctx) => <BucketTooltip ctx={ctx} formatSeconds={formatSeconds} />}
+                dataAttr={dataAttr}
+                tooltip={(ctx) => <BucketTooltip ctx={ctx} dataAttr={dataAttr} formatSeconds={formatSeconds} />}
             />
         </div>
     )
@@ -90,9 +102,11 @@ export function MergeToDeployBoxPlot({ buckets, formatSeconds, className }: Merg
 
 function BucketTooltip({
     ctx,
+    dataAttr,
     formatSeconds,
 }: {
     ctx: BoxPlotTooltipContext<BucketMeta>
+    dataAttr: string
     formatSeconds: (seconds: number) => string
 }): JSX.Element | null {
     const entry = ctx.seriesData[0]
@@ -110,7 +124,7 @@ function BucketTooltip({
         ['Min', datum.min],
     ]
     return (
-        <TooltipSurface data-attr="merge-to-deploy-box-plot-tooltip">
+        <TooltipSurface data-attr={`${dataAttr}-tooltip`}>
             <div className="font-semibold">{ctx.label}</div>
             <div className="mb-1 opacity-70">
                 {count} PR{count === 1 ? '' : 's'} deployed
