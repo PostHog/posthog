@@ -197,6 +197,9 @@ export const emailChangeVerificationLogic = kea<emailChangeVerificationLogicType
                         actions.loadUser()
                         return { success: true }
                     } catch (e: any) {
+                        // Empty the slots so the retype starts clean. Clear before you set the
+                        // error, because setVerificationCode also resets the error.
+                        actions.setVerificationCode('')
                         actions.setVerificationCodeError(verificationCodeErrorMessage(e))
                         return null
                     }

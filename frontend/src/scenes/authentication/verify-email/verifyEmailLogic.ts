@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils/url'
+import { pendingVerificationEmailStorage } from 'scenes/authentication/shared/pendingVerificationEmail'
 import {
     isValidVerificationCode,
     normalizeVerificationCode,
@@ -42,6 +43,8 @@ const redirectAfterVerification = (
     response: PostVerifyResponse,
     values: Parameters<typeof resolvePostVerifyDefault>[0]
 ): void => {
+    // The address has served its purpose once the account is verified.
+    pendingVerificationEmailStorage.clear()
     const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
     const loginMessage = response.requires_2fa
         ? 'Email verified! Please log in with your password to complete two-factor authentication.'
@@ -76,6 +79,7 @@ export interface verifyEmailLogicValues {
     user: UserType | null // userLogic
     newlyRequestedVerificationLink: boolean | null
     newlyRequestedVerificationLinkLoading: boolean
+    pendingEmail: string | null
     uuid: string | null
     validatedEmailToken: ValidatedTokenResponseType | null
     validatedEmailTokenLoading: boolean
@@ -259,6 +263,9 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         redirectAfterVerification(response, values)
                         return { success: true, uuid }
                     } catch (e: any) {
+                        // Empty the slots so the retype starts clean. Clear before you set the
+                        // error, because setVerificationCode also resets the error.
+                        actions.setVerificationCode('')
                         actions.setVerificationCodeError(verificationCodeErrorMessage(e))
                         return values.validatedEmailToken
                     }
@@ -310,6 +317,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                 setUuid: (_, { uuid }) => uuid,
             },
         ],
+        pendingEmail: [pendingVerificationEmailStorage.get(), {}],
         verificationCode: [
             '',
             {

@@ -13,6 +13,7 @@ import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
+import { pendingVerificationEmailStorage } from 'scenes/authentication/shared/pendingVerificationEmail'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
@@ -527,6 +528,10 @@ export const signupLogic = kea<signupLogicType>([
                     if (values.passkeyRegistered) {
                         posthog.capture('signup completed with passkey')
                     }
+
+                    // The verification page loads without a session, so it can only name the
+                    // address if we leave it behind here.
+                    pendingVerificationEmailStorage.set(signupData.email)
 
                     // it's ok to trust the url sent from the server
                     // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect

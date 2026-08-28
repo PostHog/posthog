@@ -5,8 +5,8 @@ import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass
 import { pngHoggie } from 'lib/brand/hoggies'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { VERIFICATION_CODE_LENGTH, VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { userLogic } from 'scenes/userLogic'
 
 import { MAX_RESENDS, emailChangeVerificationLogic } from './emailChangeVerificationLogic'
@@ -42,28 +42,22 @@ export function EmailChangeVerificationModal(): JSX.Element {
                 <HedgehogMagnifyingGlass className="block w-auto mx-auto h-28" />
                 <h2 className="m-0 text-2xl font-bold">Check your inbox</h2>
                 <p className="m-0 mb-2 text-secondary text-pretty">
-                    We emailed a 6-digit code to <strong>{user?.pending_email}</strong>. Enter it below to verify your
-                    new address. The code is valid for 30 minutes.
+                    We emailed a 6-digit code to <strong>{user?.pending_email}</strong>. The code is valid for 30
+                    minutes.
                 </p>
-                <LemonInput
+                <VerificationCodeInput
                     autoFocus
                     value={verificationCode}
                     onChange={setVerificationCode}
-                    placeholder="123456"
-                    aria-label="Email verification code"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    size="large"
-                    fullWidth
+                    onComplete={() => {
+                        if (!verificationResultLoading) {
+                            submitVerificationCode()
+                        }
+                    }}
+                    error={verificationCodeError}
+                    disabled={verificationResultLoading}
                     data-attr="email-change-verification-code"
-                    className="ph-replay-block"
-                    status={verificationCodeError ? 'danger' : 'default'}
                 />
-                {verificationCodeError && (
-                    <p className="m-0 text-sm text-danger" role="alert">
-                        {verificationCodeError}
-                    </p>
-                )}
                 <LemonButton
                     type="primary"
                     size="large"
@@ -71,7 +65,11 @@ export function EmailChangeVerificationModal(): JSX.Element {
                     fullWidth
                     htmlType="submit"
                     loading={verificationResultLoading}
-                    disabledReason={verificationCode ? undefined : 'Enter the code from your email'}
+                    disabledReason={
+                        verificationCode.length === VERIFICATION_CODE_LENGTH
+                            ? undefined
+                            : 'Enter the 6-digit code from your email'
+                    }
                     data-attr="email-change-verification-submit"
                 >
                     Verify email

@@ -16,6 +16,7 @@ import { isWebKitBrowser } from 'lib/utils/dom'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
+import { pendingVerificationEmailStorage } from 'scenes/authentication/shared/pendingVerificationEmail'
 import { normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { twoFactorResetLogic } from 'scenes/authentication/two-factor-reset/twoFactorResetLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -575,6 +576,8 @@ export const loginLogic = kea<loginLogicType>([
                     if (code === 'verify_email_pending' && typeof detail === 'string') {
                         // detail carries the user uuid; the verification page has the code entry form
                         lemonToast.info('Verify your email to continue. We just sent you a new code.')
+                        // The page has no session to read the address from, so leave it behind.
+                        pendingVerificationEmailStorage.set(email)
                         const next: string | undefined = router.values.searchParams.next
                         router.actions.push(urls.verifyEmail(detail), next ? { next } : {})
                         throw e
