@@ -6,7 +6,7 @@ and every discovery statement is a bounded team_id range scan.
 
 import json
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import Literal
 
 from posthog.dataclasses import frozen
@@ -77,7 +77,7 @@ def iter_team_chunks(
     cursor,
     config: EventPropertyCleanupConfig,
     universe_sql: str,
-    params: dict[str, object],
+    params: Mapping[str, object],
     sleep: Callable[[float], None] = time.sleep,
 ) -> Iterator[list[int]]:
     """Yield team ids per team_id range, so no discovery statement covers a whole table.
