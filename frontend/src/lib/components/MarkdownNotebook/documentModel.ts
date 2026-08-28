@@ -808,6 +808,10 @@ export function serializeNotebookNodes(nodes: NotebookBlockNode[]): string {
     return serializeMarkdownNotebook({ type: 'doc', nodes, errors: [] })
 }
 
+// Props whose value is an execution result object that can hold cached base64 media. `result` is
+// the PythonV2/SQLV2 shape; the others are the legacy in-browser-kernel Python and SQL cells.
+const MEDIA_BEARING_PROP_KEYS = ['result', 'pythonExecution', 'duckExecution', 'hogqlExecution']
+
 // Remove cached media (e.g. base64 chart images) from component results so notebook markdown fits
 // inside AI request size limits. Returns the input unchanged when there is no media, so the common
 // case stays byte-identical.
@@ -819,22 +823,29 @@ export function stripNotebookMediaFromMarkdown(markdown: string): string {
             return node
         }
 
-        const result = getNotebookObjectProp(node.props.result)
-        if (!result || !Array.isArray(result.media) || result.media.length === 0) {
+        let nodeChanged = false
+        const nextProps = { ...node.props }
+        for (const key of MEDIA_BEARING_PROP_KEYS) {
+            const value = getNotebookObjectProp(node.props[key])
+            if (!value || !Array.isArray(value.media) || value.media.length === 0) {
+                continue
+            }
+            const { media: _media, ...valueWithoutMedia } = value
+            nextProps[key] = valueWithoutMedia
+            nodeChanged = true
+        }
+
+        if (!nodeChanged) {
             return node
         }
 
-        const { media: _media, ...resultWithoutMedia } = result
         removedMedia = true
         // The serializer re-emits `raw` verbatim when a node carries parse errors, which would
         // restore the media we just dropped. Discard `raw`/`errors` so serialization uses the props.
         const { raw: _raw, errors: _errors, ...nodeWithoutRaw } = node
         return {
             ...nodeWithoutRaw,
-            props: {
-                ...node.props,
-                result: resultWithoutMedia,
-            },
+            props: nextProps,
         }
     })
 
