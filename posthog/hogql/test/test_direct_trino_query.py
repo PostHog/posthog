@@ -51,7 +51,7 @@ class TestDirectTrinoQuery(APIBaseTest):
     def test_query_editor_compiles_to_explicit_trino_relation(self) -> None:
         source = self._create_source_and_table()
         executor = HogQLQueryExecutor(
-            query="SELECT id FROM orders WHERE status = 'paid'",
+            query="SELECT ID FROM ORDERS WHERE STATUS = 'paid'",
             team=self.team,
             connection_id=str(source.id),
         )
