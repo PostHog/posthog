@@ -7,7 +7,7 @@ The HTTP `/ingest` path keeps its current behavior; it is being retired.
 Vocabulary follows the nomenclature in [`rust/ingestion-consumer/docs/driver-model.md`](../../rust/ingestion-consumer/docs/driver-model.md) §8 (#89277): **worker** (one Node.js ingestion-api process), **worker stream** (the ordered gRPC connection, never "lane"), **sub-batch** (the worker-facing unit on the wire), **batch** (one Kafka collection unit), **routing key** (`token:distinct_id`), **group** (one routing key's messages from one poll), **watermark** (the per-key acked offset), **resolve** (a send finished, success or failure).
 Two sanctioned deviations where this doc touches Node code by name: the framework's `BatchingPipeline` calls one fed sub-batch a batch (so "batch" appears on framework surfaces like `BatchBudget` and `batchContext`), and "chunk" keeps its two code senses — the framework's per-stage unit (`ChunkPipeline`) and the transport's 413 body split.
 "Budget" here always means this proposal's per-sub-batch **time** budget; the driver model's uncommitted-work budget `B` is a different axis and is untouched.
-The proposal composes with the driver-model redesign: under it the budgeted unit becomes the request, and dispositions resolve per group — simpler there, since an unacked group returns to its key driver's queue head, and the order gate's job is what the key driver's one-release rule does by construction.
+The proposal composes with the driver-model redesign: under it the budgeted unit becomes the request, and dispositions resolve per group — simpler there, since an unacked group returns to its key driver's queue head, and the key driver's one-release rule provides the per-key ordering precondition (§ the ordering hazard) by construction.
 
 ## Problem
 
@@ -33,7 +33,7 @@ The worker gets a per-sub-batch **budget**, sized by the consumer and carried on
 The budget carries two deadlines.
 At the **soft** deadline the framework stops _starting_ work: events the budget cut off complete as a new result type, `TIMEOUT`, in-flight steps are allowed to finish, and the batch returns when they do.
 At the **hard** deadline the framework stops _waiting_: still-running elements resolve `TIMEOUT` immediately, the batch settles and acks, and the stranded continuations become tracked zombies (§ soft and hard deadlines).
-Events the order gate refuses to even feed (see below) complete as `REJECTED`.
+A second unacked result, `REJECTED` (refused without being attempted), stays reserved in the result union and on the wire; no worker path produces it today (§ the ordering hazard).
 The ack carries per-message dispositions so the consumer redelivers only the unfinished remainder.
 The consumer sizes soft < hard < watchdog, and the watchdog stays as what it should be: a dead-worker detector.
 
@@ -58,7 +58,6 @@ server reads SubBatch frame             stamp armedAt + both budgets into the fe
     per-element chain                   raced against the hard deadline
       ◆ StepPipeline.process            soft-exhausted? → timeout, skip the step
       ◆ chunk steps                     pre-mark soft-exhausted elements timeout, run the rest
-    concurrentlyPerGroup                per-key order gate → reject stale elements unfed
     hard deadline fires?                stop waiting: in-flight elements → timeout,
                                         continuations move to the zombie registry
     handleResults                       timeout/rejected: metric only, no produce
@@ -77,8 +76,8 @@ Retries are deliberately not a checkpoint: the retry wrappers compose steps and 
 The overrun histogram measures that tail, and the hard deadline bounds it.
 
 `TIMEOUT` and `REJECTED` both mean "not acked, redeliver" — the **unacked** results; the other four all mean "handled, do not resend".
-They split by _who stopped the work_: `TIMEOUT` is the element's own budget cutting it off (mid-chain or before it started), `REJECTED` is the order gate refusing to feed an element whose processing would reorder its key — never attempted, by construction.
-The consumer needs the distinction for the escalation ladder, and the metrics need it to tell slow steps (timeouts) from hot keys (rejections).
+They split by _who stopped the work_: `TIMEOUT` is the element's own budget cutting it off (mid-chain or before it started); `REJECTED` is reserved for an element refused without being attempted.
+No worker path produces `REJECTED` today — the split exists on the wire so the consumer's escalation ladder can count only genuine timeouts (§ consumer changes).
 "Rejected", not "retry": both unacked results get retried — the name carries who refused, not what happens next.
 An unacked element still emits a result, so `BatchingPipeline`'s count invariant holds untouched: N messages in, N results out, `afterBatch` flush still runs for the events that did finish.
 An event cancelled mid-chain (after person processing, before Kafka emit) is redelivered and reprocessed from the top — the at-least-once semantics the pipeline already has, narrowed from whole fenced worker streams to the unfinished remainder.
@@ -169,7 +168,7 @@ export interface CompletedSubBatch {
   seq: number
   accepted: number // elements.length - timedOut.length - rejected.length
   timedOut: number[] // indices into the sub-batch's messages, feed order
-  rejected: number[] // never attempted: refused by the order gate
+  rejected: number[] // never attempted: reserved, no current producer
   settled: Promise<void>
 }
 ```
@@ -179,30 +178,18 @@ One shared helper computes `armedAt + budget` for both the server's admission ra
 A sub-batch whose deadline passes while parked in the FIFO admission queue is acked `PARTIAL` with every message timed out, without ever being fed: nothing entered the pipeline, so no worker state exists, and the consumer redelivers through the deferral path.
 The ordinary path acks after `settled` resolves: `PARTIAL` when either list is non-empty, `OK` otherwise.
 
-## The ordering hazard, and the order gate
+## The ordering hazard
 
-This is the one genuinely new invariant the ordered stream forces us to handle.
+This is the one genuinely new invariant budgets disturb, and this design assigns it to the consumer rather than defending on the worker.
 
 Within one sub-batch, budget exhaustion is monotone, so a routing key's completed events are always a prefix of its feed order — redelivering the suffix is safe.
 Across sub-batches it is not: sub-batch N and N+1 can both be in flight with events for one routing key K (hot keys — the ones that make sub-batches slow — hit this constantly).
-If N's K-events time out while N+1's K-events process (N+1's budget is younger), redelivering N's suffix would reorder the key.
+If N's K-events time out while N+1's K-events process (N+1's budget is younger), redelivering N's suffix reorders the key: the redelivered older event runs after the newer one, and its writes win.
 
-The fix is a per-key **order gate** in the grouping stage, activated only for keys that produced a timeout:
-
-- When an element of key K resolves timeout, record the **gate offset** (the offset of its first timed-out message) and the set of sub-batches currently in flight in the pipeline.
-- While K is gated, an arriving K-element with offset **greater than** the gate offset is stale in-flight work — resolve it `REJECTED` without feeding it to the per-key chain (its own sub-batch acks it as rejected, and the consumer's cascade rule defers it behind K's earlier messages).
-- The gate clears in either of two ways:
-  - **The in-flight window drains**: every sub-batch that was in flight at gating time has completed. After that, no stale K-element can exist — the consumer holds K's newer groups behind the deferred ones until the redelivery resolves, so anything arriving later is already ordered.
-  - **The redelivery returns here**: a K-element arrives with offset at or before the gate offset, restoring per-key contiguity directly.
-
-Kafka offsets are per-partition monotone and a routing key lives on one partition, so "at or before the gate offset" is exactly "restores per-key contiguity".
-The offset clause alone is not sufficient, and the window-drain clause is not an optimization: the redelivery is a deferral flush, and the dispatcher's sticky pin escapes to another worker when the pinned one is unhealthy or heavily loaded — which a budget-blowing worker often is.
-The redelivery then lands elsewhere and this worker never sees an offset at or before the gate offset; without the window-drain clause it would gate fresh, correctly ordered K traffic forever, feeding a redeliver-and-gate livelock against the consumer's flush-stall bail.
-The gate is generic in the framework (`concurrentlyPerGroup` gains an optional per-item sequence extractor; the analytics pipeline supplies the Kafka offset from the element context) and holds state only for gated keys.
-A TTL eviction plus metric remains as a bug net, but it is not load-bearing for correctness and never needs to race `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`.
-
-A simpler fallback exists if the gate proves troublesome: on budget expiry, resolve every not-yet-started element in the pipeline rejected (all keys, all in-flight sub-batches — their own budgets are healthy; ordering caution, not time, stops them).
-That over-cancels but needs no per-key state; the in-flight window is small.
+The worker does not defend against this.
+An earlier revision carried a worker-side per-key order gate (a sequence extractor on the grouping stage, gating and clearing per key); it was dropped for interface simplicity, because per-key order is the consumer's guarantee everywhere else in this system and a worker-side gate duplicates it.
+What remains is a **precondition for enforcement**: budgets stay in shadow until the consumer never keeps two in-flight sub-batches carrying the same routing key, or the operator explicitly accepts hot-key reordering.
+The dispatcher's existing stash-and-cascade machinery is close to what a "hold a key's newer groups while it has unacked messages" rule needs; under the driver-model redesign the key driver's one-release rule provides exactly this by construction, and the precondition dissolves.
 
 ## Wire protocol
 
@@ -229,8 +216,8 @@ message SubBatchAck {
   // ...existing fields...
   // Indices into SubBatch.messages the budget cut off. Set only on PARTIAL.
   repeated uint32 timed_out = 5;
-  // Indices the worker never attempted: the order gate refused them to keep
-  // per-key order. Set only on PARTIAL.
+  // Indices the worker refused without attempting, to keep per-key order.
+  // Reserved: no current worker produces this. Set only on PARTIAL.
   repeated uint32 rejected = 6;
 }
 ```
@@ -253,7 +240,7 @@ The stash, the cascade rule, and the ordered flush are reused as-is, but everyth
 - **A mixed resolve path.** Today a sub-batch resolves fully (release keys, advance counts) or fails fully (`defer_failed` stashes everything). Partial acceptance needs a resolve that releases completed messages and stashes the rest while preserving the dispatcher's outstanding-count invariants (the count nets to unchanged for stashed keys and never dips to zero mid-handoff).
 - **Per-key acked watermarks computed from completed messages only.** The order sentinel advances a key's watermark using the key's maximum offset in the sub-batch; on a partial ack that would advance past unprocessed offsets and flag the redelivery as a resend-after-ack violation. The watermark must come from the completed subset.
 - **An escalation ladder for events that never fit the budget.** Such an event would otherwise redeliver forever — the deferral path has no attempt cap — with each round ending in the flush-stall bail and a process restart, the watchdog fully masked. Stash entries produced by partial acks carry an attempt count; after N budget-limited attempts the message resends with both budgets 0 (unlimited), degrading to exactly today's semantics (full watchdog window, fence on overrun) for that message alone, with a counter so the pathological event is visible instead of masked.
-  Only `timed_out` occurrences increment the count — a `rejected` message was never attempted, and counting it would let a hot key's gate rejections spuriously escalate its neighbors to unbudgeted resends.
+  Only `timed_out` occurrences increment the count — a `rejected` message was never attempted, and counting it would let refusals spuriously escalate untried messages to unbudgeted resends.
   This is why the wire distinguishes the two lists at all.
 - Offset commit accounting is unchanged in kind: partially accepted sub-batches hold commits exactly the way deferred groups do today, just for fewer messages.
 
@@ -275,9 +262,8 @@ The stash, the cascade rule, and the ordered flush are reused as-is, but everyth
 ## Observability
 
 - `ingestion_batch_budget_exhausted_total` — budgets that expired before the batch completed.
-- Timeout results by last step and rejected results by key (existing `ingestion_pipeline_result` counter gains both label values) — timeouts indict slow steps, rejections indict hot keys.
+- Timeout results by last step (the existing `ingestion_pipeline_result` counter gains both unacked label values) — timeouts indict slow steps.
 - Overrun histogram — time from budget expiry to batch completion; this is the tail the checkpoints cannot cut, and the input for choosing which steps need a time policy of their own.
-- Order-gate metrics — routing keys gated, stale elements gated, clears by window-drain vs offset vs TTL.
 - Hard-settle metrics — hard deadlines fired, zombies outstanding (gauge), zombie late results swallowed, writes dropped after store seal, admissions refused at the zombie cap.
 - Consumer side — partial acks, messages redelivered after partial, budget-exempt escalations.
 
@@ -287,8 +273,8 @@ Shadow mode (`enforce: false`) records all of the above without changing any res
 
 1. **Framework** — `TIMEOUT` and `REJECTED`, `BatchBudget`, the mandatory constructor factory, the two checkpoints, metrics, shadow mode, a framework docs chapter, and stall-investigation cases for the count invariant and within-batch prefix property under budgets.
    Every existing constructor passes `unlimitedBudgetFactory`: zero behavior change, and no optional-budget code path ever exists.
-2. **Order gate** — the gate/clear mechanism in `ConcurrentlyGroupingChunkPipeline` behind the sequence-extractor option, plus fuzz tests.
-   Inert without budgets.
+2. **Consumer per-key serialization** — before enforcement, the consumer must never keep two sub-batches with the same routing key in flight (§ the ordering hazard): a dispatcher hold on keys with unacked messages, or the driver model's one-release rule.
+   Budgets run shadow-only until this holds.
 3. **Wire + worker** — proto fields, `PARTIAL` acks in `WorkerIngestServer`, dispositions in `GrpcStreamIngestDriver`, and the wire-driven budget factory; the worker's only budget knob is the shadow/enforce rollout flag (gating, not sizing).
    Run shadow in production; read the overrun and would-have-cancelled metrics.
 4. **Consumer** — proto regen, budget stamping (soft only at first; hard stays 0), the per-message reply shape with chunk index remapping, the mixed resolve path, completed-only watermarks, the escalation ladder, and e2e coverage in `grpc_transport_test.rs` and the integration harness.
@@ -330,56 +316,45 @@ Everything here is inert: no code constructs a limited budget until Phase C wire
 7. `chore(ingestion): framework docs chapter and invariant cases for budgets`
    A new executable docs chapter (`18-batch-budgets.test.ts`) in the house style, plus invariant cases: the N-in/N-out count invariant under budget expiry, and the within-batch per-key prefix property.
 
-### Phase B — order gate (commits 8–10)
+### Phase C — wire and worker (commits 8–11)
 
-8. `feat(ingestion): per-key order gate in the grouping pipeline`
-   `ConcurrentlyGroupingChunkPipeline` gains the optional per-item sequence extractor and the gate: on a key's first timeout, record the gate offset and the in-flight sub-batch set; while gated, later-sequence arrivals resolve `rejected` unfed; clear on in-flight-window drain or an arrival at or before the gate offset; TTL eviction and the gate metrics as a bug net.
-   Unit tests for each clear path.
-9. `feat(ingestion): supply the Kafka offset as the gate sequence`
-   The analytics pipeline passes the sequence extractor (offset from the element context) where it builds its grouping stage.
-   Inert without budgets; the review question is only "is this the right offset".
-10. `chore(ingestion): fuzz the order gate`
-    Randomized interleavings of timeouts, redeliveries, and fresh traffic asserting: per-key feed order is never violated, every gate eventually clears, no rejections occur without a timeout.
-
-### Phase C — wire and worker (commits 11–14)
-
-11. `feat(ingestion): sub-batch budgets and PARTIAL status on the wire`
-    The proto changes from the wire-protocol section verbatim (`soft_budget_ms = 6`, `hard_budget_ms = 7`, `SUB_BATCH_STATUS_PARTIAL = 4`, `timed_out = 5`, `rejected = 6`), with regenerated code per `proto/README.md`.
-    Nothing reads or writes the new fields yet.
-12. `feat(ingestion): stamp armedAt and wire budgets into the feed context`
-    `WorkerIngestServer` stamps `armedAt` and both budget fields at frame read; one shared helper maps `0 → no deadline, else armedAt + budget`; the wire budget factory (a pure function of the feed context) replaces `unlimitedBudgetFactory` in the gRPC pipeline's construction, parameterized by the worker's shadow/enforce flag (default shadow).
-13. `feat(ingestion): time out parked sub-batches at admission`
+8. `feat(ingestion): sub-batch budgets and PARTIAL status on the wire`
+   The proto changes from the wire-protocol section verbatim (`soft_budget_ms = 6`, `hard_budget_ms = 7`, `SUB_BATCH_STATUS_PARTIAL = 4`, `timed_out = 5`, `rejected = 6`), with regenerated code per `proto/README.md`.
+   Nothing reads or writes the new fields yet.
+9. `feat(ingestion): stamp armedAt and wire budgets into the feed context`
+   `WorkerIngestServer` stamps `armedAt` and both budget fields at frame read; one shared helper maps `0 → no deadline, else armedAt + budget`; the wire budget factory (a pure function of the feed context) replaces `unlimitedBudgetFactory` in the gRPC pipeline's construction, parameterized by the worker's shadow/enforce flag (default shadow).
+10. `feat(ingestion): time out parked sub-batches at admission`
     The admission wait races the soft deadline via the shared helper; a sub-batch that expires parked acks `PARTIAL` with every message timed out, without being fed.
-14. `feat(ingestion): PARTIAL acks with per-message dispositions`
+11. `feat(ingestion): PARTIAL acks with per-message dispositions`
     `CompletedSubBatch` gains `accepted` / `timedOut` / `rejected` computed from the completed batch's elements in feed order; the server acks `PARTIAL` when either list is non-empty after `settled`, `OK` otherwise.
     Tests assert the ack invariant from the wire-protocol section.
 
-### Phase D — consumer (follow-up PR, commits 15–21)
+### Phase D — consumer (follow-up PR, commits 12–18)
 
 This branch stays on the Node.js side; the consumer commits land in a follow-up PR.
 The wire compatibility rules make the split safe: an old consumer treats `PARTIAL` as retriable `BUSY`, and the worker ships in shadow mode, where no `PARTIAL` ack is ever produced.
 
-15. `feat(ingestion-consumer): stamp sub-batch budgets from config`
+12. `feat(ingestion-consumer): stamp sub-batch budgets from config`
     `INGESTION_WORKER_SUB_BATCH_SOFT_BUDGET_MS` / `_HARD_BUDGET_MS` (default 0 — today's semantics), stamped on every `SubBatch`; hard < soft when both set is a startup config error.
-16. `feat(ingestion-consumer): parse PARTIAL acks fail-closed`
+13. `feat(ingestion-consumer): parse PARTIAL acks fail-closed`
     The ack invariant validates on receipt — disjoint lists, together non-empty, `accepted + timed_out.len() + rejected.len() == messages.len()`, `OK` requires both empty; violations handle like `FAILED`.
     A valid `PARTIAL` temporarily takes the existing retriable path (what an old consumer does), so this commit is safe before the mixed resolve exists.
-17. `feat(ingestion-consumer): remap chunk dispositions to sub-batch indices`
+14. `feat(ingestion-consumer): remap chunk dispositions to sub-batch indices`
     The transport's per-message reply shape replaces all-or-nothing acceptance: each 413-split chunk's `timed_out` / `rejected` indices remap to sub-batch positions and merge into one resolution.
-18. `feat(ingestion-consumer): mixed resolve — release completed, stash the remainder`
+15. `feat(ingestion-consumer): mixed resolve — release completed, stash the remainder`
     The dispatcher resolves a partial ack by releasing completed messages and stashing the rest, preserving the outstanding-count invariants (net unchanged for stashed keys, never zero mid-handoff); the cascade rule then defers newer groups behind the stash as today.
-19. `feat(ingestion-consumer): advance watermarks from completed messages only`
+16. `feat(ingestion-consumer): advance watermarks from completed messages only`
     The order sentinel computes a key's watermark from the completed subset of a partial ack, so redelivery of the remainder is not a resend-after-ack violation.
-20. `feat(ingestion-consumer): escalate never-fitting events to unbudgeted resends`
+17. `feat(ingestion-consumer): escalate never-fitting events to unbudgeted resends`
     Stash entries from partial acks carry an attempt count; only `timed_out` occurrences increment it; after N budget-limited attempts the message resends with both budgets 0, with a counter.
-21. `chore(ingestion-consumer): e2e coverage for partial acks`
+18. `chore(ingestion-consumer): e2e coverage for partial acks`
     `grpc_transport_test.rs` and the integration harness: partial ack → redelivery → completion, hot-key ordering preserved across partial acks, the escalation path.
 
-### Phase E — hard deadline (commits 22–23)
+### Phase E — hard deadline (commits 19–20)
 
-22. `feat(ingestion): race batch settle against the hard deadline`
+19. `feat(ingestion): race batch settle against the hard deadline`
     When `hardAt` is set, `feed()` races settle on it: still-running elements resolve timeout, `afterBatch` flushes what completed, the ack goes out, and stranded continuations move to the zombie registry keyed by `messageId` — late results are swallowed and counted, never acked.
-23. `feat(ingestion): seal batch stores at settle and cap zombies`
+20. `feat(ingestion): seal batch stores at settle and cap zombies`
     Batch-scoped store views seal at settle (late writes dropped with a counter) and stay alive until their zombies drain; at the zombie cap the worker stops admitting (`BUSY`), with the outstanding-zombies gauge and the hard-settle metrics.
 
 Out of scope for this branch: the consumer (Phase D, a follow-up PR), a per-step time policy (rollout stage 5 — driven by production overrun metrics), and any production config enabling budgets.
