@@ -167,6 +167,53 @@ describe('outbound 429 handling', () => {
         })
     })
 
+    describe('ApiClient on gateway timeout', () => {
+        const buildTimeout = (status: number): Response => new Response('error code: 522', { status, statusText: '' })
+
+        const buildClient = (): ApiClient => new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+
+        beforeEach(() => {
+            vi.useFakeTimers()
+        })
+
+        afterEach(() => {
+            vi.useRealTimers()
+        })
+
+        it('retries a 522 with backoff and succeeds', async () => {
+            const mockFetch = vi.fn()
+            mockFetch.mockResolvedValueOnce(buildTimeout(522))
+            mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }))
+            vi.stubGlobal('fetch', mockFetch)
+
+            const resultPromise = buildClient().users().me()
+            await vi.runAllTimersAsync()
+            const result = await resultPromise
+
+            expect(result.success).toBe(true)
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('returns a narrow-and-retry message instead of the proxy body after exhausting retries', async () => {
+            const mockFetch = vi.fn().mockResolvedValue(buildTimeout(522))
+            vi.stubGlobal('fetch', mockFetch)
+
+            const resultPromise = buildClient().users().me()
+            await vi.runAllTimersAsync()
+            const result = await resultPromise
+
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected failure')
+            }
+            expect(result.error).toBeInstanceOf(PostHogApiError)
+            expect((result.error as PostHogApiError).status).toBe(522)
+            expect(result.error.message).toContain('Narrow the request')
+            expect(result.error.message).not.toContain('error code: 522')
+            expect(mockFetch).toHaveBeenCalledTimes(4)
+        })
+    })
+
     describe('handleToolError on PostHogRateLimitError', () => {
         it('returns the retry hint to the agent without capturing an exception', () => {
             const error = new PostHogRateLimitError({

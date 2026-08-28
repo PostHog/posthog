@@ -163,6 +163,17 @@ describe('RequestContext', () => {
 
             await expect(ctx.getDistinctId()).rejects.toThrow('Failed to get user')
         })
+
+        it('retries after a failure instead of replaying the cached rejection', async () => {
+            mockMe.mockReset()
+            mockMe.mockResolvedValueOnce({ success: false, error: { message: 'Gateway Timeout' } })
+            mockMe.mockResolvedValueOnce({ success: true, data: { distinct_id: 'user-after-retry' } })
+            const ctx = new RequestContext(fakeRedis(), env, makeProps())
+
+            await expect(ctx.getDistinctId()).rejects.toThrow('Failed to get user')
+            await expect(ctx.getDistinctId()).resolves.toBe('user-after-retry')
+            expect(mockMe).toHaveBeenCalledTimes(2)
+        })
     })
 
     describe('getSessionUuid', () => {

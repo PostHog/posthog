@@ -38,6 +38,26 @@ const RATE_LIMIT_MAX_RETRIES = 3
 const RATE_LIMIT_BASE_BACKOFF_MS = 2000
 const RATE_LIMIT_TOTAL_WAIT_BUDGET_MS = 30_000
 
+// Gateway-timeout retry policy. When the origin does not answer in time, the edge
+// proxy returns a 5xx with an opaque body (e.g. `error code: 522`) that the agent
+// cannot act on. These failures are usually transient, so we retry with jittered
+// backoff and, once retries are exhausted, hand back a message that tells the
+// agent to narrow the request instead of pasting the proxy body. 520/522/524 are
+// Cloudflare edge statuses; 502/503/504 are standard gateway errors.
+const GATEWAY_TIMEOUT_STATUSES = new Set([502, 503, 504, 520, 522, 524])
+const GATEWAY_TIMEOUT_MAX_RETRIES = 3
+const GATEWAY_TIMEOUT_BASE_BACKOFF_MS = 1000
+
+const MAX_FETCH_RETRIES = Math.max(RATE_LIMIT_MAX_RETRIES, GATEWAY_TIMEOUT_MAX_RETRIES)
+
+function buildGatewayTimeoutMessage(status: number, method: string, url: string): string {
+    return (
+        `The PostHog API gateway timed out (HTTP ${status}) on ${method} ${url}. ` +
+        `The upstream server did not answer in time, which usually means a slow or heavy request rather than a bug. ` +
+        `Narrow the request — shorten the date range, drop breakdowns, or tighten filters — and try again.`
+    )
+}
+
 // Default overall timeout for an SSE stream (wall-clock cap from connect to close).
 // Sized to comfortably cover the slowest known caller (session summarization, ~5 min
 // average) with headroom for cold-cache LLM calls.
@@ -457,9 +477,37 @@ export class ApiClient {
         const method = options?.method ?? 'GET'
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
 
-        for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+        for (let attempt = 0; attempt <= MAX_FETCH_RETRIES; attempt++) {
             try {
                 const response = await this.fetch(url, options)
+
+                if (GATEWAY_TIMEOUT_STATUSES.has(response.status)) {
+                    if (attempt === GATEWAY_TIMEOUT_MAX_RETRIES) {
+                        console.error(
+                            `[API] Gateway timeout (${response.status}) retries exhausted on ${method} ${url}`
+                        )
+                        return {
+                            success: false,
+                            error: new PostHogApiError({
+                                status: response.status,
+                                statusText: response.statusText || 'Gateway Timeout',
+                                body: await response.text(),
+                                url,
+                                method,
+                                message: buildGatewayTimeoutMessage(response.status, method, url),
+                            }),
+                        }
+                    }
+
+                    const backoffMs = GATEWAY_TIMEOUT_BASE_BACKOFF_MS * 2 ** attempt
+                    // Equal jitter so concurrent timeouts don't retry in lockstep.
+                    const delayMs = backoffMs / 2 + Math.random() * (backoffMs / 2)
+                    console.warn(
+                        `[API] Gateway timeout (${response.status}) on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${attempt + 1}/${GATEWAY_TIMEOUT_MAX_RETRIES})`
+                    )
+                    await new Promise((resolve) => setTimeout(resolve, delayMs))
+                    continue
+                }
 
                 if (response.status === 429) {
                     const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'))
