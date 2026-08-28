@@ -16,7 +16,7 @@ from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import UploadedFile
 from django.db import IntegrityError, transaction
 from django.forms import ModelForm, ValidationError
-from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import NoReverseMatch, path, reverse
@@ -944,7 +944,7 @@ class TeamAdmin(admin.ModelAdmin):
         )
 
     @admin.display(description="Email sending tier")
-    def email_sending_tier_state(self, team: Team):
+    def email_sending_tier_state(self, team: Team) -> str:
         if not team.pk:
             return "-"
         config = TeamWorkflowsConfig.objects.filter(team_id=team.pk).first()
@@ -976,7 +976,7 @@ class TeamAdmin(admin.ModelAdmin):
         )
 
     @admin.display(description="Email sending tier actions")
-    def email_sending_tier_actions(self, team: Team):
+    def email_sending_tier_actions(self, team: Team) -> str:
         if not team.pk:
             return "-"
         config = TeamWorkflowsConfig.objects.filter(team_id=team.pk).first()
@@ -1003,7 +1003,7 @@ class TeamAdmin(admin.ModelAdmin):
             )
         )
 
-    def set_email_sending_tier_view(self, request, object_id):
+    def set_email_sending_tier_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
         if request.method != "POST":
             return HttpResponseNotAllowed(["POST"])
 
@@ -1057,7 +1057,7 @@ class TeamAdmin(admin.ModelAdmin):
         )
         return redirect(team_url)
 
-    def recompute_email_sending_tier_view(self, request, object_id):
+    def recompute_email_sending_tier_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
         if request.method != "POST":
             return HttpResponseNotAllowed(["POST"])
 

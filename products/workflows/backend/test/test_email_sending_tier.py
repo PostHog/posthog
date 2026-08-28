@@ -460,6 +460,16 @@ class TestBackfillEmailSendingTiers(BaseTest):
         TeamWorkflowsConfig.objects.filter(team=self.team).update(email_sending_suspended_at=timezone.now())
         assert BackfillCommand()._decide(histories=histories, team_ids=[self.team.id]) == []
 
+    def test_suspended_team_with_no_window_history_is_reset_to_tier_zero(self) -> None:
+        # A suspended team that sent nothing in the window must still be evaluated, or the backfill
+        # would leave its stored elevated tier in place for reinstatement.
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"email_sending_tier": 4, "email_sending_suspended_at": timezone.now()},
+        )
+        decisions = BackfillCommand()._decide(histories={}, team_ids=[self.team.id])
+        assert [(d.new_tier, d.reason) for d in decisions] == [(0, "staff_suspension")]
+
     def test_history_for_a_deleted_team_is_dropped(self) -> None:
         # app_metrics2 in ClickHouse outlives a team deleted from Postgres, so its history can name a
         # team that no longer exists. It must not reach the distribution or the write count.

@@ -108,9 +108,16 @@ class Command(BaseCommand):
                 continue
             history = histories.get(team_id)
             if history is None:
-                # No sending in the window, so there is nothing to earn a tier with. Tier 0 is right
-                # for a new team and harmless for a dormant one, which will not hit a cap anyway.
-                continue
+                if state is None or state["email_sending_suspended_at"] is None:
+                    # No sending in the window and no suspension owed, so there is nothing to earn a
+                    # tier with. Tier 0 is right for a new team and harmless for a dormant one,
+                    # which will not hit a cap anyway.
+                    continue
+                # A suspended team must land on tier 0 even with no sends in the window, or the
+                # backfill would leave its elevated allowance in place for reinstatement.
+                history = TeamSendingHistory(
+                    team_id=team_id, sent=0, hard_bounced=0, complained=0, auto_paused=False, daily_sends={}
+                )
             decision = decide_tier(
                 history=history,
                 current_tier=state["email_sending_tier"] if state else MIN_EMAIL_SENDING_TIER,

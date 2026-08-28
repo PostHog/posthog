@@ -453,7 +453,10 @@ def recompute_email_sending_tiers(team_ids: Optional[list[int]] = None) -> list[
             "email_sending_tier",
             "email_sending_tier_pinned",
             "email_sending_tier_updated_at",
+            "email_sending_tier_demoted_at",
             "email_sending_suspended_at",
+            "ses_tenant_sending_status",
+            "ses_tenant_reputation_impact",
             "team__created_at",
         )
     }
