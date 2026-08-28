@@ -202,6 +202,9 @@ export interface logsViewerDataLogicActions {
         orderBy: LogsOrderBy
         source: 'header' | 'toolbar'
     } // logsViewerConfigLogic
+    bumpFacetRefresh: () => {
+        value: true
+    } // logsViewerFiltersLogic
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     } // logsViewerFiltersLogic
@@ -314,6 +317,9 @@ export interface logsViewerDataLogicActions {
         filterType: string
     }
     pollForNewLogs: () => {
+        value: true
+    }
+    refreshQuery: () => {
         value: true
     }
     runQuery: (debounce?: integer) => {
@@ -475,7 +481,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             teamLogic,
             ['addProductIntent'],
             logsViewerFiltersLogic({ id }),
-            ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm'],
+            ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm', 'bumpFacetRefresh'],
             logsViewerConfigLogic({ id }),
             ['setOrderBy', 'setColumns', 'addColumn', 'removeColumn'],
         ],
@@ -493,6 +499,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             extraProps,
         }),
         runQuery: (debounce?: integer) => ({ debounce }),
+        refreshQuery: true,
         fetchNextLogsPage: (limit?: number) => ({ limit }),
         truncateLogs: (limit: number) => ({ limit }),
         clearLogs: true,
@@ -1092,6 +1099,10 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             actions.fetchLogs()
             actions.fetchSparkline()
             actions.cancelInProgressLiveTail(null)
+        },
+        refreshQuery: () => {
+            actions.runQuery()
+            actions.bumpFacetRefresh()
         },
         cancelInProgressLogs: ({ logsAbortController }) => {
             if (values.logsAbortController !== null) {
