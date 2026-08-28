@@ -14,6 +14,25 @@ from temporalio.runtime import Runtime
 from posthog.temporal.common.codec import EncryptionCodec
 
 
+def _resolve_temporal_port(port: int | str) -> int:
+    """Coerce the Temporal port to an integer in the valid range.
+
+    `connect()` builds the connection target as `host:port` and hands it to the temporalio Rust
+    bridge, which fails deep inside itself with an opaque `invalid target URL: invalid port number`
+    when the port is empty, non-numeric, or out of range. Validate here so a bad port reads as a
+    configuration problem and the error names the offending value.
+    """
+    try:
+        port_number = int(str(port).strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid Temporal port {port!r}: expected an integer between 1 and 65535") from None
+
+    if not 1 <= port_number <= 65535:
+        raise ValueError(f"Invalid Temporal port {port_number}: expected an integer between 1 and 65535")
+
+    return port_number
+
+
 async def connect(
     host: str,
     port: int | str,
@@ -57,7 +76,7 @@ async def connect(
         interceptors.append(temporalio.contrib.opentelemetry.TracingInterceptor())
 
     client = await Client.connect(
-        f"{host}:{port}",
+        f"{host}:{_resolve_temporal_port(port)}",
         namespace=namespace,
         tls=tls,
         runtime=runtime,
