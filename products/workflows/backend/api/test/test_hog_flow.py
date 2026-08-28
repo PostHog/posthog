@@ -5000,6 +5000,13 @@ def _create_task_template() -> dict:
             "required": False,
         },
         {
+            "key": "service_account",
+            "type": "task_service_account",
+            "label": "Service account",
+            "secret": False,
+            "required": False,
+        },
+        {
             "key": "max_parallel_tasks",
             "type": "number",
             "label": "Maximum parallel tasks",
@@ -5213,6 +5220,19 @@ class TestCreateTaskActionValidation(APIBaseTest):
         # boundary) - mocking at the same seam the model-catalogue tests below use.
         with patch("products.workflows.backend.api.hog_flow.validate_connectors", return_value=None):
             response = self._post_flow({"connectors": {"value": ["some-installation-id"]}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_rejects_an_unknown_service_account(self):
+        response = self._post_flow({"service_account": {"value": "00000000-0000-0000-0000-000000000000"}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions__1__inputs__service_account"
+        assert not HogFlow.objects.filter(team=self.team).exists()
+
+    def test_accepts_a_valid_service_account(self):
+        with patch("products.workflows.backend.api.hog_flow.validate_service_account", return_value=None):
+            response = self._post_flow({"service_account": {"value": "some-service-account-id"}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 

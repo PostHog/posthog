@@ -18,6 +18,7 @@ from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskOriginKeyConflict,
     WorkflowTaskOwnerIneligible,
     WorkflowTaskRateCapped,
+    WorkflowTaskServiceAccountInvalid,
     WorkflowTaskSlackContext,
     WorkflowTaskTeamRateCapped,
     WorkflowTaskUsageLimited,
@@ -102,7 +103,11 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
     connectors = serializers.ListField(
         child=serializers.CharField(max_length=64),
         required=False,
-        help_text="MCP server installation IDs the run may mount. Must be active team-shared installations or personal ones of the workflow owner.",
+        help_text="Deprecated in favor of service_account. MCP server installation IDs the run may mount. Must be active team-shared installations or personal ones of the workflow owner. Ignored when service_account is set.",
+    )
+    service_account = serializers.UUIDField(
+        required=False,
+        help_text="Service account whose granted connectors the run may mount, instead of the workflow owner's. Mutually exclusive with connectors.",
     )
     posthog_mcp_scopes = serializers.ChoiceField(
         choices=["read_only", "full"],
@@ -120,6 +125,13 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         required=False,
         help_text="Stable key for this invocation. A retried request with the same key returns the existing task.",
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("connectors") and attrs.get("service_account"):
+            raise serializers.ValidationError(
+                {"service_account": "service_account and connectors are mutually exclusive."}
+            )
+        return attrs
 
 
 class WorkflowTaskResponseSerializer(serializers.Serializer):
@@ -187,6 +199,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 model=data.get("model") or None,
                 reasoning_effort=data.get("reasoning_effort") or None,
                 mcp_installation_ids=data.get("connectors"),
+                service_account_id=(str(data["service_account"]) if data.get("service_account") else None),
                 posthog_mcp_scopes=data["posthog_mcp_scopes"],
                 max_parallel_tasks=data["max_parallel_tasks"],
                 origin_key=data.get("idempotency_key"),
@@ -199,6 +212,8 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
             raise serializers.ValidationError(
                 {"connectors": f"MCP installation(s) not found or inactive: {error.invalid_ids}"}
             )
+        except WorkflowTaskServiceAccountInvalid as error:
+            raise serializers.ValidationError({"service_account": f"Service account {error.reason}."})
         except WorkflowTaskOwnerIneligible:
             return _rejected("Workflow has no owner who can run tasks.", status.HTTP_422_UNPROCESSABLE_ENTITY)
         except WorkflowTaskOriginKeyConflict:

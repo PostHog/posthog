@@ -48,7 +48,7 @@ from posthog.rate_limit import (
 )
 from posthog.security.url_validation import is_url_allowed
 
-from ..agents import sync_built_in_agents
+from ..agents import built_in_agent_handles, sync_built_in_agents
 from ..facade.api import resolve_member_tool_states
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
 from ..models import (
@@ -908,9 +908,17 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if not self._is_project_admin() and not members_can_manage_agent_access(self.team_id):
             raise PermissionDenied("Only project admins can share servers with agents in this project.")
 
-        built_in_agent_ids = {account.id for account in sync_built_in_agents(self.team)}
-        if not agent_ids.issubset(built_in_agent_ids):
-            raise serializers.ValidationError({"agent_ids": "Select only the PostHog agents listed for this project."})
+        sync_built_in_agents(self.team)
+        # Same visibility as the catalog listing: built-in accounts by their canonical handle,
+        # plus custom accounts. Excludes stale rows a team could carry from before handle
+        # reconciliation existed — those aren't valid grant targets even though the row exists.
+        listed_agent_ids = set(
+            MCPServiceAccount.objects.for_team(self.team_id)
+            .filter(Q(handle__in=built_in_agent_handles()) | Q(kind="custom"))
+            .values_list("id", flat=True)
+        )
+        if not agent_ids.issubset(listed_agent_ids):
+            raise serializers.ValidationError({"agent_ids": "Select only the agents listed for this project."})
 
         # Rejected here rather than while applying the grants: by then the
         # install has already written the gateway rows and the credential, and

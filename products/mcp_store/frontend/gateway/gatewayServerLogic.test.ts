@@ -129,6 +129,7 @@ function serviceAccount(id: string = 'scout-id', grants: Grant[] = []): MCPServi
         description: '',
         handle: `svc-${id}`,
         agent_key: 'scout',
+        kind: 'built_in',
         status: 'active',
         server_ids: grants.map(() => 'server-id'),
         servers: grants.map(({ user, scope }) => ({

@@ -21,7 +21,7 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.mcp_store.backend.facade.api import get_active_installations
+from products.mcp_store.backend.facade.api import get_active_installations, get_service_account_summary
 from products.slack_app.backend.facade.api import slack_channel_is_approved
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -73,6 +73,13 @@ class WorkflowTaskConnectorsInvalid(Exception):
         super().__init__(f"MCP installation(s) not found or inactive: {invalid_ids}")
 
 
+class WorkflowTaskServiceAccountInvalid(Exception):
+    def __init__(self, service_account_id: str, *, reason: str) -> None:
+        self.service_account_id = service_account_id
+        self.reason = reason
+        super().__init__(f"Service account {service_account_id!r} {reason}")
+
+
 class WorkflowTaskLimitExceeded(Exception):
     def __init__(self, in_flight: int, limit: int) -> None:
         self.in_flight = in_flight
@@ -117,6 +124,7 @@ def create_workflow_task(
     model: str | None = None,
     reasoning_effort: str | None = None,
     mcp_installation_ids: list[str] | None = None,
+    service_account_id: str | None = None,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     max_parallel_tasks: int = 5,
     origin_key: str | None = None,
@@ -129,12 +137,17 @@ def create_workflow_task(
     other check so a retry always succeeds once the first attempt did. Raises
     `WorkflowTaskOriginKeyConflict` when the key belongs to a different workflow,
     `WorkflowTaskConnectorsInvalid` when the requested connectors aren't ones the owner
-    can mount, `WorkflowTaskOwnerIneligible` when the owner lost access to the project,
-    and `WorkflowTaskLimitExceeded` when the workflow already has `max_parallel_tasks`
-    runs in flight. Also raises `WorkflowTaskUsageLimited` when the owner is over the
-    AI usage limit, and `WorkflowTaskRateCapped` / `WorkflowTaskTeamRateCapped` when
-    the workflow or its team reached the daily created-task cap. A replayed
-    `origin_key` bypasses the gate and every cap.
+    can mount, `WorkflowTaskServiceAccountInvalid` when `service_account_id` doesn't
+    resolve to an active team service account, `WorkflowTaskOwnerIneligible` when the
+    owner lost access to the project, and `WorkflowTaskLimitExceeded` when the workflow
+    already has `max_parallel_tasks` runs in flight. Also raises `WorkflowTaskUsageLimited`
+    when the owner is over the AI usage limit, and `WorkflowTaskRateCapped` /
+    `WorkflowTaskTeamRateCapped` when the workflow or its team reached the daily
+    created-task cap. A replayed `origin_key` bypasses the gate and every cap.
+
+    `service_account_id` runs the task as a team service account instead of mounting the
+    workflow owner's connectors: only that account's granted connections mount, and
+    `mcp_installation_ids` is ignored. Omit it to keep the legacy connector-list behavior.
 
     `event` is rendered into the agent's prompt as data. The Slack thread binding decides
     the run's lifetime: a thread-bound run stays live until its inactivity timeout, so its
@@ -150,7 +163,10 @@ def create_workflow_task(
         observe_workflow_task_create(reason="replayed")
         return replay
 
-    validate_connectors(team.id, owner_id, mcp_installation_ids)
+    if service_account_id is not None:
+        validate_service_account(team.id, service_account_id)
+    else:
+        validate_connectors(team.id, owner_id, mcp_installation_ids)
 
     gate_owner = User.objects.filter(id=owner_id).first()
     if gate_owner is None:
@@ -186,11 +202,14 @@ def create_workflow_task(
 
     # Snapshot the connector allowlist onto the run: the sandbox mounts only what's here
     # (see loop_mcp_installation_allowlist), so a later edit of the workflow can't change
-    # what an already-queued run may reach.
+    # what an already-queued run may reach. A service-account run needs no snapshot — its
+    # mounts come from the account's own grants, resolved fresh at launch — but still
+    # snapshots the PostHog scope choice, which every workflow run honors regardless of
+    # its connector source.
     extra_run_state = {
         "config_snapshot": {
             "connectors": {
-                "mcp_installation_ids": mcp_installation_ids or [],
+                "mcp_installation_ids": [] if service_account_id else (mcp_installation_ids or []),
                 "posthog_mcp_scopes": posthog_mcp_scopes,
             }
         },
@@ -292,6 +311,7 @@ def create_workflow_task(
                 reasoning_effort=reasoning_effort,
                 slack_thread_context=thread_context,
                 interaction_origin=interaction_origin,
+                mcp_service_account_id=service_account_id,
             )
 
             if slack_binding is not None:
@@ -365,6 +385,21 @@ def validate_connectors(team_id: int, owner_id: int, mcp_installation_ids: list[
     invalid = sorted(set(mcp_installation_ids) - valid_ids)
     if invalid:
         raise WorkflowTaskConnectorsInvalid(invalid)
+
+
+def validate_service_account(team_id: int, service_account_id: str) -> None:
+    """Raise `WorkflowTaskServiceAccountInvalid` unless `service_account_id` names an
+    active service account on this team.
+
+    Called both when a run actually starts and, from the workflows product, when a
+    "Create AI task" action is saved — so a deleted, paused, or foreign service account
+    fails at save time instead of only on the workflow's next fire.
+    """
+    summary = get_service_account_summary(team_id, service_account_id)
+    if summary is None:
+        raise WorkflowTaskServiceAccountInvalid(service_account_id, reason="was not found")
+    if summary.status != "active":
+        raise WorkflowTaskServiceAccountInvalid(service_account_id, reason="is paused")
 
 
 def _render_run_message(prompt: str, event: dict[str, Any] | None) -> str:

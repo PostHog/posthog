@@ -11,10 +11,12 @@ from products.tasks.backend.logic.services.workflow_tasks import (
     WorkflowTaskOriginKeyConflict,
     WorkflowTaskOwnerIneligible,
     WorkflowTaskRateCapped,
+    WorkflowTaskServiceAccountInvalid,
     WorkflowTaskTeamRateCapped,
     WorkflowTaskUsageLimited,
     create_workflow_task,
     validate_connectors,
+    validate_service_account,
 )
 
 __all__ = [
@@ -23,9 +25,11 @@ __all__ = [
     "WorkflowTaskOriginKeyConflict",
     "WorkflowTaskOwnerIneligible",
     "WorkflowTaskRateCapped",
+    "WorkflowTaskServiceAccountInvalid",
     "WorkflowTaskSlackContext",
     "WorkflowTaskTeamRateCapped",
     "WorkflowTaskUsageLimited",
     "create_workflow_task",
     "validate_connectors",
+    "validate_service_account",
 ]

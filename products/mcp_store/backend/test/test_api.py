@@ -1229,15 +1229,62 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         # so the catalog stays at exactly one row per built-in agent.
         assert MCPServiceAccount.objects.for_team(self.team.id).count() == 2
 
-    def test_agents_cannot_be_created_or_deleted(self) -> None:
+    def test_built_in_agents_cannot_be_created_or_deleted(self) -> None:
         self._make_admin()
 
-        create_response = self.client.post(self._api_url(), data={"name": "Custom agent"}, format="json")
+        create_response = self.client.post(
+            self._api_url(), data={"name": "posthog-support", "handle": "posthog-support"}, format="json"
+        )
         account_id = self.client.get(self._api_url()).json()["results"][0]["id"]
         delete_response = self.client.delete(self._api_url(f"{account_id}/"))
 
-        assert create_response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
-        assert delete_response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        # A create always makes a *new* custom row (handle/kind are server-assigned, never
+        # accepted from the request), so it can never collide with or delete a built-in row.
+        assert create_response.status_code == status.HTTP_201_CREATED
+        assert create_response.json()["kind"] == "custom"
+        assert delete_response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_custom_agent_can_be_created_renamed_and_deleted(self) -> None:
+        self._make_admin()
+
+        create_response = self.client.post(
+            self._api_url(), data={"name": "SRE", "description": "Handles incidents"}, format="json"
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        body = create_response.json()
+        assert body["kind"] == "custom"
+        assert body["status"] == "active"
+        assert body["handle"].startswith("agent-sre")
+        account_id = body["id"]
+
+        rename_response = self.client.patch(
+            self._api_url(f"{account_id}/"), data={"name": "SRE team", "description": "On-call"}, format="json"
+        )
+        assert rename_response.status_code == status.HTTP_200_OK
+        assert rename_response.json()["name"] == "SRE team"
+
+        delete_response = self.client.delete(self._api_url(f"{account_id}/"))
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+        remaining_ids = {agent["id"] for agent in self.client.get(self._api_url()).json()["results"]}
+        assert account_id not in remaining_ids
+
+    def test_creating_a_custom_agent_requires_agent_access_manager(self) -> None:
+        self._make_member()
+        TeamMCPGatewayConfig.objects.for_team(self.team.id).create(team=self.team, allow_member_agent_access=False)
+
+        response = self.client.post(self._api_url(), data={"name": "SRE"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_built_in_agent_name_and_description_cannot_be_changed(self) -> None:
+        self._make_admin()
+        account = self._active_scout_account()
+
+        response = self.client.patch(self._api_url(f"{account.id}/"), data={"name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        account.refresh_from_db()
+        assert account.name == "Scout agent"
 
     @ALLOW_URL
     def test_member_can_delegate_a_personal_credential_during_install(self, _mock_is_url_allowed) -> None:

@@ -100,7 +100,12 @@ from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
-from products.tasks.backend.facade.workflow_tasks import WorkflowTaskConnectorsInvalid, validate_connectors
+from products.tasks.backend.facade.workflow_tasks import (
+    WorkflowTaskConnectorsInvalid,
+    WorkflowTaskServiceAccountInvalid,
+    validate_connectors,
+    validate_service_account,
+)
 from products.workflows.backend.api.action_redirects import compute_action_redirects
 from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
@@ -1231,18 +1236,24 @@ class HogFlowActionSerializer(serializers.Serializer):
         chosen connectors, model and repository are actually usable, and the parallel-run
         limit is sane - so a misconfigured step fails here instead of only when it fires."""
         connectors = (inputs.get("connectors") or {}).get("value")
-        if connectors:
-            get_team = self.context.get("get_team")
-            owner_id = self.context.get("workflow_owner_id")
-            # No team/owner to check against outside a request (internal re-saves) - nothing
-            # new is being authored there, so there is nothing to validate.
-            if get_team is not None and owner_id is not None:
-                try:
-                    validate_connectors(get_team().id, owner_id, connectors)
-                except WorkflowTaskConnectorsInvalid as e:
-                    raise serializers.ValidationError(
-                        {"inputs": {"connectors": f"MCP installation(s) not found or inactive: {e.invalid_ids}"}}
-                    )
+        service_account_id = (inputs.get("service_account") or {}).get("value")
+        get_team = self.context.get("get_team")
+        owner_id = self.context.get("workflow_owner_id")
+        # No team/owner to check against outside a request (internal re-saves) - nothing
+        # new is being authored there, so there is nothing to validate.
+        if connectors and get_team is not None and owner_id is not None:
+            try:
+                validate_connectors(get_team().id, owner_id, connectors)
+            except WorkflowTaskConnectorsInvalid as e:
+                raise serializers.ValidationError(
+                    {"inputs": {"connectors": f"MCP installation(s) not found or inactive: {e.invalid_ids}"}}
+                )
+
+        if service_account_id and get_team is not None:
+            try:
+                validate_service_account(get_team().id, service_account_id)
+            except WorkflowTaskServiceAccountInvalid as e:
+                raise serializers.ValidationError({"inputs": {"service_account": f"Service account {e.reason}."}})
 
         repository = (inputs.get("repository") or {}).get("value")
         if repository and not _REPOSITORY_SHAPE.fullmatch(repository):

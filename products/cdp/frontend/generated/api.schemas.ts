@@ -284,6 +284,7 @@ export const HogFunctionTypeEnumApi = {
  * * `task_model` - task_model
  * * `task_repository` - task_repository
  * * `task_mcp_installations` - task_mcp_installations
+ * * `task_service_account` - task_service_account
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -308,6 +309,7 @@ export const InputsSchemaItemTypeEnumApi = {
     TaskModel: 'task_model',
     TaskRepository: 'task_repository',
     TaskMcpInstallations: 'task_mcp_installations',
+    TaskServiceAccount: 'task_service_account',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }

@@ -121,6 +121,7 @@ def sync_built_in_agents(team: Team) -> list[MCPServiceAccount]:
                 "description": spec.description,
                 "handle": spec.handle,
                 "status": "active",
+                "kind": "built_in",
             },
         )
         if not created:
@@ -235,10 +236,9 @@ def resolve_gateway_agent_token(token: str) -> GatewayAgentPrincipal | None:
     try:
         # TeamScopeError: the token can outlive its team — treat a deleted team
         # like any other invalid token instead of erroring at the auth layer.
-        account = MCPServiceAccount.objects.for_team(team_id).get(
-            id=account_id,
-            handle__in=built_in_agent_handles(),
-        )
+        # No handle filter: custom service accounts authenticate here too, and
+        # the token is server-signed, so team+id is the whole identity check.
+        account = MCPServiceAccount.objects.for_team(team_id).get(id=account_id)
     except (MCPServiceAccount.DoesNotExist, TeamScopeError, ValueError):
         return None
     # A token outlives offboarding (its max age is hours), so the owner's

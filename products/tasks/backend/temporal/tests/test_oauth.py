@@ -46,6 +46,57 @@ def test_built_in_agent_origins_use_restricted_oauth_scope(
 
 @patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=True)
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_workflow_task_stamped_with_a_service_account_uses_restricted_oauth_scope(
+    mock_create: MagicMock,
+    mock_enforcement: MagicMock,
+) -> None:
+    task = MagicMock(
+        id="task-id",
+        created_by=MagicMock(),
+        team_id=123,
+        origin_product=Task.OriginProduct.WORKFLOW,
+        mcp_service_account_id="service-account-id",
+    )
+
+    assert create_oauth_access_token(task) == "token"
+
+    mock_create.assert_called_once_with(
+        task.created_by,
+        123,
+        scopes="read_only",
+        application="array",
+        sandbox_task_id=task.id,
+        include_mcp_builtin_agent_scope=True,
+    )
+
+
+@patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=True)
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_workflow_task_without_a_service_account_keeps_the_member_token(
+    mock_create: MagicMock,
+    mock_enforcement: MagicMock,
+) -> None:
+    task = MagicMock(
+        id="task-id",
+        created_by=MagicMock(),
+        team_id=123,
+        origin_product=Task.OriginProduct.WORKFLOW,
+        mcp_service_account_id=None,
+    )
+
+    assert create_oauth_access_token(task) == "token"
+
+    mock_create.assert_called_once_with(
+        task.created_by,
+        123,
+        scopes="read_only",
+        application="array",
+        sandbox_task_id=task.id,
+    )
+
+
+@patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=True)
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_posthog_ai_task_keeps_member_token_and_posthog_ai_oauth_application(
     mock_create: MagicMock,
     mock_enforcement: MagicMock,

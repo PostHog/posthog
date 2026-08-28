@@ -95,6 +95,14 @@ describe('posthog create task template', () => {
         expect(claims.hog_flow_id).toBe(workflowOptions.hogFlow.id)
     })
 
+    it('sends service_account_id instead of connectors when both are set', async () => {
+        const { params } = await invokeAndGetFetch({ ...fullInputs, service_account: 'sa-123' })
+
+        const body = parseJSON(params.body!)
+        expect(body.service_account_id).toEqual('sa-123')
+        expect(body.connectors).toBeUndefined()
+    })
+
     it('omits the fields without defaults when they are left empty', async () => {
         const { invocation, params } = await invokeAndGetFetch({ prompt: 'Do the thing' })
 

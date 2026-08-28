@@ -15,6 +15,8 @@ import {
     mcpGatewayServersPartialUpdate,
     mcpGatewayServersSetTemplateEnabledCreate,
     mcpGatewayServiceAccountsAccessCreate,
+    mcpGatewayServiceAccountsCreate,
+    mcpGatewayServiceAccountsDestroy,
     mcpGatewayServiceAccountsList,
     mcpServerInstallationsInstallCustomCreate,
     mcpServerInstallationsInstallTemplateCreate,
@@ -49,6 +51,8 @@ jest.mock('../generated/api', () => ({
     mcpGatewayServersPartialUpdate: jest.fn(),
     mcpGatewayServersSetTemplateEnabledCreate: jest.fn(),
     mcpGatewayServiceAccountsAccessCreate: jest.fn(),
+    mcpGatewayServiceAccountsCreate: jest.fn(),
+    mcpGatewayServiceAccountsDestroy: jest.fn(),
     mcpGatewayServiceAccountsList: jest.fn(),
     mcpServerInstallationsInstallCustomCreate: jest.fn(),
     mcpServerInstallationsInstallTemplateCreate: jest.fn(),
@@ -77,6 +81,12 @@ const mockServiceAccountAccess = mcpGatewayServiceAccountsAccessCreate as jest.M
 >
 const mockServiceAccountsList = mcpGatewayServiceAccountsList as jest.MockedFunction<
     typeof mcpGatewayServiceAccountsList
+>
+const mockServiceAccountsCreate = mcpGatewayServiceAccountsCreate as jest.MockedFunction<
+    typeof mcpGatewayServiceAccountsCreate
+>
+const mockServiceAccountsDestroy = mcpGatewayServiceAccountsDestroy as jest.MockedFunction<
+    typeof mcpGatewayServiceAccountsDestroy
 >
 const mockInstallCustom = mcpServerInstallationsInstallCustomCreate as jest.MockedFunction<
     typeof mcpServerInstallationsInstallCustomCreate
@@ -156,6 +166,7 @@ function serviceAccountWithShare(scope: MCPAgentGrantScopeEnumApi): MCPServiceAc
         description: '',
         handle: 'posthog-scout',
         agent_key: 'scout',
+        kind: 'built_in',
         status: 'active',
         server_ids: ['server-id'],
         servers: [
@@ -199,6 +210,7 @@ function serviceAccount(): MCPServiceAccountApi {
         description: 'Product analyst',
         handle: 'posthog-scout',
         agent_key: 'scout',
+        kind: 'built_in',
         status: 'active',
         server_ids: [],
         servers: [],
@@ -713,5 +725,51 @@ describe('mcpGatewayLogic', () => {
             enabled: true,
             scope: expected,
         })
+    })
+
+    it('adds the created service account to the list and closes the modal', async () => {
+        const created: MCPServiceAccountApi = {
+            id: 'new-account-id',
+            name: 'SRE',
+            description: 'Handles incidents',
+            handle: 'agent-sre',
+            agent_key: null,
+            kind: 'custom',
+            status: 'active',
+            server_ids: [],
+            servers: [],
+            last_active_at: null,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z',
+        }
+        mockServiceAccountsCreate.mockResolvedValue(created)
+        logic.actions.openNewServiceAccountModal()
+
+        await expectLogic(logic, () => {
+            logic.actions.createServiceAccount('SRE', 'Handles incidents')
+        }).toFinishAllListeners()
+
+        expect(mockServiceAccountsCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            name: 'SRE',
+            description: 'Handles incidents',
+        })
+        expect(logic.values.serviceAccounts).toContainEqual(created)
+        expect(logic.values.newServiceAccountModalOpen).toBe(false)
+    })
+
+    it('removes a deleted service account from the list', async () => {
+        mockServiceAccountsList.mockResolvedValue({ count: 1, results: [serviceAccount()] })
+        logic.actions.loadServiceAccounts()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.serviceAccounts).toHaveLength(1)
+
+        mockServiceAccountsDestroy.mockResolvedValue(undefined)
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteServiceAccount(serviceAccount().id)
+        }).toFinishAllListeners()
+
+        expect(mockServiceAccountsDestroy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), serviceAccount().id)
+        expect(logic.values.serviceAccounts).toEqual([])
     })
 })

@@ -604,6 +604,7 @@ def get_user_mcp_server_configs(
     allowed_installation_ids: list[str] | None = None,
     origin_product: str | None = None,
     task_agent_key: str | None = None,
+    task_service_account_id: str | None = None,
     credential_owner_id: int | None = None,
     allowed_gateway_server_ids: list[str] | None = None,
 ) -> list[McpServerConfig]:
@@ -632,6 +633,10 @@ def get_user_mcp_server_configs(
     the listed gateway servers regardless of grant scope. ``None`` leaves them unfiltered;
     an empty list mounts nothing.
 
+    ``task_service_account_id`` (from ``Task.mcp_service_account_id``) puts a workflow task
+    in the agent lane as a team-created service account instead of a built-in agent: only
+    that account's grants mount.
+
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
     the user installed. The PostHog MCP needs this to resolve single-exec mode
@@ -646,6 +651,7 @@ def get_user_mcp_server_configs(
         include_personal=include_personal,
         task_origin=origin_product,
         task_agent_key=task_agent_key,
+        task_service_account_id=task_service_account_id,
         credential_owner_id=credential_owner_id,
         allowed_gateway_server_ids=allowed_gateway_server_ids,
     )

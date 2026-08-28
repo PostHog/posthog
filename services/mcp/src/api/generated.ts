@@ -42198,6 +42198,7 @@ export namespace Schemas {
      * * `task_model` - task_model
      * * `task_repository` - task_repository
      * * `task_mcp_installations` - task_mcp_installations
+     * * `task_service_account` - task_service_account
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -42223,6 +42224,7 @@ export namespace Schemas {
       TaskModel: 'task_model',
       TaskRepository: 'task_repository',
       TaskMcpInstallations: 'task_mcp_installations',
+      TaskServiceAccount: 'task_service_account',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -49692,6 +49694,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `built_in` - Built-in
+     * * `custom` - Custom
+     */
+    export type MCPServiceAccountKindEnum = typeof MCPServiceAccountKindEnum[keyof typeof MCPServiceAccountKindEnum];
+
+
+    export const MCPServiceAccountKindEnum = {
+      BuiltIn: 'built_in',
+      Custom: 'custom',
+    } as const;
+
+    /**
      * A credential-safe summary of a server configured for an agent.
      */
     export interface MCPServiceAccountServer {
@@ -49726,10 +49740,15 @@ export namespace Schemas {
       readonly id: string;
       readonly name: string;
       readonly description: string;
-      /** Stable internal identity handle for this PostHog agent. */
+      /** Stable internal identity handle for this agent. */
       readonly handle: string;
-      /** Stable PostHog agent identifier. */
-      readonly agent_key: AgentKeyEnum;
+      /** Stable identifier for a built-in PostHog agent. Null for a custom service account. */
+      readonly agent_key: AgentKeyEnum | null;
+      /** 'built_in' for PostHog's fixed agents, 'custom' for a team-created one.
+       *
+       * * `built_in` - Built-in
+       * * `custom` - Custom */
+      readonly kind: MCPServiceAccountKindEnum;
       /** active, or paused (all MCP access off).
        *
        * * `active` - Active
@@ -49748,7 +49767,24 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface MCPServiceAccountCreate {
+      /**
+         * Name shown wherever this service account appears, e.g. 'SRE'.
+         * @maxLength 200
+         */
+      name: string;
+      /** What this service account is for. Shown next to its name in the gateway UI. */
+      description?: string;
+    }
+
     export interface MCPServiceAccountUpdate {
+      /**
+         * New name. Only settable for a custom (team-created) service account.
+         * @maxLength 200
+         */
+      name?: string;
+      /** New description. Only settable for a custom (team-created) service account. */
+      description?: string;
       /** active, or paused (all MCP access off).
        *
        * * `active` - Active
@@ -63308,6 +63344,13 @@ export namespace Schemas {
     }
 
     export interface PatchedMCPServiceAccountUpdate {
+      /**
+         * New name. Only settable for a custom (team-created) service account.
+         * @maxLength 200
+         */
+      name?: string;
+      /** New description. Only settable for a custom (team-created) service account. */
+      description?: string;
       /** active, or paused (all MCP access off).
        *
        * * `active` - Active

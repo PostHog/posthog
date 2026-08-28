@@ -727,6 +727,18 @@ export const AgentKeyEnumApi = {
 } as const
 
 /**
+ * * `built_in` - Built-in
+ * * `custom` - Custom
+ */
+export type MCPServiceAccountKindEnumApi =
+    (typeof MCPServiceAccountKindEnumApi)[keyof typeof MCPServiceAccountKindEnumApi]
+
+export const MCPServiceAccountKindEnumApi = {
+    BuiltIn: 'built_in',
+    Custom: 'custom',
+} as const
+
+/**
  * * `ready` - ready
  * * `pending_oauth` - pending_oauth
  * * `needs_reauth` - needs_reauth
@@ -778,10 +790,15 @@ export interface MCPServiceAccountApi {
     readonly id: string
     readonly name: string
     readonly description: string
-    /** Stable internal identity handle for this PostHog agent. */
+    /** Stable internal identity handle for this agent. */
     readonly handle: string
-    /** Stable PostHog agent identifier. */
-    readonly agent_key: AgentKeyEnumApi
+    /** Stable identifier for a built-in PostHog agent. Null for a custom service account. */
+    readonly agent_key: AgentKeyEnumApi | null
+    /** 'built_in' for PostHog's fixed agents, 'custom' for a team-created one.
+     *
+     * * `built_in` - Built-in
+     * * `custom` - Custom */
+    readonly kind: MCPServiceAccountKindEnumApi
     /** active, or paused (all MCP access off).
      *
      * * `active` - Active
@@ -809,7 +826,24 @@ export interface PaginatedMCPServiceAccountListApi {
     results: MCPServiceAccountApi[]
 }
 
+export interface MCPServiceAccountCreateApi {
+    /**
+     * Name shown wherever this service account appears, e.g. 'SRE'.
+     * @maxLength 200
+     */
+    name: string
+    /** What this service account is for. Shown next to its name in the gateway UI. */
+    description?: string
+}
+
 export interface MCPServiceAccountUpdateApi {
+    /**
+     * New name. Only settable for a custom (team-created) service account.
+     * @maxLength 200
+     */
+    name?: string
+    /** New description. Only settable for a custom (team-created) service account. */
+    description?: string
     /** active, or paused (all MCP access off).
      *
      * * `active` - Active
@@ -818,6 +852,13 @@ export interface MCPServiceAccountUpdateApi {
 }
 
 export interface PatchedMCPServiceAccountUpdateApi {
+    /**
+     * New name. Only settable for a custom (team-created) service account.
+     * @maxLength 200
+     */
+    name?: string
+    /** New description. Only settable for a custom (team-created) service account. */
+    description?: string
     /** active, or paused (all MCP access off).
      *
      * * `active` - Active

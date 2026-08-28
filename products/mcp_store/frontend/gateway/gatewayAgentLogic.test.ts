@@ -65,6 +65,7 @@ function serviceAccount(): MCPServiceAccountApi {
         description: 'Helps answer support questions',
         handle: 'posthog-support',
         agent_key: 'support',
+        kind: 'built_in',
         status: 'active',
         server_ids: ['shared-server'],
         servers: [],

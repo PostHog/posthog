@@ -44,4 +44,7 @@ export const CUSTOM_INPUT_RENDERERS: Record<
     task_mcp_installations: lazyWithRetry(
         () => import('products/tasks/frontend/components/TaskConnectorsPicker/CyclotronJobInputTaskConnectors')
     ),
+    task_service_account: lazyWithRetry(
+        () => import('products/tasks/frontend/components/TaskServiceAccountPicker/CyclotronJobInputTaskServiceAccount')
+    ),
 }

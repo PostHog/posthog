@@ -23,6 +23,8 @@ import {
     mcpGatewayServersPartialUpdate,
     mcpGatewayServersSetTemplateEnabledCreate,
     mcpGatewayServiceAccountsAccessCreate,
+    mcpGatewayServiceAccountsCreate,
+    mcpGatewayServiceAccountsDestroy,
     mcpGatewayServiceAccountsList,
     mcpGatewayServiceAccountsPartialUpdate,
     getMcpServerInstallationsAuthorizeRetrieveUrl,
@@ -53,6 +55,13 @@ import {
     GATEWAY_ADD_SERVER_DEFAULTS,
     GatewayAddServerValues,
 } from './gatewayAddServer'
+
+export interface NewServiceAccountFormValues {
+    name: string
+    description: string
+}
+
+const NEW_SERVICE_ACCOUNT_DEFAULTS: NewServiceAccountFormValues = { name: '', description: '' }
 
 export const GATEWAY_CATEGORY_LABELS: Record<string, string> = {
     business: 'Business operations',
@@ -203,8 +212,10 @@ export interface mcpGatewayLogicValues {
     connectionModalServer: GatewayServerEntry | null
     connectionModalServerId: string | null
     connectionSubmitDisabledReason: string | null
+    creatingServiceAccount: boolean
     currentUserId: number | null
     defaultServersEnabled: boolean
+    deletingServiceAccountIds: Set<string>
     disconnectingInstallationIds: Set<string>
     enabledServerCount: number
     filteredServers: GatewayServerEntry[]
@@ -216,6 +227,9 @@ export interface mcpGatewayLogicValues {
     membersLoading: boolean
     membersOffset: number
     mergedServers: GatewayServerEntry[]
+    newServiceAccountForm: NewServiceAccountFormValues
+    newServiceAccountModalOpen: boolean
+    newServiceAccountSubmitDisabledReason: string | null
     recommendedTemplates: MCPServerTemplateApi[]
     refreshingInstallationIds: Set<string>
     removingServerIds: Set<string>
@@ -263,8 +277,30 @@ export interface mcpGatewayLogicActions {
     closeConnectionModal: () => {
         value: true
     }
+    closeNewServiceAccountModal: () => {
+        value: true
+    }
     connectServer: (serverId: string) => {
         serverId: string
+    }
+    createServiceAccount: (
+        name: string,
+        description: string
+    ) => {
+        description: string
+        name: string
+    }
+    createServiceAccountComplete: () => {
+        value: true
+    }
+    createServiceAccountSuccess: () => {
+        value: true
+    }
+    deleteServiceAccount: (accountId: string) => {
+        accountId: string
+    }
+    deleteServiceAccountComplete: (accountId: string) => {
+        accountId: string
     }
     disconnectServer: (
         serverId: string,
@@ -384,6 +420,9 @@ export interface mcpGatewayLogicActions {
     ) => {
         authType: InstallCustomAuthTypeEnumApi
         serverId: string
+    }
+    openNewServiceAccountModal: () => {
+        value: true
     }
     performConnection: (
         serverId: string,
@@ -521,6 +560,13 @@ export interface mcpGatewayLogicActions {
     setMembersOffset: (membersOffset: number) => {
         membersOffset: number
     }
+    setNewServiceAccountFormValue: (
+        field: 'description' | 'name',
+        value: string
+    ) => {
+        field: 'description' | 'name'
+        value: string
+    }
     setSearchQuery: (query: string) => {
         query: string
     }
@@ -593,6 +639,10 @@ export interface mcpGatewayLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         currentUserId: (user: UserType | null) => number | null
         addServerSubmitDisabledReason: (addServerForm: GatewayAddServerValues, addingServer: boolean) => string | null
+        newServiceAccountSubmitDisabledReason: (
+            newServiceAccountForm: any,
+            creatingServiceAccount: boolean
+        ) => string | null
         isAdmin: (config: TeamMCPGatewayConfigApi | null) => boolean
         allowCustomServers: (config: TeamMCPGatewayConfigApi | null) => boolean
         allowMemberAgentAccess: (config: TeamMCPGatewayConfigApi | null) => boolean
@@ -663,6 +713,9 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
             value: GatewayAddServerValues[keyof GatewayAddServerValues]
         ) => ({ field, value }),
         submitAddServer: true,
+        openNewServiceAccountModal: true,
+        closeNewServiceAccountModal: true,
+        setNewServiceAccountFormValue: (field: 'name' | 'description', value: string) => ({ field, value }),
         submitAddServerStarted: true,
         submitAddServerComplete: true,
         setSearchQuery: (query: string) => ({ query }),
@@ -707,6 +760,11 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
         toggleYourConnectionEnabledComplete: (installationId: string) => ({ installationId }),
         toggleAccountStatus: (accountId: string, paused: boolean) => ({ accountId, paused }),
         toggleAccountStatusComplete: (accountId: string) => ({ accountId }),
+        createServiceAccount: (name: string, description: string) => ({ name, description }),
+        createServiceAccountSuccess: true,
+        createServiceAccountComplete: true,
+        deleteServiceAccount: (accountId: string) => ({ accountId }),
+        deleteServiceAccountComplete: (accountId: string) => ({ accountId }),
         toggleRuleEnabled: (ruleId: string, enabled: boolean) => ({ ruleId, enabled }),
         toggleRuleEnabledComplete: (ruleId: string) => ({ ruleId }),
         setAllowCustomServers: (allowed: boolean) => ({ allowed }),
@@ -808,6 +866,23 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
             {
                 openAddServerModal: () => true,
                 closeAddServerModal: () => false,
+            },
+        ],
+        newServiceAccountModalOpen: [
+            false,
+            {
+                openNewServiceAccountModal: () => true,
+                closeNewServiceAccountModal: () => false,
+                createServiceAccountSuccess: () => false,
+            },
+        ],
+        newServiceAccountForm: [
+            NEW_SERVICE_ACCOUNT_DEFAULTS,
+            {
+                openNewServiceAccountModal: () => NEW_SERVICE_ACCOUNT_DEFAULTS,
+                closeNewServiceAccountModal: () => NEW_SERVICE_ACCOUNT_DEFAULTS,
+                createServiceAccountSuccess: () => NEW_SERVICE_ACCOUNT_DEFAULTS,
+                setNewServiceAccountFormValue: (state, { field, value }) => ({ ...state, [field]: value }),
             },
         ],
         addServerForm: [
@@ -962,6 +1037,24 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 },
             },
         ],
+        creatingServiceAccount: [
+            false,
+            {
+                createServiceAccount: () => true,
+                createServiceAccountComplete: () => false,
+            },
+        ],
+        deletingServiceAccountIds: [
+            new Set<string>(),
+            {
+                deleteServiceAccount: (state, { accountId }) => new Set(state).add(accountId),
+                deleteServiceAccountComplete: (state, { accountId }) => {
+                    const next = new Set(state)
+                    next.delete(accountId)
+                    return next
+                },
+            },
+        ],
         agentServerAccessLoadingKeys: [
             new Set<string>(),
             {
@@ -1075,6 +1168,18 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 }
                 if (!canSubmitGatewayServer(addServerForm)) {
                     return 'Enter a full HTTP or HTTPS URL'
+                }
+                return null
+            },
+        ],
+        newServiceAccountSubmitDisabledReason: [
+            (s) => [s.newServiceAccountForm, s.creatingServiceAccount],
+            (newServiceAccountForm: NewServiceAccountFormValues, creatingServiceAccount: boolean): string | null => {
+                if (creatingServiceAccount) {
+                    return 'Creating service account'
+                }
+                if (!newServiceAccountForm.name.trim()) {
+                    return 'Enter a name'
                 }
                 return null
             },
@@ -1500,6 +1605,32 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 )
             } finally {
                 actions.toggleAccountStatusComplete(accountId)
+            }
+        },
+        createServiceAccount: async ({ name, description }) => {
+            try {
+                const created = await mcpGatewayServiceAccountsCreate(currentProjectId(), { name, description })
+                actions.loadServiceAccountsSuccess([...values.serviceAccounts, created])
+                actions.createServiceAccountSuccess()
+                lemonToast.success(`${created.name} created`)
+            } catch (error: unknown) {
+                lemonToast.error(errorDetail(error) ?? 'Could not create the service account')
+            } finally {
+                actions.createServiceAccountComplete()
+            }
+        },
+        deleteServiceAccount: async ({ accountId }) => {
+            const account = values.serviceAccounts.find((candidate) => candidate.id === accountId)
+            try {
+                await mcpGatewayServiceAccountsDestroy(currentProjectId(), accountId)
+                actions.loadServiceAccountsSuccess(
+                    values.serviceAccounts.filter((candidate) => candidate.id !== accountId)
+                )
+                lemonToast.success(`${account?.name ?? 'Service account'} deleted`)
+            } catch (error: unknown) {
+                lemonToast.error(errorDetail(error) ?? `Could not delete ${account?.name ?? 'this service account'}`)
+            } finally {
+                actions.deleteServiceAccountComplete(accountId)
             }
         },
         setAgentServerAccess: async ({ accountId, serverId, enabled, scope, policies }) => {

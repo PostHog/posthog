@@ -15,6 +15,7 @@ from products.mcp_store.backend.facade.api import (
     get_active_installations,
     get_installations_for_sandbox,
     get_sandbox_mcp_server_names,
+    get_service_account_summary,
 )
 from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.mcp_store.backend.models import (
@@ -240,6 +241,16 @@ class TestGetInstallationsForSandbox(BaseTest):
         account = get_built_in_agent(self.team.id, "support")
         assert account is not None
         return account
+
+    def _create_custom_account(self, *, status: str = "active") -> MCPServiceAccount:
+        return MCPServiceAccount.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="SRE",
+            handle="agent-sre",
+            kind="custom",
+            status=status,
+            token_hash=f"test-token-hash-{status}",
+        )
 
     def test_shared_always_returned(self) -> None:
         shared = self._create_installation(scope="shared", display_name="Shared Server")
@@ -826,3 +837,81 @@ class TestGetInstallationsForSandbox(BaseTest):
         results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=include_personal)
 
         assert (len(results) == 1) == expected_included
+
+    def test_custom_service_account_mounts_only_its_team_scoped_grant(self) -> None:
+        account = self._create_custom_account()
+        server = self._create_gateway_server(name="SRE server", url="https://sre.example.com/mcp")
+        grant_installation = self._create_installation(
+            scope="personal", gateway_server=server, url=server.url, display_name="SRE"
+        )
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user=self.user,
+            service_account=account,
+            gateway_server=server,
+            installation=grant_installation,
+            granted_by=self.user,
+            scope="team",
+        )
+        # A personal installation the same user owns on another server must never leak in
+        # through a stamped service account run — only the account's own grants mount.
+        self._create_installation(scope="personal", url="https://personal-only.example.com/mcp")
+
+        results = get_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_service_account_id=str(account.id),
+        )
+
+        assert [r.id for r in results] == [str(grant_installation.id)]
+
+    def test_missing_or_paused_service_account_mounts_nothing(self) -> None:
+        self._create_installation(scope="shared")
+        paused_account = self._create_custom_account(status="paused")
+
+        missing_results = get_installations_for_sandbox(
+            self.team.id, task_service_account_id="00000000-0000-0000-0000-000000000000"
+        )
+        paused_results = get_installations_for_sandbox(self.team.id, task_service_account_id=str(paused_account.id))
+
+        assert missing_results == []
+        assert paused_results == []
+
+    def test_service_account_stamp_ignored_until_gateway_flag_rollout(self) -> None:
+        self.enforcement_enabled_mock.return_value = False
+        account = self._create_custom_account()
+        shared = self._create_installation(scope="shared")
+
+        results = get_installations_for_sandbox(
+            self.team.id, task_service_account_id=str(account.id), user_id=self.user.id
+        )
+
+        # Falls back to legacy team-shared resolution instead of the (unrolled-out) agent lane.
+        assert [r.id for r in results] == [str(shared.id)]
+
+
+class TestGetServiceAccountSummary(BaseTest):
+    def test_returns_none_for_an_unknown_id(self) -> None:
+        assert get_service_account_summary(self.team.id, "00000000-0000-0000-0000-000000000000") is None
+
+    def test_returns_none_for_a_malformed_id(self) -> None:
+        assert get_service_account_summary(self.team.id, "not-a-uuid") is None
+
+    def test_returns_the_summary_for_an_existing_account(self) -> None:
+        account = MCPServiceAccount.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="SRE",
+            handle="agent-sre",
+            kind="custom",
+            status="paused",
+            token_hash="test-token-hash",
+        )
+
+        summary = get_service_account_summary(self.team.id, str(account.id))
+
+        assert summary is not None
+        assert summary.id == str(account.id)
+        assert summary.name == "SRE"
+        assert summary.kind == "custom"
+        assert summary.status == "paused"

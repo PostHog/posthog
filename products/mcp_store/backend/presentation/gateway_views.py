@@ -6,13 +6,15 @@ rules, and the audit log. Personal/shared credentials stay on
 `MCPServerInstallation` (see views.py); this module only adds the team layer.
 """
 
+import uuid
 from collections.abc import Sequence
 from functools import cached_property
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import Case, Count, IntegerField, Prefetch, Q, QuerySet, When, prefetch_related_objects
+from django.db.models import Case, Count, IntegerField, Prefetch, Q, QuerySet, Value, When, prefetch_related_objects
 from django.utils import timezone
+from django.utils.text import slugify
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -31,6 +33,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.utils import hash_key_value
 from posthog.permissions import DenyMCPBuiltInAgentOAuth
 
 from ..agents import built_in_agent_handles, get_built_in_agent_spec, sync_built_in_agents
@@ -76,6 +79,25 @@ AGENT_SERVER_CONNECTION_STATE_CHOICES = [
 
 def get_gateway_config(team_id: int) -> TeamMCPGatewayConfig | None:
     return TeamMCPGatewayConfig.objects.for_team(team_id).first()
+
+
+def _unique_custom_handle(team_id: int, name: str) -> str:
+    """A stable, unique-per-team handle for a new custom service account, derived from its name.
+
+    Built-in agents own the short, unprefixed handles ("posthog-support"), so a custom
+    account's handle is namespaced under "agent-" to keep the two spaces from colliding.
+    """
+    base = slugify(name) or "agent"
+    handle = f"agent-{base}"
+    existing = set(
+        MCPServiceAccount.objects.for_team(team_id).filter(handle__startswith=handle).values_list("handle", flat=True)
+    )
+    if handle not in existing:
+        return handle
+    suffix = 2
+    while f"{handle}-{suffix}" in existing:
+        suffix += 1
+    return f"{handle}-{suffix}"
 
 
 def _ordered_gateway_tool_rows(
@@ -605,7 +627,9 @@ class MCPServiceAccountServerSerializer(serializers.Serializer):
 
 
 class MCPServiceAccountSerializer(serializers.ModelSerializer):
-    agent_key = serializers.SerializerMethodField(help_text="Stable PostHog agent identifier.")
+    agent_key = serializers.SerializerMethodField(
+        help_text="Stable identifier for a built-in PostHog agent. Null for a custom service account."
+    )
     server_ids = serializers.SerializerMethodField(help_text="Gateway servers configured for this agent.")
     servers = serializers.SerializerMethodField(
         help_text="Credential-safe summaries of the gateway servers configured for this agent."
@@ -619,6 +643,7 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
             "description",
             "handle",
             "agent_key",
+            "kind",
             "status",
             "server_ids",
             "servers",
@@ -632,21 +657,24 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
             "description",
             "handle",
             "agent_key",
+            "kind",
             "status",
             "last_active_at",
             "created_at",
             "updated_at",
         ]
         extra_kwargs = {
-            "handle": {"help_text": "Stable internal identity handle for this PostHog agent."},
+            "handle": {"help_text": "Stable internal identity handle for this agent."},
+            "kind": {"help_text": "'built_in' for PostHog's fixed agents, 'custom' for a team-created one."},
             "status": {"help_text": "active, or paused (all MCP access off)."},
             "last_active_at": {"help_text": "When the agent last made a call through the gateway."},
         }
 
-    @extend_schema_field(serializers.ChoiceField(choices=["support", "scout"]))
-    def get_agent_key(self, obj: MCPServiceAccount) -> str:
+    @extend_schema_field(serializers.ChoiceField(choices=["support", "scout"], allow_null=True))
+    def get_agent_key(self, obj: MCPServiceAccount) -> str | None:
+        # None for a custom service account: it has no fixed built-in spec to key off.
         spec = get_built_in_agent_spec(obj)
-        return spec.key if spec is not None else ""
+        return spec.key if spec is not None else None
 
     @extend_schema_field(serializers.ListField(child=serializers.UUIDField()))
     def get_server_ids(self, obj: MCPServiceAccount) -> list[str]:
@@ -683,11 +711,32 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
         return servers
 
 
+class MCPServiceAccountCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MCPServiceAccount
+        fields = ["name", "description"]
+        extra_kwargs = {
+            "name": {"help_text": "Name shown wherever this service account appears, e.g. 'SRE'."},
+            "description": {
+                "required": False,
+                "help_text": "What this service account is for. Shown next to its name in the gateway UI.",
+            },
+        }
+
+
 class MCPServiceAccountUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = MCPServiceAccount
-        fields = ["status"]
+        fields = ["name", "description", "status"]
         extra_kwargs = {
+            "name": {
+                "required": False,
+                "help_text": "New name. Only settable for a custom (team-created) service account.",
+            },
+            "description": {
+                "required": False,
+                "help_text": "New description. Only settable for a custom (team-created) service account.",
+            },
             "status": {"required": False, "help_text": "active, or paused (all MCP access off)."},
         }
 
@@ -1206,18 +1255,24 @@ class MCPServiceAccountViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
     mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    """PostHog's built-in agents and their MCP access grants.
+    """PostHog's built-in agents, plus this team's custom service accounts, and
+    their MCP access grants.
 
-    The catalog is fixed. Projects can pause an agent's MCP access and grant or
-    revoke servers, but cannot create, rename, rotate, or delete agents.
+    The built-in catalog (support, scout) is fixed: projects can pause an
+    agent's MCP access and grant or revoke servers, but cannot rename, rotate,
+    or delete a built-in agent. A custom service account is fully owned by the
+    team: create one (e.g. "SRE"), grant it connectors, rename or pause it, or
+    delete it once it's no longer used.
     """
 
     scope_object = "project"
     scope_object_read_actions = ["list", "retrieve"]
-    scope_object_write_actions = ["update", "partial_update", "access"]
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "access"]
     serializer_class = MCPServiceAccountSerializer
     permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
     queryset = MCPServiceAccount.objects.unscoped()
@@ -1241,12 +1296,16 @@ class MCPServiceAccountViewSet(
     def safely_get_queryset(self, queryset: QuerySet[MCPServiceAccount]) -> QuerySet[MCPServiceAccount]:
         catalog_order = Case(
             *(When(id=account.id, then=position) for position, account in enumerate(self._synced_built_in_accounts)),
+            default=Value(len(self._synced_built_in_accounts)),
             output_field=IntegerField(),
         )
-        accounts_queryset = MCPServiceAccount.objects.for_team(self.team_id).filter(handle__in=built_in_agent_handles())
+        accounts_queryset = MCPServiceAccount.objects.for_team(self.team_id).filter(
+            Q(handle__in=built_in_agent_handles()) | Q(kind="custom")
+        )
         if self.action in ("list", "retrieve"):
             accounts_queryset = accounts_queryset.prefetch_related(self._server_access_prefetch())
-        return accounts_queryset.order_by(catalog_order)
+        # Built-ins keep the catalog's fixed order; custom accounts follow, alphabetically.
+        return accounts_queryset.order_by(catalog_order, "name")
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         if self.action == "access" and isinstance(request.successful_authenticator, SessionAuthentication):
@@ -1254,12 +1313,54 @@ class MCPServiceAccountViewSet(
         return None
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self.action == "create":
+            return MCPServiceAccountCreateSerializer
         if self.action in ("update", "partial_update"):
             return MCPServiceAccountUpdateSerializer
         return MCPServiceAccountSerializer
 
+    @extend_schema(
+        request=MCPServiceAccountCreateSerializer,
+        responses={201: OpenApiResponse(response=MCPServiceAccountSerializer)},
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The write shape (name, description) differs from the read shape (adds id, kind,
+        # status, grants, ...), so the default CreateModelMixin response — which re-serializes
+        # through the write serializer — would omit the id the caller needs. Serialize the
+        # saved account with the read serializer instead.
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        account = cast(MCPServiceAccount, serializer.instance)
+        output = MCPServiceAccountSerializer(account, context=self.get_serializer_context())
+        headers = self.get_success_headers(output.data)
+        return Response(output.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        self._require_agent_access_manager()
+        account = cast(
+            MCPServiceAccount,
+            serializer.save(
+                team_id=self.team_id,
+                kind="custom",
+                handle=_unique_custom_handle(self.team_id, serializer.validated_data["name"]),
+                token_hash=hash_key_value(f"custom-mcp-agent:{self.team_id}:{uuid.uuid4()}"),
+                created_by=cast(User, self.request.user),
+            ),
+        )
+        report_user_action(
+            cast(User, self.request.user),
+            "mcp_gateway agent created",
+            properties={"handle": account.handle},
+            team=self.team,
+            request=self.request,
+        )
+
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         self._require_project_admin()
+        instance = cast(MCPServiceAccount, serializer.instance)
+        if instance.kind != "custom" and set(serializer.validated_data) - {"status"}:
+            raise serializers.ValidationError("Only status can be changed on a built-in agent.")
         account = cast(MCPServiceAccount, serializer.save())
         report_user_action(
             cast(User, self.request.user),
@@ -1268,6 +1369,19 @@ class MCPServiceAccountViewSet(
             team=self.team,
             request=self.request,
         )
+
+    def perform_destroy(self, instance: MCPServiceAccount) -> None:
+        self._require_project_admin()
+        if instance.kind != "custom":
+            raise serializers.ValidationError("Built-in agents can't be deleted.")
+        report_user_action(
+            cast(User, self.request.user),
+            "mcp_gateway agent deleted",
+            properties={"handle": instance.handle},
+            team=self.team,
+            request=self.request,
+        )
+        instance.delete()
 
     @validated_request(
         request_serializer=ServiceAccountAccessUpdateSerializer,

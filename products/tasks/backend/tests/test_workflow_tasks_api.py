@@ -220,6 +220,52 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
+    def _create_service_account(self, *, status_: str = "active"):
+        from products.mcp_store.backend.models import MCPServiceAccount
+
+        return MCPServiceAccount.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="SRE",
+            handle="agent-sre",
+            kind="custom",
+            status=status_,
+            token_hash=f"test-token-hash-{status_}",
+        )
+
+    def test_accepts_a_service_account_and_stamps_the_task(self) -> None:
+        account = self._create_service_account()
+
+        response = self._post({"service_account": str(account.id)})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.mcp_service_account_id == str(account.id)
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        # No connectors snapshot: the service account's own grants back the run instead.
+        assert run.state["config_snapshot"]["connectors"]["mcp_installation_ids"] == []
+
+    def test_rejects_a_paused_service_account(self) -> None:
+        account = self._create_service_account(status_="paused")
+
+        response = self._post({"service_account": str(account.id)})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+
+    def test_rejects_an_unknown_service_account(self) -> None:
+        response = self._post({"service_account": str(uuid4())})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+
+    def test_service_account_and_connectors_are_mutually_exclusive(self) -> None:
+        account = self._create_service_account()
+
+        response = self._post({"service_account": str(account.id), "connectors": ["inst-1"]})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+
     @parameterized.expand(
         [
             ("no_header", "none"),

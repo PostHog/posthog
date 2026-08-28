@@ -697,7 +697,9 @@ def _refresh_sandbox_mcp(
 
     scope = sandbox_identity_scope(run_id, state)
     bound_user_id = get_sandbox_mcp_session_user(scope)
-    is_built_in_agent_task = task_run.task.mcp_builtin_agent_key is not None
+    is_built_in_agent_task = (
+        task_run.task.mcp_builtin_agent_key is not None or task_run.task.mcp_service_account_id is not None
+    )
     if bound_user_id == actor_user.id and not is_built_in_agent_task:
         logger.info("refresh_mcp_skipped_within_interval", run_id=run_id, user_id=actor_user.id)
         return None
@@ -736,11 +738,12 @@ def _refresh_sandbox_mcp(
         token=access_token,
         team_id=task_run.team_id,
         user_id=actor_user.id,
-        include_personal=not task_run.task.internal,
+        include_personal=not task_run.task.internal and task_run.task.mcp_service_account_id is None,
         interaction_origin=(state or {}).get("interaction_origin"),
         allowed_installation_ids=loop_mcp_installation_allowlist(state),
         origin_product=task_run.task.origin_product,
         task_agent_key=task_run.task.mcp_builtin_agent_key,
+        task_service_account_id=task_run.task.mcp_service_account_id,
         credential_owner_id=task_run.task.mcp_credential_owner_id,
         allowed_gateway_server_ids=task_run.task.mcp_gateway_server_allowlist,
     )

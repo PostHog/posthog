@@ -148,10 +148,11 @@ def create_oauth_access_token(
         "application": _oauth_application_for_task(task),
         "sandbox_task_id": task.id,
     }
-    if task.origin_product in {
+    agent_lane_origin = task.origin_product in {
         Task.OriginProduct.SIGNALS_SCOUT,
         Task.OriginProduct.SUPPORT_REPLY,
-    } and is_builtin_agent_enforcement_enabled(task.team_id):
+    } or (task.origin_product == Task.OriginProduct.WORKFLOW and task.mcp_service_account_id is not None)
+    if agent_lane_origin and is_builtin_agent_enforcement_enabled(task.team_id):
         # This scope only removes access to the human MCP Store surface. Add it
         # even when a legacy task lacks trusted provenance so an old spoofed
         # origin fails closed instead of inheriting its creator's connections.

@@ -334,6 +334,7 @@ export interface stepDelayLogicActions {
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_service_account'
                                   }[]
                                 | undefined
                             name: string
@@ -642,6 +643,7 @@ export interface stepDelayLogicActions {
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_service_account'
                                   }[]
                                 | undefined
                             name: string

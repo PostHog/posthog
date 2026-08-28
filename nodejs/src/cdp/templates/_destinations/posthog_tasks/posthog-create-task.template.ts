@@ -37,7 +37,9 @@ if (not empty(inputs.repository)) {
   payload.repository := inputs.repository
 }
 
-if (not empty(inputs.connectors)) {
+if (not empty(inputs.service_account)) {
+  payload.service_account_id := inputs.service_account
+} else if (not empty(inputs.connectors)) {
   payload.connectors := inputs.connectors
 }
 
@@ -109,13 +111,22 @@ return response.body
                 'GitHub repository the agent works in, e.g. your-org/your-repo. Leave empty for no repository.',
         },
         {
-            key: 'connectors',
-            type: 'task_mcp_installations',
-            label: 'Connectors',
+            key: 'service_account',
+            type: 'task_service_account',
+            label: 'Service account',
             secret: false,
             required: false,
             description:
-                'Connectors from the MCP store the agent can use. Team-shared connections and the workflow creator’s own connections are available.',
+                'Run the agent as this service account. It can only use connectors granted to it, never a team member’s personal connections. Set this instead of connectors below.',
+        },
+        {
+            key: 'connectors',
+            type: 'task_mcp_installations',
+            label: 'Connectors (deprecated)',
+            secret: false,
+            required: false,
+            description:
+                'Deprecated: use a service account instead. Connectors from the MCP store the agent can use. Team-shared connections and the workflow creator’s own connections are available. Ignored when a service account is set.',
         },
         {
             key: 'posthog_mcp_scopes',

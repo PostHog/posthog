@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconArrowLeft, IconClock, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSwitch, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, LemonSwitch, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -58,6 +58,7 @@ export function GatewayAgentScene({
         allServers,
         allServersLoading,
         currentUserId,
+        deletingServiceAccountIds,
         recentCalls,
         recentCallsLoading,
         sharedServers,
@@ -65,7 +66,8 @@ export function GatewayAgentScene({
         unsharedServers,
         visibleRecentCalls,
     } = useValues(gatewayAgentLogic)
-    const { setAgentServerAccess, showMoreRecentCalls, toggleAccountStatus } = useActions(gatewayAgentLogic)
+    const { setAgentServerAccess, showMoreRecentCalls, toggleAccountStatus, deleteServiceAccount } =
+        useActions(gatewayAgentLogic)
 
     if (!account && (!accountInitialized || accountLoading)) {
         return (
@@ -132,6 +134,37 @@ export function GatewayAgentScene({
                 >
                     {paused ? 'Resume agent' : 'Pause agent'}
                 </LemonButton>
+                {account.kind === 'custom' && (
+                    <LemonButton
+                        type="tertiary"
+                        status="danger"
+                        loading={deletingServiceAccountIds.has(account.id)}
+                        onClick={() =>
+                            LemonDialog.open({
+                                title: `Delete ${account.name}?`,
+                                description: (
+                                    <div className="max-w-120">
+                                        This removes {account.name} and every grant made to it. Any workflow that runs a
+                                        task as this service account will stop working until it's set to a different
+                                        one.
+                                    </div>
+                                ),
+                                secondaryButton: { type: 'secondary', children: 'Cancel' },
+                                primaryButton: {
+                                    type: 'primary',
+                                    status: 'danger',
+                                    children: 'Delete',
+                                    onClick: () => {
+                                        deleteServiceAccount(account.id)
+                                        onBack ? onBack() : router.actions.push(urls.mcpGatewayTab('team'))
+                                    },
+                                },
+                            })
+                        }
+                    >
+                        Delete
+                    </LemonButton>
+                )}
             </div>
 
             <LemonDivider />

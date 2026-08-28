@@ -19,7 +19,7 @@ from products.mcp_store.backend.agents import (
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
-from products.mcp_store.backend.facade.contracts import ActiveInstallation
+from products.mcp_store.backend.facade.contracts import ActiveInstallation, ServiceAccountSummary
 from products.mcp_store.backend.gateway import (
     agent_grant_owner_label,
     agent_grant_proxy_path,
@@ -289,6 +289,7 @@ def get_installations_for_sandbox(
     include_personal: bool = False,
     task_origin: str | None = None,
     task_agent_key: str | None = None,
+    task_service_account_id: str | None = None,
     credential_owner_id: int | None = None,
     allowed_gateway_server_ids: list[str] | None = None,
 ) -> list[ActiveInstallation]:
@@ -317,6 +318,11 @@ def get_installations_for_sandbox(
     ``allowed_gateway_server_ids`` narrows the agent mounts to the listed
     gateway servers regardless of grant scope (a scout's per-scout selection);
     see ``_mounts_for_agent_run``. It only applies on the agent path.
+
+    ``task_service_account_id`` puts the run in the agent lane as a
+    team-created service account (a workflow task stamped with one): only that
+    account's grants mount, resolved exactly like a built-in agent's. A stamp
+    that no longer resolves to an active account mounts nothing.
     """
     try:
         base_queryset = MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True).select_related(
@@ -341,9 +347,26 @@ def get_installations_for_sandbox(
         if agent_key is not None and agent_account is not None and agent_account.status != "active":
             return []
 
+        # A task stamped with a service account runs in the agent lane
+        # unconditionally: the stamp is server-side state naming the identity
+        # the author chose, and mounting only that account's grants is strictly
+        # narrower than the legacy member resolution.
+        in_agent_lane = agent_key is not None
+        if not in_agent_lane and task_service_account_id is not None and is_builtin_agent_enforcement_enabled(team_id):
+            service_account_id = task_service_account_id
+            in_agent_lane = True
+            agent_account = _active_service_account(team_id, service_account_id)
+            if agent_account is None:
+                logger.warning(
+                    "Refusing MCP installations for a missing or paused service account",
+                    team_id=team_id,
+                    task_origin=task_origin,
+                )
+                return []
+
         installations: list[MCPServerInstallation] = []
         agent_mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]] = []
-        if agent_key is not None:
+        if in_agent_lane:
             if agent_account is not None:
                 if credential_owner_id is not None and not credential_owner_eligible(credential_owner_id, team_id):
                     # Grants survive offboarding, so an owner who was deactivated
@@ -378,7 +401,7 @@ def get_installations_for_sandbox(
         return []
 
     results: list[ActiveInstallation]
-    if agent_key is not None:
+    if in_agent_lane:
         results = (
             _agent_installation_infos(agent_account, agent_mounts, credential_owner_id)
             if agent_account is not None
@@ -401,7 +424,7 @@ def get_installations_for_sandbox(
         team_id=team_id,
         include_personal=include_personal,
         task_origin=task_origin,
-        has_trusted_agent_key=agent_key is not None,
+        has_trusted_agent_key=in_agent_lane,
     )
     return results
 
@@ -435,3 +458,32 @@ def get_sandbox_mcp_server_names(
             allowed_gateway_server_ids=allowed_gateway_server_ids,
         )
     ]
+
+
+def _parsed_service_account_id(service_account_id: str) -> uuid.UUID | None:
+    # Django's UUIDField raises its own ValidationError for a malformed string, not
+    # ValueError, so a bad id must be caught here rather than relying on the queryset lookup.
+    try:
+        return uuid.UUID(service_account_id)
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _active_service_account(team_id: int, service_account_id: str) -> MCPServiceAccount | None:
+    parsed = _parsed_service_account_id(service_account_id)
+    if parsed is None:
+        return None
+    return MCPServiceAccount.objects.for_team(team_id).filter(id=parsed, status="active").first()
+
+
+def get_service_account_summary(team_id: int, service_account_id: str) -> ServiceAccountSummary | None:
+    """The service account as other products see it, or None when the id doesn't
+    resolve on this team. Returns paused accounts too — callers gate on ``status``
+    themselves so they can word their own errors ("paused" vs "not found")."""
+    parsed = _parsed_service_account_id(service_account_id)
+    if parsed is None:
+        return None
+    account = MCPServiceAccount.objects.for_team(team_id).filter(id=parsed).first()
+    if account is None:
+        return None
+    return ServiceAccountSummary(id=str(account.id), name=account.name, kind=account.kind, status=account.status)

@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { GatewayMemberSummaryApi, MCPGatewayServerApi, MCPServiceAccountApi } from '../generated/api.schemas'
 import { toProfileUser } from './gatewayUtils'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
+import { NewServiceAccountModal } from './NewServiceAccountModal'
 
 const MEMBER_PREVIEW_LIMIT = 10
 
@@ -66,8 +67,9 @@ export function GatewayTeamAndAgents({ onOpenAgent, onOpenMember }: GatewayTeamA
         serviceAccountsLoading,
         membersLoading,
         accountStatusLoadingIds,
+        canManageAgentAccess,
     } = useValues(mcpGatewayLogic)
-    const { toggleAccountStatus } = useActions(mcpGatewayLogic)
+    const { toggleAccountStatus, openNewServiceAccountModal } = useActions(mcpGatewayLogic)
     const { memberSearch, membersExpanded } = useValues(gatewayTeamAndAgentsLogic)
     const { setMemberSearch, toggleMembersExpanded } = useActions(gatewayTeamAndAgentsLogic)
     const normalizedMemberSearch = memberSearch.trim().toLowerCase()
@@ -104,11 +106,23 @@ export function GatewayTeamAndAgents({ onOpenAgent, onOpenMember }: GatewayTeamA
             </div>
 
             <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                    <h3 className="mb-0">Agents</h3>
-                    <LemonTag type="muted" size="small">
-                        {serviceAccounts.length}
-                    </LemonTag>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2">
+                        <h3 className="mb-0">Agents</h3>
+                        <LemonTag type="muted" size="small">
+                            {serviceAccounts.length}
+                        </LemonTag>
+                    </div>
+                    {canManageAgentAccess && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={openNewServiceAccountModal}
+                            data-attr="mcp-gateway-new-service-account"
+                        >
+                            New service account
+                        </LemonButton>
+                    )}
                 </div>
 
                 <div className="border rounded divide-y overflow-hidden bg-surface-primary">
@@ -263,6 +277,8 @@ export function GatewayTeamAndAgents({ onOpenAgent, onOpenMember }: GatewayTeamA
                     </LemonButton>
                 )}
             </div>
+
+            <NewServiceAccountModal />
         </div>
     )
 }

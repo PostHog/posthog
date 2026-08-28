@@ -515,6 +515,7 @@ export interface workflowLogicActions {
                                                         | 'task_mcp_installations'
                                                         | 'task_model'
                                                         | 'task_repository'
+                                                        | 'task_service_account'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1154,6 +1155,7 @@ export interface workflowLogicActions {
                                 | 'task_mcp_installations'
                                 | 'task_model'
                                 | 'task_repository'
+                                | 'task_service_account'
                         }[]
                       | null
                       | undefined
@@ -1362,6 +1364,7 @@ export interface workflowLogicActions {
                                                         | 'task_mcp_installations'
                                                         | 'task_model'
                                                         | 'task_repository'
+                                                        | 'task_service_account'
                                                 }[]
                                               | undefined
                                           name: string
@@ -2001,6 +2004,7 @@ export interface workflowLogicActions {
                                 | 'task_mcp_installations'
                                 | 'task_model'
                                 | 'task_repository'
+                                | 'task_service_account'
                         }[]
                       | null
                       | undefined
@@ -2180,6 +2184,7 @@ export interface workflowLogicActions {
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_service_account'
                                   }[]
                                 | undefined
                             name: string
@@ -2555,6 +2560,7 @@ export interface workflowLogicActions {
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_service_account'
                                   }[]
                                 | undefined
                             name: string

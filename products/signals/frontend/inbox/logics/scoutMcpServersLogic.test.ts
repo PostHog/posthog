@@ -7,6 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type {
+    AgentKeyEnumApi,
     ConnectionStateEnumApi,
     MCPServiceAccountApi,
     MCPServiceAccountServerApi,
@@ -49,7 +50,7 @@ function server(
 }
 
 function account(
-    agentKey: MCPServiceAccountApi['agent_key'],
+    agentKey: AgentKeyEnumApi,
     servers: MCPServiceAccountServerApi[],
     { status = 'active' }: { status?: MCPServiceAccountApi['status'] } = {}
 ): MCPServiceAccountApi {
@@ -59,6 +60,7 @@ function account(
         description: `${agentKey} agent`,
         handle: `svc-${agentKey}`,
         agent_key: agentKey,
+        kind: 'built_in',
         status,
         server_ids: servers.map(({ id }) => id),
         servers,

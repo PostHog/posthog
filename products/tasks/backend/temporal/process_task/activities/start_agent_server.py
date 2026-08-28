@@ -347,11 +347,14 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     """Whether a run may pull the task creator's *personal* MCP installations.
 
     Internal/autonomous runs (support reply, signals) must never pull a
-    resolved member's personal creds. Agent-specific grant filtering happens
-    in the MCP Store facade.
+    resolved member's personal creds. A task stamped with a service account
+    (a workflow's "Create AI task" action) mounts only that account's grants —
+    never the task creator's personal installs, since the whole point of the
+    stamp is that no teammate steering the run inherits the creator's access.
+    Agent-specific grant filtering happens in the MCP Store facade.
     User-initiated Code runs get shared + the creator's personal installs.
     """
-    return not task.internal
+    return not task.internal and task.mcp_service_account_id is None
 
 
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
@@ -416,6 +419,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
         origin_product=task.origin_product,
         task_agent_key=task.mcp_builtin_agent_key,
+        task_service_account_id=task.mcp_service_account_id,
         credential_owner_id=task.mcp_credential_owner_id,
         allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
     )

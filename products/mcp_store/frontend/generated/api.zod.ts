@@ -313,12 +313,50 @@ export const McpGatewayServersSetTemplateEnabledCreateBody = /* @__PURE__ */ zod
 })
 
 /**
- * PostHog's built-in agents and their MCP access grants.
+ * PostHog's built-in agents, plus this team's custom service accounts, and
+ * their MCP access grants.
  *
- * The catalog is fixed. Projects can pause an agent's MCP access and grant or
- * revoke servers, but cannot create, rename, rotate, or delete agents.
+ * The built-in catalog (support, scout) is fixed: projects can pause an
+ * agent's MCP access and grant or revoke servers, but cannot rename, rotate,
+ * or delete a built-in agent. A custom service account is fully owned by the
+ * team: create one (e.g. "SRE"), grant it connectors, rename or pause it, or
+ * delete it once it's no longer used.
  */
+export const mcpGatewayServiceAccountsCreateBodyNameMax = 200
+
+export const McpGatewayServiceAccountsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(mcpGatewayServiceAccountsCreateBodyNameMax)
+        .describe("Name shown wherever this service account appears, e.g. 'SRE'."),
+    description: zod
+        .string()
+        .optional()
+        .describe('What this service account is for. Shown next to its name in the gateway UI.'),
+})
+
+/**
+ * PostHog's built-in agents, plus this team's custom service accounts, and
+ * their MCP access grants.
+ *
+ * The built-in catalog (support, scout) is fixed: projects can pause an
+ * agent's MCP access and grant or revoke servers, but cannot rename, rotate,
+ * or delete a built-in agent. A custom service account is fully owned by the
+ * team: create one (e.g. "SRE"), grant it connectors, rename or pause it, or
+ * delete it once it's no longer used.
+ */
+export const mcpGatewayServiceAccountsUpdateBodyNameMax = 200
+
 export const McpGatewayServiceAccountsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(mcpGatewayServiceAccountsUpdateBodyNameMax)
+        .optional()
+        .describe('New name. Only settable for a custom (team-created) service account.'),
+    description: zod
+        .string()
+        .optional()
+        .describe('New description. Only settable for a custom (team-created) service account.'),
     status: zod
         .enum(['active', 'paused'])
         .describe('\* `active` - Active\n\* `paused` - Paused')
@@ -327,12 +365,27 @@ export const McpGatewayServiceAccountsUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * PostHog's built-in agents and their MCP access grants.
+ * PostHog's built-in agents, plus this team's custom service accounts, and
+ * their MCP access grants.
  *
- * The catalog is fixed. Projects can pause an agent's MCP access and grant or
- * revoke servers, but cannot create, rename, rotate, or delete agents.
+ * The built-in catalog (support, scout) is fixed: projects can pause an
+ * agent's MCP access and grant or revoke servers, but cannot rename, rotate,
+ * or delete a built-in agent. A custom service account is fully owned by the
+ * team: create one (e.g. "SRE"), grant it connectors, rename or pause it, or
+ * delete it once it's no longer used.
  */
+export const mcpGatewayServiceAccountsPartialUpdateBodyNameMax = 200
+
 export const McpGatewayServiceAccountsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(mcpGatewayServiceAccountsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('New name. Only settable for a custom (team-created) service account.'),
+    description: zod
+        .string()
+        .optional()
+        .describe('New description. Only settable for a custom (team-created) service account.'),
     status: zod
         .enum(['active', 'paused'])
         .describe('\* `active` - Active\n\* `paused` - Paused')

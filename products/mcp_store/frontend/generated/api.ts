@@ -26,6 +26,7 @@ import type {
     MCPServerInstallationApi,
     MCPServerInstallationToolApi,
     MCPServiceAccountApi,
+    MCPServiceAccountCreateApi,
     MCPServiceAccountUpdateApi,
     McpGatewayAuditCountsRetrieveParams,
     McpGatewayAuditListParams,
@@ -651,10 +652,14 @@ export const getMcpGatewayServiceAccountsListUrl = (
 }
 
 /**
- * PostHog's built-in agents and their MCP access grants.
+ * PostHog's built-in agents, plus this team's custom service accounts, and
+ * their MCP access grants.
  *
- * The catalog is fixed. Projects can pause an agent's MCP access and grant or
- * revoke servers, but cannot create, rename, rotate, or delete agents.
+ * The built-in catalog (support, scout) is fixed: projects can pause an
+ * agent's MCP access and grant or revoke servers, but cannot rename, rotate,
+ * or delete a built-in agent. A custom service account is fully owned by the
+ * team: create one (e.g. "SRE"), grant it connectors, rename or pause it, or
+ * delete it once it's no longer used.
  */
 export const mcpGatewayServiceAccountsList = async (
     projectId: string,
@@ -667,15 +672,46 @@ export const mcpGatewayServiceAccountsList = async (
     })
 }
 
+export const getMcpGatewayServiceAccountsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_gateway/service_accounts/`
+}
+
+/**
+ * PostHog's built-in agents, plus this team's custom service accounts, and
+ * their MCP access grants.
+ *
+ * The built-in catalog (support, scout) is fixed: projects can pause an
+ * agent's MCP access and grant or revoke servers, but cannot rename, rotate,
+ * or delete a built-in agent. A custom service account is fully owned by the
+ * team: create one (e.g. "SRE"), grant it connectors, rename or pause it, or
+ * delete it once it's no longer used.
+ */
+export const mcpGatewayServiceAccountsCreate = async (
+    projectId: string,
+    mCPServiceAccountCreateApi: MCPServiceAccountCreateApi,
+    options?: RequestInit
+): Promise<MCPServiceAccountApi> => {
+    return apiMutator<MCPServiceAccountApi>(getMcpGatewayServiceAccountsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(mCPServiceAccountCreateApi),
+    })
+}
+
 export const getMcpGatewayServiceAccountsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/mcp_gateway/service_accounts/${id}/`
 }
 
 /**
- * PostHog's built-in agents and their MCP access grants.
+ * PostHog's built-in agents, plus this team's custom service accounts, and
+ * their MCP access grants.
  *
- * The catalog is fixed. Projects can pause an agent's MCP access and grant or
- * revoke servers, but cannot create, rename, rotate, or delete agents.
+ * The built-in catalog (support, scout) is fixed: projects can pause an
+ * agent's MCP access and grant or revoke servers, but cannot rename, rotate,
+ * or delete a built-in agent. A custom service account is fully owned by the
+ * team: create one (e.g. "SRE"), grant it connectors, rename or pause it, or
+ * delete it once it's no longer used.
  */
 export const mcpGatewayServiceAccountsRetrieve = async (
     projectId: string,
@@ -693,10 +729,14 @@ export const getMcpGatewayServiceAccountsUpdateUrl = (projectId: string, id: str
 }
 
 /**
- * PostHog's built-in agents and their MCP access grants.
+ * PostHog's built-in agents, plus this team's custom service accounts, and
+ * their MCP access grants.
  *
- * The catalog is fixed. Projects can pause an agent's MCP access and grant or
- * revoke servers, but cannot create, rename, rotate, or delete agents.
+ * The built-in catalog (support, scout) is fixed: projects can pause an
+ * agent's MCP access and grant or revoke servers, but cannot rename, rotate,
+ * or delete a built-in agent. A custom service account is fully owned by the
+ * team: create one (e.g. "SRE"), grant it connectors, rename or pause it, or
+ * delete it once it's no longer used.
  */
 export const mcpGatewayServiceAccountsUpdate = async (
     projectId: string,
@@ -717,10 +757,14 @@ export const getMcpGatewayServiceAccountsPartialUpdateUrl = (projectId: string, 
 }
 
 /**
- * PostHog's built-in agents and their MCP access grants.
+ * PostHog's built-in agents, plus this team's custom service accounts, and
+ * their MCP access grants.
  *
- * The catalog is fixed. Projects can pause an agent's MCP access and grant or
- * revoke servers, but cannot create, rename, rotate, or delete agents.
+ * The built-in catalog (support, scout) is fixed: projects can pause an
+ * agent's MCP access and grant or revoke servers, but cannot rename, rotate,
+ * or delete a built-in agent. A custom service account is fully owned by the
+ * team: create one (e.g. "SRE"), grant it connectors, rename or pause it, or
+ * delete it once it's no longer used.
  */
 export const mcpGatewayServiceAccountsPartialUpdate = async (
     projectId: string,
@@ -733,6 +777,31 @@ export const mcpGatewayServiceAccountsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedMCPServiceAccountUpdateApi),
+    })
+}
+
+export const getMcpGatewayServiceAccountsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/mcp_gateway/service_accounts/${id}/`
+}
+
+/**
+ * PostHog's built-in agents, plus this team's custom service accounts, and
+ * their MCP access grants.
+ *
+ * The built-in catalog (support, scout) is fixed: projects can pause an
+ * agent's MCP access and grant or revoke servers, but cannot rename, rotate,
+ * or delete a built-in agent. A custom service account is fully owned by the
+ * team: create one (e.g. "SRE"), grant it connectors, rename or pause it, or
+ * delete it once it's no longer used.
+ */
+export const mcpGatewayServiceAccountsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMcpGatewayServiceAccountsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

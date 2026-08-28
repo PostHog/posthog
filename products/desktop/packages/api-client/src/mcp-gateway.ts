@@ -15,6 +15,12 @@ export type McpGatewayScopeType = "team" | "member" | "agent";
  */
 export type McpAgentGrantScope = "personal" | "team";
 export type McpServiceAccountStatus = "active" | "paused";
+/**
+ * "built_in" is one of PostHog's fixed agents (support, scout); "custom" is a
+ * team-created service account, e.g. one a workflow's "Create AI task" step
+ * runs as.
+ */
+export type McpServiceAccountKind = "built_in" | "custom";
 export type McpAuditDecision = "auto" | "approved" | "pending" | "blocked";
 export type McpAuditQuickFilter = "all" | "agents" | "approvals" | "blocked";
 export type McpPolicyDecidedBy =
@@ -135,6 +141,12 @@ export interface McpServiceAccount {
   /** Stable identity handle the agent authenticates as, e.g. posthog-support. */
   handle: string;
   status: McpServiceAccountStatus;
+  /**
+   * Optional: not present on every response yet from this hand-maintained
+   * mirror. Absent means "unknown", not "built-in" — check for undefined
+   * before branching on kind.
+   */
+  kind?: McpServiceAccountKind;
   /** Masked bearer token; the full token is only shown once. */
   token_mask: string;
   server_ids: string[];

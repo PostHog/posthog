@@ -64,11 +64,17 @@ MCPBuiltInAgentKey = Literal["support", "scout"]
 MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
 MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
 MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
+MCP_SERVICE_ACCOUNT_STATE_KEY = "mcp_service_account_id"
 TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
 }
+# Origins allowed to carry a `mcp_service_account_id` stamp — a workflow's "Create AI task"
+# action, the only caller that lets an author pick a team-created service account. Any other
+# origin's stamp is untrusted and ignored, so a spoofed or forged state key on a different
+# task type can never borrow a service account's grants.
+MCP_SERVICE_ACCOUNT_ELIGIBLE_ORIGINS = frozenset({"workflow"})
 
 
 def resolve_schema(schema: type[BaseModel] | dict) -> dict:
@@ -541,6 +547,18 @@ class Task(DeletedMetaFields, models.Model):
             return None
         return [str(i) for i in ids] if isinstance(ids, list) else []
 
+    @property
+    def mcp_service_account_id(self) -> str | None:
+        """The team-created service account this run mounts as, if the task's origin
+        is trusted to carry one (currently only WORKFLOW — see
+        `MCP_SERVICE_ACCOUNT_ELIGIBLE_ORIGINS`). An untrusted or unstamped origin
+        always resolves to None, so a forged state key on another task type can never
+        borrow a service account's grants."""
+        if self.origin_product not in MCP_SERVICE_ACCOUNT_ELIGIBLE_ORIGINS:
+            return None
+        value = (self.state or {}).get(MCP_SERVICE_ACCOUNT_STATE_KEY)
+        return value if isinstance(value, str) else None
+
     def capture_event(
         self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
     ) -> None:
@@ -823,6 +841,7 @@ class Task(DeletedMetaFields, models.Model):
         client_provenance: TaskClientProvenance | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_service_account_id: str | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -903,6 +922,8 @@ class Task(DeletedMetaFields, models.Model):
         expected_agent_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(origin_product)
         if mcp_builtin_agent_key is not None and mcp_builtin_agent_key != expected_agent_key:
             raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
+        if mcp_service_account_id is not None and origin_product not in MCP_SERVICE_ACCOUNT_ELIGIBLE_ORIGINS:
+            raise ValueError(f"Service account id can't be set on a {origin_product!r} task")
 
         initial_state: dict[str, Any] = {}
         if mcp_builtin_agent_key:
@@ -913,6 +934,8 @@ class Task(DeletedMetaFields, models.Model):
                 initial_state[MCP_CREDENTIAL_OWNER_STATE_KEY] = mcp_credential_owner_id
             if mcp_gateway_server_ids is not None:
                 initial_state[MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY] = [str(i) for i in mcp_gateway_server_ids]
+        if mcp_service_account_id is not None:
+            initial_state[MCP_SERVICE_ACCOUNT_STATE_KEY] = mcp_service_account_id
 
         task = Task.objects.create(
             team=team,
@@ -1147,6 +1170,7 @@ class Task(DeletedMetaFields, models.Model):
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_service_account_id: str | None = None,
     ) -> "Task":
         from products.tasks.backend.logic.services.workflow_dispatch import (
             WorkflowDispatchOptions,
@@ -1192,6 +1216,7 @@ class Task(DeletedMetaFields, models.Model):
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            mcp_service_account_id=mcp_service_account_id,
         )
 
         run_extra_state = dict(extra_state or {})
