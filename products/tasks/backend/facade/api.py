@@ -3660,8 +3660,19 @@ def read_task_attachment(
     if storage_path is None:
         if not file_name:
             return None
-        for run in TaskRun.objects.filter(task_id=task.id, team_id=team_id).order_by("-created_at"):
-            for artifact in reversed(run.artifacts or []):
+        from products.tasks.backend.logic.services.task_comments import (  # noqa: PLC0415 — matches the lazy task_comments imports elsewhere in this module
+            LEGACY_TASK_RUN_LIMIT,
+        )
+
+        # Project only the artifact manifests and bound the scan to the newest runs, matching
+        # list_artifacts. Loading whole TaskRun rows decrypts an encrypted column per row.
+        manifests = (
+            TaskRun.objects.filter(task_id=task.id, team_id=team_id)
+            .order_by("-created_at", "-id")
+            .values_list("artifacts", flat=True)[:LEGACY_TASK_RUN_LIMIT]
+        )
+        for manifest in manifests:
+            for artifact in reversed(manifest or []):
                 if artifact.get("name") == file_name and isinstance(artifact.get("storage_path"), str):
                     storage_path = artifact["storage_path"]
                     break
