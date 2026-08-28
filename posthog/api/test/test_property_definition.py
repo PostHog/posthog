@@ -11,11 +11,11 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ActivityLog, EventDefinition, EventProperty, Organization, PropertyDefinition, Team
+from posthog.taxonomy.definition_listing import is_query_canceled
 from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionQuerySerializer,
     PropertyDefinitionViewSet,
     QueryContext,
-    is_query_canceled,
 )
 
 
@@ -1053,7 +1053,7 @@ class TestPropertyDefinitionListStatementTimeout(APIBaseTest):
         with (
             patch.object(QueryContext, "as_count_sql", return_value=slow_count_sql),
             patch(
-                "posthog.taxonomy.property_definition_api.PROPERTY_DEFINITIONS_STATEMENT_TIMEOUT_MS",
+                "posthog.taxonomy.property_definition_api.DEFINITION_LIST_STATEMENT_TIMEOUT_MS",
                 250,
             ),
         ):

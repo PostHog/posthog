@@ -5,7 +5,7 @@ from collections import defaultdict
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, connections, transaction
 from django.db.models import Manager, Prefetch
 from django.http import Http404
 from django.utils import timezone
@@ -14,7 +14,9 @@ import orjson
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_serializer
+from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, status, viewsets
+from rest_framework.exceptions import APIException
 
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
 from posthog.api.event_definition_generators.golang import GolangGenerator
@@ -43,10 +45,69 @@ from posthog.models.activity_logging.activity_log import Detail, dict_changes_be
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
+from posthog.taxonomy.definition_listing import (
+    DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
+    NotCountingLimitOffsetPaginator,
+    definition_read_db_alias,
+    is_query_canceled,
+)
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
+
+EVENT_DEFINITIONS_TIMED_OUT_COUNTER = Counter(
+    "event_definitions_list_timed_out_total",
+    "Event definition list requests cancelled by the statement timeout.",
+)
+
+
+class EventDefinitionsTimedOut(APIException):
+    # The taxonomic filter renders a failed list the same way as an empty one, so a generic 5xx here
+    # reads to the user as "this project has no events". A stable code lets the client tell a
+    # timed-out list apart from any other server error and offer a retry instead.
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "event_definitions_timeout"
+    default_detail = "Loading events took too long. Try a narrower search, or try again in a moment."
+
+
+def read_db_alias() -> str:
+    return definition_read_db_alias(EventDefinition)
+
+
+def _event_definitions_from_where(is_enterprise: bool, event_type: EventDefinitionType, conditions: str) -> str:
+    """Build the FROM and WHERE clauses shared by the page query and the count query.
+
+    The two queries have to describe the same row set, so they are built from one place.
+    """
+    # A LEFT JOIN, not a FULL OUTER JOIN. `ee_enterpriseeventdefinition` is a multi-table-inheritance
+    # child whose primary key references `posthog_eventdefinition`, so it has no rows without a
+    # parent and the two joins select the same rows. The difference is in the plan: a FULL OUTER
+    # JOIN blocks the planner from pushing the project predicate below the join, because
+    # COALESCE(project_id, team_id) does not prove either column non-null, so `reduce_outer_joins`
+    # cannot reduce the join strength. The predicate then runs as a filter above a sequential scan
+    # of the whole tenant-shared table instead of as an index seek on `event_definition_proj_uniq`.
+    enterprise_join = (
+        "LEFT JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
+        if is_enterprise
+        else ""
+    )
+
+    if event_type == EventDefinitionType.EVENT_CUSTOM:
+        conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
+    if event_type == EventDefinitionType.EVENT_POSTHOG:
+        conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
+
+    # COALESCE(project_id, team_id) is the leading expression of the unique index
+    # `event_definition_proj_uniq`, so the planner can seek that index for the project scope and
+    # for any `name` equality in `conditions`. The equivalent form
+    # `project_id = X OR (project_id IS NULL AND team_id = X)` matches no index at all.
+    return f"""
+            FROM posthog_eventdefinition
+            {enterprise_join}
+            WHERE COALESCE(project_id, team_id) = %(project_id)s
+            {conditions}
+    """
 
 
 def create_event_definitions_sql(
@@ -54,6 +115,7 @@ def create_event_definitions_sql(
     is_enterprise: bool = False,
     conditions: str = "",
     order_expressions: Optional[list[tuple[str, Literal["ASC", "DESC"]]]] = None,
+    paginate: bool = False,
 ) -> str:
     if order_expressions is None:
         order_expressions = []
@@ -74,16 +136,7 @@ def create_event_definitions_sql(
     # Django relies on PK being present in the result set to tell if it's a saved instance
     event_definition_fields.add("id as pk")
 
-    enterprise_join = (
-        "FULL OUTER JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
-        if is_enterprise
-        else ""
-    )
-
-    if event_type == EventDefinitionType.EVENT_CUSTOM:
-        conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
-    if event_type == EventDefinitionType.EVENT_POSTHOG:
-        conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
+    from_where = _event_definitions_from_where(is_enterprise, event_type, conditions)
 
     additional_ordering = []
     for order_expression, order_direction in order_expressions:
@@ -92,17 +145,27 @@ def create_event_definitions_sql(
                 f"{order_expression} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}"
             )
 
-    # COALESCE(project_id, team_id) is the leading expression of the unique index
-    # `event_definition_proj_uniq`, so the planner can seek that index for the project scope and
-    # for any `name` equality in `conditions`. The equivalent form
-    # `project_id = X OR (project_id IS NULL AND team_id = X)` matches no index at all.
+    # The page has to be taken in SQL. A RawQuerySet has no `count()` and no lazy slicing, so any
+    # `len()` or `[a:b]` above this loads every row of the project into Python model instances
+    # first, which makes `?limit=1` cost the same as fetching the whole project.
+    paging = "LIMIT %(limit)s OFFSET %(offset)s" if paginate else ""
+
     return f"""
             SELECT {",".join(event_definition_fields)}
-            FROM posthog_eventdefinition
-            {enterprise_join}
-            WHERE COALESCE(project_id, team_id) = %(project_id)s
-            {conditions}
+            {from_where}
             ORDER BY {",".join(additional_ordering)}
+            {paging}
+        """
+
+
+def create_event_definitions_count_sql(
+    event_type: EventDefinitionType,
+    is_enterprise: bool = False,
+    conditions: str = "",
+) -> str:
+    return f"""
+            SELECT count(*)
+            {_event_definitions_from_where(is_enterprise, event_type, conditions)}
         """
 
 
@@ -289,6 +352,7 @@ class EventDefinitionViewSet(
     serializer_class = EventDefinitionSerializer
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
+    pagination_class = NotCountingLimitOffsetPaginator
     queryset = EventDefinition.objects.all()
 
     search_fields = ["name"]
@@ -361,30 +425,53 @@ class EventDefinitionViewSet(
             search_query = search_query + " AND posthog_eventdefinition.name = ANY(%(names)s)"
             params["names"] = list(set(names))
 
+        tags_list = self._tags_filter_from_request()
+        if tags_list:
+            # The tag match is a semi-join so that it cannot multiply rows, which keeps the count
+            # query and the page query in agreement without a DISTINCT.
+            search_query = search_query + (
+                " AND posthog_eventdefinition.id IN ("
+                " SELECT posthog_taggeditem.event_definition_id FROM posthog_taggeditem"
+                " INNER JOIN posthog_tag ON posthog_tag.id = posthog_taggeditem.tag_id"
+                " WHERE posthog_tag.name = ANY(%(tags_list)s))"
+            )
+            params["tags_list"] = tags_list
+
+        assert isinstance(self.paginator, NotCountingLimitOffsetPaginator)
+        limit = self.paginator.get_limit(self.request)
+        offset = self.paginator.get_offset(self.request)
+        params["limit"] = limit
+        params["offset"] = offset
+
+        alias = read_db_alias()
+        with connections[alias].cursor() as cursor:
+            cursor.execute(
+                create_event_definitions_count_sql(event_type, is_enterprise=EE_AVAILABLE, conditions=search_query),
+                params,
+            )
+            self.paginator.set_count(cursor.fetchone()[0])
+
         sql = create_event_definitions_sql(
             event_type,
             is_enterprise=EE_AVAILABLE,
             conditions=search_query,
             order_expressions=order_expressions,
+            paginate=limit is not None,
         )
-        queryset = event_definition_object_manager.raw(sql, params=params)
+        return event_definition_object_manager.raw(sql, params=params)
 
-        # Apply tags filter if provided
+    def _tags_filter_from_request(self) -> list[str]:
         tags = self.request.GET.get("tags")
-        if tags:
-            try:
-                tags_list = orjson.loads(tags)
-                if tags_list:
-                    # Convert raw queryset to regular queryset for filtering
-                    ids = [obj.id for obj in queryset]
-                    queryset = event_definition_object_manager.filter(  # type: ignore[assignment]
-                        id__in=ids, tagged_items__tag__name__in=tags_list
-                    ).distinct()
-            except (orjson.JSONDecodeError, TypeError):
-                # If the JSON is invalid, ignore the filter
-                pass
-
-        return queryset
+        if not tags:
+            return []
+        try:
+            tags_list = orjson.loads(tags)
+        except (orjson.JSONDecodeError, TypeError):
+            # If the JSON is invalid, ignore the filter
+            return []
+        if not isinstance(tags_list, list):
+            return []
+        return list({tag for tag in tags_list if isinstance(tag, str)})
 
     def _ordering_params_from_request(
         self,
@@ -450,6 +537,25 @@ class EventDefinitionViewSet(
         extensions={"x-product": "event_definitions"},
     )
     def list(self, request, *args, **kwargs):
+        # Both raw queries and the serialization that reads their rows have to sit inside this
+        # transaction, because SET LOCAL only lasts until it commits and the page fetch is a lazy
+        # RawQuerySet that the paginator does not evaluate until the objects are serialized.
+        alias = read_db_alias()
+        try:
+            with transaction.atomic(using=alias):
+                with connections[alias].cursor() as cursor:
+                    cursor.execute(
+                        "SET LOCAL statement_timeout = %s",
+                        [DEFINITION_LIST_STATEMENT_TIMEOUT_MS],
+                    )
+                return self._list(request, *args, **kwargs)
+        except OperationalError as error:
+            if not is_query_canceled(error):
+                raise
+            EVENT_DEFINITIONS_TIMED_OUT_COUNTER.inc()
+            raise EventDefinitionsTimedOut from error
+
+    def _list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         objects = page if page is not None else list(queryset)
