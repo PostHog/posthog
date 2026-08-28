@@ -13,6 +13,7 @@ import structlog
 import pytest_asyncio
 import botocore.exceptions
 
+from posthog.models.integration import Integration
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
 from products.batch_exports.backend.tests.temporal.utils.s3 import aws_role, create_test_client, delete_all_from_s3
@@ -109,6 +110,21 @@ async def object_storage_client(bucket_name):
 
 
 @pytest_asyncio.fixture
+async def s3_compatible_integration(ateam):
+    """An s3-compatible Integration pointing at the local object storage used by these tests."""
+    return await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.S3_COMPATIBLE,
+        integration_id=f"object-storage-{uuid.uuid4()}",
+        config={"name": "object-storage-test", "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT},
+        sensitive_config={
+            "aws_access_key_id": "object_storage_root_user",
+            "aws_secret_access_key": "object_storage_root_password",
+        },
+    )
+
+
+@pytest_asyncio.fixture
 async def s3_compatible_batch_export(
     ateam,
     s3_key_prefix,
@@ -118,16 +134,16 @@ async def s3_compatible_batch_export(
     exclude_events,
     temporal_client,
     file_format,
+    s3_compatible_integration,
 ):
     destination_data = {
         "type": "S3Compatible",
+        # Credentials and the endpoint URL come from the integration.
+        "integration_id": s3_compatible_integration.id,
         "config": {
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": s3_key_prefix,
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
             "compression": compression,
             "exclude_events": exclude_events,
             "file_format": file_format,

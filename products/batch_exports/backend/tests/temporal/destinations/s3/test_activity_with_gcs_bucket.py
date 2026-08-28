@@ -7,6 +7,7 @@ import aioboto3
 import pytest_asyncio
 from temporalio.testing._activity import ActivityEnvironment
 
+from posthog.models.integration import Integration
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
@@ -53,6 +54,21 @@ async def gcs_client(bucket_name, s3_key_prefix):
         await delete_all_from_s3(s3_client, bucket_name, key_prefix=s3_key_prefix)
 
 
+@pytest_asyncio.fixture
+async def gcs_integration(ateam):
+    """An s3-compatible Integration pointing at GCS, using the AWS credentials in the environment."""
+    return await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.S3_COMPATIBLE,
+        integration_id=f"gcs-{uuid.uuid4()}",
+        config={"name": "gcs-test", "endpoint_url": "https://storage.googleapis.com"},
+        sensitive_config={
+            "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
+            "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
+        },
+    )
+
+
 @pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
@@ -69,6 +85,7 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
     model: BatchExportModel | BatchExportSchema | None,
     generate_test_data,
     ateam,
+    gcs_integration,
 ):
     """Test that the insert_into_s3_activity_from_stage function ends up with data into GCS.
 
@@ -105,9 +122,7 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
         team_id=ateam.pk,
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-        endpoint_url="https://storage.googleapis.com",
+        integration_id=gcs_integration.id,
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,
@@ -174,6 +189,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_gcs(
     data_interval_end,
     model: BatchExportModel,
     ateam,
+    gcs_integration,
 ):
     """Test that the insert_into_s3_activity_from_stage function splits up large files into
     multiple parts based on the max file size configuration.
@@ -224,9 +240,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_gcs(
         team_id=ateam.pk,
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-        endpoint_url="https://storage.googleapis.com",
+        integration_id=gcs_integration.id,
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,

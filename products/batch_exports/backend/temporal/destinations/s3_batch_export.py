@@ -93,6 +93,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "UnsupportedCompressionError",
     # Invalid S3 credentials
     "InvalidCredentialsError",
+    # The export has no linked Integration to authenticate with
+    "MissingS3IntegrationError",
     # The linked Integration was deleted or doesn't belong to the team
     "S3IntegrationNotFoundError",
     # The linked Integration is the wrong kind or has invalid/missing credentials
@@ -139,6 +141,16 @@ class S3IntegrationNotFoundError(Exception):
 
     def __init__(self, integration_id: int, team_id: int):
         super().__init__(f"S3 integration with ID '{integration_id}' not found for team '{team_id}'")
+
+
+class MissingS3IntegrationError(Exception):
+    """Raised when an S3-family export has no Integration to authenticate with."""
+
+    def __init__(self, batch_export_id: str | None):
+        super().__init__(
+            f"S3 batch export '{batch_export_id}' has no integration. "
+            "Link an AWS S3 or S3-compatible integration to it to resume exporting."
+        )
 
 
 async def _get_s3_integration(
@@ -608,8 +620,9 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
         raise UnsupportedCompressionError(inputs.compression)
 
     async with Heartbeater():
-        # Integration-backed exports resolve credentials at run time; legacy exports carry them inline.
-        # TODO: require integration
+        # Customer exports resolve credentials from their linked integration. The internal
+        # file-download export instead passes a `refresh_credentials` coroutine that mints
+        # scoped credentials for PostHog's own bucket. One of the two must be present.
         endpoint_url = inputs.endpoint_url
         refresh_credentials = inputs.refresh_credentials
 
@@ -685,17 +698,10 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
                 )
                 endpoint_url = integration.endpoint_url
 
+        elif refresh_credentials is not None:
+            credentials = await refresh_credentials()
         else:
-            if refresh_credentials is not None:
-                credentials = await refresh_credentials()
-            else:
-                if not inputs.aws_access_key_id or not inputs.aws_secret_access_key:
-                    raise InvalidCredentialsError("AWS access key ID and secret access key cannot be empty")
-                credentials = AWSCredentials(
-                    aws_access_key_id=inputs.aws_access_key_id,
-                    aws_secret_access_key=inputs.aws_secret_access_key,
-                    aws_session_token=inputs.aws_session_token,
-                )
+            raise MissingS3IntegrationError(inputs.batch_export_id)
 
         external_logger = EXTERNAL_LOGGER.bind()
         external_logger.info(

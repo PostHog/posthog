@@ -1,10 +1,12 @@
 import os
+import uuid
 
 import pytest
 
 import aioboto3
 import pytest_asyncio
 
+from posthog.models.integration import Integration
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
@@ -46,6 +48,21 @@ async def s3_client(bucket_name, s3_key_prefix):
 
 
 @pytest_asyncio.fixture
+async def gcs_integration(ateam):
+    """An s3-compatible Integration pointing at GCS, using the AWS credentials in the environment."""
+    return await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.S3_COMPATIBLE,
+        integration_id=f"gcs-{uuid.uuid4()}",
+        config={"name": "gcs-test", "endpoint_url": "https://storage.googleapis.com"},
+        sensitive_config={
+            "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
+            "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
+        },
+    )
+
+
+@pytest_asyncio.fixture
 async def gcs_batch_export(
     ateam,
     s3_key_prefix,
@@ -55,17 +72,17 @@ async def gcs_batch_export(
     exclude_events,
     temporal_client,
     file_format,
+    gcs_integration,
 ):
     assert bucket_name
     destination_data = {
         "type": "S3Compatible",
+        # Credentials and the endpoint URL come from the integration.
+        "integration_id": gcs_integration.id,
         "config": {
             "bucket_name": bucket_name,
             "region": "us-east-1",
             "prefix": s3_key_prefix,
-            "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
-            "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
-            "endpoint_url": "https://storage.googleapis.com",
             "compression": compression,
             "exclude_events": exclude_events,
             "file_format": file_format,
@@ -132,6 +149,7 @@ async def test_s3_export_workflow_with_gcs_bucket_with_various_file_formats(
         model=model,
         ateam=ateam,
         batch_export_id=str(gcs_batch_export.id),
+        integration_id=gcs_batch_export.destination.integration_id,
         s3_destination_config=gcs_batch_export.destination.config,
         interval=interval,
         data_interval_start=data_interval_start,

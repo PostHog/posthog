@@ -330,6 +330,7 @@ async def run_s3_batch_export_workflow(
     backfill_details: BackfillDetails | None = None,
     expect_no_data: bool = False,
     destination_type: str = "S3",
+    integration_id: int | None = None,
 ):
     """Run the S3 batch export workflow and assert it completes successfully.
 
@@ -373,6 +374,7 @@ async def run_s3_batch_export_workflow(
         batch_export_model=batch_export_model,
         batch_export_schema=batch_export_schema,
         backfill_details=backfill_details,
+        integration_id=integration_id,
         **s3_destination_config,
     )
     workflow_inputs = S3BatchExportInputs(**dataclasses.asdict(per_destination_inputs))
