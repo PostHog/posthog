@@ -361,7 +361,9 @@ export function HogFunctionTest(): JSX.Element {
                         {testResult ? (
                             <div className="deprecated-space-y-2" data-attr="test-results">
                                 <LemonBanner
-                                    className="whitespace-pre-line"
+                                    // Worker errors can echo a third-party response body with customer data,
+                                    // so keep the banner text out of session replay, like the log table below.
+                                    className="ph-no-capture whitespace-pre-line"
                                     type={
                                         testResult.status === 'success'
                                             ? 'success'
