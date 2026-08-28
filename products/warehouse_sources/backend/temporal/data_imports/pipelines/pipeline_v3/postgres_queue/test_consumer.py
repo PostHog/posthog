@@ -2038,7 +2038,7 @@ class TestReconcileFailedRuns:
 
         async def raise_with_maybe_closed_conn(*args: object, **kwargs: object) -> None:
             if conn_closed:
-                consumer._recovery_conn.closed = True
+                consumer._recovery_conn.closed = True  # ty: ignore[invalid-assignment]
             raise psycopg.OperationalError("the connection is closed")
 
         with (
