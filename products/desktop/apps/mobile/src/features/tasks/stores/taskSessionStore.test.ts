@@ -427,4 +427,26 @@ describe("compaction tracking from the log stream", () => {
     );
     expect(store.getSessionForTask("t1")?.isCompacting).toBe(false);
   });
+
+  it("clears isCompacting on a compacting_failed status with no boundary", () => {
+    seedSession({ isCompacting: false });
+    const store = useTaskSessionStore.getState();
+
+    store._handleCloudUpdate("run-1", logsUpdate([statusEntry(false)]));
+    expect(store.getSessionForTask("t1")?.isCompacting).toBe(true);
+
+    store._handleCloudUpdate(
+      "run-1",
+      logsUpdate([
+        {
+          type: "notification",
+          notification: {
+            method: "_posthog/status",
+            params: { status: "compacting_failed" },
+          },
+        },
+      ]),
+    );
+    expect(store.getSessionForTask("t1")?.isCompacting).toBe(false);
+  });
 });
