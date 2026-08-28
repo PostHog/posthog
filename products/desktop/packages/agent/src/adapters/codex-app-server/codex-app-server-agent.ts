@@ -1959,6 +1959,17 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       .catch(() => undefined);
   }
 
+  private emitCompactionFailed(error?: string): void {
+    if (!this.sessionId) return;
+    void this.client
+      .extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
+        sessionId: this.sessionId,
+        status: "compacting_failed",
+        error,
+      })
+      .catch(() => undefined);
+  }
+
   /** Emit `_posthog/usage_update` so the host's token/cost UI fills. */
   private emitUsageExtNotification(params: unknown): void {
     if (!this.sessionId) return;
@@ -2034,7 +2045,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     if (!pending) return;
     if (this.compactionActive) {
       this.compactionActive = false;
-      this.emitCompactionBoundary();
+      this.emitCompactionFailed(error.message);
     }
     const usage = this.usage.perTurnUsage();
     pending.reject(error);
@@ -2068,7 +2079,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.broadcastAgentText(message);
     if (this.compactionActive) {
       this.compactionActive = false;
-      this.emitCompactionBoundary();
+      this.emitCompactionFailed(message);
     }
     const usage = this.usage.perTurnUsage();
     void this.emitTurnCompleteSignal("refusal", usage);

@@ -3606,7 +3606,7 @@ describe("CodexAppServerAgent", () => {
     ).toHaveLength(1);
   });
 
-  it("still emits compact_boundary when the turn dies mid-compaction (no stuck isCompacting)", async () => {
+  it("emits compacting_failed when the turn dies mid-compaction (no stuck isCompacting)", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
     const { client, extNotifications } = makeFakeClient();
     const agent = new CodexAppServerAgent(client, {
@@ -3622,7 +3622,6 @@ describe("CodexAppServerAgent", () => {
       sessionId: "t",
       prompt: [{ type: "text", text: "go" }],
     } as unknown as PromptRequest);
-    // A fatal error ends the turn before item/completed; failure recovery still fires the boundary.
     stub.emit("item/started", {
       item: { type: "contextCompaction", id: "c1" },
     });
@@ -3632,9 +3631,15 @@ describe("CodexAppServerAgent", () => {
     );
 
     expect(
-      extNotifications.find((n) => n.method === "_posthog/compact_boundary")
-        ?.params,
-    ).toMatchObject({ sessionId: "t" });
+      extNotifications.find(
+        (n) =>
+          n.method === "_posthog/status" &&
+          (n.params as { status?: string })?.status === "compacting_failed",
+      )?.params,
+    ).toMatchObject({ sessionId: "t", status: "compacting_failed" });
+    expect(
+      extNotifications.find((n) => n.method === "_posthog/compact_boundary"),
+    ).toBeUndefined();
   });
 
   it("loadSession resumes the thread and returns configOptions", async () => {
