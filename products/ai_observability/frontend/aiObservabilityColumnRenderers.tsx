@@ -173,7 +173,10 @@ function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | 
     )
 }
 
-export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
+// Resolves a person from its distinct id through the shared batched loader, so a query that lists
+// distinct ids does not have to carry person properties. Falls back to the distinct id alone while
+// the batch is in flight and when the person cannot be found.
+function useLazyPerson(distinctId: string): PersonData {
     const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
     const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
 
@@ -185,52 +188,25 @@ export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JS
         }
     }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
 
-    const personData: PersonData = cached
-        ? { distinct_id: cached.distinct_id, properties: cached.properties }
-        : { distinct_id: distinctId }
+    return cached ? { distinct_id: cached.distinct_id, properties: cached.properties } : { distinct_id: distinctId }
+}
+
+export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
+    const personData = useLazyPerson(distinctId)
 
     return <PersonColumnCell person={personData} />
 }
 
-// Users tab variant: resolves the person from its distinct id through the shared
-// lazy loader, so the users query no longer has to drag person properties through
-// its aggregation. The filter button redirects to the traces page for that person.
 export function LazyPersonColumnCellWithRedirect({ distinctId }: { distinctId: string }): JSX.Element {
-    const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
-    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
-
-    const cached = personsCache[distinctId]
-
-    useEffect(() => {
-        if (currentTeamId && cached === undefined) {
-            ensurePersonLoaded(distinctId)
-        }
-    }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
-
-    const personData: PersonData = cached
-        ? { distinct_id: cached.distinct_id, properties: cached.properties }
-        : { distinct_id: distinctId }
+    const personData = useLazyPerson(distinctId)
 
     return <PersonColumnCellWithRedirect person={personData} />
 }
 
 // Avatar only (no name) for inline use beside a title; a click still opens the
-// full person popover. Shares the lazy person loader with LazyPersonColumnCell.
+// full person popover.
 export function LazyPersonAvatar({ distinctId }: { distinctId: string }): JSX.Element {
-    const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
-    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
-
-    const cached = personsCache[distinctId]
-
-    useEffect(() => {
-        if (currentTeamId && cached === undefined) {
-            ensurePersonLoaded(distinctId)
-        }
-    }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
-
-    const personData: PersonData = cached
-        ? { distinct_id: cached.distinct_id, properties: cached.properties }
-        : { distinct_id: distinctId }
+    const personData = useLazyPerson(distinctId)
 
     return (
         <PersonDisplay person={personData}>
@@ -619,7 +595,6 @@ export const aiObservabilityColumnRenderers: Record<string, QueryContextColumn> 
     __llm_person: {
         title: 'Person',
         render: ({ value }) => {
-            // The users query returns the distinct id; the person is resolved lazily.
             if (typeof value === 'string' && value) {
                 return <LazyPersonColumnCellWithRedirect distinctId={value} />
             }

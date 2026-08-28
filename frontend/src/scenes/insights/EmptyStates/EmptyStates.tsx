@@ -738,8 +738,9 @@ function getInsightErrorKind(status?: number | null): InsightErrorKind {
     if (status === 429) {
         return 'rate_limit'
     }
-    // 513 is ClickHouseQueryMemoryLimitExceeded: the query ran out of memory, or the failure breaker
-    // is holding it after repeated out-of-memory failures. Both need a "shorten the range" nudge.
+    // 513 covers every ClickHouse memory failure: the query's own limit, cluster-wide pressure, and
+    // the failure breaker holding a query that already failed this way. The status cannot tell them
+    // apart, so the remediation comes from the backend detail instead.
     if (status === 513) {
         return 'memory_limit'
     }
@@ -784,12 +785,18 @@ function getInsightErrorTitle(
     return fallback ?? 'There was a problem completing this query'
 }
 
-function getInsightErrorRemediation(kind: InsightErrorKind, retryAfter?: string | null): string | null {
+function getInsightErrorRemediation(
+    kind: InsightErrorKind,
+    retryAfter?: string | null,
+    backendDetail?: string | null
+): string | null {
     switch (kind) {
         case 'rate_limit':
             return `Try again ${retryAfter ?? 'later'}.`
         case 'memory_limit':
-            return 'Try a shorter date range or narrower filters, then run it again.'
+            // Only the backend copy knows whether to shrink this query, wait out cluster load, or
+            // how long the breaker holds the query for.
+            return backendDetail ?? 'Try a shorter date range or narrower filters, then run it again.'
         case 'invalid_query':
             return 'Open the query debugger and correct the query.'
         case 'permission':
@@ -840,7 +847,9 @@ export function InsightErrorState({
     const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)
     const isExport = placement === DashboardPlacement.Export
     const showBugReport = !isExport && (errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown')
-    const remediation = getInsightErrorRemediation(errorKind, retryAfter)
+    // A 513 body is curated backend copy, unless a staff account got the raw ClickHouse trace back.
+    const backendDetail = typeof title === 'string' && !isRawServerErrorTitle(title) ? title : null
+    const remediation = getInsightErrorRemediation(errorKind, retryAfter, backendDetail)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -893,7 +902,7 @@ export function InsightErrorState({
 
             {!supportOnly && (
                 <div className="mt-4">
-                    {remediation && <p>{remediation}</p>}
+                    {remediation && <p className="max-w-120">{renderDetailWithLinks(remediation)}</p>}
                     {!excludeDetail && showBugReport && <p>{bugReportLink}</p>}
                 </div>
             )}
