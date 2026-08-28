@@ -4,7 +4,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
-from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField, TableNode
+from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField, StringJSONDatabaseField, TableNode
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
@@ -21,6 +21,7 @@ def _context_with_trino_table() -> HogQLContext:
                 fields={
                     "user_id": StringDatabaseField(name="user_id", nullable=False),
                     "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
+                    "properties": StringJSONDatabaseField(name="properties", nullable=False),
                 },
                 external_data_source_id="source-id",
                 trino_catalog="ducklake",
@@ -168,6 +169,19 @@ def test_rejects_empty_for_unsupported_types_with_stable_error() -> None:
         prepare_and_print_ast(parse_select("SELECT notEmpty(1)"), context, "trino")
 
     assert error.value.feature_code == "TRINO_EMPTY_ARGUMENT_TYPE_UNSUPPORTED"
+
+
+def test_prints_empty_for_lowered_json_property_after_second_resolution() -> None:
+    context = _context_with_trino_table()
+
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT notEmpty(properties.task_run_id) FROM users"),
+        context,
+        "trino",
+    )
+
+    assert 'json_extract_scalar("users"."properties", %(hogql_val_0)s) <> \'\'' in sql
+    assert context.values == {"hogql_val_0": '$."task_run_id"'}
 
 
 def test_rejects_function_argument_shapes_with_stable_error() -> None:
