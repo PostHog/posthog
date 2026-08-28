@@ -397,6 +397,10 @@ class TaskAnalysisError(Exception):
     """A task analysis could not be created or recorded; ``message`` is safe to surface."""
 
 
+class TaskAttachmentTooLarge(Exception):
+    """A task attachment is larger than the caller's byte limit; ``message`` is safe to surface."""
+
+
 @dataclass(frozen=True)
 class TaskValidationError:
     """A structured validation-error payload the presentation layer renders as a 400/404.

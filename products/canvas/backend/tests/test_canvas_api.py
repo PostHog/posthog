@@ -27,6 +27,7 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from products.annotations.backend.models.annotation import Annotation
 from products.canvas.backend import activity_visibility, build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
+from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
@@ -1435,6 +1436,36 @@ class TestCanvasAssets(CanvasAPIBaseTest):
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_attach_rejects_an_oversized_attachment_without_reading_it(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        storage_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/abc123/big.png"
+        oversized = contract_limits()["maxAssetFileBytes"] + 1
+        with (
+            patch.object(
+                build_service.object_storage,
+                "head_object",
+                return_value={"ContentLength": oversized, "ContentType": "image/png"},
+            ),
+            patch.object(build_service.object_storage, "read_bytes", return_value=None) as read_bytes,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+                {"task_id": str(task.id), "storage_path": storage_path},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        read_bytes.assert_not_called()
 
     def test_edit_operation_can_set_and_delete_an_asset_reference(self):
         canvas_id = self._create_canvas()

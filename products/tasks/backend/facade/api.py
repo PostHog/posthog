@@ -3641,6 +3641,7 @@ def read_task_attachment(
     *,
     storage_path: str | None = None,
     file_name: str | None = None,
+    max_bytes: int | None = None,
 ) -> tuple[bytes, str] | None:
     """Read one of a task's attachments (staged conversation uploads or run outputs).
 
@@ -3650,6 +3651,10 @@ def read_task_attachment(
     Returns ``(content, content_type)``, or ``None`` when the task is not visible, nothing
     matches, or the object is missing. The prefix check is the authorization boundary: every
     task artifact key embeds its team and task ids.
+
+    When ``max_bytes`` is set, the object's length is checked from its metadata before the
+    bytes are read, and ``TaskAttachmentTooLarge`` is raised for an oversized object so the
+    caller never loads it into memory.
     """
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
@@ -3685,6 +3690,13 @@ def read_task_attachment(
             return None
     if not storage_path.startswith(prefix):
         return None
+    head = object_storage.head_object(storage_path)
+    if max_bytes is not None:
+        # Reject an oversized object from its metadata before reading the bytes. A missing head
+        # means the object is absent or unreadable — fall through and let the read return None.
+        size = (head or {}).get("ContentLength")
+        if isinstance(size, int) and size > max_bytes:
+            raise contracts.TaskAttachmentTooLarge(f"The attachment exceeds the {max_bytes} byte limit.")
     try:
         content = object_storage.read_bytes(storage_path, missing_ok=True)
     except Exception:
@@ -3692,7 +3704,6 @@ def read_task_attachment(
         return None
     if content is None:
         return None
-    head = object_storage.head_object(storage_path)
     content_type = (head or {}).get("ContentType") or "application/octet-stream"
     return content, content_type
 

@@ -88,6 +88,7 @@ from products.canvas.backend.presentation.serializers import (
 )
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.contracts import TaskAttachmentTooLarge
 
 logger = structlog.get_logger(__name__)
 
@@ -752,7 +753,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=CanvasAssetAttachSerializer,
         responses={
             201: CanvasAssetSerializer,
-            400: OpenApiResponse(description="The attachment is not a supported image."),
+            400: OpenApiResponse(description="The attachment is not a supported image, or is too large."),
             404: OpenApiResponse(description="The task or attachment was not found in this project."),
         },
     )
@@ -774,13 +775,21 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         user = self._request_user()
-        attachment = tasks_facade.read_task_attachment(
-            task_id,
-            self.team_id,
-            user.id if user else None,
-            storage_path=payload.validated_data.get("storage_path"),
-            file_name=payload.validated_data.get("file_name"),
-        )
+        max_asset_bytes = contract_limits()["maxAssetFileBytes"]
+        try:
+            attachment = tasks_facade.read_task_attachment(
+                task_id,
+                self.team_id,
+                user.id if user else None,
+                storage_path=payload.validated_data.get("storage_path"),
+                file_name=payload.validated_data.get("file_name"),
+                max_bytes=max_asset_bytes,
+            )
+        except TaskAttachmentTooLarge:
+            return Response(
+                {"detail": f"Images may be at most {max_asset_bytes // (1024 * 1024)} MB.", "code": "invalid_asset"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if attachment is None:
             raise NotFound("The task attachment was not found.")
         data, _claimed_content_type = attachment
