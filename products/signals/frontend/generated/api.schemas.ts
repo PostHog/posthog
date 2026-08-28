@@ -2013,12 +2013,6 @@ export const RoleAtOrganizationEnumApi = {
     Other: 'other',
 } as const
 
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
 /**
  * @nullable
  */
