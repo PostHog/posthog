@@ -34,10 +34,94 @@ import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary
 
 import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
-import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
+import {
+    EMAIL_TYPE_SUPPORTED_FIELDS,
+    EmailEditorCustomFont,
+    EmailEditorFonts,
+    EmailTemplaterLogicProps,
+    emailTemplaterLogic,
+} from './emailTemplaterLogic'
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
 
 export type EmailEditorMode = 'full' | 'preview'
+
+// Fonts offered in the block settings font-family dropdown, on top of Unlayer's built-in web
+// fonts. A team can add its brand font through the templater's customFonts prop.
+const DEFAULT_CUSTOM_FONTS: EmailEditorCustomFont[] = [
+    {
+        label: 'Ubuntu',
+        value: "'Ubuntu',Tahoma,Verdana,Segoe,sans-serif",
+        url: 'https://fonts.googleapis.com/css?family=Ubuntu:300,400,500,700',
+        weights: [
+            { label: 'Light', value: 300 },
+            { label: 'Regular', value: 400 },
+            { label: 'Medium', value: 500 },
+            { label: 'Bold', value: 700 },
+        ],
+    },
+    {
+        label: 'Inter',
+        value: "'Inter',Tahoma,Verdana,Segoe,sans-serif",
+        url: 'https://fonts.googleapis.com/css?family=Inter:300,400,500,700',
+        weights: [
+            { label: 'Light', value: 300 },
+            { label: 'Regular', value: 400 },
+            { label: 'Medium', value: 500 },
+            { label: 'Bold', value: 700 },
+        ],
+    },
+    {
+        label: 'Roboto',
+        value: "'Roboto',Tahoma,Verdana,Segoe,sans-serif",
+        url: 'https://fonts.googleapis.com/css?family=Roboto:300,400,500,700',
+        weights: [
+            { label: 'Light', value: 300 },
+            { label: 'Regular', value: 400 },
+            { label: 'Medium', value: 500 },
+            { label: 'Bold', value: 700 },
+        ],
+    },
+    {
+        label: 'Open Sans',
+        value: "'Open Sans',Tahoma,Verdana,Segoe,sans-serif",
+        url: 'https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700',
+        weights: [
+            { label: 'Light', value: 300 },
+            { label: 'Regular', value: 400 },
+            { label: 'Semi-Bold', value: 600 },
+            { label: 'Bold', value: 700 },
+        ],
+    },
+    {
+        label: 'Lato',
+        value: "'Lato',Tahoma,Verdana,Segoe,sans-serif",
+        url: 'https://fonts.googleapis.com/css?family=Lato:300,400,700',
+        weights: [
+            { label: 'Light', value: 300 },
+            { label: 'Regular', value: 400 },
+            { label: 'Bold', value: 700 },
+        ],
+    },
+    {
+        label: 'Montserrat',
+        value: "'Montserrat',Tahoma,Verdana,Segoe,sans-serif",
+        url: 'https://fonts.googleapis.com/css?family=Montserrat:300,400,500,700',
+        weights: [
+            { label: 'Light', value: 300 },
+            { label: 'Regular', value: 400 },
+            { label: 'Medium', value: 500 },
+            { label: 'Bold', value: 700 },
+        ],
+    },
+]
+
+// Merge a team's brand fonts with the built-in list for the Unlayer block settings panel.
+function buildEmailEditorFonts(customFonts?: EmailEditorCustomFont[]): EmailEditorFonts {
+    return {
+        showDefaultFonts: true,
+        customFonts: [...DEFAULT_CUSTOM_FONTS, ...(customFonts ?? [])],
+    }
+}
 
 // Maps a templater field key onto its validation message slot. Only the sender, recipient, and
 // subject rows have their own message; body content is reported separately near the editor.
@@ -207,6 +291,7 @@ function DestinationEmailTemplaterForm({
                                             // paid credits from our Unlayer workspace, so keep them all off.
                                             ai: false,
                                         },
+                                        fonts: buildEmailEditorFonts(logicProps.customFonts),
                                     }}
                                 />
                             </div>
@@ -704,24 +789,7 @@ function NativeEmailTemplaterForm({
                                         customJS: sceneIntegrationEnabled
                                             ? [unsubscribeLinkToolCustomJs, collapseToolsPanelCustomJs]
                                             : [unsubscribeLinkToolCustomJs],
-                                        fonts: unlayerEditorProjectId
-                                            ? {
-                                                  showDefaultFonts: true,
-                                                  customFonts: [
-                                                      {
-                                                          label: 'Ubuntu',
-                                                          value: "'Ubuntu',Tahoma,Verdana,Segoe,sans-serif",
-                                                          url: 'https://fonts.googleapis.com/css?family=Ubuntu:300,400,500,700',
-                                                          weights: [
-                                                              { label: 'Light', value: 300 },
-                                                              { label: 'Regular', value: 400 },
-                                                              { label: 'Medium', value: 500 },
-                                                              { label: 'Bold', value: 700 },
-                                                          ],
-                                                      },
-                                                  ],
-                                              }
-                                            : undefined,
+                                        fonts: buildEmailEditorFonts(logicProps.customFonts),
                                     }}
                                 />
                             </div>
