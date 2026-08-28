@@ -31,6 +31,7 @@ import {
 import { piRpcCommandSchema, type RpcCommand } from "../pi/rpc-transport";
 import { PiRuntime } from "../pi/runtime";
 import type { TaskContext } from "../pi/task-system-prompt";
+import type { PiExtensionEvent } from "../pi/types";
 import { PostHogAPIClient } from "../posthog-api";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
@@ -627,6 +628,9 @@ export class PiAgentServer {
           });
       }
     });
+    const unsubscribeExtensions = runtime.onExtensionEvent((event) =>
+      this.handleExtensionEvent(event),
+    );
     const unsubscribeMcpPermissions = client.onMcpToolPermissionRequest(
       (request) => this.handleMcpToolPermissionRequest(request),
     );
@@ -644,6 +648,7 @@ export class PiAgentServer {
     const unsubscribe = () => {
       unsubscribeConversation();
       unsubscribeRuntime();
+      unsubscribeExtensions();
       unsubscribeMcpPermissions();
     };
 
@@ -674,6 +679,10 @@ export class PiAgentServer {
         this.logger.error("Failed to persist Pi queue state", error),
       );
     }
+  }
+
+  private handleExtensionEvent(event: PiExtensionEvent): void {
+    this.broadcast(event as unknown as Record<string, unknown>);
   }
 
   private handleMcpToolPermissionRequest(

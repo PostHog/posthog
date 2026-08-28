@@ -116,17 +116,16 @@ function usePiSessionConnection(
 function usePiExtensionConnection(
   taskId: string,
   taskRunId: string | undefined,
-  isCloud: boolean,
   connectionState: PiControllerSessionState["connectionState"] | undefined,
 ): void {
   const controller = useService<PiExtensionController>(PI_EXTENSION_CONTROLLER);
   useEffect(() => {
-    if (isCloud || connectionState !== "connected") {
+    if (connectionState !== "connected") {
       return;
     }
     void controller.connect(taskId, taskRunId).catch(() => {});
     return () => controller.disconnect(taskId);
-  }, [connectionState, controller, isCloud, taskId, taskRunId]);
+  }, [connectionState, controller, taskId, taskRunId]);
 }
 
 function usePiDraftContext(
@@ -518,12 +517,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
   );
 
   usePiSessionConnection(task, isTaskAuthor);
-  usePiExtensionConnection(
-    taskId,
-    taskRunId,
-    isCloud,
-    session?.connectionState,
-  );
+  usePiExtensionConnection(taskId, taskRunId, session?.connectionState);
 
   const status = session?.status;
   const isStreaming = status?.isStreaming ?? false;
@@ -709,25 +703,21 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           onEdit={editQueuedMessage}
           onRemove={removeQueuedMessage}
         />
-        {!isCloud && (
-          <>
-            <PiExtensionStatuses statuses={currentExtensionState.statuses} />
-            <PiExtensionWidgets
-              widgets={currentExtensionState.widgets}
-              placement="aboveEditor"
-            />
-            {session.projectTrust?.hasProjectResources && (
-              <PiProjectTrustBanner
-                trusted={session.projectTrust.trusted}
-                disabled={
-                  controlsPending || session.connectionState !== "connected"
-                }
-                pending={projectTrustPending}
-                onTrust={() => changeProjectTrust(true)}
-                onRevoke={() => changeProjectTrust(false)}
-              />
-            )}
-          </>
+        <PiExtensionStatuses statuses={currentExtensionState.statuses} />
+        <PiExtensionWidgets
+          widgets={currentExtensionState.widgets}
+          placement="aboveEditor"
+        />
+        {!isCloud && session.projectTrust?.hasProjectResources && (
+          <PiProjectTrustBanner
+            trusted={session.projectTrust.trusted}
+            disabled={
+              controlsPending || session.connectionState !== "connected"
+            }
+            pending={projectTrustPending}
+            onTrust={() => changeProjectTrust(true)}
+            onRevoke={() => changeProjectTrust(false)}
+          />
         )}
         {mcpPermission ? (
           isMcpPermissionResponding ? (
@@ -795,12 +785,10 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
             onCancel={cancelPrompt}
           />
         )}
-        {!isCloud && (
-          <PiExtensionWidgets
-            widgets={currentExtensionState.widgets}
-            placement="belowEditor"
-          />
-        )}
+        <PiExtensionWidgets
+          widgets={currentExtensionState.widgets}
+          placement="belowEditor"
+        />
       </Box>
     </Flex>
   );

@@ -35,6 +35,7 @@ interface ConversationToolCallUpdate {
   locations?: AgentToolCallLocation[] | null;
   rawInput?: unknown;
   rawOutput?: unknown;
+  details?: unknown;
   sessionUpdate: "tool_call_update";
   status?: AgentToolCallStatus | null;
   title?: string | null;

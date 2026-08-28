@@ -231,6 +231,10 @@ export function createPiMessageTranslator(): PiMessageTranslator {
       rawOutput: result.content,
     };
 
+    if (result.details !== undefined) {
+      toolCall.details = result.details;
+    }
+
     const translator = isPiToolName(toolName)
       ? TRANSLATOR_BY_NAME[toolName]
       : undefined;

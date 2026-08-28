@@ -7,8 +7,10 @@ import type {
   RpcCommand,
 } from "@posthog/agent/pi/rpc-transport";
 import type {
+  PiExtensionEvent,
   PiPersistedSessionConfig,
   PiQueueSnapshot,
+  RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import {
   type AgentConversationEvent,
@@ -67,6 +69,28 @@ function createTerminalPiRpcClient(
     getEntries: async () => ({ entries: [], leafId: null }),
     getCommands: async () => [],
   };
+}
+
+function extensionEventFromLogEntry(
+  entry: StoredLogEntry,
+): PiExtensionEvent | undefined {
+  const candidate = entry as unknown as Partial<PiExtensionEvent>;
+  if (
+    candidate.type === "extension_ui_request" &&
+    typeof candidate.id === "string" &&
+    typeof candidate.method === "string"
+  ) {
+    return candidate as PiExtensionEvent;
+  }
+  if (
+    candidate.type === "extension_error" &&
+    typeof candidate.extensionPath === "string" &&
+    typeof candidate.event === "string" &&
+    typeof candidate.error === "string"
+  ) {
+    return candidate as PiExtensionEvent;
+  }
+  return undefined;
 }
 
 function permissionDescription(
@@ -230,6 +254,44 @@ export class CloudPiSessionClient implements PiSession {
   async getConversation(): Promise<AgentConversationEvent[]> {
     await this.snapshotReceived;
     return this.snapshotEvents;
+  }
+
+  onExtensionEvent(
+    onEvent: (event: PiExtensionEvent) => void,
+    onError: (error: unknown) => void,
+  ): () => void {
+    return this.cloudTaskClient.subscribe(
+      this.context.taskId,
+      this.context.runId,
+      (update) => {
+        if (update.kind !== "logs" && update.kind !== "snapshot") {
+          return;
+        }
+        for (const entry of update.newEntries) {
+          const event = extensionEventFromLogEntry(entry);
+          if (event) {
+            onEvent(event);
+          }
+        }
+      },
+      onError,
+      () => {},
+    );
+  }
+
+  async respondToExtensionUI(response: RpcExtensionUIResponse): Promise<void> {
+    const result = await this.cloudTaskClient.sendCommand({
+      taskId: this.context.taskId,
+      id: response.id,
+      runId: this.context.runId,
+      apiHost: this.context.apiHost,
+      teamId: this.context.teamId,
+      method: "pi/rpc",
+      params: { command: response },
+    });
+    if (!result.success) {
+      throw new Error(result.error ?? "Pi extension UI response failed");
+    }
   }
 
   onMcpToolPermissionRequest(

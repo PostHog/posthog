@@ -3,6 +3,7 @@ import {
   type AgentConversationEvent,
   mcpToolKey,
   posthogToolMeta,
+  type StoredLogEntry,
 } from "@posthog/shared";
 import type { CloudTaskUpdatePayload } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
@@ -73,6 +74,52 @@ const snapshotEvent: AgentConversationEvent = {
 };
 
 describe("CloudPiSessionClient", () => {
+  it("relays Pi extension UI requests and responses through a cloud run", async () => {
+    const cloud = createCloudTaskClient();
+    const session = new CloudPiSessionClient(
+      cloud.client,
+      context("in_progress"),
+    );
+    const onEvent = vi.fn();
+    session.onExtensionEvent(onEvent, vi.fn());
+
+    const request = {
+      type: "extension_ui_request" as const,
+      id: "widget-1",
+      method: "setWidget" as const,
+      widgetKey: "orchestration",
+      widgetLines: ["1 subagent running"],
+      widgetPlacement: "aboveEditor" as const,
+    };
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "logs",
+      newEntries: [request as unknown as StoredLogEntry],
+      totalEntryCount: 1,
+    });
+
+    expect(onEvent).toHaveBeenCalledWith(request);
+
+    vi.mocked(cloud.client.sendCommand).mockResolvedValue({ success: true });
+    const response = {
+      type: "extension_ui_response" as const,
+      id: "dialog-1",
+      confirmed: true,
+    };
+    await session.respondToExtensionUI(response);
+
+    expect(cloud.client.sendCommand).toHaveBeenCalledWith({
+      taskId: "task-1",
+      id: "dialog-1",
+      runId: "run-1",
+      apiHost: "https://us.posthog.com",
+      teamId: 1,
+      method: "pi/rpc",
+      params: { command: response },
+    });
+  });
+
   it("relays MCP permission requests and responses through the cloud task", async () => {
     const cloud = createCloudTaskClient();
     const session = new CloudPiSessionClient(

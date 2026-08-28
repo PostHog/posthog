@@ -6,6 +6,10 @@ import { EditToolView } from "@posthog/ui/features/sessions/components/session-u
 import { ExecuteToolView } from "@posthog/ui/features/sessions/components/session-update/ExecuteToolView";
 import { FetchToolView } from "@posthog/ui/features/sessions/components/session-update/FetchToolView";
 import { MoveToolView } from "@posthog/ui/features/sessions/components/session-update/MoveToolView";
+import {
+  PiOrchestrationToolView,
+  readPiOrchestrationDetails,
+} from "@posthog/ui/features/sessions/components/session-update/PiOrchestrationToolView";
 import { PlanApprovalView } from "@posthog/ui/features/sessions/components/session-update/PlanApprovalView";
 import { QuestionToolView } from "@posthog/ui/features/sessions/components/session-update/QuestionToolView";
 import { ReadToolView } from "@posthog/ui/features/sessions/components/session-update/ReadToolView";
@@ -59,6 +63,13 @@ export function ToolCallBlock({
   }
 
   const props = { toolCall, turnCancelled, turnComplete };
+  const orchestrationView = readPiOrchestrationDetails(
+    toolCall.title,
+    toolCall.details,
+  );
+  if (orchestrationView) {
+    return <PiOrchestrationToolView {...props} view={orchestrationView} />;
+  }
 
   // An artifact is a deliverable, not a step: it takes the row rather than the
   // tool's own header, from the moment the agent starts handing it over.

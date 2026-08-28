@@ -26,6 +26,7 @@ vi.mock("./CodePreview", () => ({
 function renderBlock(
   toolCall: ToolCall,
   mcpToolBlock?: (props: ToolViewProps & { mcpToolName: string }) => ReactNode,
+  turnComplete = true,
 ) {
   const container = new Container();
   if (mcpToolBlock) {
@@ -34,13 +35,13 @@ function renderBlock(
   return render(
     <ServiceProvider container={container}>
       <Theme>
-        <ToolCallBlock toolCall={toolCall} turnComplete />
+        <ToolCallBlock toolCall={toolCall} turnComplete={turnComplete} />
       </Theme>
     </ServiceProvider>,
   );
 }
 
-describe("ToolCallBlock codex routing", () => {
+describe("ToolCallBlock routing", () => {
   it("routes a codex MCP descriptor to the bound McpToolBlock with the canonical name", () => {
     const seen: { mcpToolName?: string } = {};
     const McpToolBlock = vi.fn(
@@ -115,6 +116,60 @@ describe("ToolCallBlock codex routing", () => {
     expect(screen.getByText("Run tests")).toBeInTheDocument();
     expect(screen.getByText("pnpm test")).toBeInTheDocument();
   });
+
+  it.each([
+    {
+      title: "workflow",
+      details: {
+        name: "release-check",
+        currentPhase: "Review",
+        agents: [
+          {
+            id: 1,
+            label: "Review API",
+            agent: "Explore",
+            status: "running",
+          },
+        ],
+      },
+      expectedTitle: "Workflow · release-check",
+      expectedStep: "Review API",
+    },
+    {
+      title: "subagent",
+      details: {
+        mode: "single",
+        results: [
+          {
+            runId: "run-1",
+            agent: "Explore",
+            task: "Inspect the API",
+            state: "running",
+          },
+        ],
+      },
+      expectedTitle: "Subagent",
+      expectedStep: "Explore",
+    },
+  ])(
+    "renders structured Pi $title updates with the session tool style",
+    ({ title, details, expectedTitle, expectedStep }) => {
+      renderBlock(
+        {
+          toolCallId: `tc-${title}`,
+          title,
+          kind: "other",
+          status: "in_progress",
+          details,
+        },
+        undefined,
+        false,
+      );
+
+      expect(screen.getByText(expectedTitle)).toBeInTheDocument();
+      expect(screen.getByText(expectedStep)).toBeInTheDocument();
+    },
+  );
 
   it("renders Codex orchestration calls as operations rather than subagents", () => {
     renderBlock({

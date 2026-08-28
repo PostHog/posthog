@@ -107,6 +107,7 @@ export interface AgentToolCall {
   locations?: AgentToolCallLocation[];
   rawInput?: unknown;
   rawOutput?: unknown;
+  details?: unknown;
   parentId?: string;
   origin?: "agent" | "user_shell";
 }
