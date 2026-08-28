@@ -57,6 +57,27 @@ Validation rejects undeclared literal calls and resource URLs (`capability_missi
 so you can fix them before publishing. Dynamic URLs and redirect destinations cannot be inferred,
 so the inventory is still required even when validation is clean.
 
+### Diagnose published network access
+
+Declared origins apply to built drafts and published canvases, not the edit-mode preview. When a
+published request or resource fails:
+
+1. Inspect the built artifact's document request. Its enforcing `Content-Security-Policy` response
+   header must list the declared origin in the relevant directive (`connect-src`, `style-src`,
+   `img-src`, `font-src`, `media-src`, or `frame-src`). Remote origins never enter `script-src`.
+2. Match a console violation to the document that emitted it. PostHog Desktop's outer shell can
+   report a separate report-only policy; that policy is not the artifact's enforced allowlist. Do
+   not conclude that a declaration was ignored, or that a request succeeded only because CSP was
+   report-only, from an ancestor document's message.
+3. Check CORS separately. The artifact iframe is sandboxed without same-origin access, so browsers
+   send cross-origin requests with `Origin: null`. The remote server must accept that origin (or
+   `*` for a credentialless public API). A capability declaration widens canvas CSP; it cannot
+   override the remote server's CORS policy.
+
+The artifact also contains a matching CSP meta tag. Browsers ignore the `sandbox` directive in a
+meta tag, but the iframe sandbox and artifact response header still enforce it; that warning is not
+evidence that the canvas is unsandboxed.
+
 ## Validate until clean
 
 `canvas-validate-create` is side-effect free; call it as often as needed.
