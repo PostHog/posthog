@@ -13,15 +13,13 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.cloud_utils import is_cloud
-from posthog.dags.common import JobOwners, chunk_ranges
+from posthog.dags.common import JobOwners, check_for_concurrent_runs, chunk_ranges, skip_on_kill_switch
 from posthog.models import Team
 
 from products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute import (
     CHUNK_DAYS,
     ensure_marketing_sessions_precomputed,
 )
-from products.web_analytics.dags.web_preaggregated import skip_on_kill_switch
-from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
 logger = structlog.get_logger(__name__)
 
@@ -129,7 +127,7 @@ def marketing_sessions_precompute_job():
 def marketing_sessions_precompute_schedule(
     context: dagster.ScheduleEvaluationContext,
 ) -> "dagster.RunRequest | dagster.SkipReason":
-    skip_reason = check_for_concurrent_runs(context)
+    skip_reason = check_for_concurrent_runs(context, tags={})
     if skip_reason:
         return skip_reason
     return dagster.RunRequest()
