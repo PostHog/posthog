@@ -19,6 +19,7 @@ import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptySt
 import { logsEmptyState } from 'products/logs/frontend/emptyState/logsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
 import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsEmptyState'
+import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
 import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
@@ -214,6 +215,17 @@ export const DashboardsNeedsSetup: ProductEmptyStateStory = productEmptyStateSto
     dashboardsEmptyState,
     'needs-setup',
     { mocks: dashboardsMocks }
+)
+
+// Product analytics detection lists insights on mount - answer "none yet".
+const productAnalyticsMocks = {
+    get: { '/api/projects/:team_id/insights/': [200, { count: 0, results: [] }] },
+} as const
+
+export const ProductAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    productAnalyticsEmptyState,
+    'needs-setup',
+    { mocks: productAnalyticsMocks }
 )
 
 // Error tracking detection asks the issues-exists API on mount - answer "none yet".
