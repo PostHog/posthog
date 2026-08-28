@@ -3195,22 +3195,20 @@ async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_co
 
     assert job.status == ExternalDataJobStatus.FAILED
     assert job.latest_error is not None
-    assert (
-        "The primary key set for this table isn't unique, so incremental syncing can't reliably match rows to update"
-        in job.latest_error
-    )
+    assert "The primary key set for this table isn't unique" in job.latest_error
 
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_duplicate_primary_key", team)
 
+    # The table declares no primary key, so discovery inferred `id`, and the duplicate rows above
+    # prove that inference wrong. Disabling the schema would make the operator re-enable a sync that
+    # can only fail the same way, so it moves to a sync type it can run and stays enabled.
     schema: ExternalDataSchema = await sync_to_async(ExternalDataSchema.objects.get)(id=job.schema_id)
-    mock_update_should_sync.assert_called_once_with(
-        schema_id=str(schema.id),
-        team_id=team.id,
-        should_sync=False,
-        disable_error_message=job.latest_error,
-        disable_exclude_workflow_id=mock.ANY,
-    )
+    mock_update_should_sync.assert_not_called()
+    assert schema.sync_type == ExternalDataSchemaSyncType.APPEND
+    assert schema.should_sync is True
+    assert schema.sync_type_fallback_reason == job.latest_error
+    assert "append-only sync" in schema.sync_type_fallback_reason
 
 
 @pytest.mark.django_db(transaction=True)
