@@ -203,9 +203,10 @@ export function GatewayAddServerModal(): JSX.Element | null {
                 {isAdmin && (
                     <div className="flex items-center justify-between gap-4 rounded border p-3">
                         <div>
-                            <div className="font-semibold">Available to team members</div>
+                            <div className="font-semibold">Enabled for your organization</div>
                             <div className="text-sm text-secondary">
-                                Members can find this server and connect their own account.
+                                Anyone in your organization can find and use this server. Each person connects with
+                                their own account.
                             </div>
                         </div>
                         <LemonSwitch

@@ -4883,6 +4883,16 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["internal"])
 
+    def test_origin_key_in_response(self):
+        self.external_task.origin_key = "desktop_onboarding_session:42"
+        self.external_task.save(update_fields=["origin_key"])
+        response = self.client.get(f"/api/projects/@current/tasks/{self.external_task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["origin_key"], "desktop_onboarding_session:42")
+        self.assertIsNone(
+            self.client.get(f"/api/projects/@current/tasks/{self.internal_task.id}/").json()["origin_key"]
+        )
+
     def test_internal_field_defaults_to_false_on_create(self):
         response = self.client.post(
             "/api/projects/@current/tasks/",

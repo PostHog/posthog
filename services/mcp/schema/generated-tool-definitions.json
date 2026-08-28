@@ -149,6 +149,21 @@
         },
         "feature_flag": "customer-analytics-csp"
     },
+    "accounts-meetings-list": {
+        "description": "List synced calendar meetings for one Customer analytics account, newest first. Each meeting includes its title, start and end times, organizer, status, optional Gong call URL, and participants. Each participant includes their email, display name, RSVP status, organizer status, and resolved PostHog person UUID when available. Pass `search` to filter by meeting title, attendee email, or attendee name. The account must be accessible to the caller. Meetings and participants are read-only because they sync from connected calendars.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account meetings",
+        "title": "List account meetings",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "accounts-notebooks-create": {
         "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; in most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list.",
         "category": "Customer analytics",
@@ -3018,7 +3033,7 @@
         }
     },
     "endpoint-create": {
-        "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Materialization is auto-enabled if the query is eligible.",
+        "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Set is_materialized to true to materialize an eligible query.",
         "category": "Endpoints",
         "feature": "endpoints",
         "summary": "Create endpoint",

@@ -10,8 +10,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.data_modeling.backend.facade.api import set_declared_target
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
-from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,

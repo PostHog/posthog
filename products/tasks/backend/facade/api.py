@@ -629,6 +629,7 @@ def _task_detail_to_dto(
         latest_run_id=latest_run_id,
         channel=task.channel_id,
         slack_thread_references=_task_slack_thread_references(task),
+        origin_key=task.origin_key,
     )
 
 
@@ -2789,6 +2790,7 @@ def append_task_run_log(
     if run is None:
         return None
     run.append_log(entries)
+    run.clear_echoed_followup_messages(entries)
     run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
 
@@ -3823,6 +3825,7 @@ def signal_task_run_user_message(
 
     if reason := get_compute_quota_denial_reason(run.task):
         raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
+    accepted_at = django_timezone.now()
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(
@@ -3841,6 +3844,11 @@ def signal_task_run_user_message(
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
             return False
         raise
+    if message_id and content and content.strip():
+        try:
+            run.record_pending_followup_message(message_id, content, accepted_at=accepted_at)
+        except Exception:
+            logger.warning("Failed to record pending follow-up message for task run %s", run.id, exc_info=True)
     return True
 
 
@@ -8298,18 +8306,33 @@ def project_completed_activity(task_run: "TaskRun") -> None:
     )
 
 
+# A scout runs headless on a schedule, under an acting user resolved from the scout skill's
+# author rather than from whoever asked for the run. Its task therefore carries a real person
+# as `created_by`, so every projected row lands in a feed that person never asked for. Scout
+# output belongs in the Signals inbox instead.
+ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS = (Task.OriginProduct.SIGNALS_SCOUT,)
+
+
+def _activity_visible_task_qs(team_id: int, user_id: int) -> QuerySet[Task]:
+    return (
+        _visible_task_qs(team_id, user_id)
+        .filter(internal=False, archived=False)
+        .exclude(origin_product__in=ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS)
+    )
+
+
 def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     """The requester's feed rows, gated to tasks they can still see.
 
     Rows outlive visibility changes (a task moving to a private channel, say), so the
     visibility gate belongs on read rather than being enforced when projecting.
     """
-    visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
+    visible_tasks = _activity_visible_task_qs(team_id, user_id)
     return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
 def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
-    visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
+    visible_tasks = _activity_visible_task_qs(team_id, user_id)
     return TaskCommentActivity.objects.for_team(team_id).filter(
         user_id=user_id, task__in=visible_tasks, comment__deleted=False
     )
