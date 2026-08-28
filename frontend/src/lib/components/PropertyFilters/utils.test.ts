@@ -4,6 +4,7 @@ import {
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
     formatPropertyLabel,
+    hogQLExpressionToPropertyFilter,
     isAnyPropertyfilter,
     isGroupCardFilterKey,
     isValidPropertyFilter,
@@ -68,6 +69,22 @@ describe('isValidPropertyFilter()', () => {
         expect(isValidPropertyFilter({ bla: 'true' } as any)).toEqual(false)
         expect(isValidPropertyFilter({ key: undefined } as any)).toEqual(false)
         expect(isValidPropertyFilter({ key: 'cohort', value: 123 } as any)).toEqual(true)
+    })
+})
+
+describe('hogQLExpressionToPropertyFilter()', () => {
+    it.each(['', '   ', '\n\t '])('returns null for the empty/whitespace expression %j', (expression) => {
+        // Guards the row from being replaced by an empty-key HogQL filter that desyncs it and later
+        // leaks into the query as an unparseable expression
+        expect(hogQLExpressionToPropertyFilter(expression)).toBeNull()
+    })
+
+    it('builds a HogQL filter with the trimmed expression as the key', () => {
+        expect(hogQLExpressionToPropertyFilter('  properties.a > properties.b  ')).toEqual({
+            type: PropertyFilterType.HogQL,
+            key: 'properties.a > properties.b',
+            value: null,
+        })
     })
 })
 

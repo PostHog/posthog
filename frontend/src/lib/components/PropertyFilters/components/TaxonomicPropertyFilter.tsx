@@ -11,6 +11,7 @@ import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/O
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import {
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
+    hogQLExpressionToPropertyFilter,
     isGroupPropertyFilter,
     isPropertyFilterWithOperator,
     propertyFilterTypeToTaxonomicFilterType,
@@ -254,11 +255,11 @@ export function TaxonomicPropertyFilter({
             onHogQLExpressionChange={
                 hogQLExpressionAvailable
                     ? (expression) => {
-                          setFilter(index, {
-                              type: PropertyFilterType.HogQL,
-                              key: expression,
-                              value: null,
-                          } as AnyPropertyFilter)
+                          const hogQLFilter = hogQLExpressionToPropertyFilter(expression)
+                          if (!hogQLFilter) {
+                              return
+                          }
+                          setFilter(index, hogQLFilter as AnyPropertyFilter)
                           onComplete()
                       }
                     : undefined
