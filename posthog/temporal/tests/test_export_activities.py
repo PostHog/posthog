@@ -131,12 +131,32 @@ async def test_export_asset_activity_deleted_mid_render(mock_exporter: MagicMock
 
     mock_exporter.export_asset_direct = fake_export
 
-    # The render timeout must survive as the wrapped error, not be masked by the row's disappearance.
+    # The render timeout must survive as the wrapped error, not be masked by the row's disappearance,
+    # and a deleted row is terminal: it can never come back, so the failure must not be retried.
     with pytest.raises(ApplicationError) as exc_info:
         await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
 
     assert exc_info.value.type == "TimeoutError"
-    assert exc_info.value.non_retryable is False
+    assert exc_info.value.non_retryable is True
+
+
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_export_asset_activity_missing_at_start(mock_exporter: MagicMock, activity_environment, team):
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        export_format=ExportedAsset.ExportFormat.PNG,
+    )
+    asset_id = asset.id
+    await sync_to_async(ExportedAsset.objects_including_ttl_deleted.filter(pk=asset_id).delete)()
+
+    # An asset that is already gone when the activity starts is terminal, so the initial lookup must
+    # fail fast and non-retryable rather than burn the retry budget on a row that can never return.
+    with pytest.raises(ApplicationError) as exc_info:
+        await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset_id))
+
+    assert exc_info.value.type == "DoesNotExist"
+    assert exc_info.value.non_retryable is True
+    mock_exporter.export_asset_direct.assert_not_called()
 
 
 @pytest.mark.parametrize(
