@@ -385,6 +385,30 @@ container traffic because their network paths differ.
 The `use_modal_vm_sandbox` run-state key force-selects the VM runtime for trusted server-created runs
 (image builders) and is never accepted from client input.
 
+### Memory guard
+
+A sandbox that runs out of memory is killed outright, so the run ends mid-turn with no explanation
+and no chance to save anything. Starting a full dev stack is the usual way to get there.
+Behind the `tasks-cloud-run-sandbox-memory-guard` flag, the run watches for that instead of waiting
+for it: `check_sandbox_memory` reads the box's cgroup limit, falling back to `/proc/meminfo` on VM
+runtimes, which have no cgroup ceiling. The probe runs once a minute, and every 15 seconds once the
+box is above 85%.
+
+What the run does with a reading:
+
+- **85% (warning)** — a progress step tells the person watching. The agent is not interrupted.
+- **93% (critical)** — the agent is sent a steer naming the position and the largest processes,
+  telling it to free memory before the box is killed. At most 3 per run, at least 5 minutes apart.
+  Delivery is best-effort: a nudge that cannot be delivered never fails the run.
+- **Sandbox stops after a reading at 85% or above** — the run reports memory as the likely cause
+  instead of the generic "sandbox stopped" message.
+
+The guard cannot resize a live sandbox. A run that genuinely needs a bigger box has to be restarted
+with a `sandbox_resources` override, so the message tells the agent to save its work and say so.
+Thresholds and cadence live in `products/tasks/backend/logic/services/sandbox_memory.py` and
+`products/tasks/backend/temporal/constants.py`. `tasks_process_sandbox_memory_reading` counts
+readings by level, and `tasks_process_sandbox_memory_nudge` counts what happened to each nudge.
+
 ### Network access
 
 Network access is configured per-team via `SandboxEnvironment`:

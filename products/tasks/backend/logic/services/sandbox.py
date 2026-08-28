@@ -44,6 +44,12 @@ from products.tasks.backend.logic.services.sandbox_config import (
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
 )
+from products.tasks.backend.logic.services.sandbox_memory import (
+    MEMORY_PROBE_TIMEOUT_SECONDS,
+    SandboxMemory,
+    build_memory_probe_command,
+    parse_memory_probe,
+)
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -577,6 +583,23 @@ class SandboxBase(ABC):
 
     def read_cpu_usage_usec(self) -> int | None:
         return None
+
+    def read_memory_usage(self) -> SandboxMemory | None:
+        """How close this sandbox is to its memory ceiling, or None when nothing could be read.
+
+        One exec for every provider: the probe only reads kernel files, so a backend has
+        nothing to add beyond running the command. A box that is already dying answers
+        slowly or not at all, which is why the caller treats None as "unknown" rather than
+        "healthy".
+        """
+        try:
+            result = self.execute(build_memory_probe_command(), timeout_seconds=MEMORY_PROBE_TIMEOUT_SECONDS)
+        except Exception as e:
+            _logger.warning("sandbox_memory_probe_failed", sandbox_id=self.id, error=str(e))
+            return None
+        if result.exit_code != 0:
+            return None
+        return parse_memory_probe(result.stdout or "")
 
     def start_cpu_billing_sampler(self) -> bool:
         return False

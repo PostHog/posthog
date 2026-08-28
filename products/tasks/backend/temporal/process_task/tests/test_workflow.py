@@ -23,16 +23,23 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox_memory import MemoryPressureLevel
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.babysit_pr.snapshot import BabysitJournal
 from products.tasks.backend.temporal.constants import (
     INACTIVITY_TIMEOUT_USER_SECONDS,
+    MAX_SANDBOX_MEMORY_NUDGES,
+    MAX_SANDBOX_MEMORY_PROBE_FAILURES,
+    SANDBOX_MEMORY_CHECK_INTERVAL,
+    SANDBOX_MEMORY_CHECK_INTERVAL_UNDER_PRESSURE,
+    SANDBOX_MEMORY_NUDGE_COOLDOWN,
     SANDBOX_TTL_SNAPSHOT_LEAD,
     WARM_IDLE_TIMEOUT,
 )
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities import (
     STEER_DECLINED_OUTCOME,
+    CheckSandboxMemoryOutput,
     CleanupSandboxInput,
     CompleteRunStreamInput,
     CreateSandboxForRepositoryInput,
@@ -2951,3 +2958,158 @@ class TestContinueAsNew:
         fake_info.is_continue_as_new_suggested.return_value = True
         monkeypatch.setattr(process_task_workflow_module.workflow, "info", lambda: fake_info)
         assert wf._should_continue_as_new("sb-1") is True
+
+
+class TestSandboxMemoryGuard:
+    """The guard warns a run that is filling its box, without becoming a stream of messages
+    the agent cannot act on, and without reaching a run whose flag is off."""
+
+    NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
+
+    def _workflow(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        guard_enabled: bool = True,
+        clock: Callable[[], datetime] | None = None,
+    ) -> ProcessTaskWorkflow:
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(github_integration_id=123)
+        wf._context.sandbox_memory_guard_enabled = guard_enabled
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", clock or (lambda: self.NOW))
+        return wf
+
+    @staticmethod
+    def _reading(level: str, *, used_percent: int = 95) -> CheckSandboxMemoryOutput:
+        return CheckSandboxMemoryOutput(
+            level=level,
+            used_bytes=15_000_000_000,
+            limit_bytes=16_000_000_000,
+            used_percent=used_percent,
+            position=f"15.0 GB of 16.0 GB ({used_percent}%)",
+            top_processes="dockerd (6.1 GB)",
+            source="meminfo",
+        )
+
+    @parameterized.expand(
+        [
+            ("flag_on", {}, True),
+            ("flag_off", {"guard_enabled": False}, False),
+            ("probing_given_up", {"probing_active": False}, False),
+        ]
+    )
+    def test_only_a_run_with_the_flag_on_probes_its_sandbox(
+        self, _name: str, overrides: dict[str, bool], expected: bool
+    ) -> None:
+        # parameterized.expand cannot receive pytest fixtures, so the patches are scoped here.
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            wf = self._workflow(monkeypatch, guard_enabled=overrides.get("guard_enabled", True))
+            wf._memory_probing_active = overrides.get("probing_active", True)
+
+            assert wf._sandbox_memory_check_scheduled() is expected
+
+    async def test_a_full_box_interrupts_the_agent_once_per_cooldown(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        clock = {"now": self.NOW}
+        wf = self._workflow(monkeypatch, clock=lambda: clock["now"])
+        monkeypatch.setattr(wf, "_emit_progress", AsyncMock())
+        monkeypatch.setattr(
+            wf, "_read_sandbox_memory", AsyncMock(return_value=self._reading(MemoryPressureLevel.CRITICAL))
+        )
+        send = AsyncMock(return_value=None)
+        monkeypatch.setattr(wf, "_deliver_memory_nudge", send)
+
+        await wf._handle_sandbox_memory_check("sb-1")
+        clock["now"] += SANDBOX_MEMORY_NUDGE_COOLDOWN / 2
+        await wf._handle_sandbox_memory_check("sb-1")
+
+        assert send.await_count == 1
+
+        clock["now"] += SANDBOX_MEMORY_NUDGE_COOLDOWN
+        await wf._handle_sandbox_memory_check("sb-1")
+
+        assert send.await_count == 2
+        assert send.await_args is not None
+        assert "nearly out of memory" in send.await_args.args[0]
+
+    async def test_a_box_that_stays_full_stops_getting_messages(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        clock = {"now": self.NOW}
+        wf = self._workflow(monkeypatch, clock=lambda: clock["now"])
+        monkeypatch.setattr(wf, "_emit_progress", AsyncMock())
+        monkeypatch.setattr(
+            wf, "_read_sandbox_memory", AsyncMock(return_value=self._reading(MemoryPressureLevel.CRITICAL))
+        )
+        send = AsyncMock(return_value=None)
+        monkeypatch.setattr(wf, "_deliver_memory_nudge", send)
+
+        for _ in range(MAX_SANDBOX_MEMORY_NUDGES + 2):
+            await wf._handle_sandbox_memory_check("sb-1")
+            clock["now"] += SANDBOX_MEMORY_NUDGE_COOLDOWN * 2
+
+        assert send.await_count == MAX_SANDBOX_MEMORY_NUDGES
+
+    @parameterized.expand(
+        [
+            ("healthy", MemoryPressureLevel.OK, SANDBOX_MEMORY_CHECK_INTERVAL),
+            # A run with a dev stack in it sits here for hours, so it keeps the cheap cadence.
+            ("watch_band", MemoryPressureLevel.WATCH, SANDBOX_MEMORY_CHECK_INTERVAL),
+            ("nearly_full", MemoryPressureLevel.WARNING, SANDBOX_MEMORY_CHECK_INTERVAL_UNDER_PRESSURE),
+        ]
+    )
+    async def test_only_real_pressure_shortens_the_gap_between_probes(
+        self, _name: str, level: str, expected: timedelta
+    ) -> None:
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            wf = self._workflow(monkeypatch)
+            monkeypatch.setattr(wf, "_emit_progress", AsyncMock())
+            monkeypatch.setattr(wf, "_read_sandbox_memory", AsyncMock(return_value=self._reading(level)))
+
+            await wf._handle_sandbox_memory_check("sb-1")
+
+            assert wf._memory_check_interval == expected
+            assert wf._memory_next_check_at == self.NOW + expected
+
+    async def test_a_sandbox_that_never_answers_stops_being_probed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_read_sandbox_memory", AsyncMock(return_value=None))
+
+        for _ in range(MAX_SANDBOX_MEMORY_PROBE_FAILURES):
+            await wf._handle_sandbox_memory_check("sb-1")
+
+        assert wf._sandbox_memory_check_scheduled() is False
+
+    @parameterized.expand(
+        [
+            ("never_read", None, False),
+            ("healthy_when_last_read", MemoryPressureLevel.OK, False),
+            ("nearly_full_when_last_read", MemoryPressureLevel.WARNING, True),
+            ("full_when_last_read", MemoryPressureLevel.CRITICAL, True),
+        ]
+    )
+    def test_a_dead_sandbox_names_memory_only_when_the_last_reading_supports_it(
+        self, _name: str, level: str | None, expects_memory: bool
+    ) -> None:
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            wf = self._workflow(monkeypatch)
+            wf._last_memory_reading = self._reading(level) if level is not None else None
+
+            reason = wf._sandbox_gone_reason()
+
+            assert ("ran out of memory" in reason) is expects_memory
+
+    async def test_a_nudge_that_cannot_be_delivered_leaves_the_run_alone(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_emit_progress", AsyncMock())
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow,
+            "execute_activity",
+            AsyncMock(side_effect=RuntimeError("sandbox unreachable")),
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", Mock(return_value=uuid.uuid4()))
+
+        await wf._nudge_agent_about_memory(self._reading(MemoryPressureLevel.CRITICAL))
+
+        assert wf._task_completed is False
+        assert wf._completion_status == "completed"
+        assert wf._completion_error is None

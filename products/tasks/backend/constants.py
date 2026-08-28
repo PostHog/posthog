@@ -217,6 +217,9 @@ RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
 CONTINUE_AS_NEW_FEATURE_FLAG = "tasks-cloud-run-continue-as-new"
 PR_BABYSIT_SNAPSHOT_FEATURE_FLAG = "tasks-pr-babysit-snapshot"
 SANDBOX_ROTATION_FEATURE_FLAG = "tasks-cloud-run-sandbox-rotation"
+# Gates the memory guard: the periodic probe of a sandbox's memory headroom and the
+# message it sends the agent when the box is close to being killed for using it all.
+SANDBOX_MEMORY_GUARD_FEATURE_FLAG = "tasks-cloud-run-sandbox-memory-guard"
 
 SnapshotKind = Literal["filesystem", "directory"]
 SNAPSHOT_KIND_FILESYSTEM: SnapshotKind = "filesystem"

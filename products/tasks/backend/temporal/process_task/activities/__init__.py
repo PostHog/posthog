@@ -1,3 +1,4 @@
+from .check_sandbox_memory import CheckSandboxMemoryInput, CheckSandboxMemoryOutput, check_sandbox_memory
 from .cleanup_sandbox import CleanupSandboxInput, CompleteRunStreamInput, cleanup_sandbox, complete_run_stream
 from .create_resume_snapshot import CreateResumeSnapshotInput, CreateResumeSnapshotOutput, create_resume_snapshot
 from .emit_progress_activity import EmitProgressInput, emit_progress_activity
@@ -127,6 +128,9 @@ __all__ = [
     "RecordPeerMessageOutcomeInput",
     "peer_message_id_from_context",
     "record_peer_message_outcome",
+    "CheckSandboxMemoryInput",
+    "CheckSandboxMemoryOutput",
+    "check_sandbox_memory",
     "cleanup_sandbox",
     "complete_run_stream",
     "create_resume_snapshot",

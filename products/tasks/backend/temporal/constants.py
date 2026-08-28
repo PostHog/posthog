@@ -112,6 +112,21 @@ WARM_IDLE_TIMEOUT = timedelta(minutes=10)
 
 SANDBOX_TTL_SNAPSHOT_LEAD = timedelta(minutes=10)
 
+# Cadence of the sandbox memory probe. One cheap exec per tick, so a box with plenty of
+# headroom is checked rarely, and one that is climbing is checked often enough to warn
+# the agent before the kernel kills it.
+SANDBOX_MEMORY_CHECK_INTERVAL = timedelta(seconds=60)
+SANDBOX_MEMORY_CHECK_INTERVAL_UNDER_PRESSURE = timedelta(seconds=15)
+
+# Wait between two memory interruptions of the same run, and the cap on how many it gets.
+# A box that stays full must not become a stream of messages the agent cannot act on.
+SANDBOX_MEMORY_NUDGE_COOLDOWN = timedelta(minutes=5)
+MAX_SANDBOX_MEMORY_NUDGES = 3
+
+# Consecutive unreadable probes after which a run stops probing. A sandbox that cannot
+# answer is unlikely to start, and every attempt costs an exec.
+MAX_SANDBOX_MEMORY_PROBE_FAILURES = 3
+
 # CI follow-up cadence after the agent has been idle.
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 

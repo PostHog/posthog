@@ -178,6 +178,29 @@ def increment_snapshot_create(snapshot_kind: str, outcome: str) -> None:
         pass
 
 
+def record_sandbox_memory_reading(level: str) -> None:
+    """Count memory probes by pressure level, so a rollout can see how often boxes run hot."""
+    try:
+        _metric_meter({"level": level}).create_counter(
+            "tasks_process_sandbox_memory_reading",
+            "Sandbox memory pressure readings by level for process-task runs",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def increment_sandbox_memory_nudge(outcome: str) -> None:
+    """Emitted from the workflow, so it uses the workflow meter rather than the activity one."""
+    try:
+        meter = workflow.metric_meter().with_additional_attributes({"outcome": outcome})
+        meter.create_counter(
+            "tasks_process_sandbox_memory_nudge",
+            "Attempts to interrupt an agent whose sandbox is nearly out of memory",
+        ).add(1)
+    except Exception:
+        pass
+
+
 def record_snapshot_create_latency_ms(snapshot_kind: str, outcome: str, latency_ms: int) -> None:
     try:
         delta = dt.timedelta(milliseconds=latency_ms)

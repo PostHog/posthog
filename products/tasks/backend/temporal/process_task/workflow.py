@@ -20,6 +20,11 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, SNAPSHOT_KIND_FILESYSTEM, is_same_run_resume_state
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
+from products.tasks.backend.logic.services.sandbox_memory import (
+    MemoryPressureLevel,
+    build_memory_exhaustion_error,
+    build_memory_pressure_nudge,
+)
 from products.tasks.backend.temporal.babysit_pr.prompts import (
     MAX_RENDERED_COMMENTS,
     MAX_RENDERED_THREADS,
@@ -27,7 +32,7 @@ from products.tasks.backend.temporal.babysit_pr.prompts import (
 )
 from products.tasks.backend.temporal.babysit_pr.snapshot import AttentionSet, BabysitJournal, PRSnapshot
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
-from products.tasks.backend.temporal.metrics import increment_pr_babysit_decision
+from products.tasks.backend.temporal.metrics import increment_pr_babysit_decision, increment_sandbox_memory_nudge
 from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
 from products.tasks.backend.temporal.process_task.activities.get_pr_babysit_snapshot import (
     GetPrBabysitSnapshotInput,
@@ -39,6 +44,7 @@ from products.tasks.backend.temporal.process_task.activities.get_pr_context impo
     is_pr_actionable,
 )
 
+from .activities.check_sandbox_memory import CheckSandboxMemoryInput, CheckSandboxMemoryOutput, check_sandbox_memory
 from .activities.cleanup_sandbox import (
     CleanupSandboxInput,
     CompleteRunStreamInput,
@@ -288,6 +294,7 @@ class TaskEvent(StrEnum):
     SANDBOX_GONE = "sandbox_gone"
     QUOTA_RECHECK = "quota_recheck"
     SANDBOX_TTL_APPROACHING = "sandbox_ttl_approaching"
+    SANDBOX_MEMORY_CHECK = "sandbox_memory_check"
 
 
 class CIFollowUpDecision(StrEnum):
@@ -310,8 +317,13 @@ from products.tasks.backend.temporal.constants import (  # noqa: E402
     DEFAULT_CI_MESSAGE,
     INACTIVITY_TIMEOUT,
     MAX_CI_REPETITIONS,
+    MAX_SANDBOX_MEMORY_NUDGES,
+    MAX_SANDBOX_MEMORY_PROBE_FAILURES,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+    SANDBOX_MEMORY_CHECK_INTERVAL,
+    SANDBOX_MEMORY_CHECK_INTERVAL_UNDER_PRESSURE,
+    SANDBOX_MEMORY_NUDGE_COOLDOWN,
     SANDBOX_TTL_SNAPSHOT_LEAD,
     SEND_STEER_SIGNAL,
     STEERING_PROTOCOL_QUERY,
@@ -411,6 +423,11 @@ _PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN = "tasks-followup-failure-keeps-run"
 
 _PATCH_ID_DEV_STACK_PREVIEW = "tasks-dev-stack-preview"
 
+# Gates the memory guard: a new Timer in `_wait_for_event`, the probe activity behind it,
+# and the message it sends the agent. Pre-rollout histories schedule none of them, so their
+# replays stay command-for-command identical. Same two-step cleanup lifecycle as above.
+_PATCH_ID_SANDBOX_MEMORY_GUARD = "tasks-sandbox-memory-guard"
+
 # `Task.OriginProduct.ONBOARDING`, mirrored as a literal so workflow code stays free of
 # Django model imports.
 _ONBOARDING_ORIGIN_PRODUCT = "onboarding"
@@ -507,6 +524,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._self_driving_quota_next_check_at: Optional[datetime] = None
         self._self_driving_quota_checks_active: bool = True
         self._current_slack_relay_workflow_id: Optional[str] = None
+        # Memory guard. Deadline-based for the same reason as the quota recheck above, and
+        # for a sharper one: an agent mid-turn heartbeats every few seconds, which is when
+        # the box is most likely to be filling up.
+        self._memory_next_check_at: Optional[datetime] = None
+        self._memory_check_interval: timedelta = SANDBOX_MEMORY_CHECK_INTERVAL
+        self._memory_probe_failures: int = 0
+        self._memory_probing_active: bool = True
+        self._memory_nudges_sent: int = 0
+        self._last_memory_nudge_at: Optional[datetime] = None
+        self._memory_warning_reported: bool = False
+        self._last_memory_reading: Optional[CheckSandboxMemoryOutput] = None
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -781,6 +809,172 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.sleep(remaining.total_seconds())
         return TaskEvent.QUOTA_RECHECK
 
+    def _sandbox_memory_check_scheduled(self) -> bool:
+        """Whether this run still watches how much memory its sandbox has left.
+
+        Both gates matter. The context field comes from recorded activity output, so a run
+        that started before the field existed decodes ``False`` and never schedules the
+        timer. The patch marker covers the same case for an execution whose recorded
+        context predates the field entirely.
+        """
+        return (
+            self._memory_probing_active
+            and self._context is not None
+            and self._context.sandbox_memory_guard_enabled
+            and workflow.patched(_PATCH_ID_SANDBOX_MEMORY_GUARD)
+        )
+
+    async def _wait_for_memory_check(self) -> TaskEvent:
+        if self._memory_next_check_at is None:
+            self._memory_next_check_at = workflow.now() + self._memory_check_interval
+        remaining = self._memory_next_check_at - workflow.now()
+        if remaining.total_seconds() > 0:
+            await workflow.sleep(remaining.total_seconds())
+        return TaskEvent.SANDBOX_MEMORY_CHECK
+
+    async def _handle_sandbox_memory_check(self, sandbox_id: str | None) -> None:
+        """Act on one memory reading, then set when the next one is due.
+
+        A reading nobody could take counts as unknown, not healthy: a box that has started
+        to die answers slowly or not at all.
+        """
+        self._memory_next_check_at = workflow.now() + self._memory_check_interval
+        if sandbox_id is None:
+            return
+
+        reading = await self._read_sandbox_memory(sandbox_id)
+        if reading is None:
+            self._memory_probe_failures += 1
+            if self._memory_probe_failures >= MAX_SANDBOX_MEMORY_PROBE_FAILURES:
+                self._memory_probing_active = False
+                workflow.logger.info(
+                    "sandbox_memory_probing_stopped",
+                    extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
+                )
+            return
+
+        self._memory_probe_failures = 0
+        self._last_memory_reading = reading
+        # Only from WARNING up. A box holding steady in the WATCH band is normal for a run
+        # with a dev stack in it, and probing that every 15 seconds for hours buys nothing.
+        under_pressure = reading.level in (MemoryPressureLevel.WARNING, MemoryPressureLevel.CRITICAL)
+        self._memory_check_interval = (
+            SANDBOX_MEMORY_CHECK_INTERVAL_UNDER_PRESSURE if under_pressure else SANDBOX_MEMORY_CHECK_INTERVAL
+        )
+        self._memory_next_check_at = workflow.now() + self._memory_check_interval
+
+        if reading.level == MemoryPressureLevel.CRITICAL:
+            await self._nudge_agent_about_memory(reading)
+        elif reading.level == MemoryPressureLevel.WARNING and not self._memory_warning_reported:
+            # Once per run. The person watching gets told the box is filling up, while the
+            # agent is left alone until the reading is bad enough to interrupt it.
+            self._memory_warning_reported = True
+            await self._emit_progress(
+                step="sandbox_memory",
+                status="in_progress",
+                label="Memory is running high",
+                group="sandbox-memory",
+                detail=(
+                    f"This sandbox is using {reading.position}. Heavy work like a full local dev "
+                    "stack can use up the rest and stop the run."
+                ),
+            )
+
+    async def _read_sandbox_memory(self, sandbox_id: str) -> CheckSandboxMemoryOutput | None:
+        """One probe, or None when the sandbox gave no usable answer.
+
+        A single attempt on purpose. The next tick is the retry, and it carries a fresher
+        reading than a retry of this one would.
+        """
+        try:
+            reading = await workflow.execute_activity(
+                check_sandbox_memory,
+                CheckSandboxMemoryInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception as e:
+            workflow.logger.warning(
+                "sandbox_memory_check_failed",
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id, "error": str(e)},
+            )
+            return None
+        return reading if reading.limit_bytes > 0 else None
+
+    async def _nudge_agent_about_memory(self, reading: CheckSandboxMemoryOutput) -> None:
+        """Interrupt the agent so it can free memory before the sandbox is killed for using it all.
+
+        Sent as a steer, so it reaches the turn that is filling the box instead of queueing
+        behind it. A steer the agent declines is dropped: the next tick still sees the
+        pressure and tries again once the cooldown has passed.
+        """
+        if self._memory_nudges_sent >= MAX_SANDBOX_MEMORY_NUDGES:
+            increment_sandbox_memory_nudge("capped")
+            return
+        if (
+            self._last_memory_nudge_at is not None
+            and workflow.now() - self._last_memory_nudge_at < SANDBOX_MEMORY_NUDGE_COOLDOWN
+        ):
+            increment_sandbox_memory_nudge("cooldown")
+            return
+
+        self._last_memory_nudge_at = workflow.now()
+        self._memory_nudges_sent += 1
+        workflow.logger.warning(
+            "sandbox_memory_critical",
+            extra={
+                "run_id": self.context.run_id,
+                "used_percent": reading.used_percent,
+                "source": reading.source,
+                "top_processes": reading.top_processes,
+                "nudges_sent": self._memory_nudges_sent,
+            },
+        )
+        await self._emit_progress(
+            step="sandbox_memory",
+            status="in_progress",
+            label="This sandbox is nearly out of memory",
+            group="sandbox-memory",
+            detail=(
+                f"It is using {reading.position}. The agent has been asked to free some up. "
+                "If the sandbox runs out, the run stops."
+            ),
+        )
+        increment_sandbox_memory_nudge("dispatched")
+        await self._deliver_memory_nudge(
+            build_memory_pressure_nudge(position=reading.position, top_processes=reading.top_processes)
+        )
+
+    async def _deliver_memory_nudge(self, message: str) -> None:
+        """Send the nudge without going through `_send_followup_to_sandbox`.
+
+        That path terminalizes a background run when delivery fails, which is right for a
+        user message and wrong here: a warning that could not be delivered must not end an
+        otherwise healthy run. One attempt, because the next probe supersedes this message.
+        """
+        try:
+            await workflow.execute_activity(
+                send_followup_to_sandbox,
+                SendFollowupToSandboxInput(
+                    run_id=self.context.run_id,
+                    message=message,
+                    posthog_mcp_scopes=self._posthog_mcp_scopes,
+                    artifact_ids=[],
+                    message_id=str(workflow.uuid4()),
+                    steer=True,
+                    max_attempts=1,
+                ),
+                start_to_close_timeout=timedelta(minutes=10),
+                heartbeat_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception as e:
+            increment_sandbox_memory_nudge("delivery_failed")
+            workflow.logger.warning(
+                "sandbox_memory_nudge_delivery_failed",
+                extra={"run_id": self.context.run_id, "error": str(e)},
+            )
+
     def _describe_wait(self, *, warm_idle: bool, ci_follow_up_scheduled: bool, inactivity_timeout: timedelta) -> str:
         """Human-readable summary of what the loop is blocked on, for the Temporal UI.
 
@@ -852,6 +1046,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 possible_events.append(asyncio.create_task(self._wait_for_max_run_duration(max_run_duration)))
         if self._sandbox_deadline_snapshot_scheduled():
             possible_events.append(asyncio.create_task(self._wait_for_sandbox_deadline()))
+        if self._sandbox_memory_check_scheduled():
+            possible_events.append(asyncio.create_task(self._wait_for_memory_check()))
         if ci_follow_up_scheduled:
             possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
         if not warm_idle and self._self_driving_quota_recheck_scheduled():
@@ -1342,6 +1538,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             reason=rotation_reason,
                             duration=workflow.now() - deadline_started_at,
                         )
+                    case TaskEvent.SANDBOX_MEMORY_CHECK:
+                        await self._handle_sandbox_memory_check(sandbox_id)
                     case TaskEvent.QUOTA_RECHECK:
                         self._self_driving_quota_next_check_at = workflow.now() + SELF_DRIVING_QUOTA_RECHECK_INTERVAL
                         try:
@@ -2605,9 +2803,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # A sandbox that vanished mid-setup is a failed setup for onboarding; see
         # _onboarding_exit_is_failure for why a run that already opened its PR is exempt.
         self._completion_status = "failed" if self._onboarding_exit_is_failure() else "completed"
-        self._completion_error = SANDBOX_GONE_ERROR_MESSAGE
+        self._completion_error = self._sandbox_gone_reason()
         self._completion_timeout_marker = SANDBOX_GONE_STATE_KEY
         self._task_completed = True
+
+    def _sandbox_gone_reason(self) -> str:
+        """Why the sandbox stopped, as far as the run can tell.
+
+        A dead box cannot be asked, so the last reading stands in for the cause. Naming
+        memory when the box was nearly full is worth more to whoever reads the run than the
+        generic message, and the wording says "most likely" because the run is inferring it.
+        """
+        reading = self._last_memory_reading
+        if reading is None or reading.level not in (MemoryPressureLevel.WARNING, MemoryPressureLevel.CRITICAL):
+            return SANDBOX_GONE_ERROR_MESSAGE
+        return build_memory_exhaustion_error(position=reading.position)
 
     async def _rotate_sandbox_before_deadline(
         self,

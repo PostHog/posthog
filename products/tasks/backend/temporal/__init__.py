@@ -14,6 +14,7 @@ from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
 from .loops import RunLoopWorkflow, run_loop_trigger_activity
 from .process_task.activities import (
     await_agent_server_ready,
+    check_sandbox_memory,
     checkout_branch_in_sandbox,
     cleanup_sandbox,
     clone_repository_in_sandbox,
@@ -93,6 +94,7 @@ ACTIVITIES = [
     relay_sandbox_events,
     relay_sandbox_events_deferred_completion,
     create_resume_snapshot,
+    check_sandbox_memory,
     post_permission_delivery_failure_notice,
     send_permission_denial_guidance,
     send_permission_response_to_sandbox,
