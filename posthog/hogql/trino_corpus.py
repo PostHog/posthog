@@ -2,8 +2,36 @@ import re
 import json
 import hashlib
 import argparse
+import tempfile
 from collections import Counter
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Literal, TypedDict
+
+CorpusTerminalCategory = Literal[
+    "PASS_PARSE",
+    "PASS_ANALYZE",
+    "PASS_EXECUTE",
+    "FAIL_HOGQL_RESOLUTION",
+    "FAIL_TRINO_LOWERING",
+    "FAIL_TRINO_PRINTING",
+    "FAIL_TRINO_SYNTAX",
+    "FAIL_TABLE_NOT_FOUND",
+    "FAIL_COLUMN_NOT_FOUND",
+    "FAIL_TYPE_MISMATCH",
+    "FAIL_UNSUPPORTED_SAFE_EQUIVALENT",
+    "FAIL_EXECUTION",
+    "FAIL_RESULT_MISMATCH",
+]
+
+
+class CorpusCaseResult(TypedDict):
+    category: CorpusTerminalCategory
+    runtimeMs: float
+    featureCode: str | None
+    generatedSqlSha256: str | None
+    generatedSqlBytes: int | None
+
 
 _SQL_FENCE = re.compile(r"^```sql[^\n]*\n(.*?)^```[ \t]*$", re.IGNORECASE | re.MULTILINE | re.DOTALL)
 _FEATURE_PATTERNS = {
@@ -105,6 +133,49 @@ def build_corpus_manifest(markdown: str) -> dict[str, object]:
             "sqlFenceCount": len(queries),
             "uniqueQueryCount": len(first_id_by_hash),
         },
+    }
+
+
+def create_corpus_run_directory(root: Path, source_sha256: str) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=f"{source_sha256[:12]}-", dir=root))
+
+
+def write_generated_sql(run_directory: Path, query_id: str, sql: str) -> Path:
+    if not re.fullmatch(r"q[0-9]{4}", query_id):
+        raise ValueError(f"Invalid corpus query identifier: {query_id}")
+    output = run_directory / f"{query_id}.sql"
+    output.write_text(sql)
+    return output
+
+
+def build_corpus_report(manifest: Mapping[str, object], results: Mapping[str, CorpusCaseResult]) -> dict[str, object]:
+    manifest_queries = manifest.get("queries")
+    if not isinstance(manifest_queries, list):
+        raise ValueError("Corpus manifest must contain a query list")
+
+    query_ids: list[str] = []
+    reported_queries: list[dict[str, object]] = []
+    category_counts: Counter[str] = Counter()
+    for query in manifest_queries:
+        if not isinstance(query, dict) or not isinstance(query.get("id"), str):
+            raise ValueError("Corpus manifest contains a query without an identifier")
+        query_id = query["id"]
+        query_ids.append(query_id)
+        result = results.get(query_id)
+        if result is None:
+            raise ValueError(f"Corpus query has no terminal result: {query_id}")
+        category_counts[result["category"]] += 1
+        reported_queries.append({**query, **result})
+
+    unknown_ids = sorted(set(results).difference(query_ids))
+    if unknown_ids:
+        raise ValueError(f"Corpus results contain unknown query identifiers: {', '.join(unknown_ids)}")
+
+    return {
+        "categoryCounts": dict(sorted(category_counts.items())),
+        "queries": reported_queries,
+        "source": manifest.get("source"),
     }
 
 

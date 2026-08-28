@@ -1,4 +1,12 @@
-from posthog.hogql.trino_corpus import build_corpus_manifest
+import pytest
+
+from posthog.hogql.trino_corpus import (
+    CorpusCaseResult,
+    build_corpus_manifest,
+    build_corpus_report,
+    create_corpus_run_directory,
+    write_generated_sql,
+)
 
 
 def test_manifest_tracks_all_fences_features_and_duplicates_without_sql() -> None:
@@ -39,3 +47,54 @@ SELECT 'ARRAY JOIN', 1 -- LIMIT 2 BY key
     )
 
     assert manifest["featureCounts"] == {}
+
+
+def test_report_requires_one_terminal_result_for_every_manifest_query() -> None:
+    manifest = build_corpus_manifest("""```sql
+SELECT 1
+```
+""")
+
+    with pytest.raises(ValueError, match="q0001"):
+        build_corpus_report(manifest, {})
+
+    result: CorpusCaseResult = {
+        "category": "PASS_PARSE",
+        "runtimeMs": 1.5,
+        "featureCode": None,
+        "generatedSqlSha256": "generated-hash",
+        "generatedSqlBytes": 8,
+    }
+    report = build_corpus_report(manifest, {"q0001": result})
+
+    assert report["categoryCounts"] == {"PASS_PARSE": 1}
+    assert report["queries"][0]["generatedSqlSha256"] == "generated-hash"
+
+
+def test_report_rejects_results_for_unknown_queries() -> None:
+    manifest = build_corpus_manifest("""```sql
+SELECT 1
+```
+""")
+    result: CorpusCaseResult = {
+        "category": "PASS_PARSE",
+        "runtimeMs": 1.5,
+        "featureCode": None,
+        "generatedSqlSha256": None,
+        "generatedSqlBytes": None,
+    }
+
+    with pytest.raises(ValueError, match="q0002"):
+        build_corpus_report(manifest, {"q0001": result, "q0002": result})
+
+
+def test_each_corpus_run_uses_a_fresh_sql_directory(tmp_path) -> None:
+    first_run = create_corpus_run_directory(tmp_path, "a" * 64)
+    write_generated_sql(first_run, "q0001", "SELECT 1")
+    second_run = create_corpus_run_directory(tmp_path, "a" * 64)
+
+    assert first_run != second_run
+    assert not list(second_run.glob("*.sql"))
+
+    with pytest.raises(ValueError, match="Invalid corpus query identifier"):
+        write_generated_sql(second_run, "../private", "SELECT 1")
