@@ -2789,6 +2789,7 @@ def append_task_run_log(
     if run is None:
         return None
     run.append_log(entries)
+    run.clear_echoed_followup_messages(entries)
     run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
 
@@ -3823,6 +3824,7 @@ def signal_task_run_user_message(
 
     if reason := get_compute_quota_denial_reason(run.task):
         raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
+    accepted_at = django_timezone.now()
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(
@@ -3841,6 +3843,11 @@ def signal_task_run_user_message(
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
             return False
         raise
+    if message_id and content and content.strip():
+        try:
+            run.record_pending_followup_message(message_id, content, accepted_at=accepted_at)
+        except Exception:
+            logger.warning("Failed to record pending follow-up message for task run %s", run.id, exc_info=True)
     return True
 
 

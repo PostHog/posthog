@@ -70,7 +70,12 @@ export function CustomPropertiesConfig(): JSX.Element {
     const confirmDelete = (definition: CustomPropertyDefinitionApi): void => {
         LemonDialog.open({
             title: `Delete ${definition.name}?`,
-            description: `Deleting ${definition.name} removes this custom property. This can't be undone.`,
+            description: (
+                <>
+                    <p>This action is irreversible.</p>
+                    <p>All stored values for this custom property will be permanently deleted.</p>
+                </>
+            ),
             primaryButton: {
                 children: 'Delete',
                 status: 'danger',
@@ -197,6 +202,7 @@ export function CustomPropertiesConfig(): JSX.Element {
                             tooltip="Delete"
                             onClick={() => confirmDelete(definition)}
                             disabledReason={canonicalReason ?? restrictionReason}
+                            data-attr="delete-custom-property"
                         />
                     </div>
                 )
