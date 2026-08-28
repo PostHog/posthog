@@ -257,8 +257,8 @@ export function GatewayAddServer({
                     </div>
                     <div className="text-[13px] text-gray-11">
                       {values.agentScope === "team"
-                        ? "Anyone in this project can use this connection through agents."
-                        : "Only you can use this connection through agents."}
+                        ? "Anyone in this project can use this connection"
+                        : "Only you can use this connection"}
                     </div>
                   </div>
                   <AgentScopeToggle

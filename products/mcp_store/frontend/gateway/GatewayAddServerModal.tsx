@@ -214,8 +214,8 @@ export function GatewayAddServerModal(): JSX.Element | null {
                             <div className="font-semibold">Who can use this connection?</div>
                             <div className="text-sm text-secondary">
                                 {addServerForm.agentScope === 'team'
-                                    ? 'Anyone in this project can use this connection through agents.'
-                                    : 'Only you can use this connection through agents.'}
+                                    ? 'Anyone in this project can use this connection'
+                                    : 'Only you can use this connection'}
                             </div>
                         </div>
                         <LemonSegmentedButton
