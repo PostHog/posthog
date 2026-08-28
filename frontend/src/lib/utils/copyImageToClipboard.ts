@@ -1,4 +1,4 @@
-import { toBlob } from 'html-to-image'
+import { captureElementImage } from 'lib/utils/captureElementImage'
 
 /**
  * `copied` — a PNG of the element is on the clipboard.
@@ -14,7 +14,7 @@ export function canCopyImageToClipboard(): boolean {
 }
 
 export async function captureElementAsPng(element: HTMLElement): Promise<Blob> {
-    const blob = await toBlob(element, {
+    return captureElementImage(element, {
         type: CLIPBOARD_IMAGE_TYPE,
         // Charts are read at a glance after being pasted, so capture at 2x to keep text and lines sharp.
         pixelRatio: 2,
@@ -22,12 +22,6 @@ export async function captureElementAsPng(element: HTMLElement): Promise<Blob> {
         // checkerboard or a black box once pasted. Fill it with the page background instead.
         backgroundColor: getComputedStyle(document.body).backgroundColor || undefined,
     })
-
-    if (!blob) {
-        throw new Error('Rendering the element to a PNG produced no data')
-    }
-
-    return blob
 }
 
 export async function copyElementImageToClipboard(element: HTMLElement): Promise<CopyImageOutcome> {
