@@ -264,6 +264,7 @@ export function SessionView({
   const hasPendingSideQuestion = useSideQuestionStore((s) =>
     taskId ? s.byTaskId[taskId]?.status === "pending" : false,
   );
+  const activeTaskRunId = useSessionSelector(taskId, (s) => s?.taskRunId);
 
   const applyConfigOption = useCallback(
     async (configId: string, value: string): Promise<boolean> => {
@@ -291,12 +292,16 @@ export function SessionView({
   });
 
   const handleCopyHandoffSummary = useCallback(async (): Promise<void> => {
-    if (!taskId || !pendingModelSwitch) return;
+    if (!taskId || !activeTaskRunId || !pendingModelSwitch) return;
+    const { ask, resolve, fail } = useSideQuestionStore.getState();
+    const questionId = ask(taskId, activeTaskRunId, HANDOFF_SUMMARY_PROMPT);
+    if (!questionId) return;
     try {
       const summary = await sessionService.askSideQuestion(
         taskId,
         HANDOFF_SUMMARY_PROMPT,
       );
+      resolve(taskId, activeTaskRunId, questionId, summary);
       await navigator.clipboard.writeText(summary);
       track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION, {
         task_id: taskId,
@@ -310,6 +315,7 @@ export function SessionView({
     } catch (error) {
       const caughtError =
         error instanceof Error ? error : new Error("Handoff summary failed");
+      fail(taskId, activeTaskRunId, questionId, caughtError.message);
       captureException(caughtError, {
         feature: "model_switch_handoff_summary",
       });
@@ -325,7 +331,13 @@ export function SessionView({
         description: "Try again, or continue without a summary.",
       });
     }
-  }, [taskId, pendingModelSwitch, sessionService, contextUsage?.used]);
+  }, [
+    taskId,
+    activeTaskRunId,
+    pendingModelSwitch,
+    sessionService,
+    contextUsage?.used,
+  ]);
 
   const handleConfigOptionChange = useCallback(
     (configId: string, value: string) => {
@@ -518,7 +530,6 @@ export function SessionView({
     (s) => !!s?.editingQueuedId,
   );
   const cancelQueuedEdit = useCancelQueuedMessageEdit(taskId);
-  const activeTaskRunId = useSessionSelector(taskId, (s) => s?.taskRunId);
 
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const promptRecallRef = useRef<PromptRecallHandler | null>(null);
