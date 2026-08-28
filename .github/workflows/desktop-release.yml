@@ -165,11 +165,14 @@ jobs:
             - name: Build agent package
               run: pnpm --filter @posthog/agent run build
 
-            # build/Assets.car is gitignored; regenerate it on the runner so the packaged
-            # app ships the liquid-glass icon (the script falls back to .icns if actool fails).
+            # build/Assets.car is gitignored; regenerate it on the runner so the packaged app
+            # ships the liquid-glass icon. The runner's default Xcode 16 actool cannot compile
+            # a macOS 26 .icon bundle, so pick the newest Xcode 26 installed on the image.
             - name: Compile macOS liquid-glass icon
               working-directory: products/desktop/apps/code
-              run: bash scripts/compile-glass-icon.sh
+              run: |
+                  xcode="$(find /Applications -maxdepth 1 -name 'Xcode_26*.app' | sort -V | tail -n 1)"
+                  DEVELOPER_DIR="$xcode/Contents/Developer" bash scripts/compile-glass-icon.sh
 
             - name: Build release artifacts
               env:
