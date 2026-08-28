@@ -121,21 +121,12 @@ export type PersonsBackend = 'postgres' | 'personhog'
 export interface PersonsStore extends BatchWritingStore<FlushResult> {
     readonly backend: PersonsBackend
 
-    /**
-     * Fetches a person by team ID and distinct ID for checking existence
-     * Uses read replica when available
-     */
+    /** Existence-class read; replica-backed where the backend has one. */
     fetchForChecking(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null>
 
-    /**
-     * Fetches a person by team ID and distinct ID with a row-level lock
-     * Always uses primary database
-     */
+    /** Update-class read from the authoritative side; its answer feeds writes. */
     fetchForUpdate(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null>
 
-    /**
-     * Creates a new person
-     */
     createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -164,9 +155,6 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
         batchId: number
     ): Promise<[InternalPerson, PersonMessage[]]>
 
-    /**
-     * Updates person for regular updates with specific properties to set and unset
-     */
     updatePersonWithPropertiesDiffForUpdate(
         person: InternalPerson,
         propertiesToSet: Properties,
@@ -187,9 +175,6 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
      */
     mergePersons(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult>
 
-    /**
-     * Returns the size of the person properties
-     */
     personPropertiesSize(personId: string, teamId: number): Promise<number>
 
     /**
@@ -200,16 +185,11 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
     shutdown(): Promise<void>
 
     /**
-     * Prefetches persons by team ID and distinct ID to warm up the cache.
-     * Each entry may carry its own batchId for cache eviction tracking, allowing a
-     * single DB fetch to service entries that belong to different concurrent batches.
-     * @param teamDistinctIds - A list of team IDs and distinct IDs to prefetch
+     * Best-effort cache warmer. Entries carry their own batchIds so one
+     * fetch can serve concurrent batches' eviction tracking.
      */
     prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void>
 
-    /**
-     * Flushes the batch
-     */
     flush(): Promise<FlushResult[]>
 
     /**
