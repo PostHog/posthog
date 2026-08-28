@@ -191,6 +191,11 @@ export const BoostNeedsUpgrade: Story = {
     ],
 }
 
+export const RedesignedNeedsUpgrade: Story = {
+    ...BoostNeedsUpgrade,
+    parameters: { featureFlags: STORYBOOK_FEATURE_FLAGS },
+}
+
 export const EnterpriseMixed: Story = {
     decorators: [
         mswDecorator({
