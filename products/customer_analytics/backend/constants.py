@@ -24,6 +24,7 @@ BILLING_SPEND_INSIGHT_SHORT_IDS = ["o4I9sdFE", "Tjo4bsux"]
 
 CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES = [
     "text",
+    "link",
     "number",
     "currency",
     "percent",

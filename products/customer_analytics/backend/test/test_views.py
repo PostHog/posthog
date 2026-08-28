@@ -42,6 +42,7 @@ from products.customer_analytics.backend.models import (
     CustomerProfileConfig,
     CustomPropertyDefinition,
     CustomPropertySource,
+    CustomPropertyValue,
     DisplayType,
     Meeting,
     MeetingParticipant,
@@ -1652,6 +1653,7 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
     @parameterized.expand(
         [
             ("text", "text", status.HTTP_201_CREATED),
+            ("link", "link", status.HTTP_201_CREATED),
             ("number", "number", status.HTTP_201_CREATED),
             ("currency", "currency", status.HTTP_201_CREATED),
             ("percent", "percent", status.HTTP_201_CREATED),
@@ -1761,15 +1763,28 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
         self.assertEqual(response.json()["display_type"], "text")
 
-    def test_delete_removes_definition_only(self):
+    def test_delete_removes_definition_and_values(self):
         keep = self._create(name="Keep", display_type="text").json()
         remove = self._create(name="Remove", display_type="text").json()
+        remove_definition = CustomPropertyDefinition.objects.unscoped().get(id=remove["id"])
+        account = create_account(team_id=self.team.id, external_id="account-with-value")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id,
+            definition=remove_definition,
+            account=account,
+            value_str="stored value",
+        )
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
 
         response = self.client.delete(f"{self.endpoint_base}{remove['id']}/")
 
         self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
         # nosemgrep: idor-lookup-without-team (test assertion)
         self.assertFalse(CustomPropertyDefinition.objects.unscoped().filter(id=remove["id"]).exists())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        self.assertFalse(CustomPropertyValue.objects.unscoped().filter(definition_id=remove["id"]).exists())
         # nosemgrep: idor-lookup-without-team (test assertion)
         self.assertTrue(CustomPropertyDefinition.objects.unscoped().filter(id=keep["id"]).exists())
 
@@ -1786,6 +1801,9 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
 
     def test_activity_log_on_create_and_delete(self):
         created = self._create(name="ARR").json()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
         self.client.delete(f"{self.endpoint_base}{created['id']}/")
 
         logs = ActivityLog.objects.filter(
@@ -1800,7 +1818,8 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
     Definitions are a team-wide ``account``-resource config (no per-object ownership), so they are
     gated at the resource level by the default ``AccessControlPermission`` (keyed on
     ``scope_object="account"``) — the same gate as accounts and journeys, including inheritance from
-    the ``customer_analytics`` parent resource. Reads need ``viewer``, writes need ``editor``.
+    the ``customer_analytics`` parent resource. Reads need ``viewer``, writes need ``editor``,
+    and deletion needs a project admin.
     """
 
     def setUp(self):
@@ -1821,12 +1840,18 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
         )
         self.endpoint_base = f"/api/environments/{self.team.id}/custom_property_definitions/"
 
-    def _set_access_level(self, user: User, resource: str = "customer_analytics", access_level: str = "viewer") -> None:
+    def _set_access_level(
+        self,
+        user: User,
+        resource: str = "customer_analytics",
+        access_level: str = "viewer",
+        resource_id: str | None = None,
+    ) -> None:
         membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
             resource=resource,
-            resource_id=None,
+            resource_id=resource_id,
             access_level=access_level,
             organization_member=membership,
         )
@@ -1866,8 +1891,19 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
         response = self.client.post(self.endpoint_base, {"name": "Editor Prop", "display_type": "text"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_editor_can_delete(self):
+    def test_editor_cannot_delete(self):
         self._set_access_level(self.editor_user, access_level="editor")
+        self._set_access_level(
+            self.editor_user, resource="project", access_level="member", resource_id=str(self.team.id)
+        )
+        self.client.force_login(self.editor_user)
+        response = self.client.delete(f"{self.endpoint_base}{self.definition.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_delete(self):
+        membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
         self.client.force_login(self.editor_user)
         response = self.client.delete(f"{self.endpoint_base}{self.definition.id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)

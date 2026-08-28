@@ -541,6 +541,7 @@ export interface sessionRecordingPlayerLogicValues {
     createExportJSON: () => ExportedSessionRecordingFileV2 // sessionRecordingDataCoordinatorLogic
     customRRWebEvents: customEvent[] // sessionRecordingDataCoordinatorLogic
     fullyLoaded: boolean // sessionRecordingDataCoordinatorLogic
+    recordingTooLargeToPlay: boolean // sessionRecordingDataCoordinatorLogic
     sessionPlayerData: SessionPlayerData // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaData: SessionRecordingType | null // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaDataLoading: boolean // sessionRecordingDataCoordinatorLogic
@@ -1161,6 +1162,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'customRRWebEvents',
                 'fullyLoaded',
                 'trackedWindow',
+                'recordingTooLargeToPlay',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
@@ -2566,6 +2568,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             breakpoint()
         },
         loadRecordingMetaSuccess: () => {
+            if (values.recordingTooLargeToPlay) {
+                actions.setPlayerError('recordingTooLarge')
+                return
+            }
+
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.syncSnapshotsWithPlayer()
 
