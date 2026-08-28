@@ -92,10 +92,16 @@ describe('generate-app-url', () => {
         )
     })
 
-    it('throws on an unexpected param', async () => {
-        await expect(
-            generateAppUrlHandler(ctx, { url: '/persons/{uuid}', params: { uuid: 'x', extra: 'y' } })
-        ).rejects.toThrow(/unexpected: extra/)
+    // The mismatch message is persisted verbatim to value-free telemetry, so it must report the count of
+    // unexpected keys, never the caller-chosen key names from the open `params` record.
+    it('reports an unexpected param by count without echoing the caller-chosen key', async () => {
+        const error = await generateAppUrlHandler(ctx, {
+            url: '/persons/{uuid}',
+            params: { uuid: 'x', extra: 'y' },
+        }).catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(ToolInputValidationError)
+        expect((error as ToolInputValidationError).message).toContain('unexpected keys: 1')
+        expect((error as ToolInputValidationError).message).not.toContain('extra')
     })
 
     it('exposes the tool name and accepts a valid payload', () => {

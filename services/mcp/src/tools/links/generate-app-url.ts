@@ -105,7 +105,9 @@ export const generateAppUrlHandler: ToolBase<typeof schema, AppUrlResult | AppUr
             issues.push(`missing: ${missing.join(', ')}`)
         }
         if (unexpected.length > 0) {
-            issues.push(`unexpected: ${unexpected.join(', ')}`)
+            // Count only: these keys come from the caller's open `params` record, and this message is
+            // persisted verbatim to value-free telemetry (`$mcp_error_message`), which must not echo caller input.
+            issues.push(`unexpected keys: ${unexpected.length}`)
         }
         const expected = required.length > 0 ? `[${required.join(', ')}]` : '(none)'
         throw new ToolInputValidationError(`params must be exactly ${expected} — ${issues.join('; ')}.`, {
