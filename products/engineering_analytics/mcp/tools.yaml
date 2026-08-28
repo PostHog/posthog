@@ -71,6 +71,31 @@ tools:
     engineering-analytics-current-branch-health:
         operation: engineering_analytics_current_branch_health
         enabled: false
+    engineering-analytics-dora:
+        operation: engineering_analytics_dora
+        enabled: false
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: DORA deploy metrics
+        description: >
+            DORA-style deploy metrics over the GitHub deployments + deployment_statuses warehouse pair, each headline
+            with its previous-window twin: deployment frequency (deploys whose first success status landed in the
+            window, per-day normalized, with a bucketed series), merge-to-deploy lead time (median seconds from a PR's
+            merge to the first successful deployment at or after it, bots/drafts excluded, with a per-bucket
+            min/p25/p50/mean/p75/max box-plot series), and two honest proxies: failed_deployment_share (deployments with
+            a failure/error status over deployments that reached an outcome — NOT true change failure rate, since no
+            incident data is linked) and median_failed_deploy_to_next_success_seconds (first failure status to the next
+            successful deploy in the same environment — NOT true time-to-restore, since recovery by anything other than
+            a deploy is invisible). Environments default to production-marked deploys, falling back to every persistent
+            (non-transient) environment — ephemeral per-PR preview environments never join a default scope; pass
+            environment to scope exactly. Pass github_team (a slug from github_teams) to narrow the PR-scoped
+            merge-to-deploy figures to that team's authors — deploy counts stay repo-wide. deploy_data_available is
+            false when the deployments endpoints aren't synced on the GitHub source; the fix is enabling them, not
+            re-querying.
     engineering-analytics-flaky-tests:
         operation: engineering_analytics_flaky_tests
         enabled: true
