@@ -281,6 +281,9 @@ describe('ml-mirror-pipeline', () => {
                 offers: {
                     '@type': 'Offer',
                     price: 100,
+                    seller: {
+                        '@type': 'Person',
+                    },
                 },
             },
         })

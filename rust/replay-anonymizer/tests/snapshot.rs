@@ -91,7 +91,7 @@ fn end_to_end_contract() {
     assert_eq!(lines[3][1]["data"]["payload"]["payload"][0], "******");
     assert_eq!(
         lines[4][1]["data"],
-        json!({ "tag": "$json_ld", "payload": { "@context": "https://schema.org", "@type": "Product", "name": "Camera", "offers": { "@type": "Offer", "price": 100, "priceCurrency": "USD" } } })
+        json!({ "tag": "$json_ld", "payload": { "@context": "https://schema.org", "@type": "Product", "name": "Camera", "offers": { "@type": "Offer", "price": 100, "priceCurrency": "USD", "seller": { "@type": "Person" } } } })
     );
 
     let meta = &out.meta;

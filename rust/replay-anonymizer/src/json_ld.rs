@@ -165,6 +165,31 @@ fn sanitize_scalar<'v>(value: &Value<'v>) -> Option<Value<'v>> {
     }
 }
 
+fn has_uri_scheme(value: &str) -> bool {
+    let Some(separator_index) = value.find(':') else {
+        return false;
+    };
+    let mut scheme = value[..separator_index].chars();
+    scheme
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic())
+        && scheme.all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '+' | '.' | '-')
+        })
+}
+
+fn sanitize_id<'v>(value: &Value<'_>) -> Option<Value<'v>> {
+    let id = as_str(value)?.trim();
+    let hash_index = id.find('#');
+    let fragment = hash_index.map_or(id, |index| &id[index + 1..]);
+    if fragment.is_empty()
+        || (hash_index.is_none() && (has_uri_scheme(id) || id.contains('/') || id.contains('?')))
+    {
+        return None;
+    }
+    Some(owned_string(fragment.to_string()))
+}
+
 fn normalize_entity_type(entity_type: &str) -> &str {
     entity_type
         .strip_prefix("https://schema.org/")
@@ -172,7 +197,7 @@ fn normalize_entity_type(entity_type: &str) -> &str {
         .unwrap_or(entity_type)
 }
 
-fn entity_types(value: Option<&Value<'_>>, allowed_types: Option<&str>) -> Vec<String> {
+fn entity_types(value: Option<&Value<'_>>) -> Vec<String> {
     let values: Vec<&str> = match value {
         Some(Value::String(value)) => vec![value.as_ref()],
         Some(Value::Array(values)) => values.iter().filter_map(as_str).collect(),
@@ -181,10 +206,7 @@ fn entity_types(value: Option<&Value<'_>>, allowed_types: Option<&str>) -> Vec<S
     values
         .into_iter()
         .map(normalize_entity_type)
-        .filter(|entity_type| entity_rules(entity_type).is_some())
-        .filter(|entity_type| {
-            allowed_types.is_none_or(|allowed| allowed.is_empty() || listed(allowed, entity_type))
-        })
+        .filter(|entity_type| !entity_type.is_empty())
         .map(str::to_string)
         .collect()
 }
@@ -207,20 +229,19 @@ fn sanitize_entity_value<'v>(value: &Value<'v>, allowed_types: &str) -> Option<V
 fn sanitize_entity<'v>(value: &Value<'v>, allowed_types: Option<&str>) -> Option<Value<'v>> {
     let object = as_object(value)?;
     let type_value = object.get("@type");
-    let types = entity_types(type_value, allowed_types);
-    if types.is_empty() {
-        return None;
-    }
+    let types = entity_types(type_value);
 
     let mut result = Object::default();
-    let sanitized_type = if matches!(type_value, Some(Value::String(_))) {
-        owned_string(types[0].clone())
-    } else {
-        Value::Array(Box::new(types.iter().cloned().map(owned_string).collect()))
-    };
-    result.insert(key("@type"), sanitized_type);
+    if !types.is_empty() {
+        let sanitized_type = if matches!(type_value, Some(Value::String(_))) {
+            owned_string(types[0].clone())
+        } else {
+            Value::Array(Box::new(types.iter().cloned().map(owned_string).collect()))
+        };
+        result.insert(key("@type"), sanitized_type);
+    }
 
-    if let Some(id) = object.get("@id").and_then(sanitize_scalar) {
+    if let Some(id) = object.get("@id").and_then(sanitize_id) {
         result.insert(key("@id"), id);
     }
     for property in TYPE_INDEPENDENT_LEAF_PROPERTIES.split_ascii_whitespace() {
@@ -230,7 +251,14 @@ fn sanitize_entity<'v>(value: &Value<'v>, allowed_types: Option<&str>) -> Option
     }
 
     for entity_type in &types {
-        for rule in entity_rules(entity_type).unwrap_or(EMPTY_RULES) {
+        if allowed_types.is_some_and(|allowed| !allowed.is_empty() && !listed(allowed, entity_type))
+        {
+            continue;
+        }
+        let Some(rules) = entity_rules(entity_type) else {
+            continue;
+        };
+        for rule in rules {
             match *rule {
                 PropertyRule::Scalar(property) => {
                     if let Some(value) = object.get(property).and_then(sanitize_scalar) {
@@ -249,7 +277,14 @@ fn sanitize_entity<'v>(value: &Value<'v>, allowed_types: Option<&str>) -> Option
         }
     }
 
-    Some(Value::Object(Box::new(result)))
+    if let Some(graph) = object
+        .get("@graph")
+        .and_then(|value| sanitize_entity_value(value, ""))
+    {
+        result.insert(key("@graph"), graph);
+    }
+
+    (!result.is_empty()).then_some(Value::Object(Box::new(result)))
 }
 
 fn is_schema_context(value: &Value<'_>) -> bool {
@@ -270,23 +305,11 @@ fn sanitize_root<'v>(value: &Value<'v>) -> Option<Value<'v>> {
         return None;
     }
 
-    if let Some(Value::Object(mut entity)) = sanitize_entity(value, None) {
-        entity.insert(key("@context"), owned_string(SCHEMA_CONTEXT.to_string()));
-        return Some(Value::Object(entity));
-    }
-
-    let graph = object.get("@graph").and_then(as_array)?;
-    let entities: Vec<Value<'v>> = graph
-        .iter()
-        .filter_map(|entity| sanitize_entity(entity, None))
-        .collect();
-    if entities.is_empty() {
+    let Value::Object(mut entity) = sanitize_entity(value, None)? else {
         return None;
-    }
-    let mut result = Object::default();
-    result.insert(key("@context"), owned_string(SCHEMA_CONTEXT.to_string()));
-    result.insert(key("@graph"), Value::Array(Box::new(entities)));
-    Some(Value::Object(Box::new(result)))
+    };
+    entity.insert(key("@context"), owned_string(SCHEMA_CONTEXT.to_string()));
+    Some(Value::Object(entity))
 }
 
 fn sanitize_json_ld<'v>(value: &Value<'v>) -> Option<Value<'v>> {
@@ -341,13 +364,18 @@ mod tests {
                 json!({
                     "@context": "https://schema.org",
                     "@type": "Product",
-                    "@id": "https://example.com/products/camera",
+                    "@id": "https://example.com/products/camera#camera",
                     "name": "Camera",
                     "email": "viewer@example.com",
                     "offers": {
                         "@type": "Offer",
+                        "@id": "https://example.com/offers/1",
                         "price": 100,
-                        "seller": { "@type": "Person", "name": "Example Viewer" }
+                        "seller": {
+                            "@type": "Person",
+                            "@id": "#person-id",
+                            "name": "Example Viewer"
+                        }
                     }
                 }),
                 json!({
@@ -355,9 +383,13 @@ mod tests {
                     "payload": {
                         "@context": "https://schema.org",
                         "@type": "Product",
-                        "@id": "https://example.com/products/camera",
+                        "@id": "camera",
                         "name": "Camera",
-                        "offers": { "@type": "Offer", "price": 100 }
+                        "offers": {
+                            "@type": "Offer",
+                            "price": 100,
+                            "seller": { "@type": "Person", "@id": "person-id" }
+                        }
                     }
                 }),
             ),
@@ -375,21 +407,32 @@ mod tests {
                                 "target": "https://example.com/search?q=private"
                             }
                         },
-                        { "@type": "PrivateType", "email": "viewer@example.com" }
+                        {
+                            "@type": "PrivateType",
+                            "ratingValue": 4.5,
+                            "email": "viewer@example.com",
+                            "private@example.com": { "priceCurrency": "GBP" }
+                        }
                     ]
                 }),
                 json!({
                     "tag": "$json_ld",
                     "payload": {
                         "@context": "https://schema.org",
-                        "@graph": [{
-                            "@type": "WebSite",
-                            "datePublished": "2026-08-25",
-                            "potentialAction": {
-                                "@type": "SearchAction",
-                                "actionStatus": "https://schema.org/PotentialActionStatus"
+                        "@graph": [
+                            {
+                                "@type": "WebSite",
+                                "datePublished": "2026-08-25",
+                                "potentialAction": {
+                                    "@type": "SearchAction",
+                                    "actionStatus": "https://schema.org/PotentialActionStatus"
+                                }
+                            },
+                            {
+                                "@type": "PrivateType",
+                                "ratingValue": 4.5
                             }
-                        }]
+                        ]
                     }
                 }),
             ),
@@ -404,7 +447,7 @@ mod tests {
                     "tag": "$json_ld",
                     "payload": {
                         "@context": "https://schema.org",
-                        "@type": ["Product", "Car"],
+                        "@type": ["Product", "Car", "PrivateType"],
                         "name": ["Camera", 2, true, null]
                     }
                 }),
