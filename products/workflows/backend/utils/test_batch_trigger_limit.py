@@ -85,6 +85,13 @@ class TestTieredHogflowBatchTriggerLimit(BaseTest):
         assert get_hogflow_batch_trigger_limit(self.team.id) == 5000
 
     @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
+    def test_a_workflow_without_an_email_step_keeps_the_flat_limit(self) -> None:
+        # The tiers protect SES reputation, so an SMS or push batch must not inherit the email cap.
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 0})
+        assert get_hogflow_batch_trigger_limit(self.team.id, sends_email=False) == 5000
+        assert get_hogflow_batch_trigger_limit(self.team.id, sends_email=True) == TIER_BATCH_CAPS[0]
+
+    @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
     def test_team_without_a_config_row_is_treated_as_tier_zero(self) -> None:
         # A brand-new project has no workflows config row yet, and it must land on the lowest tier
         # rather than on the flat ceiling.
