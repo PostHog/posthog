@@ -90,12 +90,12 @@ describe('api-error', () => {
             ['a 2FA setup gate', { status: 403, code: 'two_factor_setup_required' }, false],
             ['a 2FA verification gate', { status: 403, code: 'two_factor_verification_required' }, false],
             ['a re-auth gate', { status: 403, code: 'sensitive_action_required_reauth' }, false],
+            // A 403 is an authorization decision, not a crash, whatever code it carries.
+            ['a feature-gated 403 with no code', { status: 403 }, false],
             ['an approvals 409', { status: 409, data: { change_request_id: 'abc' } }, false],
             ['a 502', { status: 502 }, false],
             ['a 503', { status: 503 }, false],
             ['a 504', { status: 504 }, false],
-            // Only the listed codes are excused: a 403 the app does not recover from is still a signal.
-            ['a 403 with no code', { status: 403 }, true],
             ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],

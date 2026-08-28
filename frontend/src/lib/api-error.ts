@@ -33,13 +33,6 @@ export function isTransientServerError(error: unknown): boolean {
     return error instanceof ApiError && isTransientGatewayStatus(error.status)
 }
 
-/** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
-const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
-    'two_factor_setup_required',
-    'two_factor_verification_required',
-    'sensitive_action_required_reauth',
-])
-
 /**
  * Whether a failed request is worth filing as an error tracking issue. A response the app asked
  * for and recovers from itself is not a defect, and reporting it buries the ones that are: every
@@ -50,8 +43,10 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  * - 401 — an authentication state rather than a crash. `apiStatusLogic` re-checks the session and
  *   logs the user out, best-effort: it bails while impersonating (where `ImpersonationNotice`
  *   offers re-impersonation instead), before the user has loaded, and within 10s of its last check.
- * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
- * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
+ * - 403 — the server refused the request on authorization grounds, not an application crash.
+ *   Recovery lives elsewhere: `permission_denied` renders the AccessDenied scene, the auth gates
+ *   (2FA setup, re-verification, re-auth) are opened by `apiStatusLogic`, and a feature-gated 403
+ *   (a self-hosted instance without the data warehouse, for example) just leaves the caller empty.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
  *
@@ -72,13 +67,7 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (status === undefined) {
         return true
     }
-    if (status === 401 || isTransientGatewayStatus(status)) {
-        return false
-    }
-    if (isAccessDeniedError(failure)) {
-        return false
-    }
-    if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
+    if (status === 401 || status === 403 || isTransientGatewayStatus(status)) {
         return false
     }
     return !isApprovalRequiredError(failure)

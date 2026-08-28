@@ -2,6 +2,7 @@ import { MakeLogicType, afterMount, connect, kea, listeners, path, selectors } f
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
@@ -83,8 +84,19 @@ export const joinsLogic = kea<joinsLogicType>([
             [] as DataWarehouseViewLink[],
             {
                 loadJoins: async () => {
-                    const joins = await api.dataWarehouseViewLinks.list()
-                    return joins.results
+                    try {
+                        const joins = await api.dataWarehouseViewLinks.list()
+                        return joins.results
+                    } catch (error) {
+                        // The taxonomic filter mounts this logic on ordinary scenes, so an expected
+                        // failure (a feature-gated 403 on a self-hosted instance) must not fall through
+                        // to the global loaders handler as an uncaught exception. Keep the empty state;
+                        // let the shared gate still surface genuine defects.
+                        if (shouldReportApiFailure(error)) {
+                            throw error
+                        }
+                        return []
+                    }
                 },
             },
         ],
