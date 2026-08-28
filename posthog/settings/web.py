@@ -868,9 +868,6 @@ SPECTACULAR_SETTINGS = {
             "add_row",
             "remove_row",
         ],
-        # Keep the existing Engineering Analytics client name stable when notebook widget
-        # serializers introduce their own unrelated `operation` choice sets.
-        "OperationEnum": ["quarantine", "extend", "remove"],
         "PropertyFilterTypeEnum": [
             "event",
             "event_metadata",

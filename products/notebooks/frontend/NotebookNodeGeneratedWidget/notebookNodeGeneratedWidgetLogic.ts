@@ -163,6 +163,7 @@ export interface notebookNodeGeneratedWidgetLogicActions {
     statusFailed: (error: string) => { error: string }
     statusReceived: (status: WidgetStatusApi) => { status: WidgetStatusApi }
     tickElapsed: (elapsedSeconds: number) => { elapsedSeconds: number }
+    versionRefreshed: (version: WidgetVersionApi) => { version: WidgetVersionApi }
     versionsFailed: (error: string) => { error: string }
     versionsReceived: (
         versions: WidgetVersionApi[],
@@ -377,6 +378,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             statusReceived: (status: WidgetStatusApi) => ({ status }),
             tickElapsed: (elapsedSeconds: number) => ({ elapsedSeconds }),
             versionsFailed: (error: string) => ({ error }),
+            versionRefreshed: (version: WidgetVersionApi) => ({ version }),
             versionsReceived: (
                 versions: WidgetVersionApi[],
                 count: number,
@@ -515,6 +517,8 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 [] as WidgetVersionApi[],
                 {
                     versionsReceived: (current, { versions, reset }) => (reset ? versions : [...current, ...versions]),
+                    versionRefreshed: (current, { version }) =>
+                        current.map((candidate) => (candidate.id === version.id ? version : candidate)),
                     statusReceived: (current, { status }) => (status.has_versions ? current : []),
                 },
             ],
@@ -746,9 +750,31 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     }
                     cache.refreshDataRequestInFlight = true
                     try {
-                        actions.statusReceived(
-                            await notebooksWidgetStatus(String(props.projectId), props.notebookShortId, props.nodeId)
+                        const refreshedStatus = await notebooksWidgetStatus(
+                            String(props.projectId),
+                            props.notebookShortId,
+                            props.nodeId
                         )
+                        actions.statusReceived(refreshedStatus)
+                        if (
+                            values.selectedVersionId &&
+                            values.selectedVersionId !== refreshedStatus.current_version_id
+                        ) {
+                            const selectedIndex = values.versions.findIndex(({ id }) => id === values.selectedVersionId)
+                            const offset =
+                                Math.floor(Math.max(selectedIndex, 0) / VERSION_PAGE_SIZE) * VERSION_PAGE_SIZE
+                            const page = await notebooksWidgetVersions(
+                                String(props.projectId),
+                                props.notebookShortId,
+                                props.nodeId,
+                                { offset, limit: VERSION_PAGE_SIZE }
+                            )
+                            const refreshedVersion = page.results.find(({ id }) => id === values.selectedVersionId)
+                            if (!refreshedVersion) {
+                                throw new Error('The selected widget version is no longer available.')
+                            }
+                            actions.versionRefreshed(refreshedVersion)
+                        }
                         actions.artifactRefreshReady()
                     } catch (error) {
                         actions.statusFailed(errorMessage(error))
@@ -865,18 +891,24 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     ) {
                         actions.loadVersions(true)
                     }
-                    if (
+                    const currentVersionChanged = Boolean(
                         status.current_version_id &&
                         cache.currentVersionId &&
-                        cache.currentVersionId !== status.current_version_id &&
-                        status.artifact_url
+                        cache.currentVersionId !== status.current_version_id
+                    )
+                    if (currentVersionChanged) {
+                        actions.loadVersions(true)
+                        cache.pendingCurrentVersionId = status.artifact_url ? null : status.current_version_id
+                    }
+                    if (
+                        status.current_version_id &&
+                        status.artifact_url &&
+                        (currentVersionChanged || cache.pendingCurrentVersionId === status.current_version_id)
                     ) {
                         actions.selectVersion(status.current_version_id)
-                        actions.loadVersions(true)
+                        cache.pendingCurrentVersionId = null
                     }
-                    if (!cache.currentVersionId || status.artifact_url) {
-                        cache.currentVersionId = status.current_version_id
-                    }
+                    cache.currentVersionId = status.current_version_id
                     if (shouldPoll(status)) {
                         cache.statusPollAttempts = Number(cache.statusPollAttempts ?? 0) + 1
                         scheduleStatusPoll()

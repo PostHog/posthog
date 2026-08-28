@@ -52011,6 +52011,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `quarantine` - QUARANTINE
+     * * `extend` - EXTEND
+     * * `remove` - REMOVE
+     */
+    export type OperationEnum = typeof OperationEnum[keyof typeof OperationEnum];
+
+
+    export const OperationEnum = {
+      Quarantine: 'quarantine',
+      Extend: 'extend',
+      Remove: 'remove',
+    } as const;
+
+    /**
      * * `latest` - latest
      * * `earliest` - earliest
      */
@@ -70117,20 +70131,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `quarantine` - QUARANTINE
-     * * `extend` - EXTEND
-     * * `remove` - REMOVE
-     */
-    export type QuarantineRequestOperationEnum = typeof QuarantineRequestOperationEnum[keyof typeof QuarantineRequestOperationEnum];
-
-
-    export const QuarantineRequestOperationEnum = {
-      Quarantine: 'quarantine',
-      Extend: 'extend',
-      Remove: 'remove',
-    } as const;
-
-    /**
      * * `pytest` - PYTEST
      * * `jest` - JEST
      * * `playwright` - PLAYWRIGHT
@@ -70150,7 +70150,7 @@ export namespace Schemas {
        * * `quarantine` - QUARANTINE
        * * `extend` - EXTEND
        * * `remove` - REMOVE */
-      operation: QuarantineRequestOperationEnum;
+      operation: OperationEnum;
       /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
       selector: string;
       /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.
@@ -85259,6 +85259,22 @@ export namespace Schemas {
       code?: string;
     }
 
+    /**
+     * * `initial` - initial
+     * * `regenerate` - regenerate
+     * * `improve` - improve
+     * * `revert` - revert
+     */
+    export type VersionOperationEnum = typeof VersionOperationEnum[keyof typeof VersionOperationEnum];
+
+
+    export const VersionOperationEnum = {
+      Initial: 'initial',
+      Regenerate: 'regenerate',
+      Improve: 'improve',
+      Revert: 'revert',
+    } as const;
+
     export interface ViewLinkValidation {
       /**
          * Name of the table or view being joined onto the source table.
@@ -85971,22 +85987,6 @@ export namespace Schemas {
       active_job: WidgetJob | null;
     }
 
-    /**
-     * * `initial` - initial
-     * * `regenerate` - regenerate
-     * * `improve` - improve
-     * * `revert` - revert
-     */
-    export type WidgetVersionOperationEnum = typeof WidgetVersionOperationEnum[keyof typeof WidgetVersionOperationEnum];
-
-
-    export const WidgetVersionOperationEnum = {
-      Initial: 'initial',
-      Regenerate: 'regenerate',
-      Improve: 'improve',
-      Revert: 'revert',
-    } as const;
-
     export interface WidgetVersion {
       /** Immutable widget version identifier. */
       id: string;
@@ -86006,7 +86006,7 @@ export namespace Schemas {
        * * `regenerate` - regenerate
        * * `improve` - improve
        * * `revert` - revert */
-      operation: WidgetVersionOperationEnum;
+      version_operation: VersionOperationEnum;
       /** Instructions added by this version. */
       prompt_delta: string;
       /** Complete instructions represented by this version. */

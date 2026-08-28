@@ -411,6 +411,9 @@ export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet
     if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
         hiddenTags.push('SQLV2', 'PythonV2')
     }
+    if (!featureFlags[FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]) {
+        hiddenTags.push('Widget')
+    }
 
     if (hiddenTags.length === 0) {
         return NOTEBOOK_MARKDOWN_REGISTRY

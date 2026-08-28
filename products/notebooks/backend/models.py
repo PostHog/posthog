@@ -318,10 +318,13 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+MAX_WIDGET_NODE_ID_LENGTH = 128
+
+
 class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE, related_name="widget_instances")
-    node_id = models.CharField(max_length=128)
+    node_id = models.CharField(max_length=MAX_WIDGET_NODE_ID_LENGTH)
     widget = models.ForeignKey("notebooks.GeneratedWidget", on_delete=models.CASCADE, related_name="notebook_instances")
     pinned_version = models.ForeignKey(
         "notebooks.GeneratedWidgetVersion",

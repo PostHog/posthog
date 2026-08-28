@@ -64,7 +64,8 @@ class WidgetVersionSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Immutable widget version identifier.")
     parent_version_id = serializers.UUIDField(allow_null=True, help_text="Version this one was based on.")
     version = serializers.IntegerField(min_value=1, help_text="One-based version number.")
-    operation = serializers.ChoiceField(
+    version_operation = serializers.ChoiceField(
+        source="operation",
         choices=["initial", "regenerate", "improve", "revert"],
         help_text="Action that created this version.",
     )

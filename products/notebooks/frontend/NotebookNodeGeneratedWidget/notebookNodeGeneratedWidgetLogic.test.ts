@@ -99,7 +99,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             id: '00000000-0000-0000-0000-000000000002',
             parent_version_id: null,
             version: 1,
-            operation: 'initial',
+            version_operation: 'initial',
             prompt_delta: 'Render a globe',
             effective_prompt: 'Render a globe',
             model: 'claude-sonnet-4-6',
@@ -140,7 +140,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             id: '00000000-0000-0000-0000-000000000002',
             parent_version_id: null,
             version: 1,
-            operation: 'initial',
+            version_operation: 'initial',
             prompt_delta: 'Render a globe',
             effective_prompt: 'Render a globe',
             model: 'claude-sonnet-4-6',
@@ -225,12 +225,58 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.dataRefreshInFlight).toBe(false)
     })
 
+    it('refreshes a selected historical version before reloading the frame', async () => {
+        const currentVersionId = '00000000-0000-0000-0000-000000000003'
+        const historicalVersion: WidgetVersionApi = {
+            id: '00000000-0000-0000-0000-000000000002',
+            parent_version_id: null,
+            version: 1,
+            version_operation: 'initial',
+            prompt_delta: 'Render a globe',
+            effective_prompt: 'Render a globe',
+            model: 'claude-sonnet-4-6',
+            created_at: '2026-08-26T12:00:00Z',
+            build_status: 'ready',
+            artifact_url: 'https://example.com/widget-old.html',
+            frame_names: [],
+            is_current: false,
+        }
+        const readyStatus = status({
+            lifecycle_status: 'ready',
+            artifact_url: 'https://example.com/widget-current.html',
+            current_version_id: currentVersionId,
+            has_versions: true,
+        })
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(readyStatus)
+        jest.mocked(notebooksWidgetVersions)
+            .mockResolvedValueOnce({ results: [historicalVersion], count: 1, next_offset: null })
+            .mockResolvedValueOnce({
+                results: [{ ...historicalVersion, artifact_url: 'https://example.com/widget-new.html' }],
+                count: 1,
+                next_offset: null,
+            })
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectVersion(historicalVersion.id)
+
+        logic.actions.refreshData()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(notebooksWidgetVersions).toHaveBeenLastCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe', {
+            offset: 0,
+            limit: 25,
+        })
+        expect(logic.values.selectedVersion?.artifact_url).toBe('https://example.com/widget-new.html')
+        expect(logic.values.frameRevision).toBe(1)
+    })
+
     it('keeps the last ready version selected while a replacement builds', async () => {
         const previousVersion: WidgetVersionApi = {
             id: '00000000-0000-0000-0000-000000000002',
             parent_version_id: null,
             version: 1,
-            operation: 'initial',
+            version_operation: 'initial',
             prompt_delta: 'Render a globe',
             effective_prompt: 'Render a globe',
             model: 'claude-sonnet-4-6',
@@ -272,6 +318,66 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             })
         )
         expect(logic.values.selectedVersionId).toBe(nextVersionId)
+    })
+
+    it('refreshes version history when a replacement build fails', async () => {
+        const previousVersion: WidgetVersionApi = {
+            id: '00000000-0000-0000-0000-000000000002',
+            parent_version_id: null,
+            version: 1,
+            version_operation: 'initial',
+            prompt_delta: 'Render a globe',
+            effective_prompt: 'Render a globe',
+            model: 'claude-sonnet-4-6',
+            created_at: '2026-08-26T12:00:00Z',
+            build_status: 'ready',
+            artifact_url: 'https://example.com/widget-v1.html',
+            frame_names: [],
+            is_current: true,
+        }
+        const failedVersion: WidgetVersionApi = {
+            ...previousVersion,
+            id: '00000000-0000-0000-0000-000000000003',
+            parent_version_id: previousVersion.id,
+            version: 2,
+            version_operation: 'improve',
+            prompt_delta: 'Add labels',
+            effective_prompt: 'Render a globe\n\nAdd labels',
+            build_status: 'failed',
+            artifact_url: null,
+            is_current: true,
+        }
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({
+                lifecycle_status: 'ready',
+                artifact_url: previousVersion.artifact_url,
+                current_version_id: previousVersion.id,
+                has_versions: true,
+            })
+        )
+        jest.mocked(notebooksWidgetVersions)
+            .mockResolvedValueOnce({ results: [previousVersion], count: 1, next_offset: null })
+            .mockResolvedValueOnce({
+                results: [failedVersion, { ...previousVersion, is_current: false }],
+                count: 2,
+                next_offset: null,
+            })
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.statusReceived(
+            status({
+                lifecycle_status: 'failed',
+                artifact_url: null,
+                current_version_id: failedVersion.id,
+                has_versions: true,
+            })
+        )
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.versions[0].id).toBe(failedVersion.id)
+        expect(logic.values.selectedVersionId).toBe(previousVersion.id)
     })
 
     it('keeps status errors separate from paid generation', async () => {

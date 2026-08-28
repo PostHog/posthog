@@ -19,7 +19,7 @@ export type WidgetArtifactFrameProps = {
         signal: AbortSignal
     ) => Promise<WidgetFrameApi>
     onArtifactUnavailable?: () => void
-    onError?: () => void
+    onError?: (message?: string) => void
     onRendered?: () => void
 }
 
@@ -61,6 +61,8 @@ export function WidgetArtifactFrame({
         }
         artifactPortRef.current = port
         const runIds = new Map<string, string>()
+        const initialRunIds = new Map<string, Promise<string>>()
+        const pageRequests = new Map<string, Promise<WidgetFrameApi>>()
         const route = createWidgetHostMessageRouter(
             (message) => port.postMessage(message),
             () => ({
@@ -68,20 +70,62 @@ export function WidgetArtifactFrame({
                     await readWidgetFrame(
                         latest.current.allowedFrames,
                         async (name, offset, limit, requestSignal) => {
-                            const frame = await latest.current.onReadFrame(
-                                name,
-                                offset,
-                                limit,
-                                runIds.get(name),
-                                requestSignal
-                            )
-                            runIds.set(name, frame.runId)
-                            return frame
+                            let runId = runIds.get(name)
+                            const pageKey = (): string => `${name}:${runId ?? 'initial'}:${offset}:${limit}`
+                            const cachedPage = pageRequests.get(pageKey())
+                            if (cachedPage) {
+                                return await cachedPage
+                            }
+                            const loadPage = async (): Promise<WidgetFrameApi> => {
+                                if (!runId) {
+                                    const pendingRunId = initialRunIds.get(name)
+                                    if (pendingRunId) {
+                                        runId = await pendingRunId
+                                    } else {
+                                        const firstFrame = latest.current.onReadFrame(
+                                            name,
+                                            offset,
+                                            limit,
+                                            undefined,
+                                            requestSignal
+                                        )
+                                        const firstRunId = firstFrame.then((frame) => frame.runId)
+                                        initialRunIds.set(name, firstRunId)
+                                        try {
+                                            const frame = await firstFrame
+                                            runIds.set(name, frame.runId)
+                                            return frame
+                                        } finally {
+                                            initialRunIds.delete(name)
+                                        }
+                                    }
+                                }
+                                const frame = await latest.current.onReadFrame(
+                                    name,
+                                    offset,
+                                    limit,
+                                    runId,
+                                    requestSignal
+                                )
+                                runIds.set(name, frame.runId)
+                                return frame
+                            }
+                            const request = loadPage()
+                            const initialPageKey = pageKey()
+                            pageRequests.set(initialPageKey, request)
+                            try {
+                                const frame = await request
+                                pageRequests.set(`${name}:${frame.runId}:${offset}:${limit}`, Promise.resolve(frame))
+                                return frame
+                            } catch (error) {
+                                pageRequests.delete(initialPageKey)
+                                throw error
+                            }
                         },
                         payload,
                         signal
                     ),
-                onError: () => latest.current.onError?.(),
+                onError: (message) => latest.current.onError?.(message),
                 onRendered: () => {
                     if (renderTimeoutRef.current !== null) {
                         window.clearTimeout(renderTimeoutRef.current)

@@ -18,7 +18,7 @@ _NETWORK_DIAGNOSTICS = {"network_fetch", "network_xhr"}
 _NAVIGATION_RE = re.compile(
     r"(?:\b(?:window\s*\.\s*)?location(?:\s*\.\s*(?:href|assign|replace))?\s*(?:=|\()"
     r"|\b(?:window|globalThis)\s*\.\s*open\s*\(|\bnavigation\s*\.\s*navigate\s*\("
-    r"|\bhistory\s*\.\s*(?:back|forward|go|pushState|replaceState)\s*\(|<\s*a\b)",
+    r"|\bhistory\s*\.\s*(?:back|forward|go|pushState|replaceState)\s*\(|<\s*a(?=\s|/?>))",
     re.IGNORECASE,
 )
 _FRAME_BRIDGE_START = "/* __POSTHOG_NOTEBOOK_BRIDGE_START__ */"

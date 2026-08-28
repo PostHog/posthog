@@ -1,3 +1,4 @@
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import uuid4
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -29,11 +31,13 @@ from products.notebooks.backend.models import (
     NotebookWidgetInstance,
 )
 from products.notebooks.backend.presentation.widget_serializers import WidgetGenerateRequestSerializer
+from products.notebooks.backend.presentation.widget_throttles import WidgetFrameBurstThrottle
 from products.notebooks.backend.widget_generation import (
     WIDGET_MODEL_MAX_TOKENS,
     WIDGET_MODEL_TEMPERATURE,
     WIDGET_MODEL_TIMEOUT_SECONDS,
     WIDGET_MODEL_TOTAL_BUDGET_SECONDS,
+    GeneratedWidgetSource,
     WidgetSourceGenerationCancelled,
     WidgetSourceGenerationError,
     WidgetSourceGenerationTimedOut,
@@ -42,6 +46,7 @@ from products.notebooks.backend.widget_generation import (
 )
 from products.notebooks.backend.widget_models import DEFAULT_WIDGET_MODEL
 from products.notebooks.backend.widgets import (
+    JOB_STALE_AFTER,
     MAX_FRAME_BYTES,
     WidgetError,
     WidgetInputInspection,
@@ -49,6 +54,8 @@ from products.notebooks.backend.widgets import (
     _cancellation_key,
     _extend_prompt_history,
     _materialize_effective_prompt,
+    _version_input_contract,
+    cancel_widget_generation,
     get_widget_status,
     infer_widget_inputs,
     inspect_widget_inputs,
@@ -329,6 +336,14 @@ class TestWidgetGeneration(SimpleTestCase):
 
         assert not [item for item in diagnostics if item.get("severity") == "error"]
 
+    def test_canvas_validation_allows_less_than_comparisons_with_a_variables(self) -> None:
+        diagnostics = validate_notebook_canvas_source(
+            "export default function Canvas() { const a = [1]; return <div>{0 < a.length ? 'yes' : 'no'}</div> }",
+            [],
+        )
+
+        assert not [item for item in diagnostics if item.get("severity") == "error"]
+
     def test_canvas_runtime_blocks_navigation_before_generated_source(self) -> None:
         project = _source_project("export default function Canvas() { return <div /> }")
         source = project["files"]["src/canvas.tsx"]
@@ -366,6 +381,18 @@ class TestWidgetGeneration(SimpleTestCase):
         )
 
         assert infer_widget_inputs(notebook, "mdn-mjjdae-0") == ["sql_df"]
+
+    def test_rejects_an_explicit_node_id_that_cannot_be_persisted(self) -> None:
+        node_id = "x" * 129
+        notebook = cast(
+            Notebook,
+            SimpleNamespace(content=markdown_content(f'<Widget nodeId="{node_id}" prompt="Render a globe" />')),
+        )
+
+        with self.assertRaises(WidgetError) as error:
+            infer_widget_inputs(notebook, node_id)
+
+        assert error.exception.code == "invalid_node_id"
 
 
 class TestWidgetData(APIBaseTest):
@@ -458,6 +485,29 @@ class TestWidgetData(APIBaseTest):
         ]
         authorize.assert_called_once_with(latest)
 
+    def test_inspection_rejects_an_oversized_contract(self) -> None:
+        self._run()
+
+        with (
+            patch("products.notebooks.backend.widgets.MAX_INPUT_CONTRACT_BYTES", 1),
+            self.assertRaises(WidgetError) as error,
+        ):
+            inspect_widget_inputs(self.notebook, [self.INPUT_NAME], lambda _run: None)
+
+        assert error.exception.code == "input_schema_too_large"
+
+    def test_version_contract_keeps_only_frame_authorization_metadata(self) -> None:
+        self._run()
+        contract = inspect_widget_inputs(self.notebook, [self.INPUT_NAME], lambda _run: None).contract
+
+        assert _version_input_contract(contract) == [
+            {
+                "slot": self.INPUT_NAME,
+                "sourceName": self.INPUT_NAME,
+                "schemaHash": contract[0]["schemaHash"],
+            }
+        ]
+
     def test_frame_is_whitelisted_and_bounded(self) -> None:
         self._run()
         self._mapping()
@@ -482,6 +532,20 @@ class TestWidgetData(APIBaseTest):
                 user=self.user,
             )
         assert error.exception.code == "frame_not_allowed"
+
+    def test_frame_endpoint_rate_limits_repeated_widget_requests(self) -> None:
+        self._run()
+        self._mapping()
+        url = (
+            f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/"
+            f"{self.NODE_ID}/frames/{self.INPUT_NAME}/"
+        )
+
+        with patch.object(WidgetFrameBurstThrottle, "rate", "1/minute"):
+            assert self.client.get(url).status_code == 200
+            response = self.client.get(url)
+
+        assert response.status_code == 429
 
     def test_frame_preserves_unsafe_integer_precision(self) -> None:
         unsafe_integer = 2**63 - 1
@@ -789,6 +853,21 @@ class TestWidgetData(APIBaseTest):
         assert generate.call_args.kwargs["inspection"].resolved_inputs[0].run == latest
         assert generate.call_args.kwargs["operation"] == "regenerate"
 
+    def test_generate_endpoint_is_hidden_when_the_feature_is_disabled(self) -> None:
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/generate/"
+
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=False
+        ):
+            response = self.client.post(
+                url,
+                data={"prompt": "Render a globe", "generation_id": str(uuid4())},
+                format="json",
+            )
+
+        assert response.status_code == 404
+        assert not NotebookWidgetInstance.objects.for_team(self.team.id).filter(notebook=self.notebook).exists()
+
     def test_generation_starts_before_the_widget_has_a_current_version(self) -> None:
         widget = GeneratedWidget.objects.for_team(self.team.id).create(
             team_id=self.team.id,
@@ -828,7 +907,7 @@ class TestWidgetData(APIBaseTest):
         assert job.operation == GeneratedWidgetVersion.Operation.INITIAL
         start_workflow.assert_called_once_with(str(generation_id), self.team.id)
 
-    def test_dispatch_failure_marks_the_job_failed(self) -> None:
+    def test_ambiguous_dispatch_failure_leaves_the_job_retryable(self) -> None:
         generation_id = uuid4()
 
         with (
@@ -836,7 +915,7 @@ class TestWidgetData(APIBaseTest):
             patch(
                 "products.notebooks.backend.widgets.start_widget_generation_workflow",
                 side_effect=RuntimeError("dispatch failed"),
-            ),
+            ) as start_workflow,
             self.captureOnCommitCallbacks(execute=True),
         ):
             start_widget_generation(
@@ -851,8 +930,9 @@ class TestWidgetData(APIBaseTest):
             )
 
         job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(id=generation_id)
-        assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
-        assert job.error_code == "generation_dispatch_failed"
+        assert start_workflow.call_count == 2
+        assert job.status == GeneratedWidgetGenerationJob.Status.QUEUED
+        assert job.error_code is None
 
     def test_generation_requires_ai_data_processing_approval(self) -> None:
         self.organization.is_ai_data_processing_approved = False
@@ -1022,6 +1102,52 @@ class TestWidgetData(APIBaseTest):
         assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
         assert job.error_code == "generation_failed"
 
+    def test_generation_worker_does_not_publish_after_the_job_becomes_terminal(self) -> None:
+        instance = self._mapping()
+        base_version = self._pinned_version(instance)
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=instance.widget,
+            instance=instance,
+            requested_by=self.user,
+            operation=GeneratedWidgetVersion.Operation.IMPROVE,
+            prompt="Make it lighter",
+            model="claude-sonnet-4-6",
+            base_version=base_version,
+            input_contract=[],
+            schema_hash="",
+        )
+
+        def mark_terminal(**_kwargs: object) -> MagicMock:
+            GeneratedWidgetGenerationJob.objects.for_team(self.team.id).filter(id=job.id).update(
+                status=GeneratedWidgetGenerationJob.Status.FAILED,
+                phase="failed",
+                error_code="generation_abandoned",
+                error_detail="Generation stopped unexpectedly. Start it again.",
+                finished_at=timezone.now(),
+            )
+            return MagicMock()
+
+        with (
+            patch(
+                "products.notebooks.backend.widget_generation.generate_widget_source",
+                return_value=GeneratedWidgetSource(title="Lighter globe", source="export default () => null"),
+            ),
+            patch("products.canvas.backend.notebook_integration.get_notebook_canvas_source", return_value="source"),
+            patch(
+                "products.canvas.backend.notebook_integration.prepare_notebook_canvas_source",
+                side_effect=mark_terminal,
+            ),
+            patch("products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source") as publish,
+        ):
+            run_widget_generation_job(job.id, self.team.id)
+
+        job.refresh_from_db()
+        publish.assert_not_called()
+        assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
+        assert job.result_version_id is None
+        assert GeneratedWidgetVersion.objects.for_team(self.team.id).filter(widget=instance.widget).count() == 1
+
     def test_generation_worker_rechecks_ai_data_processing_approval(self) -> None:
         instance = self._mapping()
         job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
@@ -1060,6 +1186,8 @@ class TestWidgetData(APIBaseTest):
             operation=GeneratedWidgetVersion.Operation.IMPROVE,
             prompt="Make it lighter",
             model="claude-sonnet-4-6",
+            status=GeneratedWidgetGenerationJob.Status.GENERATING,
+            started_at=timezone.now(),
             base_version=current_version,
             input_contract=current_version.input_contract,
             schema_hash="",
@@ -1074,6 +1202,74 @@ class TestWidgetData(APIBaseTest):
         job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(id=generation_id)
         assert job.status == GeneratedWidgetGenerationJob.Status.CANCELED
         assert job.finished_at is not None
+
+    def test_canceling_the_first_generation_returns_to_awaiting_generation(self) -> None:
+        widget = GeneratedWidget.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="Render a globe",
+            canvas_id=uuid4(),
+            created_by=self.user,
+        )
+        instance = NotebookWidgetInstance.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            notebook=self.notebook,
+            node_id=self.NODE_ID,
+            widget=widget,
+            created_by=self.user,
+        )
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=widget,
+            instance=instance,
+            requested_by=self.user,
+            operation=GeneratedWidgetVersion.Operation.INITIAL,
+            prompt="Render a globe",
+            model="claude-sonnet-4-6",
+            input_contract=[],
+            schema_hash="",
+        )
+
+        cancel_widget_generation(notebook=self.notebook, node_id=self.NODE_ID, generation_id=job.id)
+
+        result = get_widget_status(notebook=self.notebook, node_id=self.NODE_ID)
+        assert result.lifecycle_status == "awaiting_generation"
+        assert result.error_detail is None
+
+    def test_status_reconciles_an_abandoned_generation(self) -> None:
+        widget = GeneratedWidget.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="Render a globe",
+            canvas_id=uuid4(),
+            created_by=self.user,
+        )
+        instance = NotebookWidgetInstance.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            notebook=self.notebook,
+            node_id=self.NODE_ID,
+            widget=widget,
+            created_by=self.user,
+        )
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=widget,
+            instance=instance,
+            requested_by=self.user,
+            operation=GeneratedWidgetVersion.Operation.INITIAL,
+            prompt="Render a globe",
+            model="claude-sonnet-4-6",
+            input_contract=[],
+            schema_hash="",
+        )
+        GeneratedWidgetGenerationJob.objects.for_team(self.team.id).filter(id=job.id).update(
+            created_at=timezone.now() - JOB_STALE_AFTER - timedelta(seconds=1)
+        )
+
+        result = get_widget_status(notebook=self.notebook, node_id=self.NODE_ID)
+
+        job.refresh_from_db()
+        assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
+        assert result.lifecycle_status == "failed"
+        assert result.error_detail == "Generation stopped unexpectedly. Start it again."
 
     def test_query_restricted_member_cannot_generate(self) -> None:
         self.organization.available_product_features = [

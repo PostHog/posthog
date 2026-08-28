@@ -79,6 +79,41 @@ describe('widgetArtifactBridge', () => {
         expect(responses[0]).toMatchObject({ id: '1', ok: false })
     })
 
+    it('passes a bounded runtime error to the host', async () => {
+        const onError = jest.fn()
+        const route = createWidgetHostMessageRouter(jest.fn(), () => ({ onDataRequest: jest.fn(), onError }))
+
+        await route({ channel: 'posthog-canvas', type: 'error', message: 'x'.repeat(1_000) })
+
+        expect(onError).toHaveBeenCalledWith('x'.repeat(500))
+    })
+
+    it('caps the total work one artifact can request', async () => {
+        const responses: Record<string, unknown>[] = []
+        const onDataRequest = jest.fn().mockResolvedValue(frame)
+        const route = createWidgetHostMessageRouter(
+            (message) => responses.push(message),
+            () => ({ onDataRequest })
+        )
+
+        for (let index = 0; index < 201; index++) {
+            await route({
+                channel: 'posthog-canvas',
+                type: 'data-request',
+                id: String(index),
+                method: 'stateGet',
+                payload: { key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:0:100` },
+            })
+        }
+
+        expect(onDataRequest).toHaveBeenCalledTimes(200)
+        expect(responses.at(-1)).toMatchObject({
+            id: '200',
+            ok: false,
+            error: 'Widget data request exceeds runtime limits',
+        })
+    })
+
     it('bounds requests that never finish', async () => {
         jest.useFakeTimers()
         const responses: Record<string, unknown>[] = []

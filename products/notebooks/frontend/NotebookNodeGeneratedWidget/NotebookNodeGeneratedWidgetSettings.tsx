@@ -176,7 +176,7 @@ export function NotebookNodeGeneratedWidgetSettings({
                     {selectedVersion ? (
                         <div className="rounded border bg-surface-primary p-3">
                             <div className="mb-1 text-xs font-semibold text-secondary">
-                                {selectedVersion.operation === 'improve'
+                                {selectedVersion.version_operation === 'improve'
                                     ? 'Change made'
                                     : 'Instructions for this version'}
                             </div>
@@ -228,7 +228,7 @@ export function NotebookNodeGeneratedWidgetSettings({
                         {isCurrentVersion && isEditable ? (
                             <>
                                 <LemonButton type="primary" onClick={() => openGenerationModal('improve')}>
-                                    Improve...
+                                    Improve…
                                 </LemonButton>
                                 <LemonButton onClick={() => openGenerationModal('regenerate')}>Regenerate…</LemonButton>
                                 <LemonButton onClick={openSourceModal} data-attr="notebook-widget-view-source">
@@ -236,10 +236,10 @@ export function NotebookNodeGeneratedWidgetSettings({
                                 </LemonButton>
                                 <LemonButton
                                     onClick={refreshData}
-                                    disabledReason={dataRefreshInFlight ? 'Reloading widget.' : undefined}
+                                    disabledReason={dataRefreshInFlight ? 'Reloading preview.' : undefined}
                                     data-attr="notebook-widget-reload"
                                 >
-                                    Reload
+                                    Reload preview
                                 </LemonButton>
                             </>
                         ) : null}

@@ -71,6 +71,7 @@ from products.notebooks.backend.facade.widgets import (
     get_widget_status,
     infer_widget_inputs,
     inspect_widget_inputs,
+    is_notebook_widget_enabled,
     list_widget_versions,
     read_widget_frame,
     read_widget_source,
@@ -90,6 +91,10 @@ from products.notebooks.backend.presentation.widget_serializers import (
     WidgetStatusSerializer,
     WidgetVersionPageSerializer,
     WidgetVersionQuerySerializer,
+)
+from products.notebooks.backend.presentation.widget_throttles import (
+    WidgetFrameBurstThrottle,
+    WidgetFrameSustainedThrottle,
 )
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
@@ -806,6 +811,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to generate a widget.")
+        if not is_notebook_widget_enabled(user):
+            raise Http404()
         serializer = WidgetGenerateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         notebook = self.get_object()
@@ -985,6 +992,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         user = self._current_user()
         if user is None:
             raise PermissionDenied("A user is required to restore a widget version.")
+        if not is_notebook_widget_enabled(user):
+            raise Http404()
         serializer = WidgetRevertRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -1006,6 +1015,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             403: WidgetErrorSerializer,
             404: WidgetErrorSerializer,
             409: WidgetErrorSerializer,
+            429: WidgetErrorSerializer,
         },
         parameters=[
             OpenApiParameter(
@@ -1031,6 +1041,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         url_path="widgets/(?P<node_id>[^/.]+)/frames/(?P<frame_name>[^/.]+)",
         detail=True,
         required_scopes=["notebook:read", "query:read"],
+        throttle_classes=[WidgetFrameBurstThrottle, WidgetFrameSustainedThrottle],
     )
     def widget_frame(
         self,
@@ -1044,6 +1055,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         query = WidgetFrameQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         self._require_query_access()
+        if not is_notebook_widget_enabled(self._current_user()):
+            raise Http404()
         try:
             result = read_widget_frame(
                 notebook=self.get_object(),

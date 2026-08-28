@@ -839,10 +839,9 @@ export interface WidgetSourceApi {
  * * `improve` - improve
  * * `revert` - revert
  */
-export type WidgetVersionOperationEnumApi =
-    (typeof WidgetVersionOperationEnumApi)[keyof typeof WidgetVersionOperationEnumApi]
+export type VersionOperationEnumApi = (typeof VersionOperationEnumApi)[keyof typeof VersionOperationEnumApi]
 
-export const WidgetVersionOperationEnumApi = {
+export const VersionOperationEnumApi = {
     Initial: 'initial',
     Regenerate: 'regenerate',
     Improve: 'improve',
@@ -883,7 +882,7 @@ export interface WidgetVersionApi {
      * * `regenerate` - regenerate
      * * `improve` - improve
      * * `revert` - revert */
-    operation: WidgetVersionOperationEnumApi
+    version_operation: VersionOperationEnumApi
     /** Instructions added by this version. */
     prompt_delta: string
     /** Complete instructions represented by this version. */

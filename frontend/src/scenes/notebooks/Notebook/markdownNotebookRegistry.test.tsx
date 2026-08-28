@@ -85,10 +85,11 @@ describe('markdownNotebookRegistry', () => {
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
 
-        it('offers widgets in the insert menu and renders legacy widget blocks', () => {
-            expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true }, 'Widget')).toEqual([
+        it('gates widget insertion and always renders legacy widget blocks', () => {
+            expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]: true }, 'Widget')).toEqual([
                 { key: 'component-Widget', category: 'Common' },
             ])
+            expect(getInsertCommandsByLabel({}, 'Widget')).toEqual([])
             for (const legacyTag of ['GeneratedWidget', 'GenUI']) {
                 expect(NOTEBOOK_MARKDOWN_REGISTRY.components[legacyTag]).toMatchObject({
                     label: 'Widget',
@@ -112,7 +113,10 @@ describe('markdownNotebookRegistry', () => {
             const commands = buildInsertCommands(
                 mergeMarkdownNotebookRegistries(
                     getMarkdownNotebookDefaultRegistry(),
-                    getMarkdownRegistryForFeatureFlags({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true })
+                    getMarkdownRegistryForFeatureFlags({
+                        [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true,
+                        [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]: true,
+                    })
                 ),
                 (_nodeId, node) => insertedNodes.push(node),
                 noop,

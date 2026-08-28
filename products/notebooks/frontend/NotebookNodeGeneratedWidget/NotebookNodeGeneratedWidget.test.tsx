@@ -122,7 +122,7 @@ describe('NotebookNodeGeneratedWidget', () => {
                     id: versionId,
                     parent_version_id: null,
                     version: 1,
-                    operation: 'initial',
+                    version_operation: 'initial',
                     prompt_delta: 'Render a globe',
                     effective_prompt: 'Render a globe',
                     model: 'claude-sonnet-4-6',
@@ -147,7 +147,7 @@ describe('NotebookNodeGeneratedWidget', () => {
             </BindLogic>
         )
 
-        const actionLabels = ['Improve...', 'Regenerate…', 'View source', 'Reload']
+        const actionLabels = ['Improve…', 'Regenerate…', 'View source', 'Reload preview']
         const actionButtons = await Promise.all(actionLabels.map((label) => screen.findByText(label)))
         actionButtons.slice(0, -1).forEach((button, index) => {
             expect(

@@ -130,7 +130,9 @@ function ExpandedWidget({
             <EmptyState>
                 <div className="flex flex-col items-center gap-3">
                     <div>This widget's preview didn't load.</div>
-                    <LemonButton onClick={refreshData}>Reload preview</LemonButton>
+                    <LemonButton onClick={refreshData} loading={dataRefreshInFlight}>
+                        Reload preview
+                    </LemonButton>
                 </div>
             </EmptyState>
         )
@@ -207,9 +209,10 @@ function ExpandedWidget({
                             )
                         }
                         onArtifactUnavailable={markArtifactUnavailable}
-                        onError={() =>
+                        onError={(message) =>
                             setRuntimeError(
-                                'The widget could not load its notebook data. Run its data cells and try again.'
+                                message ||
+                                    'The widget could not load its notebook data. Run its data cells and try again.'
                             )
                         }
                         onRendered={() => {
@@ -353,6 +356,7 @@ export const NotebookNodeGeneratedWidget = createPostHogWidgetNode<NotebookNodeG
     minHeight: 180,
     resizeable: true,
     expandable: false,
+    unmountWhenOutOfView: true,
     attributes: {
         prompt: { default: '' },
         model: { default: DEFAULT_WIDGET_MODEL },

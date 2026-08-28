@@ -3,6 +3,8 @@ import type { WidgetFrameApi } from 'products/notebooks/frontend/generated/api.s
 const CANVAS_CHANNEL = 'posthog-canvas'
 export const NOTEBOOK_FRAME_KEY_PREFIX = '__posthog_notebook_frame__:'
 const MAX_CONCURRENT_REQUESTS = 8
+const MAX_TOTAL_REQUESTS = 200
+const MAX_TOTAL_RESPONSE_BYTES = 32 * 1024 * 1024
 const MAX_REQUEST_BYTES = 8 * 1024
 const MAX_FRAME_PAGE_ROWS = 500
 const REQUEST_TIMEOUT_MS = 30_000
@@ -42,7 +44,7 @@ export async function readWidgetFrame(
 
 export type WidgetHostCallbacks = {
     onDataRequest: (method: string, payload: unknown, signal: AbortSignal) => Promise<unknown> | unknown
-    onError?: () => void
+    onError?: (message?: string) => void
     onRendered?: () => void
 }
 
@@ -51,6 +53,8 @@ export function createWidgetHostMessageRouter(
     callbacks: () => WidgetHostCallbacks
 ): (message: unknown) => Promise<void> {
     let activeRequests = 0
+    let totalRequests = 0
+    let totalResponseBytes = 0
 
     return async (raw: unknown): Promise<void> => {
         if (typeof raw !== 'object' || raw === null) {
@@ -61,7 +65,7 @@ export function createWidgetHostMessageRouter(
             return
         }
         if (message.type === 'error') {
-            callbacks().onError?.()
+            callbacks().onError?.(typeof message.message === 'string' ? message.message.slice(0, 500) : undefined)
             return
         }
         if (message.type === 'rendered') {
@@ -88,7 +92,11 @@ export function createWidgetHostMessageRouter(
         } catch {
             requestBytes = Number.POSITIVE_INFINITY
         }
-        if (activeRequests >= MAX_CONCURRENT_REQUESTS || requestBytes > MAX_REQUEST_BYTES) {
+        if (
+            activeRequests >= MAX_CONCURRENT_REQUESTS ||
+            totalRequests >= MAX_TOTAL_REQUESTS ||
+            requestBytes > MAX_REQUEST_BYTES
+        ) {
             post({
                 channel: CANVAS_CHANNEL,
                 type: 'data-response',
@@ -100,6 +108,7 @@ export function createWidgetHostMessageRouter(
         }
 
         activeRequests += 1
+        totalRequests += 1
         const controller = new AbortController()
         let timeoutId: ReturnType<typeof setTimeout> | undefined
         const request = Promise.resolve().then(() =>
@@ -115,6 +124,11 @@ export function createWidgetHostMessageRouter(
                     }, REQUEST_TIMEOUT_MS)
                 }),
             ])
+            const responseBytes = JSON.stringify(result).length
+            if (totalResponseBytes + responseBytes > MAX_TOTAL_RESPONSE_BYTES) {
+                throw new Error('Widget data response exceeds runtime limits')
+            }
+            totalResponseBytes += responseBytes
             post({ channel: CANVAS_CHANNEL, type: 'data-response', id: message.id, ok: true, result })
         } catch (error) {
             post({

@@ -4,6 +4,9 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { initKeaTests } from '~/test/init'
 
+import type { WidgetFrameApi } from 'products/notebooks/frontend/generated/api.schemas'
+
+import { NOTEBOOK_FRAME_KEY_PREFIX } from './widgetArtifactBridge'
 import { WidgetArtifactFrame } from './WidgetArtifactFrame'
 
 class TestMessagePort {
@@ -61,6 +64,104 @@ describe('WidgetArtifactFrame', () => {
         expect(port.start).toHaveBeenCalledTimes(1)
         unmount()
         expect(port.close).toHaveBeenCalledTimes(1)
+    })
+
+    it('pins concurrent pages for one dataframe to the first resolved run', async () => {
+        const firstFrame: WidgetFrameApi = {
+            name: 'pandas_df',
+            runId: '00000000-0000-0000-0000-000000000001',
+            columns: [],
+            rows: [],
+            totalRowCount: 200,
+            includedRowCount: 100,
+            offset: 0,
+            nextOffset: 100,
+            truncated: true,
+        }
+        let resolveFirstFrame: (frame: WidgetFrameApi) => void = () => undefined
+        const pendingFirstFrame = new Promise<WidgetFrameApi>((resolve) => {
+            resolveFirstFrame = resolve
+        })
+        const onReadFrame = jest
+            .fn()
+            .mockImplementationOnce(() => pendingFirstFrame)
+            .mockResolvedValue({ ...firstFrame, offset: 100, nextOffset: null, truncated: false })
+        const port = new TestMessagePort()
+        render(
+            <WidgetArtifactFrame
+                artifactUrl="https://example.com/globe.html"
+                allowedFrames={['pandas_df']}
+                onReadFrame={onReadFrame}
+            />
+        )
+        sendNotebookPort(screen.getByTitle('Widget') as HTMLIFrameElement, port)
+        const route = port.addEventListener.mock.calls[0][1] as (event: { data: unknown }) => Promise<void>
+
+        const firstRequest = route({
+            data: {
+                channel: 'posthog-canvas',
+                type: 'data-request',
+                id: 'first',
+                method: 'stateGet',
+                payload: { key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:0:100` },
+            },
+        })
+        const secondRequest = route({
+            data: {
+                channel: 'posthog-canvas',
+                type: 'data-request',
+                id: 'second',
+                method: 'stateGet',
+                payload: { key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:100:100` },
+            },
+        })
+        await Promise.resolve()
+        await Promise.resolve()
+        expect(onReadFrame).toHaveBeenCalledTimes(1)
+
+        resolveFirstFrame(firstFrame)
+        await Promise.all([firstRequest, secondRequest])
+
+        expect(onReadFrame).toHaveBeenNthCalledWith(2, 'pandas_df', 100, 100, firstFrame.runId, expect.any(AbortSignal))
+    })
+
+    it('deduplicates repeated pages within one artifact load', async () => {
+        const onReadFrame = jest.fn().mockResolvedValue({
+            name: 'pandas_df',
+            runId: '00000000-0000-0000-0000-000000000001',
+            columns: [],
+            rows: [],
+            totalRowCount: 0,
+            includedRowCount: 0,
+            offset: 0,
+            nextOffset: null,
+            truncated: false,
+        } satisfies WidgetFrameApi)
+        const port = new TestMessagePort()
+        render(
+            <WidgetArtifactFrame
+                artifactUrl="https://example.com/globe.html"
+                allowedFrames={['pandas_df']}
+                onReadFrame={onReadFrame}
+            />
+        )
+        sendNotebookPort(screen.getByTitle('Widget') as HTMLIFrameElement, port)
+        const route = port.addEventListener.mock.calls[0][1] as (event: { data: unknown }) => Promise<void>
+        const request = (id: string): Promise<void> =>
+            route({
+                data: {
+                    channel: 'posthog-canvas',
+                    type: 'data-request',
+                    id,
+                    method: 'stateGet',
+                    payload: { key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:0:100` },
+                },
+            })
+
+        await Promise.all([request('first'), request('second')])
+        await request('third')
+
+        expect(onReadFrame).toHaveBeenCalledTimes(1)
     })
 
     it('does not reconnect after the artifact navigates', () => {
