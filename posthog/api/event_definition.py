@@ -73,6 +73,10 @@ def create_event_definitions_sql(
     }
     # Django relies on PK being present in the result set to tell if it's a saved instance
     event_definition_fields.add("id as pk")
+    # Sorted because a set iterates in an order that depends on the process hash seed. Unsorted,
+    # every worker emits a different statement text, so pg_stat_statements and Performance Insights
+    # split this query's load across hundreds of fingerprints and none of them looks expensive.
+    selected_fields = sorted(event_definition_fields)
 
     enterprise_join = (
         "FULL OUTER JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
@@ -97,7 +101,7 @@ def create_event_definitions_sql(
     # for any `name` equality in `conditions`. The equivalent form
     # `project_id = X OR (project_id IS NULL AND team_id = X)` matches no index at all.
     return f"""
-            SELECT {",".join(event_definition_fields)}
+            SELECT {",".join(selected_fields)}
             FROM posthog_eventdefinition
             {enterprise_join}
             WHERE COALESCE(project_id, team_id) = %(project_id)s
