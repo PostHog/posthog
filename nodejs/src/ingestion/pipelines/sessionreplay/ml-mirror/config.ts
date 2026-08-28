@@ -110,12 +110,6 @@ export type MlMirrorConfig = {
      * scale with it too. Raise the pod's memory before you raise this.
      */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: number
-    /** Low-diversity mode starts when the remaining request capacity is lower than this value. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS: number
-    /** Low-diversity mode starts only when more than this many undeferred canonical URL jobs remain. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD: number
-    /** Canonical URL jobs fetched in low-diversity mode before the remaining undeferred jobs return to Kafka. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS: number
     /** Image bodies waiting for Kafka delivery. This must fit inside the producer byte queue. */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES: number
     /**
@@ -244,9 +238,6 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: 6,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: 6,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
-        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS: 48,
-        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD: 50,
-        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS: 8,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES: 100,
         SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: 40_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES: 20 * 1024 * 1024,
