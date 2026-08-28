@@ -212,6 +212,12 @@ GENERAL_PURPOSE_TASK_QUEUE = _set_temporal_task_queue("general-purpose-task-queu
 SIGNUP_ENRICHMENT_TASK_QUEUE = _set_temporal_task_queue(
     os.getenv("SIGNUP_ENRICHMENT_TASK_QUEUE", "general-purpose-task-queue")
 )
+# Defaults to the general-purpose fleet so dispatch always has a live worker. Routing canvas
+# builds to a dedicated, separately-scalable worker takes two steps in order: deploy a worker
+# fleet polling "canvas-build-task-queue" (a charts change), then set this env on the
+# dispatching services. Setting it first strands builds on a pollerless queue until the
+# workflow execution timeout closes them.
+CANVAS_BUILD_TASK_QUEUE = _set_temporal_task_queue(os.getenv("CANVAS_BUILD_TASK_QUEUE", "general-purpose-task-queue"))
 EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
