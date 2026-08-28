@@ -47,6 +47,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
     AI_REPORT_WINDOW_END_KEY,
+    SUBSCRIPTION_DELIVERY_TARGET_INTEGRATION_ID_KEY,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     GenerateAIReportInputs,
@@ -90,13 +91,19 @@ async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
     return await _read()
 
 
-async def _load_delivery_target(delivery_id: uuid.UUID) -> tuple[str, str] | None:
+async def _load_delivery_target(delivery_id: uuid.UUID) -> tuple[str, str, int | None] | None:
     """Return the destination frozen when this delivery was created."""
 
     @database_sync_to_async(thread_sensitive=False)
-    def _read() -> tuple[str, str] | None:
+    def _read() -> tuple[str, str, int | None] | None:
         try:
-            return SubscriptionDelivery.objects.values_list("target_type", "target_value").get(pk=delivery_id)
+            target_type, target_value, snapshot = SubscriptionDelivery.objects.values_list(
+                "target_type", "target_value", "content_snapshot"
+            ).get(pk=delivery_id)
+            integration_id = (
+                snapshot.get(SUBSCRIPTION_DELIVERY_TARGET_INTEGRATION_ID_KEY) if isinstance(snapshot, dict) else None
+            )
+            return target_type, target_value, integration_id if isinstance(integration_id, int) else None
         except SubscriptionDelivery.DoesNotExist:
             return None
 
@@ -570,7 +577,7 @@ async def _deliver_ai_subscription(
             f"AI delivery target missing for subscription {subscription.id} (delivery {inputs.delivery_id})",
             non_retryable=True,
         )
-    target_type, target_value = delivery_target
+    target_type, target_value, target_integration_id = delivery_target
     markdown = _snapshot_report(snapshot)
     if markdown is None:
         # Generation persists the report before delivery is scheduled, so a missing report
@@ -614,8 +621,22 @@ async def _deliver_ai_subscription(
                 charts=chart_images,
             )
 
-        return await deliver_email(subscription, inputs, recipient_results, _send_email, target_value=target_value)
+        eligible_emails = (
+            {email.strip() for email in subscription.target_value.split(",") if email.strip()}
+            if subscription.target_type == Subscription.SubscriptionTarget.EMAIL
+            else set()
+        )
+        return await deliver_email(
+            subscription,
+            inputs,
+            recipient_results,
+            _send_email,
+            target_value=target_value,
+            eligible_emails=eligible_emails,
+        )
     if target_type == Subscription.SubscriptionTarget.SLACK:
+        if target_integration_id is None:
+            raise ApplicationError("AI delivery has no frozen Slack integration", non_retryable=True)
         return await deliver_slack(
             subscription,
             recipient_results,
@@ -628,6 +649,7 @@ async def _deliver_ai_subscription(
                 target_value=target_value,
             ),
             target_value=target_value,
+            integration_id=target_integration_id,
         )
     # `validate_subscription_for_delivery` auto-disables unsupported targets up front,
     # so reaching here means an invariant was violated.

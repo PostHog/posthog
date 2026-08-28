@@ -28,6 +28,7 @@ from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_insight_delivery_snapshot,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    SUBSCRIPTION_DELIVERY_TARGET_INTEGRATION_ID_KEY,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     CreateExportAssetsResult,
@@ -55,7 +56,10 @@ from ee.tasks.subscriptions.failure_notifications import (
     create_subscription_delivery_failure_notification,
     send_subscription_delivery_failure_email,
 )
-from ee.tasks.subscriptions.slack_subscriptions import send_slack_message_with_integration_async
+from ee.tasks.subscriptions.slack_subscriptions import (
+    get_slack_integration_for_team,
+    send_slack_message_with_integration_async,
+)
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 
 LOGGER = get_logger(__name__)
@@ -555,6 +559,12 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
             )
 
         content_snapshot = build_initial_content_snapshot(subscription)
+        if subscription.target_type == Subscription.SubscriptionTarget.SLACK:
+            integration = subscription.integration
+            if integration is None or integration.kind != "slack":
+                integration = get_slack_integration_for_team(subscription.team_id)
+            if integration is not None:
+                content_snapshot[SUBSCRIPTION_DELIVERY_TARGET_INTEGRATION_ID_KEY] = integration.id
 
         delivery, _created = SubscriptionDelivery.objects.get_or_create(
             idempotency_key=inputs.idempotency_key,

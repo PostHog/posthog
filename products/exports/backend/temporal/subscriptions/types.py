@@ -109,6 +109,9 @@ AI_REPORT_CHARTS_KEY = "ai_report_charts"
 # A short-lived ownership lease prevents overlapping Temporal attempts from both paying to
 # generate the same report when an earlier worker outlives its activity timeout.
 AI_REPORT_GENERATION_CLAIM_KEY = "ai_report_generation_claim"
+# Slack is delivered through a workspace-specific integration. Preserve that identity alongside the
+# delivery's existing target type and value so a later subscription edit cannot redirect a report.
+SUBSCRIPTION_DELIVERY_TARGET_INTEGRATION_ID_KEY = "target_integration_id"
 # Every AI delivery writes this marker to SubscriptionDeliveryContext. Its presence distinguishes
 # relational provenance rows from historical deliveries recorded before that table existed.
 AI_REPORT_DELIVERY_CONTEXT_MARKER_KIND = "ai_report"
