@@ -321,7 +321,7 @@ class AwsS3BatchExportInputs(S3FamilyBaseInputs):
     kms_key_id: str | None = None
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3CompatibleBatchExportInputs(S3FamilyBaseInputs):
     """Inputs for a non-AWS S3-compatible batch export.
 
