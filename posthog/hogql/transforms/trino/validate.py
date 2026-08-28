@@ -93,6 +93,14 @@ _SUPPORTED_CALLS = frozenset(
 )
 
 
+class TrinoSourceValidator(TraversingVisitor):
+    def visit_pivot_expr(self, node: ast.PivotExpr) -> None:
+        raise TrinoLoweringError("TRINO_PIVOT_UNSUPPORTED", "PIVOT", node)
+
+    def visit_unpivot_expr(self, node: ast.UnpivotExpr) -> None:
+        raise TrinoLoweringError("TRINO_UNPIVOT_UNSUPPORTED", "UNPIVOT", node)
+
+
 class TrinoReadyValidator(TraversingVisitor):
     def __init__(self, context: HogQLContext) -> None:
         super().__init__()
@@ -116,6 +124,8 @@ class TrinoReadyValidator(TraversingVisitor):
             self._fail("TRINO_LIMIT_PERCENT_UNSUPPORTED", "LIMIT PERCENT", node)
         if node.limit_with_ties and (node.limit is None or not node.order_by):
             self._fail("TRINO_WITH_TIES_ORDER_REQUIRED", "WITH TIES without ORDER BY and LIMIT", node)
+        if node.settings is not None:
+            self._fail("TRINO_SETTINGS_UNSUPPORTED", "SETTINGS", node)
         super().visit_select_query(node)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
@@ -133,9 +143,34 @@ class TrinoReadyValidator(TraversingVisitor):
             self._fail("TRINO_GLOBAL_JOIN_UNSUPPORTED", join_type, node)
         if node.table_final:
             self._fail("TRINO_FINAL_UNSUPPORTED", "FINAL", node)
-        if node.sample is not None:
+        if node.sample is not None and not (
+            node.sample.sample_value.left.value == 1
+            and node.sample.sample_value.right is None
+            and node.sample.offset_value is None
+        ):
             self._fail("TRINO_SAMPLE_UNSUPPORTED", "SAMPLE", node)
         super().visit_join_expr(node)
+
+    def visit_order_expr(self, node: ast.OrderExpr) -> None:
+        if node.with_fill is not None:
+            self._fail("TRINO_WITH_FILL_UNSUPPORTED", "WITH FILL", node)
+        super().visit_order_expr(node)
+
+    def visit_cte(self, node: ast.CTE) -> None:
+        if node.cte_type != "subquery":
+            self._fail("TRINO_SCALAR_CTE_UNSUPPORTED", "scalar CTE", node)
+        if node.materialized is not None or node.using_key is not None:
+            self._fail("TRINO_CTE_MODIFIER_UNSUPPORTED", "CTE modifier", node)
+        super().visit_cte(node)
+
+    def visit_pivot_expr(self, node: ast.PivotExpr) -> None:
+        self._fail("TRINO_PIVOT_UNSUPPORTED", "PIVOT", node)
+
+    def visit_unpivot_expr(self, node: ast.UnpivotExpr) -> None:
+        self._fail("TRINO_UNPIVOT_UNSUPPORTED", "UNPIVOT", node)
+
+    def visit_named_argument(self, node: ast.NamedArgument) -> None:
+        self._fail("TRINO_NAMED_ARGUMENT_UNSUPPORTED", "named function argument", node)
 
     def visit_call(self, node: ast.Call) -> None:
         name = node.name.lower()
@@ -175,3 +210,7 @@ class TrinoReadyValidator(TraversingVisitor):
 
 def validate_trino_ready_ast(node: ast.AST, context: HogQLContext) -> None:
     TrinoReadyValidator(context).visit(node)
+
+
+def validate_trino_source_ast(node: ast.AST) -> None:
+    TrinoSourceValidator().visit(node)

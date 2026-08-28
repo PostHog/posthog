@@ -616,3 +616,89 @@ def test_rejects_aggregate_modifiers_on_scalar_trino_calls(modifier: str) -> Non
         prepare_and_print_ast(query, _context_with_trino_table(), "trino")
 
     assert error.value.feature_code == "TRINO_SCALAR_FUNCTION_MODIFIER_UNSUPPORTED"
+
+
+def test_lowers_left_any_join_by_deduplicating_the_right_relation() -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            "SELECT users.user_id, other.created_at FROM users "
+            "LEFT ANY JOIN users AS other ON users.user_id = other.user_id"
+        ),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert "LEFT ANY JOIN" not in sql
+    assert 'row_number() OVER (PARTITION BY "__hogql_any_source_0"."user_id")' in sql
+    assert 'WHERE ("__hogql_any_ranked_0"."__hogql_any_row_0" = 1)' in sql
+    assert ') AS "other" ON ("users"."user_id" = "other"."user_id")' in sql
+
+
+@pytest.mark.parametrize(
+    ("join", "constraint", "feature_code"),
+    [
+        ("RIGHT ANY JOIN", "users.user_id = other.user_id", "TRINO_ANY_JOIN_MODE_UNSUPPORTED"),
+        ("LEFT ANY JOIN", "users.user_id < other.user_id", "TRINO_ANY_JOIN_EQUI_KEYS_REQUIRED"),
+    ],
+)
+def test_rejects_unsafe_any_join_shapes(join: str, constraint: str, feature_code: str) -> None:
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(
+            parse_select(f"SELECT users.user_id FROM users {join} users AS other ON {constraint}"),
+            _context_with_trino_table(),
+            "trino",
+        )
+
+    assert error.value.feature_code == feature_code
+
+
+@pytest.mark.parametrize(
+    ("join", "expected"),
+    [
+        ("ALL INNER JOIN", "INNER JOIN"),
+        ("LEFT ALL JOIN", "LEFT JOIN"),
+        ("RIGHT ALL JOIN", "RIGHT JOIN"),
+        ("FULL ALL JOIN", "FULL JOIN"),
+    ],
+)
+def test_lowers_clickhouse_all_join_to_standard_trino_join(join: str, expected: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT users.user_id FROM users {join} users AS other ON users.user_id = other.user_id"),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert f" {expected} " in sql
+    assert f" {join} " not in sql
+
+
+def test_removes_noop_sample_one_for_trino() -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT user_id FROM users SAMPLE 1"),
+        _context_with_trino_table(),
+        "trino",
+    )
+
+    assert "SAMPLE" not in sql
+
+
+@pytest.mark.parametrize(
+    ("query", "feature_code"),
+    [
+        ("SELECT user_id FROM users SAMPLE 0.5", "TRINO_SAMPLE_UNSUPPORTED"),
+        ("WITH 1 AS scalar_value SELECT scalar_value FROM users", "TRINO_SCALAR_CTE_UNSUPPORTED"),
+        (
+            "SELECT * FROM users PIVOT(count(user_id) FOR created_at IN ('2026-01-01'))",
+            "TRINO_PIVOT_UNSUPPORTED",
+        ),
+        (
+            "SELECT * FROM users UNPIVOT(value FOR key IN (user_id))",
+            "TRINO_UNPIVOT_UNSUPPORTED",
+        ),
+    ],
+)
+def test_rejects_clickhouse_query_clauses_without_safe_trino_semantics(query: str, feature_code: str) -> None:
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+
+    assert error.value.feature_code == feature_code

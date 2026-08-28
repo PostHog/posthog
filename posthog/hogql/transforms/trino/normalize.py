@@ -3,6 +3,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_unnest_table import TrinoUnnestTable
+from posthog.hogql.transforms.trino.any_join import lower_trino_any_joins
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.query_wrappers import lower_trino_query_wrappers
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
@@ -15,6 +16,12 @@ _EVENT_ELEMENTS_CHAIN_PATTERNS = {
     "elements_chain_texts": r'(?::|")text="(.*?)"',
     "elements_chain_ids": r'(?::|")attr_id="(.*?)"',
     "elements_chain_elements": r"(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)",
+}
+_ALL_JOIN_TYPES = {
+    "ALL INNER JOIN": "INNER JOIN",
+    "LEFT ALL JOIN": "LEFT JOIN",
+    "RIGHT ALL JOIN": "RIGHT JOIN",
+    "FULL ALL JOIN": "FULL JOIN",
 }
 
 
@@ -224,6 +231,8 @@ class TrinoNormalizer(TraversingVisitor):
         node.array_join_list = None
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if node.join_type in _ALL_JOIN_TYPES:
+            node.join_type = _ALL_JOIN_TYPES[node.join_type]
         table_type = node.type
         while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
             table_type = table_type.table_type
@@ -256,6 +265,7 @@ class TrinoNormalizer(TraversingVisitor):
 def normalize_trino_ast(node: ast.AST, context: HogQLContext) -> ast.AST:
     lowered = TrinoArrayJoinFunctionLowerer(context).visit(node)
     lowered = TrinoPhysicalFieldLowerer().visit(lowered)
+    lowered = lower_trino_any_joins(lowered)
     lowered = lower_trino_query_wrappers(lowered)
     lowered = TrinoSelectAliasLowerer().visit(lowered)
     TrinoNormalizer(context).visit(lowered)

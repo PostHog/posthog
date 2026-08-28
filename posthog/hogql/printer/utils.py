@@ -157,6 +157,14 @@ def prepare_ast_for_printing(
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
+    if dialect == "trino":
+        from posthog.hogql.transforms.trino.validate import (  # noqa: PLC0415 — breaks validator → printer package cycle
+            validate_trino_source_ast,
+        )
+
+        with context.timings.measure("validate_trino_source_ast"):
+            validate_trino_source_ast(node)
+
     # Load property-level access control restrictions onto the context. They are enforced only on the ClickHouse path —
     # the printer wraps the JSON blob in JSONDropKeys, and property resolution declines backing columns (and reads a
     # restricted property as NULL). The warehouse (Postgres / DuckDB) dialects only compile external data-warehouse
