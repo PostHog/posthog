@@ -11,7 +11,7 @@
 
 set -e
 
-ICON_PATH="build/icon.icon"
+ICON_PATH="build/Icon.icon"
 OUTPUT_PATH="build/Assets.car"
 TEMP_DIR=$(mktemp -d)
 
@@ -20,8 +20,8 @@ if [ ! -d "$ICON_PATH" ]; then
   exit 0
 fi
 
-# Check if Assets.car exists and is newer than source
-if [ -f "$OUTPUT_PATH" ] && [ "$OUTPUT_PATH" -nt "$ICON_PATH/icon.json" ]; then
+# Check if Assets.car exists and is newer than every file in the icon bundle
+if [ -f "$OUTPUT_PATH" ] && [ -z "$(find "$ICON_PATH" -type f -newer "$OUTPUT_PATH")" ]; then
   echo "✓ Assets.car is up to date"
   exit 0
 fi
