@@ -81,11 +81,30 @@ export function shouldRenderInsightCardViz({
 }
 
 /**
+ * Whether a viz mount should wait for a scheduler slot. Only canvas vizes stagger, and only in interactive
+ * contexts. Storybook and image exports mount every tile in the first render pass: the exporter screenshots
+ * after a fixed delay, so a staggered canvas tile would still show a placeholder when the capture fires.
+ */
+export function shouldStaggerVizMount({
+    isStorybook,
+    placement,
+    rendersToCanvas,
+}: {
+    isStorybook: boolean
+    placement: DashboardPlacement | 'SavedInsightGrid'
+    rendersToCanvas: boolean
+}): boolean {
+    if (isStorybook || placement === DashboardPlacement.Export) {
+        return false
+    }
+    return rendersToCanvas
+}
+
+/**
  * Gates when a canvas viz actually mounts. Cheap DOM/SVG vizes render at once. Canvas vizes wait for a
  * scheduler slot, so a burst of tiles entering view together doesn't mount every chart in the same frame.
  */
-function useStaggeredVizMount(eligible: boolean, isCanvas: boolean): boolean {
-    const staggered = isCanvas && !IS_STORYBOOK
+function useStaggeredVizMount(eligible: boolean, staggered: boolean): boolean {
     const [ready, setReady] = useState(false)
 
     useEffect(() => {
@@ -305,7 +324,11 @@ function InsightCardInternal(
 
     // Even once eligible, a canvas viz waits for a mount slot so several tiles entering view together
     // don't each mount a chart in the same frame — the burst that freezes the page on fast scrolling.
-    const shouldRenderViz = useStaggeredVizMount(vizEligible, rendersToCanvas)
+    // Exports skip the wait so every tile is mounted before the exporter takes its screenshot.
+    const shouldRenderViz = useStaggeredVizMount(
+        vizEligible,
+        shouldStaggerVizMount({ isStorybook: IS_STORYBOOK, placement, rendersToCanvas })
+    )
 
     const mergedRefs = useMergeRefs([ref, inViewRef])
 

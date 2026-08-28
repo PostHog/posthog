@@ -1,7 +1,7 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, DashboardPlacement, QueryBasedInsightModel } from '~/types'
 
-import { shouldRenderInsightCardViz } from './InsightCard'
+import { shouldRenderInsightCardViz, shouldStaggerVizMount } from './InsightCard'
 
 const tableQuery = { kind: NodeKind.DataTableNode } as QueryBasedInsightModel['query']
 const autoSqlQuery = {
@@ -94,5 +94,30 @@ describe('InsightCard', () => {
         },
     ])('$name', ({ input, expected }) => {
         expect(shouldRenderInsightCardViz(input)).toBe(expected)
+    })
+
+    it.each([
+        {
+            name: 'staggers a canvas chart on an interactive dashboard',
+            input: { isStorybook: false, placement: DashboardPlacement.Dashboard, rendersToCanvas: true },
+            expected: true,
+        },
+        {
+            name: 'does not stagger a non-canvas viz',
+            input: { isStorybook: false, placement: DashboardPlacement.Dashboard, rendersToCanvas: false },
+            expected: false,
+        },
+        {
+            name: 'does not stagger during image export so every canvas tile mounts before capture',
+            input: { isStorybook: false, placement: DashboardPlacement.Export, rendersToCanvas: true },
+            expected: false,
+        },
+        {
+            name: 'does not stagger in storybook',
+            input: { isStorybook: true, placement: DashboardPlacement.Dashboard, rendersToCanvas: true },
+            expected: false,
+        },
+    ])('$name', ({ input, expected }) => {
+        expect(shouldStaggerVizMount(input)).toBe(expected)
     })
 })
