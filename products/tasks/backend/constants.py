@@ -79,6 +79,9 @@ DEV_STACK_PREVIEW_PORT = 8020
 # entitlement is re-checked server-side. Keys are the model ids callers send.
 MODEL_ACCESS_FLAGS: dict[str, str] = {
     "moonshotai/kimi-k3": "tasks-kimi-k3",
+    "deepseek-ai/deepseek-v4-flash-0731": "posthog-code-deepseek-model",
+    "zai-org/glm-5.3": "posthog-code-glm-53-model",
+    "zai-org/glm-5.3-flash": "posthog-code-glm-53-flash-model",
 }
 
 

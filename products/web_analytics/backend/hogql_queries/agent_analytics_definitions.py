@@ -71,3 +71,10 @@ def referrer_expr() -> ast.Expr:
 
 def response_status_code_expr() -> ast.Expr:
     return parse_expr("toInt(coalesce(nullIf(toString(properties.proxy_status_code), ''), '0'))")
+
+
+def content_gap_expr() -> ast.Expr:
+    return parse_expr(
+        "{status} = 404 AND NOT ({malformed})",
+        placeholders={"status": response_status_code_expr(), "malformed": malformed_path_expr()},
+    )

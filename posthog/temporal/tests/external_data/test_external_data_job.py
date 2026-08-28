@@ -44,6 +44,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS as STRIPE_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
+    check_pipeline_version_activity,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
     calculate_table_size_activity,
 )
@@ -1017,6 +1020,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                     task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                     workflows=[ExternalDataJobWorkflow],
                     activities=[
+                        check_pipeline_version_activity,
                         create_external_data_job_model_activity,
                         update_external_data_job_model,
                         import_data_activity_sync,

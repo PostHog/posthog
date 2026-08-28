@@ -335,40 +335,51 @@ jobs:
               id: hogland-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app-id: ${{ secrets.GH_APP_HOGLAND_CLI_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_HOGLAND_CLI_PRIVATE_KEY }}
+                  app-id: ${{ secrets.GH_APP_HOGLAND_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_HOGLAND_DEPLOYER_PRIVATE_KEY }}
                   owner: PostHog
                   repositories: hogland
+                  # Read-only: the deployer App may hold write on hogland, but
+                  # this job only reads it — checks out the CLI source to build,
+                  # and the quiet-window guard lists hogland Actions runs.
+                  permission-contents: read
+                  permission-actions: read
 
-            # Build the CLI from a released, immutable tag, never a moving branch
-            # like main — a rebuilt CLI must be reproducible across bakes. Require
-            # at least v1.5.0-cli: every flag and JSON field the bake/smoke scripts
-            # use (notably --kind) exists from that tag; older tags predate them.
-            - name: Require a pinned hogland CLI tag
+            # Build the CLI from the newest released vX.Y.Z-cli tag: immutable
+            # and reviewed, never a moving branch like main (which would run
+            # unreviewed CLI code in this credentialed job). Resolved at runtime,
+            # so there is no HOGLAND_CLI_REF var to bump on each CLI release — the
+            # CLI only orchestrates the bake (create/snapshot/alias) and does not
+            # change the golden's contents. Still guard the minimum the scripts need.
+            - name: Resolve latest hogland CLI release
               if: env.skip != 'true'
+              id: cli-ref
               env:
-                  CLI_REF: ${{ vars.HOGLAND_CLI_REF }}
+                  GH_TOKEN: ${{ steps.hogland-token.outputs.token }}
               run: |
                   set -euo pipefail
                   MIN_CLI_VERSION=1.5.0
-                  if [[ ! "$CLI_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-cli$ ]]; then
-                      echo "::error::HOGLAND_CLI_REF must be a released vX.Y.Z-cli tag (got '${CLI_REF:-<unset>}'); a moving branch like main is not allowed"
+                  ref=$(gh api --paginate repos/PostHog/hogland/releases --jq '.[].tag_name' \
+                      | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-cli$' | sort -V | tail -1)
+                  if [[ -z "$ref" ]]; then
+                      echo "::error::no vX.Y.Z-cli release found on PostHog/hogland"
                       exit 1
                   fi
-                  cli_version="${CLI_REF#v}"
-                  cli_version="${cli_version%-cli}"
+                  cli_version="${ref#v}"; cli_version="${cli_version%-cli}"
                   lowest=$(printf '%s\n%s\n' "$MIN_CLI_VERSION" "$cli_version" | sort -V | head -1)
                   if [[ "$cli_version" != "$MIN_CLI_VERSION" && "$lowest" != "$MIN_CLI_VERSION" ]]; then
-                      echo "::error::HOGLAND_CLI_REF ${CLI_REF} is below the minimum v${MIN_CLI_VERSION}-cli; the bake relies on flags/fields introduced there"
+                      echo "::error::latest hogland CLI release ${ref} is below the minimum v${MIN_CLI_VERSION}-cli"
                       exit 1
                   fi
+                  echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+                  echo "::notice::building hogland CLI from ${ref}"
 
             - name: Check out hogland CLI source
               if: env.skip != 'true'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   repository: PostHog/hogland
-                  ref: ${{ vars.HOGLAND_CLI_REF }}
+                  ref: ${{ steps.cli-ref.outputs.ref }}
                   token: ${{ steps.hogland-token.outputs.token }}
                   path: hogland-src
 

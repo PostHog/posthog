@@ -2365,11 +2365,11 @@ export interface DraftScannerRequestApi {
      */
     goal: string
     /**
-     * Goal-based flow only: how many replays a month the scanner may watch. The draft solves `sampling_mode` and `sampling_rate` so the projection lands on this number. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.
+     * Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.
      * @minimum 1
-     * @maximum 1000000
+     * @maximum 100000000
      */
-    monthly_scan_budget?: number
+    monthly_credit_budget?: number
 }
 
 /**
@@ -2400,12 +2400,23 @@ export interface DraftScannerResponseApi {
      * * `comprehensive` - Comprehensive */
     sampling_mode: SamplingModeEnumApi | null
     /**
-     * Goal-based flow only: the random sampling rate solved from `monthly_scan_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
+     * Goal-based flow only: the random sampling rate solved from `monthly_credit_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
      * @nullable
      */
     sampling_rate: number | null
+    /** Goal-based flow only: the observation model the draft chose for the goal, by how much judgment it needs. Null on the legacy flow, where the wizard keeps its default model.
+     *
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
+    model: ScannerModelEnumApi | null
     /**
-     * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. At or under `monthly_scan_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
+     * Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow.
+     * @nullable
+     */
+    credit_limit: number | null
+    /**
+     * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
      * @nullable
      */
     estimated_monthly_observations: number | null

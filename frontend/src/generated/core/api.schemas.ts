@@ -3381,6 +3381,61 @@ export interface PatchedProjectBackwardCompatApi {
     readonly events_retention_enforced?: boolean
 }
 
+/**
+ * * `skip_person_processing` - Skip Person Processing
+ * * `drop_event_from_ingestion` - Drop Event From Ingestion
+ * * `force_overflow_from_ingestion` - Force Overflow From Ingestion
+ * * `redirect_to_dlq` - Redirect To Dlq
+ * * `redirect_to_topic` - Redirect To Topic
+ */
+export type RestrictionTypeEnumApi = (typeof RestrictionTypeEnumApi)[keyof typeof RestrictionTypeEnumApi]
+
+export const RestrictionTypeEnumApi = {
+    SkipPersonProcessing: 'skip_person_processing',
+    DropEventFromIngestion: 'drop_event_from_ingestion',
+    ForceOverflowFromIngestion: 'force_overflow_from_ingestion',
+    RedirectToDlq: 'redirect_to_dlq',
+    RedirectToTopic: 'redirect_to_topic',
+} as const
+
+/**
+ * * `analytics` - Analytics
+ * * `session_recordings` - Session Recordings
+ * * `errortracking` - Errortracking
+ * * `clientwarnings` - Clientwarnings
+ * * `ai` - Ai
+ */
+export type PipelinesEnumApi = (typeof PipelinesEnumApi)[keyof typeof PipelinesEnumApi]
+
+export const PipelinesEnumApi = {
+    Analytics: 'analytics',
+    SessionRecordings: 'session_recordings',
+    Errortracking: 'errortracking',
+    Clientwarnings: 'clientwarnings',
+    Ai: 'ai',
+} as const
+
+export interface EventIngestionRestrictionApi {
+    /** What happens to matching events: dropped, sent to the overflow lane, or ingested without person processing.
+     *
+     * * `skip_person_processing` - Skip Person Processing
+     * * `drop_event_from_ingestion` - Drop Event From Ingestion
+     * * `force_overflow_from_ingestion` - Force Overflow From Ingestion
+     * * `redirect_to_dlq` - Redirect To Dlq
+     * * `redirect_to_topic` - Redirect To Topic */
+    restriction_type: RestrictionTypeEnumApi
+    /** Distinct IDs the restriction applies to. Empty means it is not filtered by distinct ID. */
+    distinct_ids: string[]
+    /** Session IDs the restriction applies to. Empty means it is not filtered by session ID. */
+    session_ids: string[]
+    /** Event names the restriction applies to. Empty means it is not filtered by event name. */
+    event_names: string[]
+    /** Event UUIDs the restriction applies to. Empty means it is not filtered by event UUID. */
+    event_uuids: string[]
+    /** Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR. */
+    pipelines: PipelinesEnumApi[]
+}
+
 export interface SharePasswordApi {
     readonly id: number
     readonly created_at: string
@@ -4828,6 +4883,13 @@ export type OrganizationsProjectsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
     /**
      * A search term.
      */

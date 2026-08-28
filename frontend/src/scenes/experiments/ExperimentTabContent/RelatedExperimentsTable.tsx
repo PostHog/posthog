@@ -9,11 +9,11 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { getExperimentStatus } from 'scenes/experiments/experimentStatus'
 import { urls } from 'scenes/urls'
 
-import { StatusTag } from '~/scenes/experiments/ExperimentView/StatusTag'
 import { isLegacyExperiment } from '~/scenes/experiments/utils'
 import type { Experiment } from '~/types'
 import { ExperimentStatus } from '~/types'
 
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
 import { getShippedVariantKey, isSingleVariantShipped } from 'products/experiments/frontend/scenes/experimentsLogic'
 
 type RelatedExperimentsTableProps = {

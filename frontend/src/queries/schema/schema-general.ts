@@ -105,6 +105,7 @@ export enum NodeKind {
     ErrorTrackingSimilarIssuesQuery = 'ErrorTrackingSimilarIssuesQuery',
     ErrorTrackingFingerprintProjectionQuery = 'ErrorTrackingFingerprintProjectionQuery',
     ErrorTrackingBreakdownsQuery = 'ErrorTrackingBreakdownsQuery',
+    ErrorTrackingReleasesQuery = 'ErrorTrackingReleasesQuery',
     ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     LogsQuery = 'LogsQuery',
     LogAttributesQuery = 'LogAttributesQuery',
@@ -254,6 +255,7 @@ export type AnyDataNode =
     | ErrorTrackingSimilarIssuesQuery
     | ErrorTrackingFingerprintProjectionQuery
     | ErrorTrackingBreakdownsQuery
+    | ErrorTrackingReleasesQuery
     | ErrorTrackingIssueCorrelationQuery
     | LogsQuery
     | LogAttributesQuery
@@ -322,6 +324,7 @@ export type QuerySchema =
     | ErrorTrackingSimilarIssuesQuery
     | ErrorTrackingFingerprintProjectionQuery
     | ErrorTrackingBreakdownsQuery
+    | ErrorTrackingReleasesQuery
     | ErrorTrackingIssueCorrelationQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -4007,6 +4010,61 @@ export interface ErrorTrackingBreakdownsQuery extends DataNode<ErrorTrackingBrea
     filterTestAccounts?: boolean
     maxValuesPerProperty?: integer
 }
+
+export type ErrorTrackingReleasesOrderBy = 'latest' | 'occurrences'
+
+export interface ErrorTrackingReleasesQuery extends DataNode<ErrorTrackingReleasesQueryResponse> {
+    kind: NodeKind.ErrorTrackingReleasesQuery
+    issueId: ErrorTrackingIssue['id']
+    dateRange?: DateRange
+    filterGroup?: PropertyGroupFilter
+    filterTestAccounts?: boolean
+    /** Only count exceptions from this app namespace. */
+    appNamespace?: string
+    /** How many releases to return on their own; the rest fold into `other`. */
+    maxReleases?: integer
+    /** `latest` puts the release that first appeared most recently in the range on top, `occurrences` orders by volume. */
+    orderBy?: ErrorTrackingReleasesOrderBy
+    /** Number of time buckets across the date range. */
+    resolution?: integer
+}
+
+export interface ErrorTrackingReleaseSeries {
+    /** Occurrences per bucket, aligned with the response's `buckets`. */
+    counts: integer[]
+    total: integer
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface ErrorTrackingIssueRelease extends ErrorTrackingReleaseSeries {
+    namespace: string | null
+    version: string | null
+    build: string | null
+}
+
+export interface ErrorTrackingReleasesQueryResponse extends AnalyticsQueryResponseBase {
+    /** The releases returned on their own, in the requested order. */
+    results: ErrorTrackingIssueRelease[]
+    date_from: string
+    date_to: string
+    /** ISO start of each bucket. The first one can start before `date_from`. */
+    buckets: string[]
+    bucket_seconds: integer
+    /** Releases past `maxReleases`, summed. */
+    other: ErrorTrackingReleaseSeries | null
+    other_release_count: integer
+    /** Exceptions without an app namespace or version. */
+    unattributed: ErrorTrackingReleaseSeries | null
+    /** Distinct releases in the range for the selected app, before folding. */
+    release_count: integer
+    /** Set when the query hit its row cap, so `release_count`, `other` and `total` are lower bounds. */
+    release_count_truncated: boolean
+    /** Every app namespace in the range, regardless of `appNamespace`. */
+    namespaces: string[]
+    total: integer
+}
+export type CachedErrorTrackingReleasesQueryResponse = CachedQueryResponse<ErrorTrackingReleasesQueryResponse>
 
 export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
     kind: NodeKind.ErrorTrackingIssueCorrelationQuery

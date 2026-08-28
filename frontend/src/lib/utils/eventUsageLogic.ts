@@ -1208,10 +1208,12 @@ export interface eventUsageLogicActions {
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
+                | 'experiment_config_change'
                 | 'experiment_launch'
                 | 'experiment_stop'
                 | 'experiment_update'
                 | 'manual'
+                | 'metric_config_change'
                 | 'stale_refresh'
         }
     ) => {
@@ -1229,10 +1231,12 @@ export interface eventUsageLogicActions {
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
+                | 'experiment_config_change'
                 | 'experiment_launch'
                 | 'experiment_stop'
                 | 'experiment_update'
                 | 'manual'
+                | 'metric_config_change'
                 | 'stale_refresh'
                 | undefined
         }
@@ -1318,7 +1322,7 @@ export interface eventUsageLogicActions {
             successful_count: number
             total_duration_ms: number
             total_metrics_count: number
-            triggered_by: 'auto_refresh' | 'config_change' | 'manual' | 'page_load'
+            triggered_by: 'auto_refresh' | 'experiment_config_change' | 'manual' | 'metric_config_change' | 'page_load'
         }
     ) => {
         context: {
@@ -1334,7 +1338,7 @@ export interface eventUsageLogicActions {
             successful_count: number
             total_duration_ms: number
             total_metrics_count: number
-            triggered_by: 'auto_refresh' | 'config_change' | 'manual' | 'page_load'
+            triggered_by: 'auto_refresh' | 'experiment_config_change' | 'manual' | 'metric_config_change' | 'page_load'
         }
         experimentId: ExperimentIdType
         teamId: number | null | undefined
@@ -2658,7 +2662,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 successful_count: number
                 errored_count: number
                 cached_count: number
-                triggered_by: 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
+                triggered_by:
+                    | 'page_load'
+                    | 'manual'
+                    | 'auto_refresh'
+                    | 'experiment_config_change'
+                    | 'metric_config_change'
                 force_refresh: boolean
                 refresh_id: string
                 experiment_duration_hours: number | null
@@ -2684,6 +2693,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     | 'cold_run'
                     | 'stale_refresh'
                     | 'auto_refresh'
+                    | 'experiment_config_change'
+                    | 'metric_config_change'
                     | 'config_change'
                     | 'experiment_launch'
                     | 'experiment_stop'

@@ -2,6 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -19,11 +20,13 @@ interface DataQualityChecksPanelProps extends DataQualityChecksLogicProps {
     columns: DatabaseSchemaField[]
     /** Materialized views only: the gate is a project-wide setting and only bites on materialization. */
     showGateToggle?: boolean
+    dataLastSyncedAt?: string | null
 }
 
 export function DataQualityChecksPanel({
     columns,
     showGateToggle,
+    dataLastSyncedAt,
     ...logicProps
 }: DataQualityChecksPanelProps): JSX.Element | null {
     const logic = dataQualityChecksLogic(logicProps)
@@ -97,6 +100,13 @@ export function DataQualityChecksPanel({
                         </LemonButton>
                     </div>
                 </div>
+
+                {dataLastSyncedAt && (
+                    <p className="mb-0 text-secondary text-sm">
+                        Checks test the data from the last sync (synced <TZLabel time={dataLastSyncedAt} />
+                        ). After you change this view, sync it to test the new query.
+                    </p>
+                )}
 
                 {isSuiteRunning && (
                     <LemonBanner type="info" icon={<Spinner />}>

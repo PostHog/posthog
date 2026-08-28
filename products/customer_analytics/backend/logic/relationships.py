@@ -131,6 +131,36 @@ def end_relationship(
     return relationship
 
 
+def delete_relationship(
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    relationship_id: str,
+    actor: User | None = None,
+) -> None:
+    with transaction.atomic():
+        relationship = (
+            AccountRelationship.objects.for_team(team_id)
+            .select_related("definition", "user", "account__team")
+            .select_for_update(of=("self",))
+            .filter(id=relationship_id, account_id=account_id)
+            .first()
+        )
+        if relationship is None:
+            raise AccountRelationshipNotFound(relationship_id)
+        was_active = relationship.ended_at is None
+        relationship.delete()
+        if was_active:
+            _schedule_relationship_changed_event(
+                account=relationship.account,
+                definition=relationship.definition,
+                previous_user=relationship.user,
+                current_user=None,
+                actor=actor,
+                workflow_id=None,
+            )
+
+
 def _schedule_relationship_changed_event(
     *,
     account: Account,
