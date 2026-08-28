@@ -32,6 +32,10 @@ export type PipelineConfig<R extends string = never> = {
  *
  * The redirect type R flows through — redirect results are kept in the output
  * with the redirect side effect attached.
+ *
+ * A TIMEOUT is counted and nothing else: the message is not acked, so its
+ * source redelivers it and producing anything here would duplicate what the
+ * redelivery produces.
  */
 export class ResultHandlingPipeline<
     TInput,
@@ -133,5 +137,7 @@ function resultDetails<T, R extends string>(result: PipelineResult<T, R>): { res
             return { result: 'dlq', details: result.reason }
         case PipelineResultType.REDIRECT:
             return { result: 'redirect', details: redirectDetails(result) }
+        case PipelineResultType.TIMEOUT:
+            return { result: 'timeout', details: result.reason }
     }
 }
