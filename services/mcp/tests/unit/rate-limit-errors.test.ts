@@ -208,7 +208,9 @@ describe('outbound 429 handling', () => {
         ])(
             'returns an actionable message instead of the proxy body after exhausting retries: $label',
             async ({ call, expectNarrow }) => {
-                const mockFetch = vi.fn().mockResolvedValue(buildTimeout(522))
+                // Fresh Response per call, so each retry can read its own body (real fetch never
+                // hands back an already-read Response).
+                const mockFetch = vi.fn().mockImplementation(() => Promise.resolve(buildTimeout(522)))
                 vi.stubGlobal('fetch', mockFetch)
 
                 const resultPromise = call(buildClient())
@@ -246,6 +248,30 @@ describe('outbound 429 handling', () => {
             expect((result.error as PostHogApiError).status).toBe(504)
             expect(result.error.message).toContain('may have already been applied')
             expect(result.error.message).not.toContain('error code: 504')
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it('surfaces a structured API error (503) without retrying and keeps its detail', async () => {
+            // A ClickHouse capacity 503 (and query-timeout 504) is a structured API error, not an
+            // edge timeout: it must reach the agent with its detail and must not be retried.
+            const detail = 'Queries are a little too busy right now. Please try again later.'
+            const mockFetch = vi.fn().mockResolvedValue(
+                new Response(JSON.stringify({ type: 'server_error', code: 'clickhouse_at_capacity', detail }), {
+                    status: 503,
+                    statusText: 'Service Unavailable',
+                })
+            )
+            vi.stubGlobal('fetch', mockFetch)
+
+            const result = await buildClient().insights({ projectId: '2' }).query({ query: {} })
+
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected failure')
+            }
+            expect((result.error as PostHogApiError).status).toBe(503)
+            expect(result.error.message).toContain(detail)
+            expect(result.error.message).not.toContain('Narrow the request')
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })
     })

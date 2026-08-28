@@ -93,6 +93,24 @@ function buildGatewayTimeoutMessage(status: number, method: string, url: string,
     return `${base} It was retried automatically and still failed. Try again in a few moments.`
 }
 
+// PostHog's API renders application-level failures as a JSON object (a DRF exception
+// body), so some gateway-timeout statuses double as real API errors: ClickHouseAtCapacity
+// returns 503 and ClickHouseQueryTimeOut returns 504, each with an actionable detail.
+// An edge or proxy gateway timeout instead returns an opaque body, such as `error code:
+// 522`, an HTML error page, or nothing. A JSON-object body at one of these statuses is
+// therefore an API error to surface as-is, not a timeout to retry.
+function isStructuredApiErrorBody(body: string): boolean {
+    if (!body) {
+        return false
+    }
+    try {
+        const parsed = JSON.parse(body)
+        return parsed !== null && typeof parsed === 'object'
+    } catch {
+        return false
+    }
+}
+
 // Default overall timeout for an SSE stream (wall-clock cap from connect to close).
 // Sized to comfortably cover the slowest known caller (session summarization, ~5 min
 // average) with headroom for cold-cache LLM calls.
@@ -517,6 +535,17 @@ export class ApiClient {
                 const response = await this.fetch(url, options)
 
                 if (GATEWAY_TIMEOUT_STATUSES.has(response.status)) {
+                    const bodyText = await response.text()
+
+                    // A structured API error at one of these statuses (e.g. a ClickHouse
+                    // capacity 503 or query-timeout 504) is not an edge timeout. Retrying it
+                    // adds load to an already-strained backend, and the generic gateway
+                    // message would bury the API's own actionable detail, so route it through
+                    // the normal error path instead.
+                    if (isStructuredApiErrorBody(bodyText)) {
+                        throw this.buildApiError(response, bodyText, url, method)
+                    }
+
                     const retryable = isGatewayTimeoutRetryable(method, url)
 
                     if (retryable && attempt < GATEWAY_TIMEOUT_MAX_RETRIES) {
@@ -538,7 +567,7 @@ export class ApiClient {
                         error: new PostHogApiError({
                             status: response.status,
                             statusText: response.statusText || 'Gateway Timeout',
-                            body: await response.text(),
+                            body: bodyText,
                             url,
                             method,
                             message: buildGatewayTimeoutMessage(response.status, method, url, retryable),
