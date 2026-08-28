@@ -81,6 +81,52 @@ describe('notebook variables wiring', () => {
         expect(stalenessLogic.values.staleNodeIds).toEqual({ sql_cell: 'variable', py_cell: 'variable' })
     })
 
+    it('holds the save while a variable name is blank, then saves once it is valid', async () => {
+        // "Add variable" seeds a blank name, which the API rejects with a 400. The save must
+        // wait for a usable name instead of PATCHing the blank one and toasting an error.
+        await expectLogic(logic).toFinishAllListeners()
+        const update = jest.mocked(api.notebooks.update)
+        update.mockClear()
+
+        logic.actions.setVariables([
+            { name: 'country', type: 'string', value: 'US' },
+            { name: '', type: 'string', value: '' },
+        ])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(update).not.toHaveBeenCalled()
+        // The edit stays in local state so the next keystroke can carry it.
+        expect(logic.values.localVariables).not.toBeNull()
+
+        logic.actions.setVariables([
+            { name: 'country', type: 'string', value: 'US' },
+            { name: 'region', type: 'string', value: '' },
+        ])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(update).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps a saved variable instead of reverting to the stale loaded copy', async () => {
+        // The PATCH echoes the saved list back. Without folding that response into the local
+        // notebook, clearing the local edit falls back to the loaded copy and the new variable
+        // disappears about 500 ms after it was typed — data loss on the save this flow performs.
+        await expectLogic(logic).toFinishAllListeners()
+        jest.mocked(api.notebooks.update).mockImplementation(
+            async (_shortId, data) => ({ ...notebookFixture, version: 2, variables: data.variables }) as NotebookType
+        )
+
+        logic.actions.setVariables([
+            { name: 'country', type: 'string', value: 'US' },
+            { name: 'region', type: 'string', value: 'EU' },
+        ])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.localVariables).toBeNull()
+        expect(logic.values.variables).toEqual([
+            { name: 'country', type: 'string', value: 'US' },
+            { name: 'region', type: 'string', value: 'EU' },
+        ])
+    })
+
     it('reads the saved variables off the notebook', async () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.variables).toEqual([{ name: 'country', type: 'string', value: 'US' }])

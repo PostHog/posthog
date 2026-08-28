@@ -2,11 +2,13 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { NotebookNodeType } from '../types'
 import {
+    MAX_NOTEBOOK_VARIABLE_NAME_CHARS,
     NotebookVariable,
     extractSqlVariableReferences,
     getNotebookVariableConflictNames,
     getNotebookVariableErrors,
     getRunnableNotebookVariables,
+    hasUnsavableNotebookVariableName,
     parseNotebookVariables,
 } from './notebookVariables'
 
@@ -103,6 +105,35 @@ describe('notebookVariables', () => {
                 ],
             }
             expect(getNotebookVariableConflictNames(content)).toEqual(new Set(['sql_df', 'frame']))
+        })
+    })
+
+    describe('hasUnsavableNotebookVariableName', () => {
+        // Each held case is a name the notebook PATCH answers with a 400, so releasing the save
+        // would bring back the "Could not save notebook variables" toast this flow removes.
+        it.each<[string, NotebookVariable[]]>([
+            ['a blank name', [{ name: '', type: 'string', value: '' }]],
+            ['a malformed name', [{ name: 'look-back', type: 'string', value: '' }]],
+            ['the reserved filters name', [{ name: 'filters', type: 'string', value: '' }]],
+            [
+                'a name past the length cap',
+                [{ name: 'a'.repeat(MAX_NOTEBOOK_VARIABLE_NAME_CHARS + 1), type: 'string', value: '' }],
+            ],
+            ['a duplicate name', [country, { ...country, value: 'DE' }]],
+        ])('holds the save for %s', (_name, variables) => {
+            expect(hasUnsavableNotebookVariableName(variables)).toBe(true)
+        })
+
+        it('lets the save through for a valid, unique list', () => {
+            expect(
+                hasUnsavableNotebookVariableName([country, { name: 'lookback_days', type: 'number', value: 30 }])
+            ).toBe(false)
+        })
+
+        it('does not hold a name that only overlaps a cell dataframe', () => {
+            // The bar flags that overlap inline, but the notebook PATCH accepts it, so the guard
+            // must not strand the save — this is why it does not reuse the full inline error list.
+            expect(hasUnsavableNotebookVariableName([{ name: 'sql_df', type: 'string', value: 'US' }])).toBe(false)
         })
     })
 

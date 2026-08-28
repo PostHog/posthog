@@ -7,9 +7,10 @@ export type NotebookVariableType = 'string' | 'number' | 'boolean' | 'date'
 
 export const NOTEBOOK_VARIABLE_TYPES: NotebookVariableType[] = ['string', 'number', 'boolean', 'date']
 
-/** Mirrors MAX_VARIABLES_PER_NOTEBOOK / MAX_VARIABLE_VALUE_CHARS in sql_v2_serializers.py,
- * so the bar stops at the limit instead of letting a save fail. */
+/** Mirrors MAX_VARIABLES_PER_NOTEBOOK / MAX_VARIABLE_NAME_CHARS / MAX_VARIABLE_VALUE_CHARS in
+ * sql_v2_serializers.py, so the bar stops at the limit instead of letting a save fail. */
 export const MAX_NOTEBOOK_VARIABLES = 10
+export const MAX_NOTEBOOK_VARIABLE_NAME_CHARS = 200
 export const MAX_NOTEBOOK_VARIABLE_VALUE_CHARS = 1000
 
 export type NotebookVariableValue = string | number | boolean | null
@@ -164,6 +165,29 @@ export function getNotebookVariableErrors(
         }
         return null
     })
+}
+
+/**
+ * A name the notebook PATCH rejects with a 400 before it can save the rest, which only produces
+ * an error toast. Hold the save until every name clears the server's `variables` contract: a plain
+ * identifier, within the length cap, not reserved, and not a duplicate. The identifier rule stays
+ * stricter than the server's `isidentifier()` on purpose — both reference scanners are ASCII-only,
+ * so a Unicode name could never resolve in a cell. The cell dataframe overlap the bar warns about
+ * inline is deliberately excluded: the PATCH does not check it, so holding on it would strand a
+ * save the API accepts.
+ */
+export function hasUnsavableNotebookVariableName(variables: NotebookVariable[]): boolean {
+    const countsByName = variables.reduce<Record<string, number>>((counts, variable) => {
+        counts[variable.name] = (counts[variable.name] ?? 0) + 1
+        return counts
+    }, {})
+    return variables.some(
+        (variable) =>
+            !VALID_VARIABLE_NAME.test(variable.name) ||
+            variable.name.length > MAX_NOTEBOOK_VARIABLE_NAME_CHARS ||
+            RESERVED_NOTEBOOK_VARIABLE_NAMES.has(variable.name) ||
+            countsByName[variable.name] > 1
+    )
 }
 
 /** Declarations that are safe to send to a run: named, valid, and unique. */
