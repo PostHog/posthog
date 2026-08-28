@@ -18,6 +18,12 @@
 //      workflows — rotating-culprit breakage where no single workflow crosses its
 //      own threshold but master is still consistently red.
 //
+// Runs are read per *lane*, which is one (workflow file, trigger event) stream of master runs.
+// Most gating workflows have only a push lane. Backend CI has two, because its master-push run
+// carries the per-commit checks while the test matrices run from an hourly `schedule` trigger.
+// Each lane gets its own streak, its own thresholds, and its own line in the incident, so a
+// green push run cannot mask a red matrix run.
+//
 // Message model (chosen for UX: never lose history, never orphan a stuck message):
 //   - Anchor: one top-level message, edited silently each tick to keep the live
 //     summary current. On resolve its header is struck through and a green line
@@ -47,10 +53,61 @@ const STREAK_MAX_GAP_MINUTES = 180
 // Runs-index freshness bound (see fetchWorkflowRuns): fresh pages trail master's newest commit by
 // minutes, stale ones by days. Staleness is per-request, so retry before giving up.
 const RUN_INDEX_MAX_LAG_MINUTES = 180
+// A scheduled lane gets one run per cron tick, so its newest run legitimately trails master's
+// newest commit by up to a cron period, and by more when GitHub throttles the schedule trigger
+// under load. Holding it to the push bound would read a healthy hourly lane as unreadable, which
+// wedges incident resolution.
+const SCHEDULED_RUN_INDEX_MAX_LAG_MINUTES = 360
+// Suffix that separates a scheduled lane from its workflow's push lane in the incident.
+const SCHEDULED_LANE_LABEL = '(scheduled)'
 const STALE_PAGE_RETRIES = 2
 const STALE_PAGE_RETRY_DELAY_MS = 15000
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// ---------------------------------------------------------------------------
+// Lanes
+// ---------------------------------------------------------------------------
+
+// The lanes to evaluate, read from the workflow's env. GATING_WORKFLOWS gives every workflow a
+// master-push lane; SCHEDULED_GATING_WORKFLOWS adds a second, independently-evaluated lane for a
+// workflow whose master coverage comes from a cron instead. A workflow can appear in both (Backend
+// CI does: push runs the per-commit checks, the schedule runs the test matrices).
+function buildLanes(env) {
+    const list = (value) =>
+        (value || '')
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+    const lanes = list(env.GATING_WORKFLOWS).map((workflowFile) => ({
+        workflowFile,
+        event: 'push',
+        label: '',
+        maxLagMinutes: RUN_INDEX_MAX_LAG_MINUTES,
+        streakThreshold: parseInt(env.WORKFLOW_FAILURE_STREAK_THRESHOLD || '5', 10),
+        minutesThreshold: parseInt(env.WORKFLOW_FAILURE_MINUTES_THRESHOLD || '20', 10),
+        // Push runs only exist while people push, so a run streak is already confined to
+        // active hours.
+        countNeedsActivity: false,
+    }))
+    for (const workflowFile of list(env.SCHEDULED_GATING_WORKFLOWS)) {
+        lanes.push({
+            workflowFile,
+            event: 'schedule',
+            label: SCHEDULED_LANE_LABEL,
+            maxLagMinutes: SCHEDULED_RUN_INDEX_MAX_LAG_MINUTES,
+            // Own thresholds: at one run per cron tick, the push streak threshold of 5 needs five
+            // hours to trip, while the push wall-clock arm pages on a single flaky run held for one
+            // tick. Both scheduled arms need more than one red tick behind them.
+            streakThreshold: parseInt(env.SCHEDULED_FAILURE_STREAK_THRESHOLD || '2', 10),
+            minutesThreshold: parseInt(env.SCHEDULED_FAILURE_MINUTES_THRESHOLD || '150', 10),
+            // A cron keeps firing through a quiet weekend, so this lane's run streak needs the same
+            // activity gate the wall-clock arm has, because otherwise it pages with nobody pushing.
+            countNeedsActivity: true,
+        })
+    }
+    return lanes
+}
 
 // ---------------------------------------------------------------------------
 // GitHub data
@@ -59,22 +116,30 @@ const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 // The single definition of a "red" run conclusion, shared by the streak and commit checks.
 const isFailure = (run) => run.conclusion === 'failure' || run.conclusion === 'timed_out'
 
-// The freshest settled runs for a workflow, newest-first; throws (staleIndex) when the page can't
+// The freshest settled runs for one lane, newest-first; throws (staleIndex) when the page can't
 // be trusted.
 //
 // The runs-list index is eventually consistent and intermittently serves pages anchored days back —
 // trusting it produced the "red 70h"/"red 141h" phantom incidents, and dropping status=completed
 // didn't fix it (the branch/event filters hit the same index). So freshness is verified against
-// `freshAsOf` (master's newest commit, strongly consistent): every gating workflow runs on every
-// master push, so a page head trailing it by more than RUN_INDEX_MAX_LAG_MINUTES is stale —
-// retry, then unreadable, never green.
+// `freshAsOf` (master's newest commit, strongly consistent): a page head trailing it by more than
+// the lane's `maxLagMinutes` is stale: retry, then unreadable, never green. The bound is per lane
+// because the cadences differ: a push lane runs on every master commit, and a scheduled lane runs
+// once per cron tick.
 //
 // Paging: `per_page` truncates the raw page BEFORE the client-side filter, so page until the
 // leading streak is settled (a kept non-failure bounds the walk) or the cap.
-async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage, { freshAsOf = null, sleep = defaultSleep } = {}) {
+async function fetchWorkflowRuns(
+    github,
+    owner,
+    repo,
+    workflowFile,
+    perPage,
+    { event = 'push', maxLagMinutes = RUN_INDEX_MAX_LAG_MINUTES, freshAsOf = null, sleep = defaultSleep } = {}
+) {
     for (let attempt = 0; ; attempt++) {
         try {
-            return await fetchSettledRuns(github, owner, repo, workflowFile, perPage, freshAsOf)
+            return await fetchSettledRuns(github, owner, repo, workflowFile, perPage, { event, maxLagMinutes, freshAsOf })
         } catch (err) {
             if (!err.staleIndex || attempt >= STALE_PAGE_RETRIES) {throw err}
             await sleep(STALE_PAGE_RETRY_DELAY_MS)
@@ -82,7 +147,7 @@ async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage, { f
     }
 }
 
-async function fetchSettledRuns(github, owner, repo, workflowFile, perPage, freshAsOf) {
+async function fetchSettledRuns(github, owner, repo, workflowFile, perPage, { event, maxLagMinutes, freshAsOf }) {
     const MAX_PAGES = 5
     const settled = []
     for (let page = 1; page <= MAX_PAGES; page++) {
@@ -91,21 +156,21 @@ async function fetchSettledRuns(github, owner, repo, workflowFile, perPage, fres
             repo,
             workflow_id: workflowFile,
             branch: 'master',
-            event: 'push',
+            event,
             per_page: perPage,
             page,
         })
         // Freshness is judged on the raw page-1 head (any status) before paging deeper; an empty
-        // page is the same anomaly — every gating workflow has master-push history.
+        // page is the same anomaly — every lane has master run history.
         if (page === 1 && freshAsOf) {
             const head = data.workflow_runs[0]
             // Empty page → Infinity (stale); NaN (unparseable dates) falls through to fresh.
             const lagMins = head
                 ? (new Date(freshAsOf).getTime() - new Date(head.created_at).getTime()) / 60000
                 : Infinity
-            if (lagMins > RUN_INDEX_MAX_LAG_MINUTES) {
+            if (lagMins > maxLagMinutes) {
                 const err = new Error(
-                    `stale runs index: newest run ${head?.created_at || 'absent'} trails newest master commit ${freshAsOf}`
+                    `stale runs index: newest ${event} run ${head?.created_at || 'absent'} trails newest master commit ${freshAsOf}`
                 )
                 err.staleIndex = true
                 throw err
@@ -159,17 +224,22 @@ function contiguousFailureSince(runs, count) {
     return dispatchedAt(oldest)
 }
 
-// Workflows whose newest run starts a failure streak, keyed by display name.
-function buildFailingMap(allWorkflowRuns) {
+// Lanes whose newest run starts a failure streak, keyed by the name shown in the incident. A
+// workflow with two lanes reports each under its own key, so its push and scheduled runs never
+// overwrite one another.
+function buildFailingMap(laneRuns) {
     const failing = {}
-    for (const runs of allWorkflowRuns) {
+    for (const { lane, runs } of laneRuns) {
         if (runs.length === 0) {continue}
         const count = countConsecutiveFailures(runs)
         if (count > 0) {
             const latest = runs[0]
             const oldest = runs[count - 1]
-            failing[latest.name] = {
-                name: latest.name,
+            const name = lane.label ? `${latest.name} ${lane.label}` : latest.name
+            failing[name] = {
+                name,
+                workflowName: latest.name, // unlabeled, for the run-history link
+                lane,
                 since: oldest.updated_at, // detection (full streak)
                 displaySince: contiguousFailureSince(runs, count), // display only (gap-bounded)
                 run_url: latest.run_url,
@@ -400,16 +470,16 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     const channel = process.env.SLACK_CHANNEL
     const slack = _slack || defaultSlackClient(process.env.SLACK_BOT_TOKEN, _fetch)
 
-    const workflowFiles = (process.env.GATING_WORKFLOWS || '').split(',').filter(Boolean)
-    const workflowThreshold = parseInt(process.env.WORKFLOW_FAILURE_STREAK_THRESHOLD || '5', 10)
-    const minutesThreshold = parseInt(process.env.WORKFLOW_FAILURE_MINUTES_THRESHOLD || '20', 10)
+    const lanes = buildLanes(process.env)
     const activityWindowMins = parseInt(process.env.ACTIVITY_WINDOW_MINUTES || '120', 10)
     const commitThreshold = parseInt(process.env.COMMIT_FAILURE_STREAK_THRESHOLD || '10', 10)
     // Page size for the run fetch. fetchWorkflowRuns pages until the streak is settled, so this only
     // trades round-trips against page size; keep it wide enough to resolve the common case in one page
-    // despite the in-progress/cancelled runs it now drops client-side. Clamp to GitHub's per_page max
-    // of 100 (silently capped otherwise) so a tuned-up streak threshold can't quietly lose capacity.
-    const perPage = Math.min(Math.max(workflowThreshold * 6, 40), 100)
+    // despite the in-progress/cancelled runs it now drops client-side. Sized off the widest lane
+    // threshold and clamped to GitHub's per_page max of 100 (silently capped otherwise), so a
+    // tuned-up streak threshold can't quietly lose capacity.
+    const widestStreakThreshold = Math.max(5, ...lanes.map((lane) => lane.streakThreshold))
+    const perPage = Math.min(Math.max(widestStreakThreshold * 6, 40), 100)
     const commitsToFetch = Math.max(commitThreshold * 2, 25)
 
     // Slack read is independent — start it first to overlap the GitHub reads.
@@ -426,34 +496,42 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     // null = unreadable (API error or persistently stale page), distinct from "no failures".
     const [fetchedRuns, active] = await Promise.all([
         commits === null
-            ? workflowFiles.map(() => null)
+            ? lanes.map(() => null)
             : Promise.all(
-                  workflowFiles.map((wf) =>
-                      fetchWorkflowRuns(github, owner, repo, wf, perPage, { freshAsOf, sleep }).catch((err) => {
-                          core.warning(`No usable runs for ${wf}: ${err.message}`)
+                  lanes.map((lane) =>
+                      fetchWorkflowRuns(github, owner, repo, lane.workflowFile, perPage, {
+                          event: lane.event,
+                          maxLagMinutes: lane.maxLagMinutes,
+                          freshAsOf,
+                          sleep,
+                      }).catch((err) => {
+                          core.warning(`No usable ${lane.event} runs for ${lane.workflowFile}: ${err.message}`)
                           return null
                       })
                   )
               ),
         activePromise,
     ])
-    const knownRuns = fetchedRuns.filter((runs) => runs !== null)
+    const knownLaneRuns = lanes
+        .map((lane, i) => ({ lane, runs: fetchedRuns[i] }))
+        .filter(({ runs }) => runs !== null)
+    const knownRuns = knownLaneRuns.map(({ runs }) => runs)
     // Reconciling an open incident on incomplete reads would let a stale page or a failed fetch
     // masquerade as recovery.
-    const dataComplete = commits !== null && knownRuns.length === fetchedRuns.length
+    const dataComplete = commits !== null && knownLaneRuns.length === lanes.length
 
-    const failing = buildFailingMap(knownRuns)
+    const failing = buildFailingMap(knownLaneRuns)
     // byDuration catches slow-velocity breakage that never stacks up a full failure streak.
     const blocking = Object.values(failing)
         .map((f) => {
             const redForMins = Math.round((now.getTime() - new Date(f.since).getTime()) / 60000)
             return {
                 ...f,
-                runsUrl: runsUrlFor(owner, repo, f.name),
+                runsUrl: runsUrlFor(owner, repo, f.workflowName),
                 redForMins, // detection: byDuration + open/resolve thresholds
                 displayRedForMins: Math.round((now.getTime() - new Date(f.displaySince).getTime()) / 60000),
-                byCount: f.consecutive_failures >= workflowThreshold,
-                byDuration: redForMins >= minutesThreshold,
+                byCount: f.consecutive_failures >= f.lane.streakThreshold,
+                byDuration: redForMins >= f.lane.minutesThreshold,
             }
         })
         .filter((f) => f.byCount || f.byDuration)
@@ -471,8 +549,14 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     // Sustains/resolves an open incident — ungated, so a stale-red master stays unhealthy
     // and an open incident resolves only on genuine green.
     const unhealthy = blocking.length > 0 || commitActive
-    // Gates OPENING a new incident on recent push activity — the weekend-safety gate.
-    const shouldOpen = commitActive || blocking.some((f) => f.byCount || (f.byDuration && recentActivity))
+    // Gates OPENING a new incident on recent push activity — the weekend-safety gate. The
+    // wall-clock arm is always gated. A run streak is gated too when its lane keeps producing runs
+    // while nobody pushes, which is true of a cron lane and false of a push lane.
+    const shouldOpen =
+        commitActive ||
+        blocking.some(
+            (f) => (f.byCount && (!f.lane.countNeedsActivity || recentActivity)) || (f.byDuration && recentActivity)
+        )
 
     const allFailingRunsUrl = `https://github.com/${owner}/${repo}/actions?query=branch%3Amaster+is%3Afailure`
 

@@ -2,7 +2,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import Optional
+from typing import Optional, Union
 
 import dagster
 
@@ -10,6 +10,9 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.query_tagging import DagsterTags
 from posthog.settings import TEST
+
+# What a Dagster schedule function may return.
+ScheduleResult = Union[dagster.SkipReason, dagster.RunRequest, None]
 
 
 def dagster_tags(
@@ -84,11 +87,13 @@ def check_for_concurrent_runs(
     return None
 
 
-def skip_on_kill_switch(fn: Callable) -> Callable:
+def skip_on_kill_switch(
+    fn: Callable[[dagster.ScheduleEvaluationContext], ScheduleResult],
+) -> Callable[[dagster.ScheduleEvaluationContext], ScheduleResult]:
     """Decorator that skips schedule execution while the ClickHouse kill switch is on."""
 
     @wraps(fn)
-    def wrapper(context: dagster.ScheduleEvaluationContext):
+    def wrapper(context: dagster.ScheduleEvaluationContext) -> ScheduleResult:
         if not TEST:
             kill_switch_level = get_kill_switch_level()
             if kill_switch_level != KillSwitchLevel.OFF:

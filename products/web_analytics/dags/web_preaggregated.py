@@ -1,7 +1,6 @@
 import os
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Union
 
 import dagster
 from dagster import BackfillPolicy, DailyPartitionsDefinition
@@ -35,9 +34,6 @@ from products.web_analytics.dags.web_preaggregated_utils import (
     sync_partitions_on_replicas,
     web_analytics_retry_policy_def,
 )
-
-ScheduleResult = Union[dagster.SkipReason, dagster.RunRequest, None]
-
 
 MAX_PARTITIONS_PER_RUN_ENV_VAR = "DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN"
 max_partitions_per_run = int(os.getenv(MAX_PARTITIONS_PER_RUN_ENV_VAR, 1))

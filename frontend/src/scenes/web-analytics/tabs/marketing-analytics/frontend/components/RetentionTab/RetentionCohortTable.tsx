@@ -22,6 +22,7 @@ import {
     MARKETING_ANALYTICS_RETENTION_COLLECTION_ID,
     marketingRetentionLogic,
 } from '../../logic/marketingRetentionLogic'
+import { RetentionSummaryTable } from './RetentionSummaryTable'
 
 const EXPANDED_BY_DEFAULT = 3
 
@@ -161,6 +162,7 @@ export function RetentionCohortTable({
     return (
         <div className="flex flex-col gap-4">
             {caveats.length > 0 && <div className="text-secondary text-xs">{caveats.join(' ')}</div>}
+            <RetentionSummaryTable rows={rows} labels={labels} dimensionLabel={dimensionLabel} />
             <div>
                 <div className="text-muted mb-1 text-xs font-semibold uppercase">
                     All {dimensionLabel.toLowerCase()}s

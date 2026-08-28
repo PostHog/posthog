@@ -71,6 +71,7 @@ members = [
   "personhog-test-harness",
   "affected-services",
   "property-vals-rs",
+  "pgcollector",
 ]
 
 # NOTE: cargo allows only one crate with `links = "python"` (i.e. one pyo3 version) per
