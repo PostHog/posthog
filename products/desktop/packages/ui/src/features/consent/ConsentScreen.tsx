@@ -10,7 +10,6 @@ import type { ReactNode } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { ConsentErrorContent } from "./ConsentErrorContent";
 import { ConsentPanel } from "./ConsentPanel";
-import { useConsentAnalytics } from "./consentAnalytics";
 import { useOrgConsent } from "./useOrgConsent";
 
 interface ConsentScreenProps {
@@ -26,7 +25,6 @@ export function ConsentScreen({
 }: ConsentScreenProps) {
   const consent = useOrgConsent();
   const { isAdmin } = useIsOrgAdmin();
-  useConsentAnalytics(consent, isAdmin === true, "standalone_gate");
   const logoutMutation = useLogoutMutation();
   useHotkeys(SHORTCUTS.SETTINGS, () => openSettingsDialog(), {
     preventDefault: true,

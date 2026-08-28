@@ -1,9 +1,6 @@
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-
-const track = vi.hoisted(() => vi.fn());
 
 vi.mock("react-hotkeys-hook", () => ({ useHotkeys: vi.fn() }));
 
@@ -27,8 +24,6 @@ vi.mock("@posthog/ui/primitives/FullScreenLayout", () => ({
   FullScreenLayout: ({ children }: { children: ReactNode }) => children,
 }));
 
-vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
-
 vi.mock("./ConsentPanel", () => ({
   ConsentPanel: () => <div>Consent requirements</div>,
 }));
@@ -47,23 +42,12 @@ vi.mock("./useOrgConsent", () => ({
 import { ConsentScreen } from "./ConsentScreen";
 
 describe("ConsentScreen", () => {
-  it("keeps the project switcher visible and tracks a blocked non-admin", async () => {
+  it("keeps the project switcher visible for a blocked non-admin", () => {
     render(<ConsentScreen />);
 
     expect(
       screen.getByRole("button", { name: "Example project" }),
     ).toBeVisible();
     expect(screen.getByText("Consent requirements")).toBeVisible();
-    await waitFor(() =>
-      expect(track).toHaveBeenCalledWith(
-        ANALYTICS_EVENTS.AI_CONSENT_GATE_SHOWN,
-        {
-          is_org_admin: false,
-          outstanding_ai_consent: false,
-          outstanding_beta_terms: true,
-          surface: "standalone_gate",
-        },
-      ),
-    );
   });
 });
