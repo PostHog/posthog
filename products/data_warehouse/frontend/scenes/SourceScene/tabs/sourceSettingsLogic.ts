@@ -37,6 +37,7 @@ import {
 } from '~/types'
 
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
+import { isSensitiveCredentialField } from 'products/data_warehouse/frontend/shared/components/forms/sensitiveFields'
 import { SYNC_FREQUENCY_ORDER, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
@@ -233,10 +234,6 @@ function hasOptimisticSchemaChanges(
         const currentSchema = source.schemas.find((item) => item.id === schema.id)
         return !!currentSchema && !objectsEqual(currentSchema, schema)
     })
-}
-
-export const isSensitiveCredentialField = (field: SourceFieldConfig): boolean => {
-    return ('secret' in field && !!field.secret) || field.type === 'password'
 }
 
 export const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj: Record<string, any>): void => {

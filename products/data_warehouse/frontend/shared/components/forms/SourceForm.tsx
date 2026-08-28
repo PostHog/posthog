@@ -26,7 +26,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import { SourceConfig, SourceFieldConfig, SourceFieldInputConfig } from '~/queries/schema/schema-general'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import {
@@ -42,9 +42,33 @@ import { IntegrationAccountSelector, findOauthBranch } from './IntegrationAccoun
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
 import { supportsDirectQuery } from './schemaGroupingUtils'
+import { isSensitiveCredentialField } from './sensitiveFields'
 
 // Stable no-op for the rare misconfigured custom-source case where the form provides no value setter.
 const NO_OP_SET_VALUE = (): void => undefined
+
+const MASKED_CREDENTIAL_PLACEHOLDER = '••••••••'
+
+// A saved credential reloads empty because the backend redacts it. In update mode, mask the input
+// and tell the user that a blank field keeps the stored value, so they don't re-enter it.
+const credentialFieldDisplay = (
+    field: SourceFieldInputConfig,
+    isUpdateMode?: boolean
+): { placeholder: string; help: JSX.Element | undefined } => {
+    const caption = field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined
+    if (!isUpdateMode || !isSensitiveCredentialField(field)) {
+        return { placeholder: field.placeholder, help: caption }
+    }
+    return {
+        placeholder: MASKED_CREDENTIAL_PLACEHOLDER,
+        help: (
+            <div className="flex flex-col gap-1">
+                {caption}
+                <span className="text-xs">Leave blank to keep the saved value, or enter a new one to replace it.</span>
+            </div>
+        ),
+    }
+}
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
@@ -298,13 +322,14 @@ export const sourceFieldToElement = (
     }
 
     if (field.type === 'textarea') {
+        const { placeholder, help } = credentialFieldDisplay(field, isUpdateMode)
         return (
-            <LemonField key={field.name} name={field.name} label={field.label}>
+            <LemonField key={field.name} name={field.name} label={field.label} help={help}>
                 {({ value, onChange }) => (
                     <LemonTextArea
                         className="ph-ignore-input"
                         data-attr={field.name}
-                        placeholder={field.placeholder}
+                        placeholder={placeholder}
                         minRows={4}
                         value={value || ''}
                         onChange={onChange}
@@ -401,18 +426,14 @@ export const sourceFieldToElement = (
         )
     }
 
+    const { placeholder, help } = credentialFieldDisplay(field, isUpdateMode)
     return (
-        <LemonField
-            key={field.name}
-            name={field.name}
-            label={field.label}
-            help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
-        >
+        <LemonField key={field.name} name={field.name} label={field.label} help={help}>
             {({ value, onChange }) => (
                 <LemonInput
                     className="ph-ignore-input"
                     data-attr={field.name}
-                    placeholder={field.placeholder}
+                    placeholder={placeholder}
                     type={field.type as 'text'}
                     value={value || ''}
                     onChange={onChange}

@@ -1,4 +1,9 @@
-import { SourceConfig, SourceFieldSelectConfig, SourceFieldSwitchGroupConfig } from '~/queries/schema/schema-general'
+import {
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSwitchGroupConfig,
+} from '~/queries/schema/schema-general'
 
 import { sourceFieldToElement } from './SourceForm'
 
@@ -47,7 +52,50 @@ const switchGroupState = (storedGroupValue: any, formValue?: any): { checked: bo
     return { checked: toggle.props.checked, childrenVisible: !!children.find((child: any) => child?.props?.name) }
 }
 
+// A sensitive field reloads blank because the backend redacts it. Report the placeholder the input
+// shows and whether the field renders help — the bug was a bare empty box with neither.
+const scalarFieldRender = (
+    field: SourceFieldInputConfig,
+    isUpdateMode?: boolean
+): { placeholder: string | undefined; hasHelp: boolean } => {
+    const element = sourceFieldToElement(field, SOURCE_CONFIG, undefined, isUpdateMode)
+    const input = element.props.children({ value: '', onChange: jest.fn() })
+    return { placeholder: input.props.placeholder, hasHelp: !!element.props.help }
+}
+
+const SECRET_FIELD: SourceFieldInputConfig = {
+    type: 'password',
+    name: 'api_key',
+    label: 'API key',
+    required: true,
+    // AppLovin's Report Key ships an empty placeholder, so the unfixed box was completely bare.
+    placeholder: '',
+    secret: true,
+}
+
 describe('sourceFieldToElement', () => {
+    it('masks a saved secret and explains that blank keeps it when editing a source', () => {
+        const { placeholder, hasHelp } = scalarFieldRender(SECRET_FIELD, true)
+        expect(placeholder).not.toBe('')
+        expect(hasHelp).toBe(true)
+    })
+
+    it('shows the plain placeholder for a secret field on a new source', () => {
+        expect(scalarFieldRender(SECRET_FIELD, false)).toEqual({ placeholder: '', hasHelp: false })
+    })
+
+    it('does not mask a non-sensitive field when editing a source', () => {
+        const hostField: SourceFieldInputConfig = {
+            type: 'text',
+            name: 'host',
+            label: 'Host',
+            required: true,
+            placeholder: 'localhost',
+            secret: false,
+        }
+        expect(scalarFieldRender(hostField, true)).toEqual({ placeholder: 'localhost', hasHelp: false })
+    })
+
     it('renders a select field caption as field help text', () => {
         const element = sourceFieldToElement(SELECT_FIELD, SOURCE_CONFIG)
         expect(element.props.help).toBeTruthy()
