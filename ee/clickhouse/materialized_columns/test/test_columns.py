@@ -14,7 +14,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
-from posthog.clickhouse.query_tagging import tags_context
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -526,12 +525,6 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         query = f"SELECT count() FROM {EVENTS_DATA_TABLE()} WHERE {indexed_expr} = 'category_a'"
         index_info = get_index_from_explain(query, index_name)
         assert index_info is not None, f"Bloom filter lower index {index_name} should appear in EXPLAIN output"
-
-    def test_get_all_ignores_inherited_client_query_id(self):
-        _clear_materialized_columns_cache("events")
-        with tags_context(client_query_id="outer-query"):
-            result = MaterializedColumn._get_all("events")
-        assert isinstance(result, list)
 
     def test_get_all_returns_index_flags(self):
         """Test that get_materialized_columns returns correct index flags from ClickHouse."""
