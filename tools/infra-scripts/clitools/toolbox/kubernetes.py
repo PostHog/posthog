@@ -254,6 +254,63 @@ def reset_sso(profile: str, *, deadline: float) -> bool:
     return login_to_sso(profile, timeout=deadline - time.monotonic())
 
 
+class _SsoRecovery:
+    """Track SSO login and reset attempts while waiting for a Kubernetes access grant."""
+
+    def __init__(self, profile: str, *, deadline: float) -> None:
+        self.profile = profile
+        self.deadline = deadline
+        self.login_attempted = False
+        self.reset_attempted = False
+
+    def _login(self) -> bool:
+        self.login_attempted = True
+        return login_to_sso(self.profile, timeout=self.deadline - time.monotonic())
+
+    def handle_initial(self, diagnostic: str) -> bool:
+        """React to the diagnostic seen before the wait loop starts. Return False to abort."""
+        if _needs_sso_reset(diagnostic):
+            return self._login()
+        if _needs_sso_login(diagnostic):
+            if self._login():
+                return True
+            print(  # noqa: T201
+                f"❌ AWS SSO login failed. Try `aws sso login --profile {self.profile}` and rerun the toolbox."
+            )
+            return False
+        return True
+
+    def handle_retry(self, diagnostic: str) -> bool:
+        """React to a diagnostic seen during the wait loop. Return False to abort."""
+        if _needs_sso_reset(diagnostic):
+            if not self.login_attempted:
+                return self._login()
+            if not self.reset_attempted:
+                self.reset_attempted = True
+                return reset_sso(self.profile, deadline=self.deadline)
+        elif _needs_sso_login(diagnostic) and not self.login_attempted:
+            return self._login()
+        return True
+
+
+def _announce_reason(diagnostic: str, last_reason: str) -> str:
+    """Print the current wait reason when it changes. Return the reason to remember."""
+    reason = summarize_diagnostic(diagnostic)
+    if reason != last_reason:
+        print(f"   Not ready: {reason}.")  # noqa: T201
+    return reason
+
+
+def _announce_remaining(deadline: float, next_status: float) -> float:
+    """Print the remaining minutes every 30 seconds. Return the next print time."""
+    now = time.monotonic()
+    if now < next_status:
+        return next_status
+    remaining = max(0, int((deadline - now) / 60) + 1)
+    print(f"   Still waiting for access ({remaining} min remaining)...")  # noqa: T201
+    return now + 30
+
+
 def wait_for_context_access(context: str, namespace: str, *, initial_diagnostic: str = "") -> bool:
     """Wait up to ten minutes for an AWS Access grant to become usable."""
     deadline = time.monotonic() + ACCESS_WAIT_SECONDS
@@ -263,19 +320,9 @@ def wait_for_context_access(context: str, namespace: str, *, initial_diagnostic:
         print(f"❌ {error}.")  # noqa: T201
         return False
 
-    sso_login_attempted = False
-    sso_reset_attempted = False
-    if _needs_sso_reset(initial_diagnostic):
-        sso_login_attempted = True
-        if not login_to_sso(profile, timeout=deadline - time.monotonic()):
-            return False
-    elif _needs_sso_login(initial_diagnostic):
-        sso_login_attempted = True
-        if not login_to_sso(profile, timeout=deadline - time.monotonic()):
-            print(  # noqa: T201
-                f"❌ AWS SSO login failed. Try `aws sso login --profile {profile}` and rerun the toolbox."
-            )
-            return False
+    recovery = _SsoRecovery(profile, deadline=deadline)
+    if not recovery.handle_initial(initial_diagnostic):
+        return False
 
     print("\n🔒 No active toolbox-capable access was found.")  # noqa: T201
     print(f"Request `k8s + toolbox access` (eks-developer) in #aws-access: {AWS_ACCESS_CHANNEL}")  # noqa: T201
@@ -289,28 +336,10 @@ def wait_for_context_access(context: str, namespace: str, *, initial_diagnostic:
         if usable:
             print("✅ Access is active. Continuing...")  # noqa: T201
             return True
-        if _needs_sso_reset(diagnostic):
-            if not sso_login_attempted:
-                sso_login_attempted = True
-                if not login_to_sso(profile, timeout=deadline - time.monotonic()):
-                    return False
-            elif not sso_reset_attempted:
-                sso_reset_attempted = True
-                if not reset_sso(profile, deadline=deadline):
-                    return False
-        elif _needs_sso_login(diagnostic) and not sso_login_attempted:
-            sso_login_attempted = True
-            if not login_to_sso(profile, timeout=deadline - time.monotonic()):
-                return False
-        reason = summarize_diagnostic(diagnostic)
-        if reason != last_reason:
-            print(f"   Not ready: {reason}.")  # noqa: T201
-            last_reason = reason
-        now = time.monotonic()
-        if now >= next_status:
-            remaining = max(0, int((deadline - now) / 60) + 1)
-            print(f"   Still waiting for access ({remaining} min remaining)...")  # noqa: T201
-            next_status = now + 30
+        if not recovery.handle_retry(diagnostic):
+            return False
+        last_reason = _announce_reason(diagnostic, last_reason)
+        next_status = _announce_remaining(deadline, next_status)
         time.sleep(ACCESS_POLL_SECONDS)
 
     print(  # noqa: T201
