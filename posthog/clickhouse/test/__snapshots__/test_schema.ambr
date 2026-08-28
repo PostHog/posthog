@@ -4006,6 +4006,42 @@
   
   '''
 # ---
+# name: test_create_table_query[marketing_sessions_dimensional_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS marketing_sessions_dimensional_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      period_bucket DateTime,
+  
+      session_id String,
+  
+      person_id UUID,
+  
+      -- The event bounds let a read agree with the live path, which bounds by event time rather than
+      -- by session start.
+      start_timestamp DateTime64(6, 'UTC'),
+      min_event_timestamp DateTime64(6, 'UTC'),
+      max_event_timestamp DateTime64(6, 'UTC'),
+  
+      channel_type String,
+  
+      utm_source String,
+      utm_medium String,
+      utm_campaign String,
+      utm_term String,
+      utm_content String,
+      referring_domain String,
+      entry_pathname String,
+  
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_marketing_sessions_dimensional_preaggregated', cityHash64(person_id))
+  
+  '''
+# ---
 # name: test_create_table_query[marketing_touchpoints_preaggregated]
   '''
   
@@ -7262,6 +7298,47 @@
   ORDER BY (team_id, job_id, source_name, grain, campaign_id, ad_group_id, ad_id, cost_date)
   TTL expires_at
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_marketing_sessions_dimensional_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_marketing_sessions_dimensional_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      period_bucket DateTime,
+  
+      session_id String,
+  
+      person_id UUID,
+  
+      -- The event bounds let a read agree with the live path, which bounds by event time rather than
+      -- by session start.
+      start_timestamp DateTime64(6, 'UTC'),
+      min_event_timestamp DateTime64(6, 'UTC'),
+      max_event_timestamp DateTime64(6, 'UTC'),
+  
+      channel_type String,
+  
+      utm_source String,
+      utm_medium String,
+      utm_campaign String,
+      utm_term String,
+      utm_content String,
+      referring_domain String,
+      entry_pathname String,
+  
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.marketing_sessions_dimensional_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, person_id, start_timestamp, session_id)
+  TTL toDateTime(expires_at) + INTERVAL 1 DAY
+  SETTINGS ttl_only_drop_parts = 1, index_granularity = 8192
   
   '''
 # ---
@@ -12291,6 +12368,47 @@
   ORDER BY (team_id, job_id, source_name, grain, campaign_id, ad_group_id, ad_id, cost_date)
   TTL expires_at
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_marketing_sessions_dimensional_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_marketing_sessions_dimensional_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      period_bucket DateTime,
+  
+      session_id String,
+  
+      person_id UUID,
+  
+      -- The event bounds let a read agree with the live path, which bounds by event time rather than
+      -- by session start.
+      start_timestamp DateTime64(6, 'UTC'),
+      min_event_timestamp DateTime64(6, 'UTC'),
+      max_event_timestamp DateTime64(6, 'UTC'),
+  
+      channel_type String,
+  
+      utm_source String,
+      utm_medium String,
+      utm_campaign String,
+      utm_term String,
+      utm_content String,
+      referring_domain String,
+      entry_pathname String,
+  
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.marketing_sessions_dimensional_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, person_id, start_timestamp, session_id)
+  TTL toDateTime(expires_at) + INTERVAL 1 DAY
+  SETTINGS ttl_only_drop_parts = 1, index_granularity = 8192
   
   '''
 # ---
