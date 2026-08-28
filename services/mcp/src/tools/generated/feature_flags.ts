@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import {
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsActivityRetrieveQueryParams,
+    FeatureFlagsArchiveCreateParams,
     FeatureFlagsBulkDeleteCreateBody,
     FeatureFlagsBulkKeysRetrieveBody,
     FeatureFlagsBulkUpdateTagsCreateBody,
@@ -12,6 +13,8 @@ import {
     FeatureFlagsCreateBody,
     FeatureFlagsDependentFlagsListParams,
     FeatureFlagsDestroyParams,
+    FeatureFlagsDisableCreateParams,
+    FeatureFlagsEnableCreateParams,
     FeatureFlagsEvaluationReasonsRetrieveQueryParams,
     FeatureFlagsListQueryParams,
     FeatureFlagsMyFlagsRetrieveQueryParams,
@@ -21,6 +24,7 @@ import {
     FeatureFlagsStatusRetrieveParams,
     FeatureFlagsTestEvaluationCreateBody,
     FeatureFlagsTestEvaluationCreateParams,
+    FeatureFlagsUnarchiveCreateParams,
     FeatureFlagsUserBlastRadiusCreateBody,
     ScheduledChangesCreateBody,
     ScheduledChangesDestroyParams,
@@ -113,6 +117,57 @@ const deleteFeatureFlag = (): ToolBase<typeof DeleteFeatureFlagSchema, Schemas.F
     },
 })
 
+const FeatureFlagArchiveSchema = FeatureFlagsArchiveCreateParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, FeatureFlagsArchiveCreateParams.shape['id']),
+})
+
+const featureFlagArchive = (): ToolBase<typeof FeatureFlagArchiveSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
+    name: 'feature-flag-archive',
+    schema: FeatureFlagArchiveSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagArchiveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/archive/`,
+        })
+        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
+    },
+})
+
+const FeatureFlagDisableSchema = FeatureFlagsDisableCreateParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, FeatureFlagsDisableCreateParams.shape['id']),
+})
+
+const featureFlagDisable = (): ToolBase<typeof FeatureFlagDisableSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
+    name: 'feature-flag-disable',
+    schema: FeatureFlagDisableSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagDisableSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/disable/`,
+        })
+        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
+    },
+})
+
+const FeatureFlagEnableSchema = FeatureFlagsEnableCreateParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, FeatureFlagsEnableCreateParams.shape['id']),
+})
+
+const featureFlagEnable = (): ToolBase<typeof FeatureFlagEnableSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
+    name: 'feature-flag-enable',
+    schema: FeatureFlagEnableSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagEnableSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/enable/`,
+        })
+        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
+    },
+})
+
 const FeatureFlagGetAllSchema = FeatureFlagsListQueryParams.extend({
     search: FeatureFlagsListQueryParams.shape['search'].describe(
         'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
@@ -183,6 +238,23 @@ const featureFlagGetDefinition = (): ToolBase<
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
+    },
+})
+
+const FeatureFlagUnarchiveSchema = FeatureFlagsUnarchiveCreateParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, FeatureFlagsUnarchiveCreateParams.shape['id']),
+})
+
+const featureFlagUnarchive = (): ToolBase<typeof FeatureFlagUnarchiveSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
+    name: 'feature-flag-unarchive',
+    schema: FeatureFlagUnarchiveSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagUnarchiveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/unarchive/`,
         })
         return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
     },
@@ -689,8 +761,12 @@ const updateFeatureFlag = (): ToolBase<typeof UpdateFeatureFlagSchema, WithPostH
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'create-feature-flag': createFeatureFlag,
     'delete-feature-flag': deleteFeatureFlag,
+    'feature-flag-archive': featureFlagArchive,
+    'feature-flag-disable': featureFlagDisable,
+    'feature-flag-enable': featureFlagEnable,
     'feature-flag-get-all': featureFlagGetAll,
     'feature-flag-get-definition': featureFlagGetDefinition,
+    'feature-flag-unarchive': featureFlagUnarchive,
     'feature-flags-activity-retrieve': featureFlagsActivityRetrieve,
     'feature-flags-bulk-delete-create': featureFlagsBulkDeleteCreate,
     'feature-flags-bulk-keys-retrieve': featureFlagsBulkKeysRetrieve,

@@ -156,6 +156,7 @@ describe('buildToolDomainsBlock', () => {
             'archive',
             'calculate',
             'copy',
+            'disable',
             'discard',
             'duplicate',
             'edit',

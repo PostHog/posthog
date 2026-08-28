@@ -231,6 +231,7 @@ export class ToolDomainExtractor {
         'archive',
         'calculate',
         'copy',
+        'disable',
         'discard',
         'duplicate',
         'edit',

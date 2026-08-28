@@ -9,6 +9,7 @@ policy guards it.
 
 Each closed bypass below maps to a fix on this branch:
   - direct PATCH enable/disable/update        -> the baseline control the gate exists for
+  - lifecycle enable/disable/archive actions   -> thin state endpoints routed through the same gate
   - experiment launch / pause / resume        -> flag flips routed through FeatureFlagSerializer
   - experiment ship_variant                   -> variant rollout rewrite gated by feature_flag.update
   - web-experiment variant rollout edit        -> update_experiment() variant write, gated by feature_flag.update
@@ -33,6 +34,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
 from posthog.constants import AvailableFeature
@@ -126,6 +128,51 @@ class TestDirectAndCreateBypassMatrix(FeatureFlagBypassMatrixBase):
         flag.refresh_from_db()
         assert flag.active is True
         self._assert_one_pending_zero_applied()
+
+    @parameterized.expand(
+        [
+            ("enable", "feature_flag.enable", False),
+            ("disable", "feature_flag.disable", True),
+            # Archiving an enabled flag disables it in the same write, so the disable policy applies.
+            ("archive", "feature_flag.disable", True),
+        ]
+    )
+    # The class-level _is_approvals_enabled patch wraps the expanded case, so its mock arrives
+    # before the parameterized arguments.
+    def test_lifecycle_action_is_gated(self, _mock_enabled, action, action_key, active):
+        _enable_policy_for(self, action_key)
+        flag = self._flag(active=active)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{action}/", {}, format="json"
+        )
+
+        assert response.status_code == 409
+        assert response.json().get("code") == "approval_required"
+        flag.refresh_from_db()
+        assert flag.active is active
+        assert flag.archived is False
+        self._assert_one_pending_zero_applied()
+
+    def test_lifecycle_actions_gate_each_flag_separately(self, _mock_enabled):
+        # The gate keys duplicate detection on resource_id, which it derives from the request
+        # method: it returns None for POST. A lifecycle action that reported itself as POST
+        # stored NULL, so the second flag's request matched the first as a duplicate and was
+        # dropped — the caller got a 409 naming someone else's change request and nothing was
+        # queued for their flag.
+        _enable_policy_for(self, "feature_flag.disable")
+        first = self._flag(active=True, key="matrix-flag-one")
+        second = self._flag(active=True, key="matrix-flag-two")
+
+        for flag in (first, second):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/disable/", {}, format="json"
+            )
+            assert response.status_code == 409
+            assert response.json().get("code") == "approval_required"
+
+        assert ChangeRequest.objects.filter(state=ChangeRequestState.PENDING).count() == 2
+        assert {cr.resource_id for cr in ChangeRequest.objects.all()} == {str(first.id), str(second.id)}
 
     def test_direct_patch_rollout_change_is_gated(self, _mock_enabled):
         _any_rollout_change_policy(self)
