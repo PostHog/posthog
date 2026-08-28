@@ -86,6 +86,46 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_the_connection_cannot_be_changed(self) -> None:
+        # Repointing at another server strands everything already synced there, so a second
+        # destination is the supported route rather than editing this one.
+        destination = self._create_destination()
+        other = self._integration()
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"integration": other.pk})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "integration" in response.json()["attr"]
+
+    def test_the_target_database_and_schema_cannot_be_changed(self) -> None:
+        destination = self._create_destination()
+
+        for field in ("database", "schema"):
+            response = self.client.patch(f"{self.base}/{destination.id}", {"config": {field: "somewhere_else"}})
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, field
+            assert "config" in response.json()["attr"], field
+
+    def test_the_name_can_still_be_changed(self) -> None:
+        destination = self._create_destination()
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"name": "renamed"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destination.refresh_from_db()
+        assert destination.name == "renamed"
+
+    def test_resending_the_same_target_is_not_a_change(self) -> None:
+        # A form that posts every field back must not be rejected for the fields it left alone.
+        destination = self._create_destination()
+
+        response = self.client.patch(
+            f"{self.base}/{destination.id}",
+            {"name": "renamed", "integration": destination.integration_id, "config": destination.config},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
     def test_delete_detaches_everything_that_synced_to_it(self) -> None:
         destination = self._create_destination()
         ExternalDataSourceDestination.objects.for_team(self.team.pk).create(

@@ -24,11 +24,16 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     ExternalDataSourceDestination,
     resolve_destinations,
 )
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.warehouse_sources.backend.models.external_data_job import (
+    ExternalDataJob,
+    get_latest_run_if_exists,
+    latest_completed_job_prefetch,
+)
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     auto_enable_new_schemas,
     get_all_schemas_for_source_id,
+    get_schemas_for_direct_reconciliation,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
@@ -51,6 +56,7 @@ from products.warehouse_sources.backend.models.table import (
     DataWarehouseTableColumns,
     acreate_datawarehousetable,
     asave_datawarehousetable,
+    create_datawarehousetable,
 )
 from products.warehouse_sources.backend.models.util import (
     clickhouse_column_to_dwh_column,
@@ -64,6 +70,8 @@ from products.warehouse_sources.backend.models.util import (
     remove_named_tuples,
     snowflake_column_to_dwh_column,
     snowflake_columns_to_dwh_columns,
+    trino_column_to_dwh_column,
+    trino_columns_to_dwh_columns,
     validate_source_prefix,
     validate_warehouse_table_url_pattern,
 )
@@ -89,15 +97,20 @@ __all__ = [
     "acreate_datawarehousetable",
     "asave_datawarehousetable",
     "auto_enable_new_schemas",
+    "create_datawarehousetable",
     "get_all_schemas_for_source_id",
+    "get_schemas_for_direct_reconciliation",
     "get_direct_external_data_source_for_connection",
     "is_managed_warehouse_connection_ready",
     "get_latest_run_if_exists",
+    "latest_completed_job_prefetch",
     "get_or_create_datawarehouse_credential",
     "clickhouse_column_to_dwh_column",
     "clickhouse_columns_to_dwh_columns",
     "motherduck_column_to_dwh_column",
     "motherduck_columns_to_dwh_columns",
+    "trino_column_to_dwh_column",
+    "trino_columns_to_dwh_columns",
     "mysql_column_to_dwh_column",
     "mysql_columns_to_dwh_columns",
     "postgres_column_to_dwh_column",

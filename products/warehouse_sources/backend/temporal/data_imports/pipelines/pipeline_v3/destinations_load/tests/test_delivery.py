@@ -7,6 +7,8 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     ExternalDataDestination,
     get_or_create_warehouse_destination,
 )
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import BatchWriteOutcome
 from products.warehouse_sources.backend.temporal.data_imports.destinations.registry import (
     register_destination_writer,
@@ -14,6 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.regis
     snapshot_registered_writers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load import delivery
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery import (
+    destination_table_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 
 
@@ -78,12 +83,17 @@ class DeliveryTestCase(BaseTest):
         )
 
     def _signal(
-        self, destination_ids: list[str], *, batch_index: int = 0, is_final: bool = False
+        self,
+        destination_ids: list[str],
+        *,
+        batch_index: int = 0,
+        is_final: bool = False,
+        schema_id: str | None = None,
     ) -> ExportSignalMessage:
         return ExportSignalMessage(
             team_id=self.team.pk,
             job_id=str(uuid.uuid4()),
-            schema_id=str(uuid.uuid4()),
+            schema_id=schema_id or str(uuid.uuid4()),
             source_id=str(uuid.uuid4()),
             resource_name="charges",
             run_uuid="run-a1",
@@ -202,6 +212,59 @@ class TestDelivery(DeliveryTestCase):
             delivery.deliver_batch_to_destinations(self._signal([str(a.id), str(b.id)]))
 
         assert not self._writes()
+
+
+class TestDestinationTableName(DeliveryTestCase):
+    """The name a destination writes under, which a customer sees in their own database."""
+
+    def _schema_for(self, source_type: str, prefix: str, name: str) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=f"src-{prefix}{name}",
+            connection_id=f"conn-{prefix}{name}",
+            status="Running",
+            source_type=source_type,
+            prefix=prefix,
+        )
+        return ExternalDataSchema.objects.create(team=self.team, source=source, name=name)
+
+    def test_it_matches_the_name_the_posthog_warehouse_uses(self) -> None:
+        schema = self._schema_for("Stripe", "", "Charge")
+
+        signal = self._signal([], schema_id=str(schema.id))
+
+        assert destination_table_name(signal, {}) == "stripe_charge"
+
+    def test_a_source_prefix_is_carried_over(self) -> None:
+        # Two Stripe accounts are told apart by prefix in PostHog, so they must be told apart in
+        # the customer's database too rather than both landing on `stripe_charge`.
+        schema = self._schema_for("Stripe", "eu_", "Charge")
+
+        assert destination_table_name(self._signal([], schema_id=str(schema.id)), {}) == "eu_stripe_charge"
+
+    def test_two_sources_sharing_a_resource_name_do_not_collide(self) -> None:
+        postgres = self._schema_for("Postgres", "", "users")
+        mysql = self._schema_for("MySQL", "", "users")
+
+        assert destination_table_name(self._signal([], schema_id=str(postgres.id)), {}) != destination_table_name(
+            self._signal([], schema_id=str(mysql.id)), {}
+        )
+
+    def test_a_dotted_schema_name_is_flattened(self) -> None:
+        # A dot would read as `<table>.<column>`, so the warehouse rewrites it and so must this.
+        schema = self._schema_for("Postgres", "", "public.auth_group")
+
+        assert destination_table_name(self._signal([], schema_id=str(schema.id)), {}) == "postgres_public__auth_group"
+
+    def test_a_configured_prefix_still_applies(self) -> None:
+        schema = self._schema_for("Stripe", "", "Charge")
+
+        name = destination_table_name(self._signal([], schema_id=str(schema.id)), {"table_prefix": "raw_"})
+
+        assert name == "raw_stripe_charge"
+
+    def test_it_falls_back_to_the_resource_name_when_the_schema_is_gone(self) -> None:
+        assert destination_table_name(self._signal([]), {}) == "charges"
 
 
 class TestWarehousePresence(DeliveryTestCase):

@@ -20,11 +20,13 @@ import structlog
 from asgiref.sync import async_to_sync
 
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     DestinationBatchContext,
     DestinationRunContext,
 )
 from products.warehouse_sources.backend.temporal.data_imports.destinations.registry import resolve_destination_writer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.builtin_writers import (
     ensure_builtin_destination_writers_registered,
 )
@@ -92,6 +94,24 @@ def warehouse_is_a_destination(export_signal: ExportSignalMessage) -> bool:
     )
 
 
+def destination_table_name(export_signal: ExportSignalMessage, config: dict) -> str:
+    """What a destination calls the table for this schema.
+
+    The same name the PostHog warehouse uses, via `build_table_name`, so a table is recognizable
+    on both sides and two sources with a same-named resource do not resolve to one table. Falls
+    back to the raw resource name only if the schema has gone, which is a run that is failing
+    anyway. `table_prefix` stays supported as an escape hatch for a name a customer needs to
+    control; nothing sets it today.
+    """
+    schema = (
+        ExternalDataSchema.objects.filter(id=export_signal.schema_id, team_id=export_signal.team_id)
+        .select_related("source")
+        .first()
+    )
+    base = build_table_name(schema.source, schema.name) if schema and schema.source else export_signal.resource_name
+    return f"{config.get('table_prefix', '')}{base}"
+
+
 def _run_context(export_signal: ExportSignalMessage, destination: ExternalDataDestination) -> DestinationRunContext:
     config = destination.config or {}
     return DestinationRunContext(
@@ -103,10 +123,10 @@ def _run_context(export_signal: ExportSignalMessage, destination: ExternalDataDe
         destination_id=str(destination.id),
         destination_type=destination.type,
         destination_name=destination.name,
-        # Named after the resource, never after the destination: a destination is shared by
-        # every schema of every source pointed at it, so a configured table name would
-        # collapse them all into one table.
-        table_name=f"{config.get('table_prefix', '')}{export_signal.resource_name}",
+        # Derived from the schema, never configured on the destination: a destination is shared
+        # by every schema of every source pointed at it, so one configured name would collapse
+        # them all into a single table.
+        table_name=destination_table_name(export_signal, config),
         sync_type=export_signal.sync_type,
         primary_keys=tuple(export_signal.primary_keys or ()),
         config=config,

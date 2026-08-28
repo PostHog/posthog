@@ -5,10 +5,12 @@ exclude = [
     "**/*__pycache__",
     "**/*egg-info",
     "docs",
-    "tests",
-    # Eval trees are dev/CI-only tooling (same class as `tests`): the harness orchestrates
-    # many products by design, and product-owned suites under products/*/evals import the
-    # harness contracts, so neither fits the production dependency graph.
+    # Test directories stay in the graph so that a test outside a product that imports the
+    # product's internals is an interface violation. They are not dependency edges: `hogli
+    # lint:tach` (what CI runs) excludes test code from the dependency pass only.
+    # Eval trees are dev/CI-only tooling: the harness orchestrates many products by
+    # design, and product-owned suites under products/*/evals import the harness
+    # contracts, so neither fits the production dependency graph.
     "products/posthog_ai/eval_harness",
     "products/*/evals",
 ]
@@ -550,7 +552,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.metrics"
-depends_on = ["posthog", "products.access_control"]
+depends_on = ["posthog", "products.access_control", "products.error_tracking"]
 layer = "modules"
 
 [[interfaces]]
@@ -694,6 +696,7 @@ path = "products.replay_vision"
 depends_on = [
     "ee",
     "posthog",
+    "products.alerts",
     "products.cdp",
     "products.cohorts",
     "products.experiments",
@@ -886,6 +889,12 @@ expose = [
     "backend\\.teaching.*",
     "backend\\.artifacts.*",
     "backend\\.tasks.*",
+    # Temporal wiring the worker registers (start_temporal_worker.py) — the
+    # canvas analog of the backend.tasks Celery registration above. Canvas is
+    # not isolated yet, so this stays a legacy leak rather than a facade expose.
+    "backend\\.temporal\\.registry.*",
+    # tasks' tests build canvases that point at a generation task.
+    "backend\\.models\\.Canvas",
 ]
 from = [
     "products.canvas",
@@ -1293,6 +1302,18 @@ layer = "modules"
 path = "products.field_notes"
 depends_on = ["posthog"]
 layer = "modules"
+
+# Isolation debt: outside test suites build tasks rows and read its enums straight
+# from the models. Drain by adding factories to facade/testing.py and migrating the
+# suites, then delete this block. Consumers: canvas, slack_app, review_hog,
+# replay_vision, posthog_ai, stamphog, conversations, signals, ee.
+[[interfaces]]
+expose = [
+    "backend\\.models\\.(Channel|SandboxEnvironment|Task|TaskRun|TaskThreadMessage)",
+]
+from = [
+    "products.tasks",
+]
 
 [[modules]]
 path = "products.stamphog"

@@ -3,8 +3,11 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    ExternalDataDestinationsListQueryParams,
+    ExternalDataDestinationsRetrieveParams,
     ExternalDataSchemasCancelCreateParams,
     ExternalDataSchemasDeleteDataDestroyParams,
+    ExternalDataSchemasDestinationsRetrieveParams,
     ExternalDataSchemasIncrementalFieldsCreateBody,
     ExternalDataSchemasIncrementalFieldsCreateParams,
     ExternalDataSchemasListQueryParams,
@@ -19,6 +22,7 @@ import {
     ExternalDataSourcesCreateWebhookCreateParams,
     ExternalDataSourcesDeleteWebhookCreateBody,
     ExternalDataSourcesDeleteWebhookCreateParams,
+    ExternalDataSourcesDestinationsRetrieveParams,
     ExternalDataSourcesDestroyParams,
     ExternalDataSourcesListQueryParams,
     ExternalDataSourcesPartialUpdateBody,
@@ -119,6 +123,46 @@ const dataWarehouseStoredCredentialsList = (): ToolBase<
     },
 })
 
+const ExternalDataDestinationsListSchema = ExternalDataDestinationsListQueryParams
+
+const externalDataDestinationsList = (): ToolBase<
+    typeof ExternalDataDestinationsListSchema,
+    Schemas.PaginatedExternalDataDestinationList
+> => ({
+    name: 'external-data-destinations-list',
+    schema: ExternalDataDestinationsListSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataDestinationsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedExternalDataDestinationList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_destinations/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
+const ExternalDataDestinationsRetrieveSchema = ExternalDataDestinationsRetrieveParams.omit({ project_id: true })
+
+const externalDataDestinationsRetrieve = (): ToolBase<
+    typeof ExternalDataDestinationsRetrieveSchema,
+    WithPostHogUrl<Schemas.ExternalDataDestination>
+> => ({
+    name: 'external-data-destinations-retrieve',
+    schema: ExternalDataDestinationsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataDestinationsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExternalDataDestination>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_destinations/${encodeURIComponent(String(params.id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/data-management/sources/${result.id}`)
+    },
+})
+
 const ExternalDataSchemasCancelSchema = ExternalDataSchemasCancelCreateParams.omit({ project_id: true })
 
 const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelSchema, unknown> => ({
@@ -144,6 +188,26 @@ const externalDataSchemasDeleteData = (): ToolBase<typeof ExternalDataSchemasDel
         const result = await context.api.request<unknown>({
             method: 'DELETE',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/delete_data/`,
+        })
+        return result
+    },
+})
+
+const ExternalDataSchemasDestinationsRetrieveSchema = ExternalDataSchemasDestinationsRetrieveParams.omit({
+    project_id: true,
+})
+
+const externalDataSchemasDestinationsRetrieve = (): ToolBase<
+    typeof ExternalDataSchemasDestinationsRetrieveSchema,
+    Schemas.SchemaDestinations
+> => ({
+    name: 'external-data-schemas-destinations-retrieve',
+    schema: ExternalDataSchemasDestinationsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasDestinationsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SchemaDestinations>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/destinations/`,
         })
         return result
     },
@@ -526,6 +590,26 @@ const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
     },
 })
 
+const ExternalDataSourcesDestinationsRetrieveSchema = ExternalDataSourcesDestinationsRetrieveParams.omit({
+    project_id: true,
+})
+
+const externalDataSourcesDestinationsRetrieve = (): ToolBase<
+    typeof ExternalDataSourcesDestinationsRetrieveSchema,
+    Schemas.SourceDestinations
+> => ({
+    name: 'external-data-sources-destinations-retrieve',
+    schema: ExternalDataSourcesDestinationsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDestinationsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SourceDestinations>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/destinations/`,
+        })
+        return result
+    },
+})
+
 const ExternalDataSourcesDestroySchema = ExternalDataSourcesDestroyParams.omit({ project_id: true })
 
 const externalDataSourcesDestroy = (): ToolBase<typeof ExternalDataSourcesDestroySchema, unknown> => ({
@@ -817,8 +901,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-warehouse-source-connect-link': dataWarehouseSourceConnectLink,
     'data-warehouse-source-setup': dataWarehouseSourceSetup,
     'data-warehouse-stored-credentials-list': dataWarehouseStoredCredentialsList,
+    'external-data-destinations-list': externalDataDestinationsList,
+    'external-data-destinations-retrieve': externalDataDestinationsRetrieve,
     'external-data-schemas-cancel': externalDataSchemasCancel,
     'external-data-schemas-delete-data': externalDataSchemasDeleteData,
+    'external-data-schemas-destinations-retrieve': externalDataSchemasDestinationsRetrieve,
     'external-data-schemas-incremental-fields-create': externalDataSchemasIncrementalFieldsCreate,
     'external-data-schemas-list': externalDataSchemasList,
     'external-data-schemas-partial-update': externalDataSchemasPartialUpdate,
@@ -830,6 +917,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-create': externalDataSourcesCreate,
     'external-data-sources-create-webhook-create': externalDataSourcesCreateWebhookCreate,
     'external-data-sources-delete-webhook-create': externalDataSourcesDeleteWebhookCreate,
+    'external-data-sources-destinations-retrieve': externalDataSourcesDestinationsRetrieve,
     'external-data-sources-destroy': externalDataSourcesDestroy,
     'external-data-sources-list': externalDataSourcesList,
     'external-data-sources-partial-update': externalDataSourcesPartialUpdate,

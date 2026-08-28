@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { DestinationList } from 'products/data_warehouse/frontend/shared/components/DestinationList'
+import { DestinationModal } from 'products/data_warehouse/frontend/shared/components/DestinationModal'
+import { destinationModalLogic } from 'products/data_warehouse/frontend/shared/logics/destinationModalLogic'
 
 import { destinationsLogic } from './destinationsLogic'
 
@@ -19,74 +17,57 @@ export function DestinationsTab({ id }: DestinationsTabProps): JSX.Element {
     const logic = destinationsLogic({ sourceId: id })
     const { destinations, destinationsLoading, attachedDestinationIds, savedDestinationIdsLoading, canSave } =
         useValues(logic)
-    const { toggleDestination, save } = useActions(logic)
+    const { toggleDestination, save, loadDestinations, setAttached } = useActions(logic)
 
-    if (destinationsLoading) {
-        return <LemonSkeleton className="w-full h-32" />
+    const modalProps = {
+        modalKey: `source-${id}`,
+        // A destination you just added is one you meant to use, so select it and let the same Save
+        // (and its resync confirmation) apply.
+        onSaved: (destination: { id: string }) => {
+            loadDestinations()
+            if (!attachedDestinationIds.includes(destination.id)) {
+                setAttached([...attachedDestinationIds, destination.id])
+            }
+        },
     }
-
-    if (destinations.length === 0) {
-        return (
-            <LemonBanner type="info">
-                No destinations set up yet. Add one in project settings to sync these tables somewhere alongside the
-                PostHog warehouse.
-            </LemonBanner>
-        )
-    }
+    const { openForCreate, openForEdit } = useActions(destinationModalLogic(modalProps))
 
     return (
         <div className="deprecated-space-y-4">
-            <p>
-                Every table on this source syncs to the destinations selected here. A table with its own destinations
-                set ignores this list.
-            </p>
+            <div className="flex gap-2 items-start justify-between">
+                <p className="max-w-prose">
+                    Every table on this source syncs to the destinations turned on here. A table with its own
+                    destinations ignores this list.
+                </p>
+                <LemonButton
+                    type="secondary"
+                    icon={<IconPlusSmall />}
+                    onClick={openForCreate}
+                    data-attr="warehouse-destination-new"
+                >
+                    New destination
+                </LemonButton>
+            </div>
 
-            <LemonTable
-                dataSource={destinations}
-                rowKey={(destination: ExternalDataDestinationApi) => destination.id}
-                columns={[
-                    {
-                        title: '',
-                        key: 'attached',
-                        width: 0,
-                        render: (_, destination: ExternalDataDestinationApi) => (
-                            <LemonCheckbox
-                                checked={attachedDestinationIds.includes(destination.id)}
-                                onChange={() => toggleDestination(destination.id)}
-                            />
-                        ),
-                    },
-                    {
-                        title: 'Name',
-                        key: 'name',
-                        render: (_, destination: ExternalDataDestinationApi) => destination.name,
-                    },
-                    {
-                        title: 'Type',
-                        key: 'type',
-                        render: (_, destination: ExternalDataDestinationApi) => (
-                            <LemonTag type={destination.is_posthog_warehouse ? 'highlight' : 'default'}>
-                                {destination.type}
-                            </LemonTag>
-                        ),
-                    },
-                ]}
+            <DestinationList
+                destinations={destinations}
+                loading={destinationsLoading}
+                selectedIds={attachedDestinationIds}
+                onToggle={toggleDestination}
+                onEdit={openForEdit}
             />
-
-            {attachedDestinationIds.length === 0 && (
-                <LemonBanner type="warning">
-                    Pick at least one destination. To stop syncing this data, turn off syncing on the tables instead.
-                </LemonBanner>
-            )}
 
             <LemonButton
                 type="primary"
                 onClick={save}
                 loading={savedDestinationIdsLoading}
                 disabledReason={canSave ? undefined : 'No changes to save'}
+                data-attr="warehouse-destinations-save"
             >
                 Save destinations
             </LemonButton>
+
+            <DestinationModal {...modalProps} />
         </div>
     )
 }

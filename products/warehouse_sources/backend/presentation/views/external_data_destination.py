@@ -67,8 +67,9 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             "is_posthog_warehouse",
             "created_at",
             "created_by",
+            "updated_at",
         ]
-        read_only_fields = ["id", "is_posthog_warehouse", "created_at", "created_by"]
+        read_only_fields = ["id", "is_posthog_warehouse", "created_at", "created_by", "updated_at"]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         destination_type = attrs.get("type", getattr(self.instance, "type", None))
@@ -94,7 +95,42 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             expected = " or ".join(f"'{kind}'" for kind in allowed_kinds)
             raise ValidationError({"integration": f"A {destination_type} destination needs a {expected} integration."})
 
+        if self.instance is not None:
+            self._reject_retargeting(attrs)
+
         return attrs
+
+    # Where a destination points is fixed once it exists. Everything already synced sits at the
+    # current server and schema, so repointing one strands that data and needs a full resync of
+    # every table that syncs there. A second destination is the supported way to write elsewhere.
+    RETARGETING_FIELDS = ("database", "schema")
+
+    def _reject_retargeting(self, attrs: dict[str, Any]) -> None:
+        if "integration" in attrs and attrs["integration"] != self.instance.integration:
+            raise ValidationError(
+                {
+                    "integration": (
+                        "A destination keeps the connection it was created with. Add a second "
+                        "destination for the other server."
+                    )
+                }
+            )
+
+        if "config" not in attrs:
+            return
+
+        current = self.instance.config or {}
+        incoming = attrs["config"] or {}
+        for field in self.RETARGETING_FIELDS:
+            if field in incoming and incoming[field] != current.get(field):
+                raise ValidationError(
+                    {
+                        "config": (
+                            f"A destination keeps the {field} it was created with. Add a second "
+                            f"destination for the other {field}."
+                        )
+                    }
+                )
 
     def create(self, validated_data: dict[str, Any]) -> ExternalDataDestination:
         request = self.context["request"]

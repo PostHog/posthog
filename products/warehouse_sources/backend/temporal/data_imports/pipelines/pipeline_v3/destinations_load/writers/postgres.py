@@ -59,31 +59,53 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 # what its previous attempt wrote instead of the whole staging table.
 BATCH_INDEX_COLUMN = "_ph_batch_index"
 
-# Set on a full refresh's staging table as soon as it exists, and carried across the final
-# rename because a Postgres comment follows the table's OID, not its name. `finalize_run`
-# checks for this before it ever drops something named after the destination's live table, so
-# a full refresh can only ever replace a table this writer created. An incremental run marks
-# its live table the same way, the first time it creates one, and checks it before writing to
-# a table that already existed. `table_name` is derived from the source's resource name (see
-# `delivery.py`), which a custom-source manifest controls; without this check, naming a
-# resource after an unrelated table already sitting in the destination schema would be enough
-# to have it dropped, or merged into, on the next sync.
+# Proof this writer created a table, so a sync never drops or merges into one the customer
+# already had. `table_name` comes from the source's resource name, which a custom-source
+# manifest controls, so without it any table sharing that name is fair game.
+#
+# Stored as a Postgres comment because those follow the table's OID, surviving the rename in
+# `finalize_run`. Scoped by schema id because `table_name` collides across sources on purpose
+# and ownership must not.
 _OWNERSHIP_COMMENT = "posthog-warehouse-sync-owned"
 
 
-def _published_comment(run_uuid: str) -> str:
+def _owned_marker(schema_id: str) -> str:
+    """Ownership marker scoped to the schema whose sync created the table."""
+    return f"{_OWNERSHIP_COMMENT}:{schema_id}"
+
+
+def _published_comment(schema_id: str, run_uuid: str) -> str:
     """Ownership marker plus the run that last published, so a replay can recognize itself."""
-    return f"{_OWNERSHIP_COMMENT}:{run_uuid}"
+    return f"{_owned_marker(schema_id)}:{run_uuid}"
 
 
 class UnrelatedTableExistsError(RuntimeError):
     """A sync would have replaced or mutated a table this writer never created."""
 
 
+# Postgres truncates identifiers past this, dropping the end — which is where our suffixes go.
+# A long `table_name` would therefore collapse its staging table, merge stage and index back
+# onto the base name. Truncate the base ourselves so the suffix always survives.
+_MAX_PG_IDENTIFIER_BYTES = 63
+
+
+def _scoped_identifier(base: str, suffix: str) -> str:
+    """Append `suffix` to `base`, truncating `base` first so `suffix` always survives
+    Postgres's own 63-byte identifier truncation."""
+    trimmed = base.encode()[: _MAX_PG_IDENTIFIER_BYTES - len(suffix)].decode(errors="ignore")
+    return f"{trimmed}{suffix}"
+
+
 def staging_table_name(ctx: DestinationRunContext) -> str:
-    # Run-scoped, so two runs of the same table never share a staging table. Postgres caps
-    # identifiers at 63 bytes, hence the truncated run id.
-    return f"{ctx.table_name}__ph_stage_{ctx.run_uuid.replace('-', '')[:12]}"
+    # Run-scoped, so two runs of the same table never share a staging table.
+    return _scoped_identifier(ctx.table_name, f"__ph_stage_{ctx.run_uuid.replace('-', '')[:12]}")
+
+
+def merge_stage_name(target: str, ctx: DestinationRunContext) -> str:
+    # `target` is the live table on an incremental run, so it can already be at the identifier
+    # limit. Reserve room for the suffix or the stage name truncates onto the live table, and
+    # dropping the stage would drop it.
+    return _scoped_identifier(target, f"__ph_merge_{ctx.run_uuid.replace('-', '')[:8]}")
 
 
 def _to_json_text(value: Any, *, from_map: bool) -> str | None:
@@ -267,19 +289,25 @@ class PostgresDestinationWriter:
             first = True
             async for batch in batches:
                 if first:
-                    table_existed = False
-                    if not full_refresh:
-                        # An incremental run writes straight into the live table, so a table
-                        # that predates this sync and merely happens to share `table_name`
-                        # must be refused up front, before its schema is evolved or a row in
-                        # it is touched. A full refresh gets the same guarantee at swap time,
-                        # in `finalize_run`, once the new data is known to be complete.
-                        table_existed = await self._table_exists(client, target)
-                        if table_existed and not await self._is_owned(client, target):
-                            raise UnrelatedTableExistsError(
-                                f'"{self._schema}"."{target}" already exists and was not created by this sync; '
-                                "refusing to merge an incremental run's rows into it."
+                    # An incremental run writes straight into the live table, and a full
+                    # refresh writes into what it treats as *its own* staging table — either
+                    # way, a table that predates this sync and merely happens to share the
+                    # generated name must be refused up front, before its schema is evolved or
+                    # a row in it is touched. Reusing an unowned table as staging would mutate
+                    # or delete unrelated data and, on the final batch, replace its ownership
+                    # marker and swap it in under `finalize_run`'s nose. A full refresh's own
+                    # table gets one further check at swap time, once the new data is known to
+                    # be complete.
+                    table_existed = await self._table_exists(client, target)
+                    if table_existed and not await self._is_owned(client, target, run.schema_id):
+                        raise UnrelatedTableExistsError(
+                            f'"{self._schema}"."{target}" already exists and was not created by this sync; '
+                            + (
+                                "refusing to reuse it as a staging table."
+                                if full_refresh
+                                else "refusing to merge an incremental run's rows into it."
                             )
+                        )
 
                     await self._ensure_table(
                         client,
@@ -295,11 +323,11 @@ class PostgresDestinationWriter:
                         await self._delete_batch_rows(client, target, ctx.batch_index)
                         # Marked on the staging table, not the live one: the comment survives
                         # the rename in `finalize_run`, which is where it gets checked.
-                        await self._mark_owned(client, target)
+                        await self._mark_owned(client, target, run.schema_id)
                     elif not table_existed:
                         # A table this writer just created for an incremental run never gets
                         # renamed, so mark it in place rather than at swap time.
-                        await self._mark_owned(client, target)
+                        await self._mark_owned(client, target, run.schema_id)
                     first = False
 
                 rows_written += await self._write_record_batch(client, target, batch, ctx, full_refresh=full_refresh)
@@ -373,25 +401,36 @@ class PostgresDestinationWriter:
     async def _merge_batch(
         self, client: PostgreSQLClient, target: str, batch: pa.RecordBatch, column_names: list[str]
     ) -> int:
-        """Upsert a batch on the schema's primary keys, through a short-lived stage table."""
+        """Upsert a batch on the schema's primary keys, through a stage table."""
         run = self._ctx
-        stage = f"{target}__ph_merge_{run.run_uuid.replace('-', '')[:8]}"
+        stage = merge_stage_name(target, run)
 
-        async with self._merge_stage(client, target, stage, batch.schema):
-            await self._load_batch(client, stage, batch, column_names)
-            await self._upsert_from_stage(client, target, stage, column_names, list(run.primary_keys))
+        await self._ensure_merge_stage(client, stage, batch.schema)
+        await self._load_batch(client, stage, batch, column_names)
+        await self._upsert_from_stage(client, target, stage, column_names, list(run.primary_keys))
 
         return batch.num_rows
 
-    @asynccontextmanager
-    async def _merge_stage(
-        self, client: PostgreSQLClient, target: str, stage: str, schema: pa.Schema
-    ) -> AsyncIterator[str]:
-        """Hold one batch in a table of its own for the upsert to merge from."""
-        async with client.managed_table(
-            self._schema, stage, self._fields_for(schema, with_batch_index=False), delete=True
-        ) as name:
-            yield name
+    async def _ensure_merge_stage(self, client: PostgreSQLClient, stage: str, schema: pa.Schema) -> None:
+        """Ready the run's stage table to receive one batch.
+
+        Created once per run and emptied between batches rather than created and dropped per
+        batch. A table per batch is not free on someone else's server: each one writes catalog
+        rows that later have to be vacuumed, and vacuuming catalog tables can need locks.
+        `abort_run` and `finalize_run` drop it.
+        """
+        await client.acreate_table(
+            self._schema, stage, self._fields_for(schema, with_batch_index=False), exists_ok=True
+        )
+        # The stage outlives the batch that created it, so a column the source grew mid-run has
+        # to reach it too, or the COPY names a column the stage does not have.
+        await self._evolve_table(client, stage, schema)
+        async with self._write_cursor(client) as cursor:
+            # Not DELETE: the stage is rewritten wholesale every batch, so truncating skips the
+            # dead rows a delete would leave for autovacuum.
+            await cursor.execute(
+                sql.SQL("TRUNCATE TABLE {}.{}").format(sql.Identifier(self._schema), sql.Identifier(stage))
+            )
 
     async def _upsert_from_stage(
         self,
@@ -446,7 +485,11 @@ class PostgresDestinationWriter:
         async with self._write_cursor(client) as cursor:
             await cursor.execute(
                 sql.SQL("CREATE UNIQUE INDEX IF NOT EXISTS {} ON {}.{} ({})").format(
-                    sql.Identifier(f"{target}__ph_pk"),
+                    # Same truncation hazard as the merge stage above: an untruncated suffix
+                    # on a `target` already at the byte limit collapses onto `target`'s own
+                    # truncated name, and `IF NOT EXISTS` then silently skips creating the
+                    # index at all because a relation by that name (the table itself) exists.
+                    sql.Identifier(_scoped_identifier(target, "__ph_pk")),
                     sql.Identifier(self._schema),
                     sql.Identifier(target),
                     sql.SQL(", ").join(sql.Identifier(c) for c in primary_keys),
@@ -471,23 +514,33 @@ class PostgresDestinationWriter:
             wanted = sorted(columns)
             return any(sorted(row[0] or []) == wanted for row in await cursor.fetchall())
 
-    async def _mark_owned(self, client: PostgreSQLClient, table: str) -> None:
+    async def _mark_owned(self, client: PostgreSQLClient, table: str, schema_id: str) -> None:
         async with self._write_cursor(client) as cursor:
             # `COMMENT ON TABLE ... IS <text>` is a utility statement: Postgres's grammar
             # only accepts a string literal there, not a bind parameter, so this can't go
             # through the usual `%s` placeholder (it fails with a syntax error at `$1`).
-            # `_OWNERSHIP_COMMENT` is a fixed constant, never user input, so inlining it as
-            # a literal is safe.
+            # `schema_id` is the schema's immutable id, never user-editable input, so inlining
+            # it as a literal is safe the same way the fixed constant was.
             await cursor.execute(
                 sql.SQL("COMMENT ON TABLE {}.{} IS {}").format(
-                    sql.Identifier(self._schema), sql.Identifier(table), sql.Literal(_OWNERSHIP_COMMENT)
+                    sql.Identifier(self._schema), sql.Identifier(table), sql.Literal(_owned_marker(schema_id))
                 )
             )
 
-    async def _is_owned(self, client: PostgreSQLClient, table: str) -> bool:
-        # `startswith`, not equality: a published table carries the run uuid after the marker.
+    async def _is_owned(self, client: PostgreSQLClient, table: str, schema_id: str) -> bool:
+        # Not a plain `startswith`: schema ids are arbitrary strings, and one could be a
+        # character-prefix of another ("abc" of "abc123"), which would let a table another
+        # schema owns pass as owned here. Split on the marker's own `:` separators instead so
+        # the owning schema id is compared for exact equality; a published table carries the
+        # run uuid as a further segment after it, which this ignores.
         comment = await self._table_comment(client, table)
-        return comment is not None and comment.startswith(_OWNERSHIP_COMMENT)
+        if comment is None:
+            return False
+        marker, sep, rest = comment.partition(":")
+        if marker != _OWNERSHIP_COMMENT or not sep:
+            return False
+        owner = rest.split(":", 1)[0]
+        return owner == schema_id
 
     async def _table_comment(self, client: PostgreSQLClient, table: str) -> str | None:
         async with client.connection.cursor() as cursor:
@@ -510,11 +563,15 @@ class PostgresDestinationWriter:
             return False
         if not await self._table_exists(client, ctx.table_name):
             return False
-        return await self._table_comment(client, ctx.table_name) == _published_comment(ctx.run_uuid)
+        return await self._table_comment(client, ctx.table_name) == _published_comment(ctx.schema_id, ctx.run_uuid)
 
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
         """Publish a full refresh by swapping the staging table into place."""
         if not ctx.is_full_refresh:
+            # An incremental run publishes as it goes, but its merge stage lives for the whole
+            # run, so this is the point where it stops being needed.
+            async with self._client() as client:
+                await client.adelete_table(self._schema, merge_stage_name(ctx.table_name, ctx), not_found_ok=True)
             return
 
         staging = staging_table_name(ctx)
@@ -524,7 +581,9 @@ class PostgresDestinationWriter:
                 # Already swapped by an earlier attempt at this same final batch.
                 return
 
-            if await self._table_exists(client, ctx.table_name) and not await self._is_owned(client, ctx.table_name):
+            if await self._table_exists(client, ctx.table_name) and not await self._is_owned(
+                client, ctx.table_name, ctx.schema_id
+            ):
                 # A table with this name exists and this writer never created it. Refuse
                 # rather than drop it: `table_name` comes from the source's resource name,
                 # which a custom-source manifest controls, and a table that predates this
@@ -562,7 +621,7 @@ class PostgresDestinationWriter:
                     sql.SQL("COMMENT ON TABLE {}.{} IS {}").format(
                         sql.Identifier(self._schema),
                         sql.Identifier(ctx.table_name),
-                        sql.Literal(_published_comment(ctx.run_uuid)),
+                        sql.Literal(_published_comment(ctx.schema_id, ctx.run_uuid)),
                     )
                 )
 
@@ -579,4 +638,9 @@ class PostgresDestinationWriter:
     async def abort_run(self, ctx: DestinationRunContext) -> None:
         """Drop whatever a run that will not finish left staged."""
         async with self._client() as client:
-            await client.adelete_table(self._schema, staging_table_name(ctx), not_found_ok=True)
+            await self._drop_run_scratch(client, ctx)
+
+    async def _drop_run_scratch(self, client: PostgreSQLClient, ctx: DestinationRunContext) -> None:
+        """Drop the scratch tables a run owns, once it can no longer need them."""
+        await client.adelete_table(self._schema, staging_table_name(ctx), not_found_ok=True)
+        await client.adelete_table(self._schema, merge_stage_name(ctx.table_name, ctx), not_found_ok=True)

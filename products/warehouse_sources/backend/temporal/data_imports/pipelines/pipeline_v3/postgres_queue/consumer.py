@@ -253,6 +253,27 @@ class DeltaBatchConsumerAdapter:
                 logger.exception("fail_run_job_status_update_failed", job_id=batch.job_id, run_uuid=batch.run_uuid)
                 capture_exception(e)
 
+        # A run that will not finish leaves scratch tables behind in someone else's database:
+        # a full refresh's staging table, and the run's merge stage. Nothing else drops them,
+        # because the next run stages under its own id.
+        if batch.destination_ids:
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery import (  # noqa: PLC0415
+                abort_destinations,
+            )
+
+            try:
+                await sync_to_async(abort_destinations)(batch.to_export_signal())
+            except Exception as e:
+                # Best effort by design: a leftover table costs the customer storage, not
+                # correctness, and is not worth failing the fail path over.
+                logger.warning(
+                    "fail_run_destination_abort_failed",
+                    job_id=batch.job_id,
+                    run_uuid=batch.run_uuid,
+                    error=str(e),
+                )
+                capture_exception(e)
+
         workflow_run_id = batch.metadata.get("workflow_run_id")
         if workflow_run_id:
             try:
