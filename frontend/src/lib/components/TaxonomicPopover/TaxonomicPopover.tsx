@@ -1,6 +1,6 @@
-import { Placement } from '@floating-ui/react'
+import { Placement, useMergeRefs } from '@floating-ui/react'
 import { useValues } from 'kea'
-import { Ref, forwardRef, useEffect, useId, useState } from 'react'
+import { Ref, forwardRef, useEffect, useId, useRef, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 
@@ -117,6 +117,9 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     const taxonomicFilterLogicKey = `taxonomic-popover-${generatedKey}`
     const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
     const [visible, setVisible] = useState(false)
+    // Keep a handle on the trigger so an outside press that lands on it is ignored (see below).
+    const triggerRef = useRef<HTMLButtonElement>(null)
+    const mergedTriggerRef = useMergeRefs([ref, triggerRef])
 
     const isClearButtonShown = allowClear && !!localValue
 
@@ -126,7 +129,12 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     ) : placeholder || placeholderClass ? (
         <span className={placeholderClass}>{placeholder}</span>
     ) : null
-    buttonPropsFinal.onClick = () => setVisible(!visible)
+    // Open-only, never toggle. The trigger sits outside the overlay, so a toggle read from the
+    // render closure can race the dropdown's own outside-press close on the same click and flash the
+    // menu shut. Opening the picker also mounts the filter, which is heavy — an impatient second
+    // click during that mount used to read stale `visible` and close it. The picker closes on an
+    // outside press or a selection instead.
+    buttonPropsFinal.onClick = () => setVisible(true)
     if (!buttonPropsFinal.type) {
         buttonPropsFinal.type = 'secondary'
     }
@@ -174,7 +182,12 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
             matchWidth={false}
             actionable
             visible={visible}
-            onClickOutside={() => {
+            onClickOutside={(e) => {
+                // A press on the trigger is not an outside press. Without this guard it would close
+                // the menu on the same click the open-only trigger just opened it, flashing it shut.
+                if (e.target instanceof Node && triggerRef.current?.contains(e.target)) {
+                    return
+                }
                 setVisible(false)
             }}
             placement={placement}
@@ -192,10 +205,14 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                         divider: false,
                     }}
                     {...buttonPropsFinal}
-                    ref={ref}
+                    ref={mergedTriggerRef}
                 />
             ) : (
-                <LemonButton {...buttonPropsFinal} {...(sideIcon !== undefined && { sideIcon })} ref={ref} />
+                <LemonButton
+                    {...buttonPropsFinal}
+                    {...(sideIcon !== undefined && { sideIcon })}
+                    ref={mergedTriggerRef}
+                />
             )}
         </LemonDropdown>
     )

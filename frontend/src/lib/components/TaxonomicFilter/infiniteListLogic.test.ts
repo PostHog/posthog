@@ -637,6 +637,44 @@ describe('infiniteListLogic', () => {
             }
         })
 
+        it('bounds the whole loading episode, so a retry mid-episode does not reset the watchdog', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => new Promise(() => {}),
+                },
+            })
+            initKeaTests()
+            jest.useFakeTimers()
+            try {
+                const episodeLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'episodeList',
+                    listGroupType: TaxonomicFilterGroupType.Events,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    showNumericalPropsOnly: false,
+                })
+                episodeLogic.mount()
+                episodeLogic.actions.setSearchQuery('user_signed_up')
+
+                // Past the debounce: the first request is in flight and the episode watchdog is armed.
+                await jest.advanceTimersByTimeAsync(600)
+                expect(episodeLogic.values.showLoadingState).toBe(true)
+
+                // Most of the way to the 30s deadline, then retry. The retry supersedes the hanging
+                // request but must not restart the window.
+                await jest.advanceTimersByTimeAsync(20000)
+                episodeLogic.actions.retryRemoteItems()
+                await jest.advanceTimersByTimeAsync(600)
+                expect(episodeLogic.values.showErrorState).toBe(false)
+
+                // Cross the original deadline. A per-request watchdog would have restarted at the
+                // retry and left the list spinning; the episode watchdog fires instead.
+                await jest.advanceTimersByTimeAsync(10000)
+                expect(episodeLogic.values.showErrorState).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('leaves a search that legitimately found nothing alone once the request timeout elapses', async () => {
             useMocks({
                 get: {

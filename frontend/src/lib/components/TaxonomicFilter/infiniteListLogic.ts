@@ -997,13 +997,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         }
                         throw error
                     } finally {
-                        // Disarm the watchdog now this run has settled. It only bounds a request
-                        // that is still in flight, and left armed it would fire against a finished
-                        // one and turn a legitimately empty result into an error 30s later. A newer
-                        // run owns the shared disposable, so leave that one alone or we abort its
-                        // request instead.
+                        // This run has settled, so end the loading episode: drop its abort controller
+                        // and disarm the watchdog. Left armed the watchdog would fire against a
+                        // finished request and turn a legitimately empty result into an error 30s
+                        // later. A newer run owns both shared disposables, so a superseded run leaves
+                        // them alone — that is what lets the watchdog keep timing the whole episode
+                        // instead of restarting on every retry.
                         if (cache.abortController === runAbortController) {
                             cache.disposables.dispose('abortController')
+                            cache.disposables.dispose('loadingWatchdog')
                             cache.abortController = null
                         }
                     }
@@ -2298,35 +2300,44 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             actions.loadRemoteItems({ offset: values.index, limit: values.limit })
         },
         abortAnyRunningQuery: () => {
-            // Remove any existing abort controller
-            cache.disposables.dispose('abortController')
-
-            // Add new abort controller
+            // Replace the per-request abort controller. Its cleanup aborts the in-flight request,
+            // so adding a fresh one here stops a superseded run from fetching.
             cache.disposables.add(
                 () => {
                     const abortController = new AbortController()
-                    // Store reference in cache for the fetch operation to use
                     cache.abortController = abortController
-                    // Some of these list endpoints have no server-side statement timeout, so a query
-                    // that wedges only fails when the gateway gives up two minutes later. Giving up
-                    // first bounds how long the list can sit in its loading state. The failure is
-                    // recorded here rather than in the loader's catch, because the catch cannot tell
-                    // this abort apart from the one a newer query triggers.
-                    const timeoutId = window.setTimeout(() => {
-                        actions.remoteItemsFetchFailedForQuery(values.searchQuery)
-                        abortController.abort()
-                    }, REMOTE_ITEMS_REQUEST_TIMEOUT_MS)
-                    return () => {
-                        window.clearTimeout(timeoutId)
-                        abortController.abort()
-                    }
+                    return () => abortController.abort()
                 },
                 'abortController',
                 // This disposable bounds one specific request, so pausing it on hide would abort a
-                // live fetch and re-running setup on show would arm a fresh 30s watchdog against a
-                // request that no longer exists, failing the list 30s after the user comes back.
+                // live fetch and re-running setup on show would refetch a request that no longer
+                // exists.
                 { pauseOnPageHidden: false }
             )
+
+            // Arm the watchdog once per loading episode, not once per request. Some list endpoints
+            // have no server-side statement timeout, so a wedged query only fails when the gateway
+            // gives up two minutes later. The watchdog bounds how long the list can sit loading and
+            // surfaces a retryable error. Re-arming it on every retry would reset the 30s window, so
+            // a list the user keeps retrying under 30s would spin forever — only arm when none runs.
+            // A settled success or failure ends the episode and disposes it (see the loader's
+            // finally). The failure is recorded here rather than in the loader's catch, because the
+            // catch cannot tell this abort apart from the one a newer query triggers.
+            if (!cache.disposables.registry.has('loadingWatchdog')) {
+                cache.disposables.add(
+                    () => {
+                        const timeoutId = window.setTimeout(() => {
+                            actions.remoteItemsFetchFailedForQuery(values.searchQuery)
+                            cache.abortController?.abort()
+                        }, REMOTE_ITEMS_REQUEST_TIMEOUT_MS)
+                        return () => window.clearTimeout(timeoutId)
+                    },
+                    'loadingWatchdog',
+                    // Same reason as the abort controller: pausing on hide then re-arming on show
+                    // would move the episode deadline every time the user tabs away.
+                    { pauseOnPageHidden: false }
+                )
+            }
         },
         retryRemoteItems: () => {
             actions.loadRemoteItems({ offset: 0, limit: values.limit })
