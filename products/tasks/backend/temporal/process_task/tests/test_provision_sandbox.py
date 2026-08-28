@@ -318,12 +318,12 @@ def test_build_environment_variables_injects_ai_gateway_pair(_api, _jwt, _git):
     "state, expected_resume_run_id, expected_idle",
     [
         ({}, None, None),
-        ({"handoff_resumed": True}, "run-456", None),
-        ({"handoff_resumed": True, "handoff_resume_idle": True}, "run-456", "1"),
-        ({"resume_from_run_id": "run-000", "handoff_resume_idle": True}, "run-000", None),
+        ({"same_run_resume": True}, "run-456", None),
+        ({"same_run_resume": True, "same_run_resume_idle": True}, "run-456", "1"),
+        ({"resume_from_run_id": "run-000", "same_run_resume_idle": True}, "run-000", None),
     ],
 )
-def test_build_environment_variables_marks_only_an_idle_handoff_as_idle(
+def test_build_environment_variables_marks_only_an_idle_same_run_resume_as_idle(
     _api, _jwt, _git, state, expected_resume_run_id, expected_idle
 ):
     env = _build_environment_variables(_context(state=state), MagicMock(), "", "access-token")

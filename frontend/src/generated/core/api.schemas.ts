@@ -438,6 +438,105 @@ export interface OrganizationInviteDelegateApi {
 }
 
 /**
+ * * `discussions_mentioned` - discussions_mentioned
+ * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+ * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+ * * `materialized_view_sync_failed` - materialized_view_sync_failed
+ * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+ * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+ * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+ * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+ * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+ * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled
+ */
+export type SettingEnumApi = (typeof SettingEnumApi)[keyof typeof SettingEnumApi]
+
+export const SettingEnumApi = {
+    DiscussionsMentioned: 'discussions_mentioned',
+    ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
+    ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
+    MaterializedViewSyncFailed: 'materialized_view_sync_failed',
+    MaterializedViewSyncFailedDaily: 'materialized_view_sync_failed_daily',
+    MaterializedViewSyncFailedImmediate: 'materialized_view_sync_failed_immediate',
+    OrganizationMemberJoinEmailDisabled: 'organization_member_join_email_disabled',
+    PipelineNotificationsDisabled: 'pipeline_notifications_disabled',
+    ProjectWeeklyDigestDisabled: 'project_weekly_digest_disabled',
+    WebAnalyticsWeeklyDigestProjectEnabled: 'web_analytics_weekly_digest_project_enabled',
+} as const
+
+export interface OrganizationNotificationLockApi {
+    /** Notification setting this rule enforces.
+     *
+     * * `discussions_mentioned` - discussions_mentioned
+     * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+     * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+     * * `materialized_view_sync_failed` - materialized_view_sync_failed
+     * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+     * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+     * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+     * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+     * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+     * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled */
+    setting: SettingEnumApi
+    /** What the setting applies to: a project ID or an organization ID. Empty for a setting that is a single switch. */
+    scope_id: string
+    /** The value the organization enforces. */
+    locked_value: boolean
+}
+
+export interface OrganizationNotificationMemberApi {
+    /** Numeric ID of the member, used as the key when saving changes. */
+    user_id: number
+    /** Stable public identifier of the member. */
+    uuid: string
+    /** Member's first name, for display. */
+    first_name: string
+    /** Member's last name, for display. */
+    last_name: string
+    /** Member's email address, which is where these notifications go. */
+    email: string
+    /** Member's organization membership level: 1 for member, 8 for admin, 15 for owner. */
+    organization_membership_level: number
+    /** False when the member's membership level is above yours, which means you cannot change their settings. */
+    editable: boolean
+    /** Rules in force for this member. */
+    locks: OrganizationNotificationLockApi[]
+}
+
+export interface OrganizationNotificationLockChangeApi {
+    /** Member this rule applies to. */
+    user_id: number
+    /** Notification setting to lock or unlock.
+     *
+     * * `discussions_mentioned` - discussions_mentioned
+     * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+     * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+     * * `materialized_view_sync_failed` - materialized_view_sync_failed
+     * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+     * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+     * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+     * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+     * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+     * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled */
+    setting: SettingEnumApi
+    /** Project ID for a setting that breaks down by project, organization ID for the member-join email, empty for a single switch. */
+    scope_id?: string
+    /**
+     * Value to enforce, or null to remove the rule and give the member their own setting back.
+     * @nullable
+     */
+    locked_value: boolean | null
+}
+
+export interface OrganizationNotificationLockBulkUpdateApi {
+    /**
+     * Only the entries you changed. Anything left out keeps whatever it had.
+     * @maxItems 2000
+     */
+    changes: OrganizationNotificationLockChangeApi[]
+}
+
+/**
  * Serializer for organization-scoped OAuth applications (read-only).
  */
 export interface OrganizationOAuthApplicationApi {
@@ -3381,6 +3480,61 @@ export interface PatchedProjectBackwardCompatApi {
     readonly events_retention_enforced?: boolean
 }
 
+/**
+ * * `skip_person_processing` - Skip Person Processing
+ * * `drop_event_from_ingestion` - Drop Event From Ingestion
+ * * `force_overflow_from_ingestion` - Force Overflow From Ingestion
+ * * `redirect_to_dlq` - Redirect To Dlq
+ * * `redirect_to_topic` - Redirect To Topic
+ */
+export type RestrictionTypeEnumApi = (typeof RestrictionTypeEnumApi)[keyof typeof RestrictionTypeEnumApi]
+
+export const RestrictionTypeEnumApi = {
+    SkipPersonProcessing: 'skip_person_processing',
+    DropEventFromIngestion: 'drop_event_from_ingestion',
+    ForceOverflowFromIngestion: 'force_overflow_from_ingestion',
+    RedirectToDlq: 'redirect_to_dlq',
+    RedirectToTopic: 'redirect_to_topic',
+} as const
+
+/**
+ * * `analytics` - Analytics
+ * * `session_recordings` - Session Recordings
+ * * `errortracking` - Errortracking
+ * * `clientwarnings` - Clientwarnings
+ * * `ai` - Ai
+ */
+export type PipelinesEnumApi = (typeof PipelinesEnumApi)[keyof typeof PipelinesEnumApi]
+
+export const PipelinesEnumApi = {
+    Analytics: 'analytics',
+    SessionRecordings: 'session_recordings',
+    Errortracking: 'errortracking',
+    Clientwarnings: 'clientwarnings',
+    Ai: 'ai',
+} as const
+
+export interface EventIngestionRestrictionApi {
+    /** What happens to matching events: dropped, sent to the overflow lane, or ingested without person processing.
+     *
+     * * `skip_person_processing` - Skip Person Processing
+     * * `drop_event_from_ingestion` - Drop Event From Ingestion
+     * * `force_overflow_from_ingestion` - Force Overflow From Ingestion
+     * * `redirect_to_dlq` - Redirect To Dlq
+     * * `redirect_to_topic` - Redirect To Topic */
+    restriction_type: RestrictionTypeEnumApi
+    /** Distinct IDs the restriction applies to. Empty means it is not filtered by distinct ID. */
+    distinct_ids: string[]
+    /** Session IDs the restriction applies to. Empty means it is not filtered by session ID. */
+    session_ids: string[]
+    /** Event names the restriction applies to. Empty means it is not filtered by event name. */
+    event_names: string[]
+    /** Event UUIDs the restriction applies to. Empty means it is not filtered by event UUID. */
+    event_uuids: string[]
+    /** Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR. */
+    pipelines: PipelinesEnumApi[]
+}
+
 export interface SharePasswordApi {
     readonly id: number
     readonly created_at: string
@@ -4198,6 +4352,8 @@ export interface UserApi {
     readonly is_email_verified: boolean | null
     /** Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is. */
     notification_settings?: UserApiNotificationSettings
+    /** Notification settings an organization admin enforces on this user. The matching controls are read-only, and `notification_settings` still holds the user's own choice underneath. Read-only. */
+    readonly notification_locks: readonly OrganizationNotificationLockApi[]
     /**
      * Whether PostHog should anonymize events captured for this user when identified.
      * @nullable
@@ -4307,6 +4463,8 @@ export interface PatchedUserApi {
     readonly is_email_verified?: boolean | null
     /** Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is. */
     notification_settings?: PatchedUserApiNotificationSettings
+    /** Notification settings an organization admin enforces on this user. The matching controls are read-only, and `notification_settings` still holds the user's own choice underneath. Read-only. */
+    readonly notification_locks?: readonly OrganizationNotificationLockApi[]
     /**
      * Whether PostHog should anonymize events captured for this user when identified.
      * @nullable
@@ -4752,6 +4910,18 @@ export interface UserPushTokenUnregisterRequestApi {
     token: string
 }
 
+/**
+ * Request body for POST /api/users/verify_email/. Exactly one of token or code is required.
+ */
+export interface VerifyEmailRequestApi {
+    /** UUID of the user whose email is being verified. */
+    uuid: string
+    /** Verification token from the emailed link. Required unless a code is provided. */
+    token?: string
+    /** The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
+    code?: string
+}
+
 export type CimdVerificationTokensListParams = {
     /**
      * Number of results to return per page.
@@ -4816,6 +4986,13 @@ export type OrganizationsProjectsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
     /**
      * A search term.
      */

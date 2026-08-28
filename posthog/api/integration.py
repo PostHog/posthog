@@ -22,6 +22,7 @@ from rest_framework.exceptions import APIException, PermissionDenied, Validation
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from slack_sdk.errors import SlackApiError
 
 from posthog.api.github_callback import state as github_callback_state
@@ -542,19 +543,32 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         # `create` is a POST with upsert semantics: each kind's helper does an `update_or_create`
         # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
         # existing integration instead of adding a new one. Adding is allowed for any project
-        # member, but overwriting an existing integration is an edit and requires admin. If a
-        # non-admin's request resolves to an integration that already existed, roll the write back
-        # and reject.
+        # member. A Google account's creator can also reconnect it because its credentials are
+        # personal; every other overwrite still requires admin. The transaction rolls back an
+        # unauthorized helper upsert.
         with transaction.atomic():
-            existing_integration_ids = set(
-                Integration.objects.filter(team_id=team_id, kind=kind).values_list("integration_id", flat=True)
-            )
+            existing_integrations = {
+                integration.integration_id: integration
+                for integration in Integration.objects.only("id", "kind", "integration_id", "created_by_id").filter(
+                    team_id=team_id, kind=kind
+                )
+            }
             instance = self._build_integration(validated_data)
-            is_overwrite = instance.integration_id in existing_integration_ids
-            if is_overwrite and not github_callback_state.has_team_management_access(
-                self.context["request"].user, self.context["get_team"]()
-            ):
-                raise PermissionDenied("Editing an existing integration requires project admin access.")
+            existing_integration = existing_integrations.get(instance.integration_id)
+            is_overwrite = existing_integration is not None
+            if existing_integration is not None:
+                has_management_access = github_callback_state.has_team_management_access(
+                    self.context["request"].user, self.context["get_team"]()
+                )
+                creator_can_manage = existing_integration.can_be_managed_by_creator(
+                    getattr(self.context["request"].user, "id", None)
+                )
+                if not has_management_access and not creator_can_manage:
+                    if kind == Integration.IntegrationKind.GOOGLE_CALENDAR:
+                        raise PermissionDenied(
+                            "Only the person who connected this Google account or a project admin can reconnect it."
+                        )
+                    raise PermissionDenied("Editing an existing integration requires project admin access.")
         # GitHub reports from GitHubIntegration.integration_from_installation_id instead, because it
         # is also created outside this serializer (the App installation callback, agentic
         # provisioning). This branch reaches that same helper, so reporting here too would count a
@@ -1088,6 +1102,24 @@ def github_rate_limited_response(exc: GitHubRateLimitError) -> Response:
     return response
 
 
+class IntegrationManagementPermission(TeamMemberStrictManagementPermission):
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        integration_view = cast("IntegrationViewSet", view)
+        if integration_view.action == "destroy":
+            return TeamMemberAccessPermission().has_permission(request, view)
+        return super().has_permission(request, view)
+
+    def has_object_permission(self, request: Request, view: APIView, obj: object) -> bool:
+        integration_view = cast("IntegrationViewSet", view)
+        if integration_view.action != "destroy":
+            return True
+        requesting_level = integration_view.user_permissions.current_team.effective_membership_level
+        has_management_access = requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN
+        return has_management_access or (
+            isinstance(obj, Integration) and obj.can_be_managed_by_creator(getattr(request.user, "id", None))
+        )
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -1125,7 +1157,7 @@ class IntegrationViewSet(
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
     ]
-    permission_classes = [TeamMemberStrictManagementPermission]
+    permission_classes = [IntegrationManagementPermission]
     queryset = defer_repository_cache_fields(Integration.objects.all())
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
@@ -1153,9 +1185,8 @@ class IntegrationViewSet(
             AccessControlPermission(),
             TeamMemberAccessPermission(),
         ]
-        # Adding (connecting) an integration only requires project membership; editing or removing
-        # one still requires admin, enforced by the default TeamMemberStrictManagementPermission.
-        # The GitHub browser callback applies the same create-vs-modify split (see github_callback).
+        # Adding an integration only requires project membership. Every edit and removal uses the
+        # viewset permission class, including the creator exception for Google account removal.
         if self.action in ("create", "github_link_existing", "github_oauth_authorize", "request_access"):
             return base_permissions
         if self.action == "refresh_github_repos":
@@ -1167,7 +1198,7 @@ class IntegrationViewSet(
             return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
-    def perform_destroy(self, instance) -> None:
+    def perform_destroy(self, instance: Integration) -> None:
         flows_using_integration = get_active_hog_flows_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
@@ -1952,8 +1983,8 @@ class IntegrationViewSet(
             raise ValidationError("domain query parameter is required")
 
         # Extract root domain so subdomains (e.g. ph.example.com) resolve correctly
-        root_domain, _ = extract_root_domain_and_host(domain)
-        result = discover_domain_connect(root_domain)
+        domain_parts = extract_root_domain_and_host(domain)
+        result = discover_domain_connect(domain_parts.root_domain)
         return Response(
             {
                 "supported": result is not None,

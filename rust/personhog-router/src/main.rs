@@ -356,6 +356,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     reconcile_interval: config.coordinator_reconcile_interval(),
                     handoff_deadline: config.coordinator_handoff_deadline(),
                     warming_deadline: config.coordinator_warming_deadline(),
+                    // The same server limit the routing table's ack
+                    // batches mirror: one env, one `--max-txn-ops`.
+                    max_txn_ops: config.etcd_max_txn_ops,
                 },
                 Arc::new(StickyBalancedStrategy),
                 k8s_awareness,

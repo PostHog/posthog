@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     _comments_stream,
     _get_headers,
     _iter_block_children,
+    _iter_page_ids,
     _parse_retry_after,
     _request,
     _search_body,
@@ -212,6 +213,37 @@ class TestNotion:
         assert sum(t.num_rows for t in tables) == 1
         assert session.calls[0]["params"]["start_cursor"] == "stale-cursor"
         assert "start_cursor" not in session.calls[1]["params"]
+
+    def test_iter_page_ids_restarts_when_cursor_invalid(self) -> None:
+        # A page-id search cursor can expire mid-enumeration on a large workspace, which Notion
+        # rejects with the same 400 validation_error as the search/users streams. The blocks/comments
+        # fan-out must restart enumeration rather than crashing the whole sync.
+        session = FakeSession(
+            [
+                _list_response([{"id": "p1"}], has_more=True, next_cursor="c1"),
+                self._invalid_cursor_response(),
+                _list_response([{"id": "p1"}], has_more=False, next_cursor=None),
+            ]
+        )
+        logger = mock.MagicMock()
+
+        page_ids = list(_iter_page_ids(cast(requests.Session, session), logger))
+
+        assert page_ids == ["p1", "p1"]
+        assert logger.warning.called
+        # Second request replays the now-stale cursor (rejected); the restart carries no cursor.
+        assert session.calls[1]["json"]["start_cursor"] == "c1"
+        assert "start_cursor" not in session.calls[2]["json"]
+
+    def test_iter_page_ids_propagates_non_cursor_bad_request(self) -> None:
+        # A 400 that is not the invalid-cursor case is a genuine bad request and must still fail the
+        # sync rather than being silently restarted.
+        other_400 = FakeResponse({}, status_code=400)
+        other_400.text = '{"code":"validation_error","message":"something else"}'
+        session = FakeSession([other_400])
+
+        with pytest.raises(NotionBadRequestError):
+            list(_iter_page_ids(cast(requests.Session, session), mock.MagicMock()))
 
     def test_block_children_inject_page_id(self) -> None:
         session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])

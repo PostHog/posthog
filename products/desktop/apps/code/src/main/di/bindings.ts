@@ -39,7 +39,6 @@ import type {
   GIT_DIFF_SOURCE,
   GitDiffSource,
 } from "@posthog/core/git-pr/identifiers";
-import type { HANDOFF_HOST } from "@posthog/core/handoff/identifiers";
 import type { GitHubIntegrationService } from "@posthog/core/integrations/github";
 import type {
   GITHUB_INTEGRATION_SERVICE,
@@ -172,15 +171,6 @@ import type {
   FsCapability,
 } from "@posthog/workspace-server/services/fs/identifiers";
 import type { GitService } from "@posthog/workspace-server/services/git/service";
-import type {
-  HANDOFF_GIT_GATEWAY,
-  HANDOFF_LOG_GATEWAY,
-} from "@posthog/workspace-server/services/handoff/identifiers";
-import type {
-  HandoffGitGateway,
-  HandoffLogGateway,
-} from "@posthog/workspace-server/services/handoff/ports";
-import type { HandoffHostService } from "@posthog/workspace-server/services/handoff/service";
 import type {
   ILogsService,
   LOGS_SERVICE,
@@ -428,11 +418,6 @@ export interface MainBindings {
   [GIT_AGENT_SERVICE]: unknown;
   [GIT_WORKSPACE_LOOKUP]: GitWorkspaceLookup;
   [GIT_PR_STATUS_PROVIDER]: IGitPrStatus;
-
-  // Handoff
-  [HANDOFF_HOST]: HandoffHostService;
-  [HANDOFF_GIT_GATEWAY]: HandoffGitGateway;
-  [HANDOFF_LOG_GATEWAY]: HandoffLogGateway;
 
   // Notification / oauth
   [NOTIFICATION_SERVICE]: NotificationService;

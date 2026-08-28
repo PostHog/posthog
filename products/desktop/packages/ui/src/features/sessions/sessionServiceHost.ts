@@ -23,6 +23,7 @@ import {
   BEDROCK_GATEWAY_VARIANTS,
   BEDROCK_LLM_GATEWAY_FLAG,
   type BedrockGatewayVariant,
+  CODEX_OWN_SUBSCRIPTION_FLAG,
   SPOKEN_NARRATION_FLAG,
 } from "@posthog/shared";
 import {
@@ -151,21 +152,24 @@ function buildSessionServiceDeps(): SessionServiceDeps {
     },
     get settings() {
       const state = useSettingsStore.getState();
+      const featureFlags = resolveService<FeatureFlags>(FEATURE_FLAGS);
+      const codexSubscriptionEnabled =
+        featureFlags.isEnabled(CODEX_OWN_SUBSCRIPTION_FLAG) ||
+        import.meta.env.DEV;
       return {
         ...state,
         customInstructions: getEffectiveCustomInstructions(state),
         spokenNarrationEnabled: shouldEnableSpokenNarration(
           state.spokenNotifications,
-          resolveService<FeatureFlags>(FEATURE_FLAGS).isEnabled(
-            SPOKEN_NARRATION_FLAG,
-          ),
+          featureFlags.isEnabled(SPOKEN_NARRATION_FLAG),
           import.meta.env.DEV,
         ),
         bedrockGatewayVariant: resolveBedrockGatewayVariant(
-          resolveService<FeatureFlags>(FEATURE_FLAGS).getVariant(
-            BEDROCK_LLM_GATEWAY_FLAG,
-          ),
+          featureFlags.getVariant(BEDROCK_LLM_GATEWAY_FLAG),
         ),
+        codexModelAccess: codexSubscriptionEnabled
+          ? state.codexModelAccess
+          : undefined,
       };
     },
     usageLimit: {

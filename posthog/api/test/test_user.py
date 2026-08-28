@@ -25,7 +25,7 @@ from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
-from posthog.api.email_verification import email_verification_token_generator
+from posthog.api.email_verification import email_verification_code_verifier, email_verification_token_generator
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
 from posthog.api.user import UserSerializer
 from posthog.constants import AvailableFeature
@@ -409,6 +409,7 @@ class TestUserAPI(APIBaseTest):
             ("live_refresh_token_only", -1, True, False, True),
             ("expired_access_token_only", -1, False, False, False),
             ("live_access_token_first_party", 1, False, True, False),
+            ("live_refresh_token_only_first_party", -1, True, True, False),
         ]
     )
     def test_requires_credential_review_for_oauth_access(
@@ -2978,22 +2979,28 @@ class TestEmailVerificationAPI(APIBaseTest):
                 },
             )
 
-    def test_can_only_validate_email_token_one_time(self):
+    def test_reused_token_reports_already_verified_without_a_session(self):
         token = email_verification_token_generator.make_token(self.user)
         response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        # A second use (double click, or the link prefetched by an email scanner) reports success
+        # for the already-verified address, but must not hand out a session: the spent token no
+        # longer proves anything.
+        self.client.logout()
         response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_token",
-                "detail": "This verification token is invalid or has expired.",
-                "attr": "token",
-            },
-        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True, "requires_login": True})
+        assert self.client.session.get("_auth_user_id") is None
+
+    def test_already_verified_user_gets_success_even_with_a_bad_token(self):
+        self.user.is_email_verified = True
+        self.user.save()
+
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": "garbage"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True, "requires_login": True})
+        assert self.client.session.get("_auth_user_id") is None
 
     def test_email_verification_logs_in_user(self):
         token = email_verification_token_generator.make_token(self.user)
@@ -3114,6 +3121,227 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["new-address@posthog.com"])
+
+
+@pytest.mark.disable_mock_email_code_verification
+class TestEmailVerificationCodeAPI(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        cache.clear()
+        super().setUp()
+        set_instance_setting("EMAIL_HOST", "localhost")
+        email_verification_code_verifier.invalidate(self.user)
+
+    def _request_code(self) -> str:
+        """Trigger a resend and capture the emailed code at the send boundary."""
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                response = self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        assert response.status_code == status.HTTP_200_OK
+        mock_send.assert_called_once()
+        return mock_send.call_args[0][1]
+
+    def test_code_verifies_email_and_logs_in(self):
+        code = self._request_code()
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        assert self.user.is_email_verified
+        assert self.client.session.get("_auth_user_id") == str(self.user.id)
+
+    def test_code_with_pasted_noise_verifies(self):
+        code = self._request_code()
+        noisy = f"  {code[:3]}-{code[3:]} "
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": noisy})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        assert self.user.is_email_verified
+
+    def test_wrong_code_is_rejected_but_correct_code_still_works_within_budget(self):
+        code = self._request_code()
+        wrong = "000000" if code != "000000" else "000001"
+
+        for _ in range(4):
+            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": wrong})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["code"], "invalid_code")
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_attempt_cap_refuses_checks_but_keeps_the_code_alive(self):
+        code = self._request_code()
+        wrong = "000000" if code != "000000" else "000001"
+
+        for _ in range(5):
+            self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": wrong})
+
+        # A stranger who knows the uuid can exhaust the budget, but must not be able to destroy
+        # the real user's code: once the budget expires, the same code still verifies.
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "too_many_attempts")
+
+        email_verification_code_verifier._clear_attempts_for_test(self.user)
+        cache.clear()
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_resend_does_not_restore_guesses(self):
+        code = self._request_code()
+        wrong = "000000" if code != "000000" else "000001"
+        for _ in range(4):
+            self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": wrong})
+
+        # A public resend must not hand the guesser a fresh budget.
+        new_code = self._request_code()
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": wrong})
+        self.assertEqual(response.json()["code"], "invalid_code")
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": new_code})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "too_many_attempts")
+
+    @parameterized.expand([("letters", "aaaaaa"), ("short", "12345"), ("list", ["1"]), ("object", {"a": 1})])
+    def test_malformed_code_is_rejected_without_spending_an_attempt(self, _name, bad_code):
+        code = self._request_code()
+
+        for _ in range(6):
+            response = self.client.post(
+                "/api/users/verify_email/", {"uuid": str(self.user.uuid), "code": bad_code}, format="json"
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Six junk submissions later, the budget is untouched and the real code still works.
+        cache.clear()
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_guesses_are_capped_per_source_across_target_accounts(self):
+        # Rotating target uuids must not multiply the guess budget: the per-source cap holds.
+        self._request_code()
+        for _ in range(30):
+            self.client.post("/api/users/verify_email/", {"uuid": uuid.uuid4(), "code": "000000"})
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": "000000"})
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_numeric_json_code_is_a_normal_guess(self):
+        # A client that sends the six digits as a JSON number must get a 400, not a 500, and the
+        # coerced string counts as an ordinary attempt.
+        code = self._request_code()
+        if code.startswith("0"):
+            # A JSON number cannot carry a leading zero; the real client sends a string in that case.
+            self.skipTest("code has a leading zero")
+        response = self.client.post(
+            "/api/users/verify_email/", {"uuid": str(self.user.uuid), "code": int(code)}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_expired_code_is_rejected(self):
+        code = self._request_code()
+
+        with freeze_time(timezone.now() + datetime.timedelta(minutes=31)):
+            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_code")
+
+    def test_code_is_single_use(self):
+        code = self._request_code()
+
+        assert (
+            self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code}).status_code
+            == status.HTTP_200_OK
+        )
+
+        # The user is now verified, so a replay reports already-verified instead of consuming anything.
+        self.client.logout()
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True, "requires_login": True})
+        assert self.client.session.get("_auth_user_id") is None
+
+    def test_code_send_failure_falls_back_to_link_email(self):
+        with patch(
+            "posthog.api.email_verification.send_email_verification_code",
+            side_effect=Exception("template missing"),
+        ):
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+                response = self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert len(mail.outbox) == 1
+        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        assert f"https://my.posthog.net/verify_email/{self.user.uuid}/" in html_message
+
+    def test_email_change_code_goes_to_the_pending_address_and_completes_the_swap(self):
+        self.user.is_email_verified = True
+        self.user.pending_email = "new-address@posthog.com"
+        self.user.save()
+
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                response = self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        code = mock_send.call_args[0][1]
+        assert mock_send.call_args[0][2] == "new-address@posthog.com"
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        assert self.user.email == "new-address@posthog.com"
+        assert self.user.pending_email is None
+
+    def test_signup_code_does_not_authorize_an_email_change(self):
+        code = self._request_code()
+        self.user.is_email_verified = True
+        self.user.pending_email = "new-address@posthog.com"
+        self.user.save()
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_code")
+        self.user.refresh_from_db()
+        assert self.user.pending_email == "new-address@posthog.com"
+
+    def test_unverified_user_with_staged_change_verifies_only_the_account_address(self):
+        # A signup code for an unverified user must go to the account address and prove that one,
+        # even if a change to another address is staged: the staged address is itself unproven.
+        self.user.pending_email = "staged@posthog.com"
+        self.user.save()
+
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        assert mock_send.call_args[0][2] is None
+        code = mock_send.call_args[0][1]
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        assert self.user.is_email_verified
+        assert self.user.email != "staged@posthog.com"
+
+    def test_code_dies_when_a_different_pending_address_is_staged(self):
+        self.user.is_email_verified = True
+        self.user.pending_email = "first@posthog.com"
+        self.user.save()
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        code_for_first = mock_send.call_args[0][1]
+
+        self.user.pending_email = "second@posthog.com"
+        self.user.save()
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code_for_first})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_code")
+        self.user.refresh_from_db()
+        assert self.user.email != "first@posthog.com"
+        assert self.user.pending_email == "second@posthog.com"
 
 
 class TestUserTwoFactor(APIBaseTest):

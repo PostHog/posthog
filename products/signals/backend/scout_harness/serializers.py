@@ -23,6 +23,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
@@ -62,6 +63,7 @@ from products.signals.backend.scout_harness.tools.structured_output import (
 from products.signals.backend.serializers import ReportChartSerializer
 from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
+    SPEC_DESCRIPTION_MAX_LENGTH,
     LLMSkillFileInputSerializer,
     validate_skill_body_size,
     validate_skill_name_value,
@@ -2288,6 +2290,17 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "name list. Defaults to `custom` if the skill is not currently present on the team."
         ),
     )
+    owners = serializers.SerializerMethodField(
+        help_text=(
+            "Who answers for this scout, seed-creator first. Ownership is recorded on the scout's "
+            "skill rather than on this config, so editing the skill or toggling the scout leaves it "
+            "unchanged. Reports the scout files suggest these people as reviewers. Prefer this over "
+            "`created_by`-style fields, which only say who last flipped a switch. Empty when nobody "
+            "owns the scout, when the owners are no longer members with access to the project, or "
+            "when the caller is a scout sandbox token: owners are member PII, and a scout reads "
+            "them through the skill API instead."
+        ),
+    )
     enabled = serializers.BooleanField(
         read_only=True,
         help_text=(
@@ -2430,6 +2443,15 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
         return info.origin if info else "custom"
 
+    @extend_schema_field(UserBasicSerializer(many=True))
+    def get_owners(self, obj: SignalScoutConfig) -> list[dict[str, Any]]:
+        # A scout joins to its skill by name, which is also the key `LLMSkillOwner` uses, so the
+        # view resolves the whole fleet's owners in one query and passes the map through context
+        # (see `scout_config_context`). Empty when a caller builds the serializer without it —
+        # owners are then unknown, not absent, and no caller renders them on that path.
+        owners = (self.context.get("owners_by_skill_name") or {}).get(obj.skill_name, [])
+        return list(UserBasicSerializer(owners, many=True).data)
+
     class Meta:
         model = SignalScoutConfig
         fields = [
@@ -2437,6 +2459,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "skill_name",
             "description",
             "scout_origin",
+            "owners",
             "enabled",
             "status",
             "pause_reason",
@@ -2816,7 +2839,7 @@ class SignalScoutCreateSerializer(serializers.Serializer):
         ),
     )
     description = serializers.CharField(
-        max_length=4096,
+        max_length=SPEC_DESCRIPTION_MAX_LENGTH,
         help_text="Short description of the signal or behavior this scout investigates.",
     )
     body = serializers.CharField(
