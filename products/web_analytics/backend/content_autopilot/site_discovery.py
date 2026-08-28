@@ -27,15 +27,21 @@ class SiteDiscoveryResult(TypedDict):
     warnings: list[str]
 
 
-class _TitleParser(HTMLParser):
+class _SiteNameParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
+        self.og_site_name = ""
         self.title = ""
         self._inside_title = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag.lower() == "title":
+        lowered = tag.lower()
+        if lowered == "title":
             self._inside_title = True
+        elif lowered == "meta" and not self.og_site_name:
+            values = {key.lower(): value or "" for key, value in attrs}
+            if values.get("property", "").strip().lower() == "og:site_name":
+                self.og_site_name = values.get("content", "")
 
     def handle_endtag(self, tag: str) -> None:
         if tag.lower() == "title":
@@ -75,9 +81,9 @@ def _origin_key(url: str) -> tuple[str, str, int] | None:
     return scheme, hostname, port if port is not None else _DEFAULT_PORTS[scheme]
 
 
-def _is_same_origin(url: str, origin: str) -> bool:
-    key = _origin_key(url)
-    return key is not None and key == _origin_key(origin)
+def has_same_public_origin(first_url: str, second_url: str) -> bool:
+    key = _origin_key(first_url)
+    return key is not None and key == _origin_key(second_url)
 
 
 def _fetch_text(url: str, *, deadline: float) -> str:
@@ -114,7 +120,7 @@ def _sitemaps_from_robots(robots_text: str, *, origin: str) -> list[str]:
         key, separator, value = line.partition(":")
         if separator and key.strip().lower() == "sitemap":
             candidate = urljoin(f"{origin}/", value.strip())
-            if _is_same_origin(candidate, origin):
+            if has_same_public_origin(candidate, origin):
                 sitemaps.append(candidate)
     return sitemaps
 
@@ -128,7 +134,10 @@ def _is_sitemap(xml_text: str) -> bool:
     return root_name in {"urlset", "sitemapindex"}
 
 
-def _site_name(title: str, hostname: str) -> str:
+def _site_name(og_site_name: str, title: str, hostname: str) -> str:
+    declared_name = re.sub(r"\s+", " ", og_site_name).strip()
+    if declared_name:
+        return declared_name[:255]
     cleaned_title = re.sub(r"\s+", " ", title).strip()
     if cleaned_title:
         return re.split(r"\s+[|–—]\s+", cleaned_title, maxsplit=1)[0][:255]
@@ -140,6 +149,7 @@ def discover_site(raw_url: str) -> SiteDiscoveryResult:
     deadline = time.monotonic() + _MAX_DISCOVERY_SECONDS
     hostname = urlparse(origin).hostname or origin
     candidates: list[str] = []
+    og_site_name = ""
     title = ""
 
     try:
@@ -149,8 +159,9 @@ def discover_site(raw_url: str) -> SiteDiscoveryResult:
         pass
 
     try:
-        parser = _TitleParser()
+        parser = _SiteNameParser()
         parser.feed(_fetch_text(f"{origin}/", deadline=deadline))
+        og_site_name = parser.og_site_name
         title = parser.title
     except PublicUrlFetchError:
         pass
@@ -178,7 +189,7 @@ def discover_site(raw_url: str) -> SiteDiscoveryResult:
     source_urls = detected_sitemaps or [f"{origin}/sitemap.xml"]
     warnings = [] if sitemap_detected else ["We couldn't verify a sitemap. Review the suggested URL before saving."]
     return {
-        "name": _site_name(title, hostname),
+        "name": _site_name(og_site_name, title, hostname),
         "domain": origin,
         "source_urls": source_urls,
         "content_boundaries": ["/"],

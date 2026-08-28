@@ -58,6 +58,28 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
         self.assertTrue(result["sitemap_detected"])
         self.assertEqual(result["warnings"], [])
 
+    @parameterized.expand(
+        [
+            (
+                "prefers_og_site_name",
+                b'<meta property="og:site_name" content="Example"><title>Pricing | Example Docs</title>',
+                "Example",
+            ),
+            ("falls_back_to_the_title", b"<title>Example Docs | Guides</title>", "Example Docs"),
+            ("falls_back_to_the_hostname", b"<html><head></head></html>", "example.com"),
+        ]
+    )
+    @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
+    def test_names_the_site(self, _name: str, homepage: bytes, expected: str, fetch_public_url: MagicMock) -> None:
+        def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
+            if url == "https://example.com/":
+                return _response(body=homepage)
+            return _response(status=404)
+
+        fetch_public_url.side_effect = response_for
+
+        self.assertEqual(discover_site("https://example.com")["name"], expected)
+
     @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
     def test_follows_a_redirect_to_another_host(self, fetch_public_url: MagicMock) -> None:
         def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
