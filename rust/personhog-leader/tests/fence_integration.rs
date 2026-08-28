@@ -16,7 +16,9 @@ use common::{
 use personhog_common::partitioning::partition_for_person;
 use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey};
 use personhog_leader::emitted::EmittedVersions;
-use personhog_leader::fence::{FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY};
+use personhog_leader::fence::{
+    FENCED_CREATOR_METADATA_KEY, FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY,
+};
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::PgFallback;
 use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
@@ -51,6 +53,7 @@ fn fence_request(team_id: i64, person_id: i64, op_id: &Uuid) -> FencePersonReque
         person_id,
         op_id: op_id.to_string(),
         op_type: LifecycleOpType::Delete.into(),
+        creator_event_uuid: String::new(),
     }
 }
 
@@ -310,6 +313,75 @@ async fn fencing_seals_and_blocks_writes_until_an_aborted_release() {
         person.version, 2,
         "fencing and the aborted release left no trace in the version"
     );
+}
+
+#[tokio::test]
+async fn a_fence_with_a_creator_echoes_it_on_rejections() {
+    let mut harness = start_fence_harness(test_cached_person(), None).await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+    let op = Uuid::now_v7();
+    let creator = Uuid::now_v7();
+
+    let mut request = fence_request(team_id, person_id, &op);
+    request.creator_event_uuid = creator.to_string();
+    harness
+        .client
+        .fence_person(with_partition(request, partition))
+        .await
+        .expect("fence succeeds");
+
+    // The refusal names the creator, so the event's own caller can
+    // recognise its fence without reconstructing the op-id derivation.
+    let status = harness
+        .client
+        .update_person_properties(with_partition(
+            update_request(team_id, person_id),
+            partition,
+        ))
+        .await
+        .expect_err("fenced person rejects writes");
+    assert_eq!(
+        status.metadata().get(FENCED_CREATOR_METADATA_KEY).unwrap(),
+        creator.to_string().as_str()
+    );
+
+    // A fence installed without one carries no key at all, which a caller
+    // reads as "fall back to the op id".
+    harness
+        .client
+        .release_fence(with_partition(
+            ReleaseFenceRequest {
+                team_id,
+                person_id,
+                person_uuid: String::new(),
+                op_id: op.to_string(),
+                outcome: ReleaseOutcome::Aborted.into(),
+                sealed_version: None,
+                created_at: 0,
+            },
+            partition,
+        ))
+        .await
+        .expect("aborted release succeeds");
+    harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, person_id, &Uuid::now_v7()),
+            partition,
+        ))
+        .await
+        .expect("creator-less fence succeeds");
+    let status = harness
+        .client
+        .update_person_properties(with_partition(
+            update_request(team_id, person_id),
+            partition,
+        ))
+        .await
+        .expect_err("fenced person rejects writes");
+    assert!(status.metadata().get(FENCED_CREATOR_METADATA_KEY).is_none());
 }
 
 #[tokio::test]
@@ -1147,13 +1219,15 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
     let pool = common::create_persons_pool().await;
     let team_id = unique_team_id();
     let op_id = Uuid::now_v7();
+    let creator = Uuid::now_v7();
 
     sqlx::query(
         "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
-         VALUES ($1, 'merge', $2, 'claimed', '{}'::jsonb)",
+         VALUES ($1, 'merge', $2, 'claimed', jsonb_build_object('creator_event_uuid', $3::text))",
     )
     .bind(op_id)
     .bind(team_id as i32)
+    .bind(creator.to_string())
     .execute(&pool)
     .await
     .expect("insert op");
@@ -1201,6 +1275,11 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
         .get(&key(fenced_a))
         .expect("live mark became a fence");
     assert_eq!(entry.op_id, op_id);
+    assert_eq!(
+        entry.creator_event_uuid,
+        Some(creator),
+        "the rebuilt fence recovers the creator from the frozen request"
+    );
     drop(entry);
     assert!(
         fences.get(&key(fenced_b)).is_none(),
@@ -1226,6 +1305,7 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
         personhog_leader::fence::FenceState {
             op_id: Uuid::now_v7(),
             op_type: personhog_proto::personhog::types::v1::LifecycleOpType::Delete,
+            creator_event_uuid: None,
         },
     );
     let reinstalled = rebuild_partition_fences(&pool, &fences, ghost_partition, NUM_PARTITIONS)

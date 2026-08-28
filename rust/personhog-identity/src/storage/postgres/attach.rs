@@ -23,7 +23,12 @@ use crate::storage::types::AttachOutcome;
 /// tombstones the person, so an attach overlapping it would insert a row
 /// the sweep already missed — a live mapping onto a tombstoned person.
 /// The saga commits its mark before any destructive statement, so an
-/// attach that could land in that window always observes the mark.
+/// attach that could land in that window observes the mark unless its
+/// own statement's snapshot predates the mark's commit and its insert
+/// still commits after the sweep — a single statement stalled across the
+/// whole saga span. That residue converges the same way a lost race
+/// does: the orphaned mapping names a tombstoned person, and the next
+/// resolve treats it as absent.
 pub(super) async fn attach_distinct_ids(
     pool: &PgPool,
     tables: &IdentityTables,

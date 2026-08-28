@@ -4,8 +4,9 @@ use common::{
     create_client, create_compressed_client, create_test_person, raw_grpc_call_with_gzip_accept,
     start_test_leader, start_test_replica, start_test_replica_with_async_gzip,
     start_test_replica_with_async_gzip_disabled, start_test_router_raw,
-    start_test_router_raw_with_leader, start_test_router_raw_with_leader_and_max_recv,
-    start_test_router_raw_with_max_recv, TestLeaderService, TestReplicaService,
+    start_test_router_raw_with_dying_leader, start_test_router_raw_with_leader,
+    start_test_router_raw_with_leader_and_max_recv, start_test_router_raw_with_max_recv,
+    TestLeaderService, TestReplicaService,
 };
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, DeletePersonsRequest, GetGroupsRequest,
@@ -270,6 +271,110 @@ async fn raw_proxy_update_person_properties_routes_to_leader() {
     let result = response.into_inner();
     assert!(result.updated);
     assert_eq!(result.person.unwrap().version, test_person.version + 1);
+}
+
+/// A person-lifecycle fence is the one refusal whose holder the caller can
+/// act on: ingestion recognises its own merge's op id and drives it to
+/// completion, where any other holder means back off. The router classifies
+/// the leader's FAILED_PRECONDITION as a transient bounce and answers with
+/// its own UNAVAILABLE once the retries run out, so unless the fence keys
+/// ride along, the one fact the caller needs is discarded in transit.
+#[tokio::test]
+async fn raw_proxy_exhausted_person_fence_bounce_names_the_holder() {
+    let test_person = create_test_person();
+    let leader_service = TestLeaderService::new()
+        .with_person(test_person.clone())
+        .person_fenced_by("0189f0e0-0000-7000-8000-000000000000");
+    let replica_service = TestReplicaService::new();
+
+    let replica_addr = start_test_replica(replica_service).await;
+    let leader_addr = start_test_leader(leader_service).await;
+    let router_addr =
+        start_test_router_raw_with_leader(replica_addr, leader_addr, NUM_PARTITIONS).await;
+    let mut client = create_client(router_addr).await;
+
+    let status = client
+        .update_person_properties(with_person_key(
+            Request::new(UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"name": "Test User"}))
+                    .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
+            }),
+            1,
+            42,
+        ))
+        .await
+        .expect_err("a permanently fenced person exhausts the bounce budget");
+
+    assert_eq!(status.code(), tonic::Code::Unavailable);
+    assert_eq!(
+        status
+            .metadata()
+            .get("x-person-fenced-op-id")
+            .map(|value| value.to_str().unwrap()),
+        Some("0189f0e0-0000-7000-8000-000000000000"),
+    );
+    assert!(status.metadata().get("x-person-fenced").is_some());
+    assert_eq!(
+        status
+            .metadata()
+            .get("x-person-fenced-creator")
+            .map(|value| value.to_str().unwrap()),
+        Some(common::SIM_FENCE_CREATOR),
+        "the creator travels with the fence keys"
+    );
+}
+
+/// A fence refusal names the operation holding the person, and callers act
+/// on that: recognising somebody else's operation is a settled answer they
+/// ack rather than retry. Those keys must therefore describe the bounce that
+/// actually ended the request. Carrying them forward from an earlier attempt
+/// reports a dead leader as a person held by someone else, and the caller
+/// acks a merge that never happened.
+#[tokio::test]
+async fn raw_proxy_a_dead_leader_after_a_fence_is_not_reported_as_fenced() {
+    let test_person = create_test_person();
+    let leader_service = TestLeaderService::new()
+        .with_person(test_person.clone())
+        .person_fenced_by("0189f0e0-0000-7000-8000-000000000000");
+    let replica_addr = start_test_replica(TestReplicaService::new()).await;
+    let leader_addr = start_test_leader(leader_service).await;
+    let router_addr =
+        start_test_router_raw_with_dying_leader(replica_addr, leader_addr, NUM_PARTITIONS).await;
+    let mut client = create_client(router_addr).await;
+
+    let status = client
+        .update_person_properties(with_person_key(
+            Request::new(UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"name": "Test User"}))
+                    .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
+            }),
+            1,
+            42,
+        ))
+        .await
+        .expect_err("the leader is gone after its first answer");
+
+    assert_eq!(status.code(), tonic::Code::Unavailable);
+    assert!(
+        status.metadata().get("x-person-fenced").is_none(),
+        "a transport failure must not inherit the earlier bounce's fence keys"
+    );
+    assert!(status.metadata().get("x-person-fenced-op-id").is_none());
+    assert!(status.metadata().get("x-person-fenced-creator").is_none());
 }
 
 #[tokio::test]

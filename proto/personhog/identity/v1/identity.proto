@@ -119,40 +119,6 @@ message MergeSource {
   string event_uuid = 2;
 }
 
-// Property operations a caller buffered for a distinct id and has not
-// applied yet. The service resolves each distinct id alongside the merge's
-// own and applies the operations to whatever person it names, before any
-// source is fenced, so they take part in the merge rather than landing on
-// the survivor after it, where a $set would beat a value the merge rules
-// say the target keeps.
-//
-// Deliberately outside the request an op_id is compared on: a retry
-// carrying different pending work is still the same merge. A server that
-// does not understand this field applies nothing and echoes nothing, which
-// leaves the caller holding the operations to send the ordinary way.
-message MergeCarriedOperations {
-  string distinct_id = 1;
-  // JSON-encoded maps, with the same meaning as in
-  // UpdatePersonPropertiesRequest.
-  bytes set_properties = 2;
-  bytes set_once_properties = 3;
-  repeated string unset_properties = 4;
-  // Forwarded to the leader, which checks it against the denylist of
-  // events that must never write person properties.
-  string event_name = 5;
-  // Same meaning as in UpdatePersonPropertiesRequest. Carried because the
-  // caller discards the whole buffered operation once this call reports it
-  // applied, so anything omitted here is lost rather than deferred.
-  optional bool is_identified = 6;
-  optional int64 last_seen_at = 7;
-  // The person the caller buffered these operations for. When set and the
-  // distinct id no longer resolves to this person — repointed by a merge
-  // elsewhere between the caller's fold and this call — the entry is
-  // skipped and not echoed, so the caller keeps the operations and its own
-  // flush path delivers them to the right place.
-  optional int64 expected_person_id = 8;
-}
-
 // MergePersonsRequest merges every source distinct id's person into the
 // target distinct id's person. Sources are ordered and deduped by the
 // caller; order defines property precedence (earlier pairs beat later
@@ -190,12 +156,17 @@ message MergePersonsRequest {
   // establish path); a resolved survivor's created_at is the min of the
   // target's and the sealed sources' own values, never this field.
   int64 created_at = 9;
-  // Buffered operations to apply before the merge. Max one entry per
-  // distinct id, and far fewer entries than sources are allowed, because
-  // each is a leader write issued before the durable op row exists. A
-  // retry that attaches to a recorded op applies nothing, so a caller that
-  // gets no echo still holds them.
-  repeated MergeCarriedOperations carried_operations = 10;
+  // The uuid of the event that asked for this merge, recorded as
+  // $creator_event_uuid on a person the establish path births. Applied only
+  // on that branch, matching the Postgres backend, which stamps it at
+  // creation and never afterwards. Empty leaves the property unset.
+  //
+  // Also frozen into the saga's op row and carried onto every fence the
+  // seal step installs, where it is echoed on fenced-write rejections as
+  // `x-person-fenced-creator`; the ingestion store classifies fences by
+  // it. Send the executing event's uuid, stable across retries — a
+  // per-delivery value would mis-aim that classification.
+  string creator_event_uuid = 10;
 }
 
 // Add new values to every client before any server emits them: an old
@@ -225,6 +196,13 @@ enum MergeSourceOutcome {
   MERGE_SOURCE_OUTCOME_SKIPPED_MOVE_LIMIT = 7;
   // The pair could not be handled; details in server logs.
   MERGE_SOURCE_OUTCOME_ERROR = 8;
+  // The saga was definitively refused before destroying anything — a
+  // missing lifecycle database, a dead target mark — and aborted. The
+  // verdict is recorded and every retry replays it, so the caller settles
+  // the pair as lost; unlike SKIPPED_CONFLICT, retrying under a fresh op
+  // id meets the same refusal. Distinct from ERROR, which is a completed
+  // operation whose source ended in an indeterminate state.
+  MERGE_SOURCE_OUTCOME_SKIPPED_REFUSED = 9;
 }
 
 message MergeSourceResult {
@@ -250,16 +228,14 @@ message MergePersonsResponse {
   optional personhog.types.v1.Person survivor = 2;
   // One result per requested source, same order as the request.
   repeated MergeSourceResult results = 3;
-  // The carried distinct ids whose operations this call applied. Empty on
-  // a server that does not read carried_operations, and on a retry that
-  // attached to a recorded op. A caller may only discard what this names.
-  //
-  // Not a once-only guarantee: a merge whose sources all settle inline
-  // records no op, so a retry of one re-classifies and applies again. The
-  // operations are value-idempotent, so the repeat is harmless, but a
-  // caller must not read a non-empty answer as proof of a single
-  // application.
-  repeated string carried_applied = 4;
+  // True when this call created the survivor rather than resolving or
+  // attaching to a person that already existed. Answered only where the
+  // merge settled without a saga; a saga run reports false whether or not
+  // it created one. A newborn carries the event's properties, but is
+  // identified only when some source settled as attached or as the same
+  // person, so a caller deciding whether to skip its follow-up update has
+  // to weigh both.
+  bool survivor_was_born = 4;
 }
 
 // PersonHogIdentity owns the identity graph: distinct id resolution,

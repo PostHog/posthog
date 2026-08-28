@@ -5,10 +5,8 @@
 //! machinery only through [`MergeOpExecutor`], handing over a frozen
 //! request and receiving a terminal op row.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
-
-use futures::stream::{self, StreamExt};
 
 use chrono::{DateTime, Utc};
 use personhog_common::properties::sanitize_for_jsonb;
@@ -26,6 +24,7 @@ use crate::lifecycle::merge::{
     record_outcome_count, MergeOpExecutor, MergeOutcome, MergeRequest, MergeSourceEntry,
     MergeSourceRecord, OP_TYPE_MERGE, OUTCOME_ERROR, OUTCOME_MERGED, OUTCOME_NOOP_SAME_PERSON,
     OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT, OUTCOME_SKIPPED_MOVE_LIMIT,
+    OUTCOME_SKIPPED_REFUSED,
 };
 use crate::lifecycle::validation::{
     is_distinct_id_illegal, is_distinct_id_oversized, validate_merge_persons,
@@ -40,14 +39,6 @@ const MERGE_SOURCES_PER_CALL: &str = "personhog_identity_merge_sources_per_call"
 const PAYLOAD_NUL_SANITIZED_TOTAL: &str = "personhog_identity_merge_payload_nul_sanitized_total";
 const PAYLOAD_NUMBERS_CLAMPED_TOTAL: &str =
     "personhog_identity_merge_payload_numbers_clamped_total";
-const CARRIED_WRITES: &str = "personhog_identity_merge_carried_writes_total";
-
-/// Carried writes to distinct persons commute, so their groups run
-/// concurrently; the bound is on leader connections, not correctness.
-/// Entries that resolved to one person are a different matter — see
-/// apply_carried_operations, which serializes them.
-const CARRIED_WRITE_CONCURRENCY: usize = 8;
-
 /// The full MergePersons flow, owned by the identity side of the crate.
 pub struct MergeEntrance {
     storage: Arc<dyn IdentityStorage>,
@@ -119,9 +110,11 @@ impl MergeEntrance {
             let frozen = row.request.clone();
             let row = self.ops.execute(op_id, row.team_id, &frozen).await?;
             let delivered = self.deliver_aborted_writes(&request, &row).await?;
-            // A replay reproduces a recorded outcome without re-applying
-            // anything, carried operations included, so it names none.
-            return merge_response(&row, delivered, Vec::new());
+            // Drives the recorded op with its own frozen request, so a
+            // terminal row is reproduced rather than reclassified and a
+            // non-terminal one is resumed. The event's own properties are
+            // applied only where the op aborted; see deliver_aborted_writes.
+            return merge_response(&row, delivered);
         }
 
         // Classify: resolve everything once on the primary, settle what
@@ -129,14 +122,10 @@ impl MergeEntrance {
         // destructive shape). The saga re-resolves
         // authoritatively at claim time; this pass only decides shape.
         //
-        // Illegal and oversized sources settle here, before resolution,
-        // and stay out of the resolve batch: their verdict does not
-        // depend on the world (nothing downstream reads their
-        // resolutions — see establish_target's own illegal filter), and
-        // resolving them would let a caller pump arbitrarily large ids
-        // through the primary for free. Carried ids never need this;
-        // validation rejects illegal and oversized carried entries
-        // outright.
+        // Illegal and oversized sources settle here, before resolution, and
+        // stay out of the resolve batch: their verdict does not depend on the
+        // world, and resolving them would let a caller pump arbitrarily large
+        // ids through the primary for free.
         let mut inline_results: HashMap<String, String> = HashMap::new();
         let mut keys: Vec<(i64, String)> =
             vec![(request.team_id, request.target_distinct_id.clone())];
@@ -148,17 +137,6 @@ impl MergeEntrance {
                 keys.push((request.team_id, did.clone()));
             }
         }
-        // Carried distinct ids resolve here rather than in a call of their
-        // own, so the person an operation lands on is the person this call
-        // classified against.
-        let named: HashSet<&str> = keys.iter().map(|(_, did)| did.as_str()).collect();
-        let extra: Vec<(i64, String)> = request
-            .carried_operations
-            .iter()
-            .filter(|entry| !named.contains(entry.distinct_id.as_str()))
-            .map(|entry| (request.team_id, entry.distinct_id.clone()))
-            .collect();
-        keys.extend(extra);
         let resolved = self
             .storage
             .resolve_distinct_ids(&keys)
@@ -166,16 +144,10 @@ impl MergeEntrance {
             .map_err(|e| Status::internal(format!("resolution failed: {e}")))?;
 
         let target_key = (request.team_id, request.target_distinct_id.clone());
-        let target_person = match resolved.get(&target_key) {
-            Some(target) => target.clone(),
+        let (target_person, target_was_born) = match resolved.get(&target_key) {
+            Some(target) => (target.clone(), false),
             None => self.establish_target(&request, &resolved).await?,
         };
-
-        // Before classification reaches the saga, so no source is fenced
-        // yet and every write is still accepted.
-        let carried_applied = self
-            .apply_carried_operations(&request, &resolved, &target_person)
-            .await;
 
         let mut attach: Vec<String> = Vec::new();
         let mut saga_sources: Vec<MergeSourceEntry> = Vec::new();
@@ -251,7 +223,7 @@ impl MergeEntrance {
                 .values()
                 .any(|o| o == OUTCOME_ATTACHED || o == OUTCOME_NOOP_SAME_PERSON);
             let pushed = self
-                .push_event_properties(&request, &target_person, flip_identified)
+                .push_event_properties(&request, &target_person, flip_identified, target_was_born)
                 .await?;
             let results = request
                 .sources
@@ -274,7 +246,7 @@ impl MergeEntrance {
                 op_id: op_id.to_string(),
                 survivor: Some(pushed.unwrap_or_else(|| target_person.into())),
                 results,
-                carried_applied,
+                survivor_was_born: target_was_born,
             });
         }
 
@@ -288,6 +260,7 @@ impl MergeEntrance {
             event_set_once,
             allow_identified_sources: request.allow_identified_sources,
             move_limit,
+            creator_event_uuid: request.creator_event_uuid.clone(),
         };
         let mut frozen = serde_json::to_value(&merge_request)
             .map_err(|e| Status::internal(format!("failed to freeze request: {e}")))?;
@@ -297,136 +270,7 @@ impl MergeEntrance {
 
         let row = self.ops.execute(op_id, request.team_id, &frozen).await?;
         let delivered = self.deliver_aborted_writes(&request, &row).await?;
-        merge_response(&row, delivered, carried_applied)
-    }
-
-    /// Apply the caller's buffered operations to the persons their distinct
-    /// ids resolve to, and answer which ones landed.
-    ///
-    /// A failure here does not fail the merge. The echo is the whole
-    /// contract: a caller keeps everything this does not name and sends it
-    /// the ordinary way, where the merge's own precedence rules still
-    /// govern the result. Failing the call instead would turn a property
-    /// write's bad day into a merge that never happens.
-    async fn apply_carried_operations(
-        &self,
-        request: &MergePersonsRequest,
-        resolved: &HashMap<(i64, String), Person>,
-        target: &Person,
-    ) -> Vec<String> {
-        let updates: Vec<(String, UpdatePersonPropertiesRequest)> = request
-            .carried_operations
-            .iter()
-            .filter_map(|entry| {
-                // The target may have been established a moment ago, so it
-                // is the one distinct id the resolution map can miss.
-                let person_id = if entry.distinct_id == request.target_distinct_id {
-                    Some(target.id)
-                } else {
-                    resolved
-                        .get(&(request.team_id, entry.distinct_id.clone()))
-                        .map(|person| person.id)
-                }?;
-                // The caller buffered these ops for a specific person; the
-                // distinct id may have been repointed by another pod since.
-                // Applying to whoever owns the id now would misdirect the
-                // write and the echo would make the caller discard it, so a
-                // mismatch skips: unechoed, the caller keeps the ops and its
-                // own flush path delivers them with the person-not-found
-                // handling that path already has.
-                if let Some(expected) = entry.expected_person_id {
-                    if expected != person_id {
-                        // The only signal this path emits: the skip is
-                        // deliberately unechoed, so without the counter a
-                        // cross-pod repoint would be invisible.
-                        common_metrics::inc(
-                            CARRIED_WRITES,
-                            &[("outcome".to_string(), "skipped_person_moved".to_string())],
-                            1,
-                        );
-                        return None;
-                    }
-                }
-                Some((
-                    entry.distinct_id.clone(),
-                    UpdatePersonPropertiesRequest {
-                        team_id: request.team_id,
-                        person_id,
-                        event_name: entry.event_name.clone(),
-                        set_properties: entry.set_properties.clone(),
-                        set_once_properties: entry.set_once_properties.clone(),
-                        unset_properties: entry.unset_properties.clone(),
-                        is_identified: entry.is_identified,
-                        last_seen_at: entry.last_seen_at,
-                    },
-                ))
-            })
-            .collect();
-        // Group by resolved person, keeping request order within a group.
-        // Distinct ids are unique (validation rejects duplicates), but two
-        // of them can resolve to one person — a caller without
-        // expected_person_id, or one whose lanes are not person-keyed —
-        // and $set, $set_once, and $unset are order-sensitive, so writes
-        // to one person must land sequentially in request order. Groups
-        // for distinct persons commute and run concurrently.
-        let mut groups: Vec<(i64, Vec<(String, UpdatePersonPropertiesRequest)>)> = Vec::new();
-        for (did, update) in updates {
-            match groups
-                .iter_mut()
-                .find(|(person_id, _)| *person_id == update.person_id)
-            {
-                Some((_, group)) => group.push((did, update)),
-                None => groups.push((update.person_id, vec![(did, update)])),
-            }
-        }
-        let results: Vec<_> = stream::iter(groups.into_iter().map(|(_, entries)| {
-            let writer = Arc::clone(&self.property_writer);
-            async move {
-                let mut settled = Vec::with_capacity(entries.len());
-                for (did, update) in entries {
-                    let result = writer.update_person_properties(update).await;
-                    settled.push((did, result));
-                }
-                settled
-            }
-        }))
-        .buffer_unordered(CARRIED_WRITE_CONCURRENCY)
-        .collect()
-        .await;
-
-        let mut applied = Vec::new();
-        for (distinct_id, result) in results.into_iter().flatten() {
-            match result {
-                Ok(_) => {
-                    common_metrics::inc(
-                        CARRIED_WRITES,
-                        &[("outcome".to_string(), "applied".to_string())],
-                        1,
-                    );
-                    applied.push(distinct_id)
-                }
-                Err(status) => {
-                    // Labelled by code so an expected fence bounce is
-                    // separable from a leader in trouble; this counter is
-                    // the only signal, since the failure is swallowed.
-                    common_metrics::inc(
-                        CARRIED_WRITES,
-                        &[
-                            ("outcome".to_string(), "failed".to_string()),
-                            ("code".to_string(), status.code().to_string()),
-                        ],
-                        1,
-                    );
-                    tracing::warn!(
-                        team_id = request.team_id,
-                        distinct_id = %distinct_id,
-                        error = %status,
-                        "carried operations not applied; the caller still holds them"
-                    );
-                }
-            }
-        }
-        applied
+        merge_response(&row, delivered)
     }
 
     /// An aborted saga never folds, so the merge event's writes (its
@@ -468,13 +312,16 @@ impl MergeEntrance {
         // A saga only exists for legal resolved pairs, and ingestion marks
         // the target identified for any legal pair regardless of the merge
         // outcome, so the flip always accompanies the delivery.
-        let pushed = self.push_event_properties(request, &survivor, true).await?;
+        let pushed = self
+            .push_event_properties(request, &survivor, true, false)
+            .await?;
         Ok(Some(pushed.unwrap_or_else(|| survivor.into())))
     }
 
     /// Apply the merge event's $set/$set_once and the identified flip to
-    /// the survivor when no saga runs (the fold carries both when one
-    /// does). The ack means the changes are durable in the changelog.
+    /// the survivor. Called from the inline settlement, and again from
+    /// `deliver_aborted_writes` when a saga ran and aborted; a saga that
+    /// completes carries both through the fold instead. The ack means the changes are durable in the changelog.
     /// Skipped entirely when there is nothing to change — a repeat
     /// identify of an already-identified survivor with no new properties
     /// costs no leader round trip.
@@ -483,18 +330,36 @@ impl MergeEntrance {
         request: &MergePersonsRequest,
         survivor: &Person,
         flip_identified: bool,
+        was_born: bool,
     ) -> Result<Option<ProtoPerson>, Status> {
         let flip = flip_identified && !survivor.is_identified;
-        if request.event_set.is_empty() && request.event_set_once.is_empty() && !flip {
+        // A person the establish path just birthed records the event that
+        // created it, which is what the Postgres backend writes at creation.
+        // Only here: that backend stamps it once and never afterwards, so a
+        // survivor that already existed must not gain one. It travels in
+        // $set rather than on the stub row because a stub is written
+        // straight to Postgres and never reaches the leader's changelog,
+        // which is the same reason the stub is born unidentified.
+        let stamp_creator = was_born && !request.creator_event_uuid.is_empty();
+        if request.event_set.is_empty()
+            && request.event_set_once.is_empty()
+            && !flip
+            && !stamp_creator
+        {
             return Ok(None);
         }
+        let set = if stamp_creator {
+            with_creator_event_uuid(&request.event_set, &request.creator_event_uuid)?
+        } else {
+            request.event_set.clone()
+        };
         let response = self
             .property_writer
             .update_person_properties(UpdatePersonPropertiesRequest {
                 team_id: request.team_id,
                 person_id: survivor.id,
                 event_name: "$identify".to_string(),
-                set_properties: request.event_set.clone(),
+                set_properties: set,
                 set_once_properties: request.event_set_once.clone(),
                 unset_properties: Vec::new(),
                 is_identified: flip.then_some(true),
@@ -518,7 +383,7 @@ impl MergeEntrance {
         &self,
         request: &MergePersonsRequest,
         resolved: &HashMap<(i64, String), Person>,
-    ) -> Result<Person, Status> {
+    ) -> Result<(Person, bool), Status> {
         let target_did = &request.target_distinct_id;
 
         // Eligibility applies the identified-source policy here, not just
@@ -545,11 +410,11 @@ impl MergeEntrance {
                 .await
                 .map_err(|e| Status::internal(format!("target attach failed: {e}")))?;
             return match attached.get(target_did) {
-                Some(AttachOutcome::Attached { .. }) => Ok(survivor.clone()),
+                Some(AttachOutcome::Attached { .. }) => Ok((survivor.clone(), false)),
                 // The target distinct id got mapped concurrently; that
                 // mapping wins and its person is the survivor.
                 Some(AttachOutcome::AlreadyMapped { .. }) => {
-                    self.resolve_target_after_race(request).await
+                    Ok((self.resolve_target_after_race(request).await?, false))
                 }
                 // The survivor row vanished under the attach (a racing
                 // lifecycle op committed). Nothing durable happened for
@@ -587,8 +452,12 @@ impl MergeEntrance {
             .await
             .map_err(|e| Status::internal(format!("target creation failed: {e}")))?;
         match outcomes.into_iter().next() {
-            Some(StubOutcome::Committed { person, .. }) => Ok(person),
-            Some(StubOutcome::LostRace) | None => self.resolve_target_after_race(request).await,
+            Some(StubOutcome::Committed { person, .. }) => Ok((person, true)),
+            // Losing the race means the winner's person survives, and it
+            // carries whatever creator its own establishment recorded.
+            Some(StubOutcome::LostRace) | None => {
+                Ok((self.resolve_target_after_race(request).await?, false))
+            }
         }
     }
 
@@ -610,6 +479,26 @@ impl MergeEntrance {
             Status::unavailable("target resolution raced a concurrent operation; retry")
         })
     }
+}
+
+/// The event's `$set` map with `$creator_event_uuid` added, for a person
+/// the establish path just birthed. Rides `$set` and overwrites, because
+/// the Postgres backend spreads the key last over both of the event's maps
+/// at creation: the property names the event that created the person, so
+/// an event carrying its own value for that key does not get to decide it.
+// See `MergeEntrance::handle` for why result_large_err is allowed.
+#[allow(clippy::result_large_err)]
+fn with_creator_event_uuid(set: &[u8], creator_event_uuid: &str) -> Result<Vec<u8>, Status> {
+    let mut value = parse_json_map(set, "event_set")?;
+    let map = value
+        .as_object_mut()
+        .expect("parse_json_map returns an object");
+    map.insert(
+        "$creator_event_uuid".to_string(),
+        Value::String(creator_event_uuid.to_string()),
+    );
+    serde_json::to_vec(&value)
+        .map_err(|e| Status::internal(format!("failed to serialize event_set: {e}")))
 }
 
 /// Decode a JSON-map wire field (empty bytes mean an empty map).
@@ -659,20 +548,22 @@ fn merge_original(
 
 /// Fields that describe how a merge runs rather than which merge it is.
 ///
-/// `created_at` comes from the event's timestamp, which ingestion derives
-/// from the wall clock when the event carries none, so two deliveries of one
-/// event legitimately disagree on it. Holding a retry to it would answer
-/// FAILED_PRECONDITION for a merge that already ran, and that error is not
-/// retryable. `move_limit` is deliberately NOT stripped: the client folds it
-/// into the op id, so calls with different limits are different ops, and a
-/// same-id call with a different recorded limit is a genuine mismatch.
-const MERGE_PARAMETERS: [&str; 1] = ["created_at"];
+/// All three drift between two deliveries of one event, so refusing on them
+/// would turn an ordinary redelivery into a permanent FAILED_PRECONDITION.
+/// `created_at` comes from the event timestamp, which ingestion derives from
+/// the wall clock when the event carries none, and the two property fields
+/// carry values later pipeline stages refresh.
+///
+/// Excluded from the comparison, not ignored: a replay of an aborted op
+/// still delivers the event's properties, taking the incoming ones so the
+/// latest delivery wins.
+///
+/// `move_limit` is deliberately not stripped, since the client folds it into
+/// the op id, so a same-id call with a different limit is a real mismatch.
+const MERGE_PARAMETERS: [&str; 3] = ["created_at", "event_set", "event_set_once"];
 
 /// Whether a retry is describing the merge the recorded op performed.
-///
-/// Compared on identity only. The full original is still what gets stored,
-/// so a pod running the previous release keeps comparing it the way it
-/// always did and a roll needs no coordination.
+/// Compared on identity only; see MERGE_PARAMETERS for what that excludes.
 fn same_merge(recorded: Option<&Value>, incoming: &Value) -> bool {
     let strip = |value: &Value| {
         let mut copy = value.clone();
@@ -698,6 +589,7 @@ fn outcome_enum(outcome: &str) -> MergeSourceOutcome {
         OUTCOME_SKIPPED_ALREADY_IDENTIFIED => MergeSourceOutcome::SkippedAlreadyIdentified,
         OUTCOME_SKIPPED_CONFLICT => MergeSourceOutcome::SkippedConflict,
         OUTCOME_SKIPPED_MOVE_LIMIT => MergeSourceOutcome::SkippedMoveLimit,
+        OUTCOME_SKIPPED_REFUSED => MergeSourceOutcome::SkippedRefused,
         OUTCOME_ERROR => MergeSourceOutcome::Error,
         _ => MergeSourceOutcome::Unspecified,
     }
@@ -713,6 +605,10 @@ fn survivor_to_proto(survivor: &Value, team_id: i64) -> ProtoPerson {
         team_id,
         properties: serde_json::to_vec(&survivor["properties"]).unwrap_or_default(),
         created_at: survivor["created_at"].as_i64().unwrap_or_default(),
+        // Absent in records written before the saga began carrying it, and
+        // absent from a fold whose people all had none, which the wire and
+        // the store both read as unset.
+        last_seen_at: survivor["last_seen_at"].as_i64(),
         version: survivor["version"].as_i64().unwrap_or_default(),
         is_identified: survivor["is_identified"].as_bool().unwrap_or(true),
         ..Default::default()
@@ -729,7 +625,6 @@ fn survivor_to_proto(survivor: &Value, team_id: i64) -> ProtoPerson {
 fn merge_response(
     row: &OpRow,
     delivered: Option<ProtoPerson>,
-    carried_applied: Vec<String>,
 ) -> Result<MergePersonsResponse, Status> {
     let Some(outcome) = &row.outcome else {
         return Err(Status::internal(format!(
@@ -808,6 +703,17 @@ fn merge_response(
             .map(|s| survivor_to_proto(s, row.team_id))
             .or(delivered),
         results,
-        carried_applied,
+        // Not always true: establish_target skips ineligible sources when it
+        // picks a survivor, while the classification loop routes any source
+        // that resolved elsewhere to the saga, so an unresolved target with
+        // an already-identified source both births and runs a saga. The op
+        // row does not record which, and a resume has only the row, so the
+        // answer is the safe one — the caller runs its follow-up update.
+        // Costs that newborn its $creator_event_uuid, which only the inline
+        // path stamps. With one source there is no Postgres person to
+        // compare it against, since that backend attaches the unresolved id
+        // to the identified person rather than creating anyone; with several
+        // it routes through its fold and the comparison is untested.
+        survivor_was_born: false,
     })
 }

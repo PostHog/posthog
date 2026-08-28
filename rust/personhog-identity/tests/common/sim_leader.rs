@@ -52,6 +52,7 @@ pub enum Rpc {
 pub struct Fence {
     pub op_id: Uuid,
     pub op_type: LifecycleOpType,
+    pub creator_event_uuid: Option<Uuid>,
 }
 
 /// A death document produced by a committed release.
@@ -96,6 +97,7 @@ pub enum LeaderCall {
 /// with personhog-leader/src/fence.rs.
 pub const FENCED_METADATA_KEY: &str = "x-person-fenced";
 pub const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
+pub const FENCED_CREATOR_METADATA_KEY: &str = "x-person-fenced-creator";
 
 fn fenced_status(fence: &Fence) -> Status {
     let what = match fence.op_type {
@@ -114,6 +116,13 @@ fn fenced_status(fence: &Fence) -> Status {
         status
             .metadata_mut()
             .insert(FENCED_OP_ID_METADATA_KEY, value);
+    }
+    if let Some(creator) = fence.creator_event_uuid {
+        if let Ok(value) = creator.to_string().parse() {
+            status
+                .metadata_mut()
+                .insert(FENCED_CREATOR_METADATA_KEY, value);
+        }
     }
     status
 }
@@ -322,11 +331,13 @@ impl LifecycleLeader for SimLeader {
         {
             person.is_identified = *identified;
         }
+        let creator_event_uuid = Uuid::parse_str(&request.creator_event_uuid).ok();
         self.fences.lock().unwrap().insert(
             request.person_id,
             Fence {
                 op_id,
                 op_type: request.op_type(),
+                creator_event_uuid,
             },
         );
         self.record(LeaderCall::Fence {

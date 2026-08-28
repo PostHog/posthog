@@ -352,6 +352,15 @@ impl PersonHogLeaderService {
         key: &PersonCacheKey,
     ) -> Result<Arc<CachedPerson>, Status> {
         let Some(fallback) = &self.fallback else {
+            // With no fallback pool a cache miss is answered as absence,
+            // which conflates "cannot see Postgres" with "destroyed":
+            // ingestion treats NotFound as an authoritative death signal
+            // and holds a 25-hour destroyed mark on it. A pool-less
+            // deployment is therefore only safe where the cache is the
+            // whole world; production always configures the pool, and the
+            // ingestion death-stamp counter's site label is what
+            // attributes a poisoning if this ever answers for a live
+            // person.
             return Err(Status::not_found(format!(
                 "person not found: team_id={}, person_id={}",
                 key.team_id, key.person_id
@@ -1519,6 +1528,12 @@ impl PersonHogLeader for PersonHogLeaderService {
         // is an identify; last_seen_at max-merges like the update path —
         // the merged person was last seen whenever any constituent was
         // (snapshot values were already hour-floored when stored).
+        //
+        // The Postgres backend never passes last_seen_at to its merge
+        // update, so it answers the target's own until the caller's
+        // follow-up update advances it. The two part only where a source
+        // was seen after the merge event itself, which needs out-of-order
+        // events or clock skew above the hour floor.
         let created_at = snapshots
             .iter()
             .map(|snapshot| snapshot.created_at)
@@ -1589,6 +1604,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         if op_type == LifecycleOpType::Unspecified {
             return Err(Status::invalid_argument("op_type must be specified"));
         }
+        // Advisory, so lenient: an unparseable creator fences without one
+        // rather than failing the saga over a field nothing branches on.
+        let creator_event_uuid = Uuid::parse_str(&req.creator_event_uuid).ok();
 
         // A fence installed anywhere but the current owner protects
         // nothing: the map that gates writes is the owner's. Both guards
@@ -1669,7 +1687,14 @@ impl PersonHogLeader for PersonHogLeaderService {
             .emitted_versions
             .floor_for(partition, &cache_key, person.version);
 
-        self.fences.insert(cache_key, FenceState { op_id, op_type });
+        self.fences.insert(
+            cache_key,
+            FenceState {
+                op_id,
+                op_type,
+                creator_event_uuid,
+            },
+        );
         counter!("personhog_leader_fences_total", "action" => "fenced").increment(1);
 
         Ok(Response::new(FencePersonResponse {
