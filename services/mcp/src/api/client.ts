@@ -48,6 +48,12 @@ const GATEWAY_TIMEOUT_STATUSES = new Set([502, 503, 504, 520, 522, 524])
 const GATEWAY_TIMEOUT_MAX_RETRIES = 3
 const GATEWAY_TIMEOUT_BASE_BACKOFF_MS = 1000
 
+// One shared attempt counter bounds both retry policies together. A mixed
+// sequence of 429s and gateway timeouts draws down a single retry budget, so
+// the second failure type can see fewer retries. This is deliberate: separate
+// counters would raise the total fetch count and let gateway backoff sleeps
+// (which the 429 wait budget does not track) stack on the rate-limit budget,
+// which would then need a new overall cap to bound.
 const MAX_FETCH_RETRIES = Math.max(RATE_LIMIT_MAX_RETRIES, GATEWAY_TIMEOUT_MAX_RETRIES)
 
 // POST endpoints that read rather than write. The /query/ endpoint runs a
