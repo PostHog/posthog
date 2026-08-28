@@ -595,6 +595,35 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(logic.values.hasWarehouseSourceOptions).toBe(true)
     })
 
+    it('surfaces a view that materializes after the modal opens, without reopening it', async () => {
+        // Recovery from an orphaned definition must not require closing and reopening the modal. The
+        // empty state stays reactive: with nothing to offer the editor shows the guidance banner, and
+        // reloading the saved queries in place (the banner's refresh) surfaces a view once it lands.
+        let hasView = false
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [SAVED_QUERIES_URL]: () => [200, { count: hasView ? 1 : 0, results: hasView ? [buildView()] : [] }],
+                [WAREHOUSE_TABLES_URL]: { count: 0, results: [] },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        // Nothing synced and no materialized views: the editor is in its empty-state (banner) branch.
+        expect(logic.values.hasWarehouseSourceOptions).toBe(false)
+        expect(logic.values.warehouseSourceOptions).toEqual([])
+
+        hasView = true
+        await expectLogic(logic, () => logic.actions.loadSavedQueries()).toDispatchActions(['loadSavedQueriesSuccess'])
+        expect(logic.values.hasWarehouseSourceOptions).toBe(true)
+        expect(logic.values.warehouseSourceOptions).toEqual([
+            { value: 'view:view-1', label: 'billing_view', kind: 'view' },
+        ])
+    })
+
     it("loads a view's columns from the saved query rather than fetching a table", async () => {
         useMocks(defaultMocks())
         mountLogic()
