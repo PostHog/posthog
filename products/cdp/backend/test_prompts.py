@@ -1,3 +1,5 @@
+import os
+
 import defusedxml.ElementTree as ET
 from parameterized import parameterized
 
@@ -10,7 +12,6 @@ from products.cdp.backend.prompts import (
     render_event_property_taxonomy,
     render_event_taxonomy,
     render_filter_operator_taxonomy,
-    render_filter_scope,
     render_filters_system_prompt,
     render_person_property_taxonomy,
 )
@@ -132,16 +133,28 @@ class TestTaxonomyPrompts:
         # keeps every one of them.
         assert broken_on_site <= _texts(render_filter_operator_taxonomy("destination"), "value")
 
-    @parameterized.expand([("transformation", True), ("transformation_log", True), ("destination", False)])
-    def test_render_filter_scope_restricts_ingestion_types_to_event_properties(self, function_type, is_restricted):
-        # Destinations do get person and group globals, so they must not pick up the restriction.
-        assert bool(render_filter_scope(function_type)) == is_restricted
-
-    @parameterized.expand([("transformation", False), ("destination", True), ("site_destination", True)])
-    def test_system_prompt_carries_person_taxonomy_only_when_the_type_has_person_globals(
-        self, function_type, has_person_taxonomy
+    @parameterized.expand(
+        [
+            ("transformation", False),
+            ("transformation_log", False),
+            ("destination", True),
+            ("site_destination", True),
+        ]
+    )
+    def test_system_prompt_swaps_the_person_block_for_a_scope_note_without_person_globals(
+        self, function_type, has_person_globals
     ):
         prompt = render_filters_system_prompt(function_type, "{}")
 
-        assert ("<person_property_taxonomy>" in prompt) == has_person_taxonomy
+        assert ("<person_property_taxonomy>" in prompt) == has_person_globals
+        assert ("<filter_scope>" in prompt) != has_person_globals
         assert "<event_property_taxonomy>" in prompt
+
+    def test_system_prompt_keeps_one_shared_prefix_up_to_the_person_block(self):
+        # The taxonomy ahead of that block is what the provider's prompt cache can reuse across
+        # function types, so a type-specific section must never be spliced in before it.
+        destination = render_filters_system_prompt("destination", "{}")
+        transformation = render_filters_system_prompt("transformation", "{}")
+        shared = len(os.path.commonprefix([destination, transformation]))
+
+        assert shared > destination.index("<person_property_taxonomy>") - 1
