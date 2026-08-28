@@ -174,7 +174,18 @@ describe("PostHogAPIClient", () => {
           new Response(
             JSON.stringify({
               kind: "ExperimentExposureQuery",
-              timeseries: [],
+              timeseries: [
+                {
+                  variant: "control",
+                  days: ["2026-01-01", "2026-01-02"],
+                  exposure_counts: [45, 60],
+                },
+                {
+                  variant: "test",
+                  days: ["2026-01-01", "2026-01-02"],
+                  exposure_counts: [43, 60],
+                },
+              ],
               total_exposures: { control: 105, test: 103 },
               date_range: { date_from: "2026-01-01", date_to: null },
             }),
@@ -203,6 +214,17 @@ describe("PostHogAPIClient", () => {
 
       const preview = await client.getEvidencePreview("experiment", "1234");
 
+      expect(preview).toMatchObject({
+        chart: {
+          title: "Daily exposures by variant",
+          labels: ["2026-01-01", "2026-01-02"],
+          series: [
+            { label: "control", data: [45, 60] },
+            { label: "test", data: [43, 60] },
+          ],
+          render: "bar",
+        },
+      });
       expect(preview?.experimentResults).toMatchObject({
         state: "ready",
         primaryMetrics: [

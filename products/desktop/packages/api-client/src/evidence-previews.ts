@@ -763,6 +763,30 @@ function shapeMetricResult(
   };
 }
 
+export function shapeExperimentExposureChart(
+  response: Schemas.ExperimentExposureQueryResponse | null,
+): EvidencePreview["chart"] {
+  if (!response) return undefined;
+  const rows = response.timeseries.flatMap((series) =>
+    series.days.map((day, index) => [
+      day,
+      series.variant,
+      series.exposure_counts[index] ?? 0,
+    ]),
+  );
+  const pivot = pivotDailyGroups(rows);
+  if (!pivot) return undefined;
+  return {
+    title:
+      pivot.omittedGroups > 0
+        ? `Daily exposures by variant (top ${pivot.series.length} of ${pivot.series.length + pivot.omittedGroups})`
+        : "Daily exposures by variant",
+    labels: pivot.labels,
+    series: pivot.series,
+    render: "bar",
+  };
+}
+
 export function shapeExperimentResults(
   experiment: Schemas.Experiment,
   exposuresResponse: Schemas.ExperimentExposureQueryResponse | null,

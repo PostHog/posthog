@@ -90,6 +90,7 @@ import {
   shapeErrorIssuePreview,
   shapeEvaluationPreview,
   shapeEventDefinitionPreview,
+  shapeExperimentExposureChart,
   shapeExperimentPreview,
   shapeExperimentResults,
   shapeFlagPreview,
@@ -6711,14 +6712,17 @@ export class PostHogAPIClient {
             Promise.all(secondaryQueries.map(runMetricQuery)),
           ]);
 
+        const experimentExposureResponse =
+          exposureResponse as Schemas.ExperimentExposureQueryResponse | null;
         return {
           ...preview,
           experimentResults: shapeExperimentResults(
             experiment,
-            exposureResponse as Schemas.ExperimentExposureQueryResponse | null,
+            experimentExposureResponse,
             primaryResults,
             secondaryResults,
           ),
+          chart: shapeExperimentExposureChart(experimentExposureResponse),
         };
       }
       case "error": {

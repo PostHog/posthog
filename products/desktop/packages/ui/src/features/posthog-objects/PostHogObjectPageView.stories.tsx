@@ -105,14 +105,14 @@ const experimentPreview: EvidenceCardData = {
     { label: "subtle exposed", value: "563" },
   ],
   chart: {
-    title: "Daily exposed users by variant",
+    title: "Daily exposures by variant",
     labels: DAYS,
     series: [
       { label: "control", data: [40, 44, 39, 47, 52, 49, 55] },
       { label: "aggressive", data: [38, 45, 41, 44, 50, 47, 52] },
       { label: "subtle", data: [36, 40, 42, 41, 47, 45, 49] },
     ],
-    render: "line",
+    render: "bar",
   },
   sections: [
     {
