@@ -404,6 +404,21 @@ export function isFlagPropertyFilter(filter?: AnyFilterLike | null): filter is F
 export function isHogQLPropertyFilter(filter?: AnyFilterLike | null): filter is HogQLPropertyFilter {
     return filter?.type === PropertyFilterType.HogQL
 }
+
+// Build a HogQL filter from a raw SQL expression the user typed. Returns null for an empty or
+// whitespace-only expression so a blank submit (including a stale empty Cmd+Enter) never replaces
+// the row's filter with an empty-key one that desyncs the row and later leaks into the query.
+export function hogQLExpressionToPropertyFilter(expression: string): HogQLPropertyFilter | null {
+    const key = expression.trim()
+    if (!key) {
+        return null
+    }
+    return {
+        type: PropertyFilterType.HogQL,
+        key,
+        value: null, // must specify something to be compatible with existing types
+    }
+}
 export function isWorkflowVariablePropertyFilter(
     filter?: AnyFilterLike | null
 ): filter is WorkflowVariablePropertyFilter {

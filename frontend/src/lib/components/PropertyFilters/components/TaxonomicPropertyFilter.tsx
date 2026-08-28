@@ -11,6 +11,7 @@ import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/O
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import {
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
+    hogQLExpressionToPropertyFilter,
     isGroupPropertyFilter,
     isPropertyFilterWithOperator,
     propertyFilterTypeToTaxonomicFilterType,
@@ -96,6 +97,8 @@ export function TaxonomicPropertyFilter({
     const pageKey = pageKeyInput || `filter-${generatedKey}`
     const baseGroupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
     const groupTypes = [TaxonomicFilterGroupType.SuggestedFilters, ...baseGroupTypes]
+    // Only offer the SQL-expression operator where a HogQL filter is already valid here.
+    const hogQLExpressionAvailable = groupTypes.includes(TaxonomicFilterGroupType.HogQLExpression)
     const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
         taxonomicGroup,
         value,
@@ -247,6 +250,20 @@ export function TaxonomicPropertyFilter({
                     : undefined
             }
             operatorAllowlist={operatorAllowlist}
+            metadataSource={metadataSource}
+            hogQLGlobals={hogQLGlobals}
+            onHogQLExpressionChange={
+                hogQLExpressionAvailable
+                    ? (expression) => {
+                          const hogQLFilter = hogQLExpressionToPropertyFilter(expression)
+                          if (!hogQLFilter) {
+                              return
+                          }
+                          setFilter(index, hogQLFilter as AnyPropertyFilter)
+                          onComplete()
+                      }
+                    : undefined
+            }
         />
     )
 

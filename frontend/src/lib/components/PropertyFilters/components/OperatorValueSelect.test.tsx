@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -8,9 +8,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
+import { PropertyDefinition, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 
-import { OperatorValueSelect } from './OperatorValueSelect'
+import { HOGQL_EXPRESSION_OPTION, OperatorValueSelect } from './OperatorValueSelect'
+
+// Stub the Monaco-backed editor so the seeded draft is a plain assertable node
+jest.mock('lib/components/HogQLEditor/HogQLEditor', () => ({
+    HogQLEditor: ({ value }: any): JSX.Element => <div data-attr="mock-hogql-editor">{value}</div>,
+}))
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
@@ -73,17 +78,24 @@ describe('OperatorValueSelect', () => {
         })
     }
 
-    function renderSelect(operator?: PropertyOperator): void {
+    function renderSelect(
+        operator?: PropertyOperator,
+        extraProps?: {
+            onHogQLExpressionChange?: (expression: string) => void
+            value?: PropertyFilterValue
+        }
+    ): void {
         render(
             <Provider>
                 <OperatorValueSelect
                     type={PropertyFilterType.Person}
                     propertyKey="email"
                     operator={operator}
-                    value={null}
+                    value={extraProps && 'value' in extraProps ? (extraProps.value ?? null) : null}
                     editable
                     onChange={jest.fn()}
                     propertyDefinitions={[emailPropertyDefinition]}
+                    onHogQLExpressionChange={extraProps?.onHogQLExpressionChange}
                 />
             </Provider>
         )
@@ -120,5 +132,22 @@ describe('OperatorValueSelect', () => {
         for (const operatorValue of STARTS_ENDS_WITH_VALUES) {
             expect(values).toContain(operatorValue)
         }
+    })
+
+    it('hides the SQL expression operator entry unless a HogQL commit handler is wired', () => {
+        renderSelect()
+        expect(renderedOperatorValues()).not.toContain(HOGQL_EXPRESSION_OPTION)
+    })
+
+    it('offers the SQL expression operator entry when a HogQL commit handler is wired', () => {
+        renderSelect(undefined, { onHogQLExpressionChange: jest.fn() })
+        expect(renderedOperatorValues()).toContain(HOGQL_EXPRESSION_OPTION)
+    })
+
+    it('opens the SQL editor with an empty draft, not the existing literal filter value', () => {
+        renderSelect(PropertyOperator.IContains, { onHogQLExpressionChange: jest.fn(), value: 'Chrome' })
+        fireEvent.change(screen.getByTestId('operator-select'), { target: { value: HOGQL_EXPRESSION_OPTION } })
+        // Seeding the editor with `Chrome` would let the user commit a HogQL predicate that fails to parse
+        expect(screen.getByTestId('mock-hogql-editor').textContent).toBe('')
     })
 })
