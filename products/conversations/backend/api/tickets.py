@@ -228,7 +228,8 @@ class ComposeTicketSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=255),
         required=False,
         default=list,
-        help_text="Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed).",
+        max_length=100,
+        help_text="Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.",
     )
 
     def validate_message(self, value: str) -> str:
