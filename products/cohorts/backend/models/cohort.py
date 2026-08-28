@@ -655,7 +655,23 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             is_calculating=False
         )
 
-    def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
+    def calculate_people_ch(
+        self,
+        pending_version: int,
+        *,
+        initiating_user_id: Optional[int] = None,
+        will_retry: Optional[Callable[[Exception], bool]] = None,
+    ):
+        """
+        Args:
+            will_retry: Told the exception that just failed the recalculation, answers whether the
+                caller will run it again. A pending retry leaves the cohort exactly as a still-running
+                one looks: `is_calculating` set, `errors_calculating` and `last_error_at` untouched.
+                Those fields gate the re-enqueue backoff and the `MAX_ERRORS_CALCULATING` cutoff, so
+                the counter is charged once per failed episode rather than once per attempt, and the
+                flag keeps the scheduler off the cohort meanwhile. Callers that auto-retry pass this;
+                a caller that omits it is treated as one attempt per failure.
+        """
         from products.cohorts.backend.models.util import recalculate_cohortpeople, save_recovery_bookkeeping
 
         logger.info(
@@ -672,6 +688,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         # may replay the finally-save, and a replayed F("errors_calculating") + 1 would count a
         # single failure twice if the first write committed before the connection dropped.
         starting_errors_calculating = self.errors_calculating or 0
+        retry_pending = False
         try:
             count = recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id)
             self.count = count
@@ -693,9 +710,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
             self.last_error_at = None
-        except Exception:
-            self.errors_calculating = starting_errors_calculating + 1
-            self.last_error_at = timezone.now()
+        except Exception as err:
+            retry_pending = bool(will_retry and will_retry(err))
+            if not retry_pending:
+                self.errors_calculating = starting_errors_calculating + 1
+                self.last_error_at = timezone.now()
 
             logger.warning(
                 "cohort_calculation_failed",
@@ -725,11 +744,20 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # flag from being reset while other higher-version calculations are still running. Route it
             # through the same reconnect-and-retry: it is a bookkeeping write on the same connection, so
             # an unguarded failure here would mask the real error and leave is_calculating stuck True.
-            save_recovery_bookkeeping(
-                lambda: self._safe_reset_calculating_state(completed_version=pending_version),
-                cohort_id=self.pk,
-                team_id=self.team_id,
-            )
+            #
+            # A pending retry keeps the flag set, because it is the only thing holding the cohort out
+            # of the scheduler's candidate queryset during the backoff window. Clearing it here while
+            # the error counter is deliberately unstamped would let the scheduler enqueue a
+            # superseding calculation within a minute, which bumps pending_version and no-ops the
+            # retry - so a failing cohort would re-enter the queue every tick, never advance
+            # errors_calculating, and never reach the MAX_ERRORS_CALCULATING cutoff. If the retry
+            # never lands (worker death), reset_stuck_cohorts still recovers the flag.
+            if not retry_pending:
+                save_recovery_bookkeeping(
+                    lambda: self._safe_reset_calculating_state(completed_version=pending_version),
+                    cohort_id=self.pk,
+                    team_id=self.team_id,
+                )
 
         self.refresh_from_db()
 

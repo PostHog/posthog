@@ -23,9 +23,13 @@
 #   - /usr/local/bin/bootstrap-dev-stack, the one-shot task-time bootstrap (restores
 #     the compose /etc/hosts aliases the sandbox boot wiped, starts dockerd)
 #
-# Build outputs are deliberately NOT baked: the checkout — node_modules, Storybook
-# dist, Vite/Turbo caches — is deleted before the snapshot, so frontend builds always
-# run from the task's own source instead of silently reflecting the baked commit.
+# Build outputs inside the checkout are deliberately NOT baked: node_modules, Storybook
+# dist and Vite/Turbo caches are deleted before the snapshot, so frontend builds always
+# run from the task's own source instead of silently reflecting the baked commit. The
+# one exception is the Rust target dir, which lives outside the checkout at
+# /opt/rust/target: cargo fingerprints every crate and rebuilds only what the task's
+# checkout changed, so a stale artifact cannot be served, and the dev-stack Rust
+# services start in seconds instead of compiling the workspace from scratch.
 #
 # `hogli start` on a task VM then skips the multi-gigabyte image pulls and runs only
 # the migrations that landed after the bake, instead of the full history from scratch.
@@ -38,7 +42,8 @@
 set -euo pipefail
 
 BAKE_ROOT=/tmp/posthog-dev-stack-bake
-REPO_DIR="$BAKE_ROOT/posthog"
+REPO_DIR=/tmp/workspace/repos/posthog/posthog
+RUST_TARGET_DIR=/opt/rust/target
 BAKE_MANIFEST=/opt/posthog/dev-stack-bake.json
 
 # Toolchain pins — versions in sync with .flox/env/manifest.toml, which is what dev
@@ -53,6 +58,9 @@ RUSTUP_VERSION=1.29.0
 RUSTUP_SHA256_AMD64=4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10
 RUSTUP_SHA256_ARM64=9732d6c5e2a098d3521fca8145d826ae0aaa067ef2385ead08e6feac88fa5792
 RUST_TOOLCHAIN=1.91.1
+PROTOC_VERSION=28.3
+PROTOC_SHA256_AMD64=0ad949f04a6a174da83cdcbdb36dee0a4925272a5b6d83f79a6bf9852076d53f
+PROTOC_SHA256_ARM64=1de522032a8b194002fe35cab86d747848238b5e4de4f99648372079f5b46f9a
 SQLX_CLI_VERSION=0.8.3
 
 export RUSTUP_HOME=/opt/rust/rustup
@@ -76,11 +84,12 @@ start-dockerd || start-dockerd
 docker info > /dev/null
 
 log "cloning posthog/posthog"
-rm -rf "$BAKE_ROOT"
-mkdir -p "$BAKE_ROOT"
-# The directory basename must be "posthog": docker compose derives the project name
-# (and therefore volume/container names) from it, and it has to match the project name
-# task-time runs get from their /tmp/workspace/repos/posthog/posthog checkout.
+rm -rf "$BAKE_ROOT" "$REPO_DIR"
+mkdir -p "$BAKE_ROOT" "$(dirname "$REPO_DIR")"
+# The checkout sits at the exact path task-time runs clone into: docker compose derives
+# the project name (and therefore volume/container names) from the directory basename,
+# and cargo keys workspace-crate fingerprints on the absolute source path, so the baked
+# Rust target dir only counts as warm for a checkout at this same path.
 git clone --depth 1 https://github.com/posthog/posthog.git "$REPO_DIR"
 cd "$REPO_DIR"
 BAKED_SHA=$(git rev-parse HEAD)
@@ -92,7 +101,7 @@ log "installing dev toolchain (brotli, phrocs, go, rust)"
 # process-manager resolution (phrocs), and the Go/Rust procs and rust/bin migrators
 # need their toolchains.
 apt-get update
-apt-get install -y --no-install-recommends brotli make
+apt-get install -y --no-install-recommends brotli make unzip build-essential libssl-dev pkg-config cmake libclang-dev
 rm -rf /var/lib/apt/lists/*
 
 case "$(uname -m)" in
@@ -101,12 +110,16 @@ case "$(uname -m)" in
         GO_SHA256="$GO_SHA256_AMD64"
         RUSTUP_TARGET=x86_64-unknown-linux-gnu
         RUSTUP_SHA256="$RUSTUP_SHA256_AMD64"
+        PROTOC_ARCH=x86_64
+        PROTOC_SHA256="$PROTOC_SHA256_AMD64"
         ;;
     aarch64)
         GO_ARCH=arm64
         GO_SHA256="$GO_SHA256_ARM64"
         RUSTUP_TARGET=aarch64-unknown-linux-gnu
         RUSTUP_SHA256="$RUSTUP_SHA256_ARM64"
+        PROTOC_ARCH=aarch_64
+        PROTOC_SHA256="$PROTOC_SHA256_ARM64"
         ;;
     *)
         echo "unsupported architecture: $(uname -m)" >&2
@@ -146,20 +159,32 @@ rm /tmp/rustup-init
 for tool in cargo rustc rustup rustfmt cargo-fmt cargo-clippy clippy-driver; do
     printf '%s\n' \
         '#!/bin/sh' \
-        'export RUSTUP_HOME="${RUSTUP_HOME:-/opt/rust/rustup}" CARGO_HOME="${CARGO_HOME:-/opt/rust/cargo}"' \
+        'export RUSTUP_HOME="${RUSTUP_HOME:-/opt/rust/rustup}" CARGO_HOME="${CARGO_HOME:-/opt/rust/cargo}" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/opt/rust/target}" CFLAGS="${CFLAGS:--g0}"' \
         "exec /opt/rust/cargo/bin/$tool \"\$@\"" > "/usr/local/bin/$tool"
     chmod +x "/usr/local/bin/$tool"
 done
+
+log "installing protoc ${PROTOC_VERSION} (same pin as .github/actions/setup-protoc)"
+curl -fsSL -o /tmp/protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-${PROTOC_ARCH}.zip"
+echo "${PROTOC_SHA256}  /tmp/protoc.zip" | sha256sum -c -
+unzip -oq /tmp/protoc.zip -d /usr/local bin/protoc 'include/*'
+rm /tmp/protoc.zip
+protoc --version
 
 log "installing sqlx-cli (rust/bin migrators)"
 cargo install sqlx-cli --version "$SQLX_CLI_VERSION" --locked --no-default-features --features native-tls,postgres
 ln -sf /opt/rust/cargo/bin/sqlx /usr/local/bin/sqlx
 
 log "warming cargo registry for the rust workspace"
-# Download-only: task-time `cargo run` in bin/start-rust-service still compiles, but
-# skips fetching the whole dependency graph. The compiled target/ dir lives inside the
-# checkout and is discarded with it, so it cannot be warmed here.
 (cd rust && cargo fetch)
+
+log "building the rust workspace binaries"
+mapfile -t RUST_BINS < <(cd rust && cargo metadata --no-deps --format-version 1 \
+    | python3 -c 'import json, sys; print("\n".join(sorted({t["name"] for p in json.load(sys.stdin)["packages"] for t in p["targets"] if "bin" in t["kind"] and not t.get("required-features")})))')
+for bin in "${RUST_BINS[@]}"; do
+    (cd rust && cargo build --bin "$bin")
+done
+du -sh "$RUST_TARGET_DIR"
 
 log "warming go module cache (livestream)"
 # Mirrors the cargo fetch above: GOMODCACHE defaults to /root/go/pkg/mod, outside the
@@ -285,7 +310,8 @@ log "cleaning up"
 # checkout, so e.g. Storybook screenshots would silently miss the agent's edits.
 # The warmed stores above keep the task-time installs that precede a rebuild cheap.
 cd /
-rm -rf "$BAKE_ROOT"
+rm -rf "$BAKE_ROOT" "$REPO_DIR"
+rmdir -p "$(dirname "$REPO_DIR")" 2> /dev/null || true
 
 log "installing task-time bootstrap helper"
 # A restored sandbox is not self-starting: the sandbox runtime rewrites /etc/hosts at

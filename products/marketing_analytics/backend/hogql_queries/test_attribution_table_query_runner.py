@@ -18,6 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import PropertyDefinition
@@ -880,10 +881,10 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         def restrictions_for(*, user, **_kwargs) -> set:
             if user is None or not restricted:
                 return set()
-            return {("plan", PropertyDefinition.Type.EVENT)}
+            return {RestrictedProperty(name="plan", property_type=PropertyDefinition.Type.EVENT)}
 
         with patch(
-            "products.access_control.backend.property_access_control.get_restricted_properties_for_team",
+            "products.access_control.backend.property_access_control.get_restricted_properties_with_group_type_index_for_team",
             side_effect=restrictions_for,
         ):
             prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")

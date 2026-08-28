@@ -270,6 +270,23 @@ export interface _MetricAnomalyReportApi {
     series: _MetricSeriesApi
 }
 
+export interface _MetricErrorSpikeApi {
+    /** When the error spike was detected, ISO 8601. */
+    detected_at: string
+    /** Error Tracking issue that spiked. */
+    issue_id: string
+    /**
+     * Issue name, if one is set.
+     * @nullable
+     */
+    issue_name: string | null
+}
+
+export interface _MetricErrorSpikesResponseApi {
+    /** Error Tracking issue spikes detected in the window, newest first. Team-wide: not yet scoped to a specific metric's service. */
+    results: _MetricErrorSpikeApi[]
+}
+
 /**
  * * `gauge` - gauge
  * * `sum` - sum
@@ -807,6 +824,17 @@ export type MetricsAttributesRetrieveParams = {
     search?: string
 }
 
+export type MetricsErrorSpikesRetrieveParams = {
+    /**
+     * Lower bound (inclusive) for the spike window. ISO 8601.
+     */
+    dateFrom: string
+    /**
+     * Upper bound (exclusive) for the spike window. Defaults to now if omitted.
+     */
+    dateTo?: string
+}
+
 export type MetricsValuesRetrieveParams = {
     /**
      * Max number of names to return. Defaults to 100; maximum 1000.
@@ -814,6 +842,11 @@ export type MetricsValuesRetrieveParams = {
      * @maximum 1000
      */
     limit?: number
+    /**
+     * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
+     * @maxLength 1024
+     */
+    service?: string
     /**
      * Substring filter (case-insensitive) applied to metric names.
      * @maxLength 255

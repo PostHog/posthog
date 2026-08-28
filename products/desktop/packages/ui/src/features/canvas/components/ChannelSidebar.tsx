@@ -13,8 +13,6 @@ import {
   channelItemSortEvent,
   channelItemSources,
   DEFAULT_CHANNEL_ITEM_FILTERS,
-  DEFAULT_CHANNEL_ITEM_GROUPING,
-  DEFAULT_CHANNEL_ITEM_SORT,
   filterChannelItems,
   groupChannelItems,
   hasActiveChannelItemFilters,
@@ -67,6 +65,7 @@ import { SidebarKbdHint } from "@posthog/ui/features/sidebar/components/items/Si
 import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
 import { SidebarBulkActionBar } from "@posthog/ui/features/sidebar/components/SidebarBulkActionBar";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { taskDragSiblings } from "@posthog/ui/features/sidebar/taskDrag";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { useBulkArchiveConfirm } from "@posthog/ui/features/sidebar/useBulkArchiveConfirm";
@@ -192,7 +191,7 @@ function RecentSectionHeader({
               <TabsTrigger
                 key={value}
                 value={value}
-                className="shrink-0 rounded-sm px-1 py-0.5 text-[13px]"
+                className="shrink-0 rounded-sm px-2 py-0.5 text-[13px]"
               >
                 <span className="whitespace-nowrap">{label}</span>
               </TabsTrigger>
@@ -208,7 +207,7 @@ function RecentSectionHeader({
             onClick={onToggleSearch}
             className={cnHeaderButton(searchOpen)}
           >
-            <MagnifyingGlass size={12} />
+            <MagnifyingGlass size={14} />
           </Button>
           <ChannelFilterMenu
             filters={filters}
@@ -334,7 +333,7 @@ function listStateOf({
 export function ChannelSidebar({ channelId }: { channelId: string }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
 
   const { items, actions, me, isLoading, channelMissing } =
     useChannelItems(channelId);
@@ -356,13 +355,12 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const setTab = (next: ChannelTab) => setChosenTab({ channelId, tab: next });
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [rawFilters, setFilters] = useState<ChannelItemFilters>(
-    DEFAULT_CHANNEL_ITEM_FILTERS,
-  );
-  const [sort, setSort] = useState<ChannelItemSort>(DEFAULT_CHANNEL_ITEM_SORT);
-  const [rawGrouping, setGrouping] = useState<ChannelItemGrouping>(
-    DEFAULT_CHANNEL_ITEM_GROUPING,
-  );
+  const rawFilters = useSidebarStore((state) => state.channelItemFilters);
+  const setFilters = useSidebarStore((state) => state.setChannelItemFilters);
+  const sort = useSidebarStore((state) => state.channelItemSort);
+  const setSort = useSidebarStore((state) => state.setChannelItemSort);
+  const rawGrouping = useSidebarStore((state) => state.channelItemGrouping);
+  const setGrouping = useSidebarStore((state) => state.setChannelItemGrouping);
   // Canvases carry no repository, so grouping by one would file the whole tab
   // under a single heading. Neutralised as well as hidden, the way the run
   // filters above are.
@@ -780,7 +778,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
               // menu displays: a choice made under one tab has to survive a
               // write made under another.
               onFilterChange={(key, value) =>
-                setFilters((prev) => ({ ...prev, [key]: value }))
+                setFilters({ ...rawFilters, [key]: value })
               }
               onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
               sort={sort}

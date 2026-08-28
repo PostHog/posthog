@@ -12,6 +12,7 @@ from typing import Any
 
 from posthog.models import Team
 
+from products.error_tracking.backend.facade.api import list_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.diagnostics import decompose_bucket as _decompose_bucket
 from products.metrics.backend.facade.contracts import (
@@ -20,6 +21,7 @@ from products.metrics.backend.facade.contracts import (
     InvestigationResult,
     MetricAnomalyReport,
     MetricBucketDecomposition,
+    MetricErrorSpike,
     MetricEventSample,
     MetricFilter,
     MetricPoint,
@@ -218,16 +220,19 @@ def list_metric_names(
     team: Team,
     search: str = "",
     limit: int = 100,
+    services: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     """List distinct metric names for the team's picker.
 
     Returns a list of `{"name": str, "metric_type": str}` dicts ordered by
     most-recently-seen, with exact-name matches floated to the top.
-    Raises `ValueError` for an out-of-range limit.
+    Passing `services` narrows the list to names those services reported.
+    Raises `ValueError` for an out-of-range limit or too many services.
 
-    The unsearched list is cached per team for a minute; searches are not.
+    The unsearched list is cached per team and service scope for a minute;
+    searches are not.
     """
-    return cached_metric_names(team=team, search=search, limit=limit)
+    return cached_metric_names(team=team, search=search, limit=limit, services=services)
 
 
 def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) -> MetricsOverview:
@@ -322,6 +327,35 @@ def list_metric_event_samples(
         limit=limit,
     )
     return [MetricEventSample(**row) for row in runner.run()]
+
+
+# PoC cap: team-wide — Error Tracking spike events carry no service attribution,
+# so there is no correlation key to scope them to one metric's service yet.
+_ERROR_SPIKES_LIMIT = 200
+
+
+def list_metric_error_spikes(*, team: Team, date_from: dt.datetime, date_to: dt.datetime) -> list[MetricErrorSpike]:
+    """List Error Tracking issue spikes detected in a time window, for the
+    metrics chart's error-spike overlay.
+
+    Team-wide: Error Tracking issues carry no service attribution today, so
+    this cannot be scoped to the metric's own service yet.
+    """
+    events, _total = list_spike_events(
+        team_id=team.id,
+        date_from=date_from.isoformat(),
+        date_to=date_to.isoformat(),
+        limit=_ERROR_SPIKES_LIMIT,
+        include_total_count=False,
+    )
+    return [
+        MetricErrorSpike(
+            detected_at=event.detected_at.isoformat(),
+            issue_id=str(event.issue.id),
+            issue_name=event.issue.name,
+        )
+        for event in events
+    ]
 
 
 def characterize_metric_anomaly(

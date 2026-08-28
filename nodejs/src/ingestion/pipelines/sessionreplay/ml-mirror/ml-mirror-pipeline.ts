@@ -14,9 +14,9 @@ import {
     SessionReplayPipelineOutput,
 } from '~/ingestion/pipelines/sessionreplay'
 import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step'
+import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { createProduceCollectedImagesStep } from '~/ingestion/pipelines/sessionreplay/ml-mirror/produce-collected-images-step'
 import { createProduceCollectedUrlsStep } from '~/ingestion/pipelines/sessionreplay/ml-mirror/produce-collected-urls-step'
-import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { MessageContext } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
 import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-batch-mark-seen-step'
@@ -26,6 +26,8 @@ import { createResolveKeyStep } from '~/ingestion/pipelines/sessionreplay/sessio
 import { MlImageFetchOutput, MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { createTeamFilterStep } from '~/ingestion/pipelines/sessionreplay/team-filter-step'
 import { createValidateSessionReplayHeadersStep } from '~/ingestion/pipelines/sessionreplay/validate-headers-step'
+
+import { createParseAndAnonymizeMessageStep } from './parse-and-anonymize-step'
 
 export interface MlMirrorPipelineOptions {
     /** Cap on sessions scrubbed concurrently; each in-flight scrub occupies a libuv threadpool thread. */
@@ -44,6 +46,7 @@ export interface MlMirrorUrlFetchProducer {
     outputs: IngestionOutputs<MlImageFetchOutput | MlImageScrubOutput>
     producedRefCacheMax: number
     producedRefCacheWindowMs: number
+    crawlHistory?: Pick<CrawlHistoryStore, 'read'>
 }
 
 /**
@@ -190,12 +193,12 @@ export function createMlMirrorReplayPipeline(
                                                         : parsed
                                                     const withUrlsProduced = urlFetch
                                                         ? withImagesProduced.pipe(
-                                                              createProduceCollectedUrlsStep(
-                                                                  urlFetch.outputs,
-                                                                  topHog,
-                                                                  urlFetch.producedRefCacheMax,
-                                                                  urlFetch.producedRefCacheWindowMs
-                                                              )
+                                                              createProduceCollectedUrlsStep(urlFetch.outputs, topHog, {
+                                                                  producedRefCacheMax: urlFetch.producedRefCacheMax,
+                                                                  producedRefCacheWindowMs:
+                                                                      urlFetch.producedRefCacheWindowMs,
+                                                                  crawlHistory: urlFetch.crawlHistory,
+                                                              })
                                                           )
                                                         : withImagesProduced
                                                     return withUrlsProduced.pipe(

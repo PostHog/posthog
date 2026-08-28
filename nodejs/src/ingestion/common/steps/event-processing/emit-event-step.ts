@@ -138,7 +138,7 @@ export function serializeEvent(event: ProcessedEvent): RawKafkaEvent {
         project_id: event.project_id,
         distinct_id: safeClickhouseString(event.distinct_id),
         elements_chain: safeClickhouseString(event.elements_chain),
-        created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+        created_at: castTimestampOrNow(event.created_at, TimestampFormat.ClickHouse),
         captured_at:
             event.captured_at !== null
                 ? castTimestampToClickhouseFormat(DateTime.fromJSDate(event.captured_at), TimestampFormat.ClickHouse)

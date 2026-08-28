@@ -1,3 +1,5 @@
+import '../../../tests/helpers/mocks/consumer.mock'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -15,16 +17,6 @@ jest.mock('./cdp-base.consumer', () => {
         },
     }
 })
-
-jest.mock('~/common/kafka/consumer', () => ({
-    // Fresh stub per call: the matcher now constructs three consumers (events, person, internal
-    // events), and start()/stop()/isHealthy() touch all of them.
-    createKafkaConsumer: jest.fn(() => ({
-        connect: jest.fn().mockResolvedValue(undefined),
-        disconnect: jest.fn().mockResolvedValue(undefined),
-        isHealthy: jest.fn(),
-    })),
-}))
 
 jest.mock('pg', () => {
     const Pool = jest.fn()

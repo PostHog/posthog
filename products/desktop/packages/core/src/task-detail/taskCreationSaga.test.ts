@@ -391,6 +391,8 @@ describe("TaskCreationSaga", () => {
       runtime: "pi",
       model: "claude-sonnet",
       reasoningLevel: "medium",
+      customInstructions: "Keep the patch small.",
+      additionalDirectories: ["/tmp/shared"],
       allowNoRepo: true,
     });
 
@@ -399,8 +401,13 @@ describe("TaskCreationSaga", () => {
       expect.objectContaining({ runtime: "pi" }),
     );
     expect(piRunner.create).toHaveBeenCalledWith({
-      taskId: "task-123",
-      cwd: "/tmp/scratch/task-123",
+      taskContext: {
+        taskId: "task-123",
+        cwd: "/tmp/scratch/task-123",
+        customInstructions: "Keep the patch small.",
+        additionalDirectories: ["/tmp/shared"],
+        channelMode: true,
+      },
       projectTrustPath: "/tmp/scratch/task-123",
       prompt: "Draft a launch email",
       model: "claude-sonnet",
@@ -1429,7 +1436,7 @@ describe("TaskCreationSaga", () => {
   });
 
   it.each(["local", "worktree"] as const)(
-    "forwards context window and fast mode to the agent session for workspaceMode=%s",
+    "forwards run configuration to the agent session for workspaceMode=%s",
     async (workspaceMode) => {
       const createTaskMock = vi.fn().mockResolvedValue(createTask());
       mockHost.addFolder.mockResolvedValue({ id: "folder-1", path: "/repo" });
@@ -1441,13 +1448,20 @@ describe("TaskCreationSaga", () => {
         content: "Ship the fix",
         repoPath: "/repo",
         workspaceMode,
+        adapter: "codex",
+        codexModelAccess: "own-subscription",
         contextWindow: "1m",
         fastMode: true,
       });
 
       expect(result.success).toBe(true);
       expect(sessionService.connectToTask).toHaveBeenCalledWith(
-        expect.objectContaining({ contextWindow: "1m", fastMode: true }),
+        expect.objectContaining({
+          adapter: "codex",
+          codexModelAccess: "own-subscription",
+          contextWindow: "1m",
+          fastMode: true,
+        }),
       );
     },
   );

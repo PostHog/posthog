@@ -32,8 +32,13 @@ _MAX_SECTION_CHARS = 2900
 
 # What the digest is, and how to answer it. Every reader sees this line, so it carries the two things
 # that are not in any single digest: that the feature is still being tuned, and where to say so.
-_FOOTER_INVITE = "Full list in the thread. React with :+1: or :-1:, or reply with feedback."
+_FOOTER_INVITE = "React with :+1: or :-1:, or reply with feedback."
 _BETA_LABEL = "Beta"
+
+# The first line of the thread. It names whose judgment picked these changes, and it claims nothing
+# about completeness. The line it replaced said "Full list in the thread", which readers reasonably
+# read as the full list: the thread carries what cleared the bar, never every merge of the day.
+_THREAD_LEAD = "Changes Stamphog thinks your team should know about:"
 
 
 def _clip(text: str, limit: int) -> str:
@@ -75,8 +80,8 @@ def _scope_line(shown: int, considered: int) -> str:
     learns to skip, and putting chrome first spends the only line the digest gets to earn attention.
     """
     if considered > shown:
-        return f"{shown} of {considered} stamphog-approved merges."
-    return f"{shown} stamphog-approved {'merge' if shown == 1 else 'merges'}."
+        return f"{shown} of {considered} Stamphog-approved merges."
+    return f"{shown} Stamphog-approved {'merge' if shown == 1 else 'merges'}."
 
 
 def _lead_text(summary: DigestSummary) -> str:
@@ -110,16 +115,23 @@ def _lead_blocks(summary: DigestSummary) -> list[dict]:
 
 
 def _detail_blocks(summary: DigestSummary) -> list[dict]:
-    """One section per change, for the thread under the lead."""
+    """The lead line, then one section per change, for the thread under the channel post."""
     # The sentence is the link, and it is the whole line. A leading "#412" makes a reader parse an
     # identifier before they reach what changed, and a trailing author repeats down the column on
     # the common day where one person did most of the work. Both are on the PR, one click away, for
     # the few readers who want them.
-    return [{"type": "section", "text": {"type": "mrkdwn", "text": _link(pr.url, pr.summary)}} for pr in summary.prs]
+    return [
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": _THREAD_LEAD}]},
+        *({"type": "section", "text": {"type": "mrkdwn", "text": _link(pr.url, pr.summary)}} for pr in summary.prs),
+    ]
 
 
 def _build_fallback_text(summary: DigestSummary) -> str:
-    """Plain text for the thread's notification preview and for clients that ignore blocks."""
+    """Plain text for the thread's notification preview and for clients that ignore blocks.
+
+    The lead line stays out of it. A notification shows the first few words, and spending them on
+    the same sentence every morning pushes the change itself out of view.
+    """
     # The top-level `text` fallback is parsed for mentions too, so escape it the same way.
     lines = [_escape_mrkdwn(pr.summary) for pr in summary.prs]
     return "\n".join(lines) or "No merged PRs worth a mention."

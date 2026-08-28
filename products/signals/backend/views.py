@@ -70,6 +70,7 @@ from products.signals.backend.artefact_schemas import (
     NON_WRITABLE_ARTEFACT_TYPES,
     SIGNALS_PRODUCT,
     ArtefactContentValidationError,
+    ChannelAssignment,
     Dismissal,
     SuggestedReviewers,
     SummaryChange,
@@ -785,6 +786,14 @@ class SignalReportViewSet(
             qs = queryset.filter(team=self.team)
             qs = self._exclude_deleted_signal_reports(qs)
             return self._apply_signal_report_status_filter(qs)
+        if self.action in {"retrieve", "signals"}:
+            qs = self._scope_signal_report_queryset(queryset)
+            qs = self._exclude_deleted_signal_reports(qs)
+            qs = self._apply_signal_report_status_filter(qs)
+            qs = self._annotate_latest_actionability_value(qs)
+            qs = self._prefetch_signal_report_priority_artefacts(qs)
+            qs = self._annotate_is_suggested_reviewer(qs)
+            return annotate_first_billable_pr_run_at(qs)
         qs = queryset
         qs = self._scope_signal_report_queryset(qs)
         qs = self._exclude_deleted_signal_reports(qs)
@@ -795,6 +804,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_scout_filter(qs)
         qs = self._apply_signal_report_scout_prefix_filter(qs)
         qs = self._apply_signal_report_implementation_pr_filter(qs)
+        qs = self._apply_signal_report_channel_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
         qs = self._annotate_latest_actionability_value(qs)
@@ -820,12 +830,29 @@ class SignalReportViewSet(
             .values("count"),
             output_field=IntegerField(),
         )
+        channel_id_subquery = Subquery(
+            SignalReportArtefact.objects.filter(
+                report_id=OuterRef("id"),
+                type=SignalReportArtefact.ArtefactType.CHANNEL_ASSIGNMENT,
+            )
+            .annotate(
+                live_channel_id=Case(
+                    When(channel__deleted=False, then=F("channel_id")),
+                    default=Value(None),
+                    output_field=models.UUIDField(),
+                )
+            )
+            .order_by("-created_at")
+            .values("live_channel_id")[:1],
+            output_field=models.UUIDField(),
+        )
         # select_related("refund"): the serializer renders the reverse OneToOne inline.
         return (
             queryset.filter(team=self.team)
             .select_related("refund")
             .annotate(
                 artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
+                channel_id=channel_id_subquery,
             )
         )
 
@@ -1027,6 +1054,18 @@ class SignalReportViewSet(
             )
         pr_filter = self._implementation_pr_report_filter()
         return queryset.filter(pr_filter) if wants_pr else queryset.exclude(pr_filter)
+
+    def _apply_signal_report_channel_filter(self, queryset):
+        # `channel_id=<uuid>` narrows to reports assigned to one space. Absent or empty
+        # leaves the list unchanged (the general view lists every report); a non-UUID is a 400.
+        raw = self.request.query_params.get("channel_id")
+        if raw is None or not raw.strip():
+            return queryset
+        try:
+            channel_id = uuid.UUID(raw.strip())
+        except (ValueError, AttributeError):
+            raise serializers.ValidationError({"channel_id": f"Invalid value: {raw!r}. Expected a UUID."})
+        return queryset.filter(channel_id=channel_id)
 
     def _apply_signal_report_suggested_reviewer_filter(self, queryset):
         suggested_reviewer_filter = self.request.query_params.get("suggested_reviewers")
@@ -1265,9 +1304,10 @@ class SignalReportViewSet(
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
-        if self.action == "viewed":
-            # The lightweight viewed queryset skips the annotations the default ordering sorts
-            # by, and a by-ID lookup has nothing to order anyway.
+        if self.action != "list":
+            # A by-ID lookup has nothing to order. More importantly, keeping list ordering here
+            # forces every detail request to compute status/priority/reviewer annotations that
+            # cannot affect which primary-key row is returned.
             return queryset
         return self._apply_signal_report_ordering(queryset)
 
@@ -1442,6 +1482,16 @@ class SignalReportViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="Case-insensitive substring match against report title and summary.",
+            ),
+            OpenApiParameter(
+                name="channel_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Narrow to reports assigned to one space (channel). Absent or empty means all "
+                    "reports regardless of assignment."
+                ),
             ),
             OpenApiParameter(
                 name="source_product",
@@ -3186,7 +3236,7 @@ class SignalReportArtefactViewSet(
       artefact (latest-wins, so the new row becomes current) with bespoke reviewer enrichment,
       merging commits/names forward from the current reviewers. Other types return 400.
     - POST / PATCH / DELETE manage artefacts of *any* type — no type is writer-restricted.
-      Log entries accumulate; status types (judgments, repo selection, suggested reviewers)
+      Log entries accumulate; status types (judgments, repo selection, suggested reviewers, channel assignments)
       are latest-wins, so appending a new version supersedes the previous one as the report's
       canonical status. Content is validated against the type's schema. Team scoping is
       enforced by `safely_get_queryset`, so an artefact id from another team / a deleted
@@ -3214,6 +3264,12 @@ class SignalReportArtefactViewSet(
         except (ValueError, TypeError):
             raise NotFound()
         return report_id
+
+    def _validate_channel_assignment(self, assignment: ChannelAssignment, request: Request) -> None:
+        if assignment.channel_id is not None and not tasks_facade.channel_exists(
+            self.team.id, assignment.channel_id, request.user.id
+        ):
+            raise serializers.ValidationError({"content": {"channel_id": "Unknown or inaccessible channel."}})
 
     def safely_get_queryset(self, queryset):
         # Mirror SignalReportViewSet: a deleted parent report is unreachable, so
@@ -3345,7 +3401,7 @@ class SignalReportArtefactViewSet(
             "Append an artefact to a report (see artefact_type for the writable types). Everything "
             "is append-only: log entries (code reference, commit, task run, note) accumulate, while "
             "status types (safety / actionability / priority judgments, repo selection, suggested "
-            "reviewers) are latest-wins — appending a new version supersedes the previous one as the "
+            "reviewers, channel assignments) are latest-wins — appending a new version supersedes the previous one as the "
             "report's canonical status. Content is validated against the type's schema."
         ),
         operation_id="signals_report_artefacts_create",
@@ -3442,6 +3498,8 @@ class SignalReportArtefactViewSet(
                 {"error": f"content does not match the '{artefact_type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if isinstance(parsed_content, ChannelAssignment):
+            self._validate_channel_assignment(parsed_content, request)
         artefact = SignalReportArtefact.append(
             team_id=self.team.id,
             report_id=report_id,
@@ -3529,6 +3587,9 @@ class SignalReportArtefactViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
+            parsed_content = parse_artefact_content(artefact.type, request.validated_data["content"])
+            if isinstance(parsed_content, ChannelAssignment):
+                self._validate_channel_assignment(parsed_content, request)
             artefact.update_content(request.validated_data["content"])
         except ArtefactContentValidationError as e:
             return Response(

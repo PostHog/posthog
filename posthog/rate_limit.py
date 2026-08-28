@@ -1,6 +1,7 @@
 import re
 import json
 import time
+import uuid
 import hashlib
 from contextlib import suppress
 from datetime import timedelta
@@ -536,6 +537,23 @@ class _TeamBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    """One bucket per credential (personal API key hash, else user) even on team-scoped views, for
+    endpoints where one user must not be able to drain the whole team's budget.
+
+    The parent's cache key idents a session-authenticated request on a team view by team id, which
+    would collapse every member of the team into one bucket.
+    """
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        if request.user.is_authenticated:
+            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
+            ident = hash_key_value(api_key[0]) if api_key is not None else request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 # The heatmap page pre-flight makes one outbound fetch of a caller-supplied page per uncached probe,
 # holding a web worker for as long as that page takes to answer, so its budget is about worker
 # occupancy rather than about protecting our own datastores. A legitimate caller needs one probe per
@@ -665,6 +683,21 @@ class ReplayVisionEstimateBurstRateThrottle(_TeamBucketRateThrottle):
 class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "replay_vision_estimate_sustained"
     rate = "200/hour"
+
+
+# Each observation search makes a synchronous embedding request and a brute-force cosine scan over
+# the team's embedding rows, and its primary caller is the session-authenticated Search tab, which
+# the default Burst/Sustained throttles bypass. The burst bucket is per credential so one user
+# iterating on queries can't lock the Search tab for the rest of the team; the sustained bucket is
+# per team so the total spend stays capped regardless of how many users or keys share it.
+class ReplayVisionSearchBurstRateThrottle(_UserBucketRateThrottle):
+    scope = "replay_vision_search_burst"
+    rate = "30/minute"
+
+
+class ReplayVisionSearchSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_search_sustained"
+    rate = "300/hour"
 
 
 class _AIThrottleBase(UserRateThrottle):
@@ -1022,6 +1055,38 @@ class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
     rate = "6/day"
 
 
+class VerifyEmailIPThrottle(IPThrottle):
+    """Aggregate cap per source, so rotating target uuids cannot multiply the per-account budget."""
+
+    scope = "verify_email_ip"
+    rate = "30/hour"
+
+
+class UserVerifyEmailThrottle(UserOrEmailRateThrottle):
+    scope = "user_verify_email"
+    rate = "6/20minutes"
+
+    def get_cache_key(self, request, view):
+        # Key on the target user's uuid from the request body. The endpoint is unauthenticated,
+        # so the base class would key on IP and let a distributed guesser spread attempts across
+        # addresses. Per-target keying caps the guess budget for one account. The Redis attempt
+        # counter is the hard limit underneath.
+        target_uuid = request.data.get("uuid") if isinstance(request.data, dict) else None
+        if target_uuid:
+            try:
+                # Canonicalize first: uuid.UUID accepts case-insensitive, hyphen-free, brace, and
+                # urn:uuid forms of one value, so hashing the raw text would mint a fresh bucket per
+                # spelling and let a caller sidestep the per-target limit. Fall back to the raw text
+                # (never raise from a cache key) when it isn't a parseable UUID.
+                key_source = str(uuid.UUID(str(target_uuid)))
+            except (ValueError, AttributeError, TypeError):
+                key_source = str(target_uuid)
+            ident = hashlib.sha256(key_source.encode()).hexdigest()
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+
+        return super().get_cache_key(request, view)
+
+
 class OnboardingDelegationThrottle(UserRateThrottle):
     # Delegation sends PostHog-branded emails to caller-supplied recipients, so we cap it tightly
     # to prevent a compromised admin session (or a misbehaving integration) from using the endpoint
@@ -1313,11 +1378,6 @@ class SharePasswordThrottle(_SharedLinkAtomicThrottle):
 
     scope = "share_password"
     rate = "10/minute"
-
-
-class CodeInviteThrottle(UserRateThrottle):
-    scope = "code_invite"
-    rate = "20000/hour"
 
 
 class RunSavedQueryRateThrottle(PersonalApiKeyRateThrottle):

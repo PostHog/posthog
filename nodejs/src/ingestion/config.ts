@@ -238,6 +238,14 @@ export type IngestionConsumerConfig = {
     /** Teams whose multivariate $feature_flag_called events are duplicated as $experiment_exposure: '*' for all, '' to disable, or comma-separated team IDs */
     EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: string
 
+    // $feature_flag_called fork into the flag_evaluations ClickHouse table
+    /** 'disabled' | 'dual_write' (produce to flag_evaluations while the event continues to events) */
+    INGESTION_FLAG_EVALUATIONS_MODE: string
+    /** '*' for all teams, or comma-separated team IDs */
+    INGESTION_FLAG_EVALUATIONS_TEAMS: string
+    /** Comma-separated team IDs never forked, even when TEAMS is '*' */
+    INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS: string
+
     // $feature_flag_called keep-first dedup config
     /** 'disabled' | 'shadow' (claim + count, never drop) | 'drop' */
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: string
@@ -386,6 +394,18 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
         EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '',
 
+        // $feature_flag_called fork into the flag_evaluations ClickHouse table.
+        // Teams default empty so flipping the mode alone forks nobody; ramp by
+        // naming teams (or '*') in INGESTION_FLAG_EVALUATIONS_TEAMS.
+        //
+        // On a split lane the fork runs in the Node processor pool, not in the
+        // Rust consumer that dispatches to it, so these belong on the lane's base
+        // values.yaml, which both roles inherit. Setting them on the consumer
+        // release alone does nothing.
+        INGESTION_FLAG_EVALUATIONS_MODE: 'disabled',
+        INGESTION_FLAG_EVALUATIONS_TEAMS: '',
+        INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS: '',
+
         // $feature_flag_called keep-first dedup config
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: 'disabled',
 
@@ -456,6 +476,9 @@ export type IngestionOutputsConfig = {
     INGESTION_OUTPUT_AI_EVENTS_TOPIC: string
     INGESTION_OUTPUT_AI_EVENTS_PRODUCER: ProducerName
 
+    INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: string
+    INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER: ProducerName
+
     INGESTION_OUTPUT_HEATMAPS_TOPIC: string
     INGESTION_OUTPUT_HEATMAPS_PRODUCER: ProducerName
 
@@ -499,6 +522,14 @@ export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
         INGESTION_OUTPUT_EVENTS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_AI_EVENTS_TOPIC: KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
         INGESTION_OUTPUT_AI_EVENTS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        // Empty topic skips the startup topic-existence check, so deploying this dark cannot
+        // crash-loop a fleet whose broker lacks the topic. Enable ordering: (1) create the
+        // clickhouse_flag_evaluations topic, (2) set INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC
+        // (startup topic verification is then fatal by design), (3) set
+        // INGESTION_FLAG_EVALUATIONS_MODE. Mode without topic is a no-op; see
+        // createFlagEvaluationsService.
+        INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: '',
+        INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_HEATMAPS_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         INGESTION_OUTPUT_HEATMAPS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_INGESTION_WARNINGS_TOPIC: KAFKA_INGESTION_WARNINGS,

@@ -4,7 +4,31 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 
 from products.access_control.backend.models.role import Role
-from products.approvals.backend.models import Approval, ApprovalPolicy, ChangeRequest
+from products.approvals.backend.models import Approval, ApprovalPolicy, ChangeRequest, ChangeRequestState
+
+
+class ChangeRequestSummarySerializer(serializers.ModelSerializer):
+    """Minimal read-only ChangeRequest shape for embedding on resources gated by an approval,
+    e.g. the scheduled change that carries it. Exposes just enough to show the approval state
+    and link to the change request."""
+
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text="ID of the approval change request. Use it to link to the change request in the UI.",
+    )
+    state = serializers.ChoiceField(
+        choices=ChangeRequestState.choices,
+        read_only=True,
+        help_text=(
+            "Current approval state: 'pending' (awaiting approval), 'approved' (awaiting application), "
+            "'applied', 'rejected', 'expired', or 'failed'."
+        ),
+    )
+
+    class Meta:
+        model = ChangeRequest
+        fields = ["id", "state"]
+        read_only_fields = ["id", "state"]
 
 
 class ChangeRequestSerializer(serializers.ModelSerializer):

@@ -22,6 +22,7 @@ function budget(overrides: Partial<HostBudgetOptions> = {}): HostBudget {
 describe('HostBudget', () => {
     it('does not reserve a token before a crawl-delay wait finishes', () => {
         const host = budget({ burst: 5 })
+        host.setCrawlDelay(ORIGIN, 1_000, 1_000)
 
         const first = host.take(REGISTRABLE_DOMAIN, ORIGIN, 1_000, DEADLINE_MS)
         expect(first).toEqual({

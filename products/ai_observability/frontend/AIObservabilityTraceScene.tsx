@@ -90,6 +90,7 @@ import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { generationEvaluationRunsLogic } from './generationEvaluationRunsLogic'
 import { useAIData } from './hooks/useAIData'
+import { TraceStructureNote } from './instrumentationChecklist/TraceStructureNote'
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { normalizeMessages } from './messageNormalization'
@@ -1230,6 +1231,7 @@ function TraceSidebar({
                         showBillingInfo={showBillingInfo}
                     />
                 </ul>
+                <TraceStructureNote events={trace.events} />
             </div>
         </aside>
     )

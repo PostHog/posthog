@@ -325,6 +325,33 @@ class TestGoogleAdsNonRetryableErrors:
         assert "admin" in friendly.lower()
 
 
+class TestGoogleAdsRetryableErrors:
+    def setup_method(self):
+        self.source = GoogleAdsSource()
+        self.retryable = self.source.get_retryable_errors()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # str(google.api_core.exceptions.ResourceExhausted) as it propagates once
+            # `_call_with_transient_retry`'s in-process retry budget (see google_ads.py) is
+            # exhausted on a quota/rate-limit RESOURCE_EXHAUSTED.
+            "Resource has been exhausted (e.g. check quota).",
+        ],
+    )
+    def test_quota_exhausted_is_retryable(self, error_msg):
+        # If this pattern drops out of get_retryable_errors(), a quota window that outlasts the
+        # in-process retry budget starts polluting error tracking even though Temporal's activity
+        # retry still recovers once the quota clears.
+        assert any(pattern in error_msg for pattern in self.retryable)
+
+    def test_receive_limit_exhausted_is_not_retryable(self):
+        # The client-side "Received message larger than max" abort is deterministic (see
+        # `_is_transient_grpc_error`) — it must not be swallowed as benign noise here.
+        error_msg = "Received message larger than max (90000000 vs. 67108864)"
+        assert not any(pattern in error_msg for pattern in self.retryable)
+
+
 class TestGoogleAdsLookbackDefault:
     _SCHEMAS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.get_schemas"
 

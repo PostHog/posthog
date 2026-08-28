@@ -12,9 +12,6 @@ const NOW_MS = 1_700_000_000_000
 const OPTIONS: FetchRunnerOptions = {
     maxConcurrentPerRegistrableDomain: 2,
     maxInFlightRequests: 50,
-    minimumActiveOrigins: 1,
-    lowOriginDiversityRepublishThreshold: 50,
-    lowOriginDiversityProgress: 8,
     batchBudgetMs: 20_000,
     maxBytes: 20 * 1024 * 1024,
     requestTimeoutMs: 10_000,
@@ -41,6 +38,7 @@ function candidate(overrides: Partial<FetchCandidate> = {}): FetchCandidate {
 
 interface Harness {
     runner: FetchRunner
+    budget: HostBudget
     fetch: jest.Mock<Promise<ImageFetchResult>, [string, ImageFetchOptions]>
     check: jest.Mock<Promise<OriginPolicyDecision>, [string, Map<string, ConfigurationCacheItem>, number]>
     createPass: jest.Mock
@@ -97,7 +95,7 @@ function build(
         options,
         { createRepublishBatch, publishImage } as unknown as FrontierPublisher
     )
-    return { runner, fetch, check, createPass, republish, publishImage }
+    return { runner, budget, fetch, check, createPass, republish, publishImage }
 }
 
 describe('FetchRunner', () => {
@@ -128,11 +126,12 @@ describe('FetchRunner', () => {
             ],
         ])
 
-        await harness.runner.run([candidate()], stored)
+        await harness.runner.run([candidate({ sourcePartitions: [7, 42] })], stored)
 
         expect(harness.fetch.mock.calls[0][1]).toMatchObject({
             maxBytes: OPTIONS.maxBytes,
             maxRedirects: OPTIONS.maxRedirects,
+            sourcePartitions: [7, 42],
             cache,
             tdmrepReservation: true,
         })
@@ -183,7 +182,7 @@ describe('FetchRunner', () => {
         expect(harness.fetch).toHaveBeenCalledTimes(2)
     })
 
-    it('does not let one origin occupy every registrable-domain worker', async () => {
+    it('allocates sibling-origin workers by queue share', async () => {
         const harness = build({}, {}, 'queued', { ...OPTIONS, maxConcurrentPerRegistrableDomain: 2 })
         let releaseFirst: (() => void) | undefined
         let releaseSecond: (() => void) | undefined
@@ -219,7 +218,7 @@ describe('FetchRunner', () => {
         expect(harness.fetch).toHaveBeenCalledTimes(3)
     })
 
-    it('records initial capacity after origin and registrable-domain limits', async () => {
+    it('records initial capacity after live pod and registrable-domain limits', async () => {
         const observeCapacity = jest
             .spyOn(ImageFetchRequestMetrics, 'observeBatchSchedulableCapacity')
             .mockImplementation()
@@ -233,9 +232,7 @@ describe('FetchRunner', () => {
             ...Array.from({ length: 2 }, (_, index) =>
                 candidate({
                     originalRef: `imageurl:${String(index + 1).repeat(22)}`,
-                    currentUrl: `https://sibling-${index}.example.com/image.png`,
-                    host: `sibling-${index}.example.com`,
-                    origin: `https://sibling-${index}.example.com`,
+                    currentUrl: `https://cdn.example.com/image-${index}.png`,
                 })
             ),
             ...Array.from({ length: 2 }, (_, index) =>
@@ -248,13 +245,24 @@ describe('FetchRunner', () => {
                 })
             ),
         ]
+        const grant = harness.budget.take('example.com', 'https://cdn.example.com', NOW_MS, NOW_MS + 10_000, true)
+        expect(grant).toMatchObject({ granted: true, waitMs: 0 })
+        expect(harness.budget.acquireConnection('example.com', 'https://cdn.example.com')).toBe(true)
+        harness.budget.markRequestStarted(
+            'example.com',
+            'https://cdn.example.com',
+            NOW_MS,
+            grant.granted ? grant.reservedStartAtMs : null,
+            'configuration'
+        )
 
         await harness.runner.run(candidates, new Map())
 
-        expect(observeCapacity).toHaveBeenCalledWith(4, 3)
+        expect(observeCapacity).toHaveBeenCalledWith(3, 3)
+        harness.budget.releaseConnection('example.com', 'https://cdn.example.com')
     })
 
-    it('starts the origin with the largest canonical URL queue first', async () => {
+    it('keeps one request slot on the largest origin queue', async () => {
         const harness = build({}, {}, 'queued', {
             ...OPTIONS,
             maxConcurrentPerRegistrableDomain: 1,
@@ -282,67 +290,37 @@ describe('FetchRunner', () => {
 
         expect(harness.fetch.mock.calls.map(([url]) => url)).toEqual([
             largeFirst.currentUrl,
-            small.currentUrl,
             largeSecond.currentUrl,
+            small.currentUrl,
         ])
     })
 
-    it('republishes a low-origin-diversity tail after making bounded progress', async () => {
+    it('processes a low-capacity tail instead of republishing it for more diversity', async () => {
         const harness = build({}, {}, 'queued', {
             ...OPTIONS,
             maxInFlightRequests: 1,
-            minimumActiveOrigins: 2,
-            lowOriginDiversityRepublishThreshold: 2,
-            lowOriginDiversityProgress: 1,
         })
-        const candidates = Array.from({ length: 4 }, (_, index) =>
-            candidate({
+        const candidates = Array.from({ length: 4 }, (_, index) => {
+            const origin = `https://cdn-${index}.example.com`
+            return candidate({
                 originalRef: `imageurl:${index.toString().padStart(22, '0')}`,
-                currentUrl: `https://cdn.example.com/${index}.png`,
+                currentUrl: `${origin}/${index}.png`,
+                host: `cdn-${index}.example.com`,
+                origin,
             })
-        )
+        })
 
         const attempts = await harness.runner.run(candidates, new Map())
 
-        expect(harness.fetch).toHaveBeenCalledTimes(1)
-        expect(harness.republish).toHaveBeenCalledTimes(3)
-        expect(harness.republish).toHaveBeenCalledWith(
-            expect.any(Object),
-            expect.any(Object),
-            'low_origin_diversity',
-            0
-        )
-        expect(attempts.filter((attempt) => attempt.outcome === 'low_origin_diversity')).toHaveLength(3)
-    })
-
-    it('does not apply a second low-origin-diversity deferral to the same jobs', async () => {
-        const harness = build({}, {}, 'queued', {
-            ...OPTIONS,
-            maxInFlightRequests: 1,
-            minimumActiveOrigins: 2,
-            lowOriginDiversityRepublishThreshold: 2,
-            lowOriginDiversityProgress: 1,
-        })
-        const candidates = Array.from({ length: 4 }, (_, index) =>
-            candidate({
-                originalRef: `imageurl:${index.toString().padStart(22, '0')}`,
-                currentUrl: `https://cdn.example.com/${index}.png`,
-                lowOriginDiversityDeferred: true,
-            })
-        )
-
-        await harness.runner.run(candidates, new Map())
-
         expect(harness.fetch).toHaveBeenCalledTimes(4)
-        expect(harness.republish).not.toHaveBeenCalledWith(
-            expect.any(Object),
-            expect.any(Object),
-            'low_origin_diversity',
-            expect.any(Number)
-        )
+        expect(harness.republish).not.toHaveBeenCalled()
+        expect(attempts).toHaveLength(4)
     })
 
     it('keeps the pod request limit across overlapping passes', async () => {
+        const observeCapacity = jest
+            .spyOn(ImageFetchRequestMetrics, 'observeBatchSchedulableCapacity')
+            .mockImplementation()
         const harness = build({}, {}, 'queued', { ...OPTIONS, maxInFlightRequests: 1 })
         const releases: Array<() => void> = []
         let signalSecondFetchStarted: () => void = () => undefined
@@ -372,6 +350,10 @@ describe('FetchRunner', () => {
         await Promise.resolve()
 
         expect(harness.fetch).toHaveBeenCalledTimes(1)
+        expect(observeCapacity.mock.calls).toEqual([
+            [1, 1],
+            [0, 1],
+        ])
         releases[0]()
         await secondFetchStarted
         expect(harness.fetch).toHaveBeenCalledTimes(2)
@@ -430,12 +412,6 @@ describe('FetchRunner', () => {
         await expect(harness.runner.run([candidate(), second], new Map())).rejects.toThrow('dependency unavailable')
 
         expect(harness.fetch).toHaveBeenCalledTimes(1)
-    })
-
-    it('rejects fractional low-origin-diversity counts', () => {
-        expect(() => build({}, {}, 'queued', { ...OPTIONS, lowOriginDiversityProgress: 1.5 })).toThrow(
-            'SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS must be a positive safe integer'
-        )
     })
 
     it('deduplicates canonical refs before queue scheduling', async () => {

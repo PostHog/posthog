@@ -18,6 +18,7 @@ import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
+  type AcpMcpServer,
   type Adapter,
   buildPrOutput,
   getErrorMessage,
@@ -29,6 +30,7 @@ import {
   readMcpToolDescriptor,
   readPrUrls,
   sleepWithBackoff,
+  toAcpMcpServers,
 } from "@posthog/shared";
 import {
   buildPosthogPropertiesHeaderLines,
@@ -70,7 +72,6 @@ import {
 } from "../adapters/signed-commit-shared";
 import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
-import { HandoffCheckpointTracker } from "../handoff-checkpoint";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import { configurePersistentAgentState } from "../persistent-agent-state";
 import { PostHogAPIClient } from "../posthog-api";
@@ -96,12 +97,12 @@ import { SessionLogWriter } from "../session-log-writer";
 import type {
   AgentMode,
   DeviceInfo,
-  GitCheckpointEvent,
-  HandoffLocalGitState,
   LogLevel,
   Task,
   TaskRun,
   TaskRunArtifact,
+  TaskRunState,
+  TaskRunStateField,
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
 import { AsyncMutex } from "../utils/async-mutex";
@@ -124,11 +125,7 @@ import {
 } from "./pr-checkout";
 import { resolveRtkSavings } from "./rtk-savings";
 import { RunUsageAccumulator } from "./run-usage";
-import {
-  handoffLocalGitStateSchema,
-  jsonRpcRequestSchema,
-  validateCommandParams,
-} from "./schemas";
+import { jsonRpcRequestSchema, validateCommandParams } from "./schemas";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
 
@@ -321,7 +318,6 @@ interface ActiveSession {
   permissionMode: PermissionMode;
   /** Whether a desktop client has ever connected via SSE during this session */
   hasDesktopConnected: boolean;
-  pendingHandoffGitState?: HandoffLocalGitState;
   /** Meta the session was created with, reused when a retry needs a fresh session */
   sessionMeta: Record<string, unknown>;
 }
@@ -338,6 +334,8 @@ interface BuiltPrompt {
   meta?: Record<string, unknown>;
   messageId?: string;
 }
+
+export const PREWARMED_RESUME_IDLE_CAPABILITY = "prewarmedResumeIdle";
 
 function hiddenTextBlock(text: string): ContentBlock {
   return {
@@ -381,17 +379,16 @@ interface LocalSkillPromptContext {
 
 function getTaskRunStateString(
   taskRun: TaskRun | null,
-  key: string,
+  key: TaskRunStateField,
 ): string | null {
-  const state = taskRun?.state;
-
-  if (!state || typeof state !== "object") {
-    return null;
-  }
-
-  const value = (state as Record<string, unknown>)[key];
+  const value = taskRun?.state[key];
   return typeof value === "string" ? value : null;
 }
+
+type SteerDeclineReason =
+  | "startup_turn"
+  | "no_active_turn"
+  | "adapter_rejected";
 
 /** Which delivery routes a Slack run has, as resolved by the backend from flags and Slack scopes. */
 type SlackArtifactDelivery = "none" | "message" | "canvas_file";
@@ -421,13 +418,7 @@ function readSlackArtifactDelivery(
  * that predates charts, which is the same as off.
  */
 function readSlackChartDelivery(taskRun: TaskRun | null): boolean {
-  const state = taskRun?.state;
-
-  if (!state || typeof state !== "object") {
-    return false;
-  }
-
-  return (state as Record<string, unknown>).slack_chart_delivery === true;
+  return taskRun?.state.slack_chart_delivery === true;
 }
 
 // Prompt block we hand the agent when the user attached files but we could not
@@ -766,6 +757,7 @@ export class AgentServer {
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
         boot,
+        capabilities: [PREWARMED_RESUME_IDLE_CAPABILITY],
       });
     });
 
@@ -990,9 +982,6 @@ export class AgentServer {
       });
       this.logger.debug("Resume state loaded", {
         conversationTurns: this.resumeState.conversation.length,
-        hasGitCheckpoint: !!this.resumeState.latestGitCheckpoint,
-        gitCheckpointBranch:
-          this.resumeState.latestGitCheckpoint?.branch ?? null,
         logEntries: this.resumeState.logEntryCount,
       });
     } catch (error) {
@@ -1279,7 +1268,7 @@ export class AgentServer {
             taskId: commandSession.payload.task_id,
             runId: commandSession.payload.run_id,
           });
-          const prompt = builtPrompt.prompt;
+          let prompt = builtPrompt.prompt;
           if (prompt.length === 0) {
             throw new Error("User message cannot be empty");
           }
@@ -1313,10 +1302,10 @@ export class AgentServer {
           };
 
           if (params.steer === true) {
-            if (
-              this.activeOwnedTurnCount > 0 &&
-              this.activeStartupTurnCount === 0
-            ) {
+            let declineReason: SteerDeclineReason = "no_active_turn";
+            if (this.activeStartupTurnCount > 0) {
+              declineReason = "startup_turn";
+            } else if (this.activeOwnedTurnCount > 0) {
               const result = await commandSession.clientConnection.prompt({
                 sessionId: commandSession.acpSessionId,
                 prompt,
@@ -1331,20 +1320,33 @@ export class AgentServer {
                 resolveDelivery(outcome);
                 return outcome;
               }
+              declineReason = "adapter_rejected";
             }
             const outcome = {
               stopReason: "steer_declined",
               steered: false,
+              reason: declineReason,
             };
             resolveDelivery(outcome);
             return outcome;
           }
 
+          // Read the slash command off what the user actually typed. A deferred summary resume
+          // prepends a hidden history block, and `isManualCompactPrompt` matches on the whole
+          // prompt text, so checking afterwards would stop recognizing `/compact` as the first
+          // message of a resumed session.
+          const manualCompactPrompt = isManualCompactPrompt(prompt);
+
+          const deferredResume = await this.preparePrewarmedResumePrompt(
+            commandSession.payload,
+            prompt,
+          );
+          prompt = deferredResume.prompt;
+
           commandSession.logWriter.resetTurnMessages(
             commandSession.payload.run_id,
           );
 
-          const manualCompactPrompt = isManualCompactPrompt(prompt);
           const acpSessionId = commandSession.acpSessionId;
           const continueAfterCompaction = (): Promise<PromptResponse> =>
             this.promptWithUpstreamRetry({
@@ -1379,11 +1381,31 @@ export class AgentServer {
                 }
                 return promptResult;
               };
-              if (this.prewarmedStartupTurnPending) {
-                this.prewarmedStartupTurnPending = false;
-                result = await this.runStartupTurn(runPrompt);
-              } else {
-                result = await this.runOwnedTurn(runPrompt);
+              const runTurn = () => {
+                if (this.prewarmedStartupTurnPending) {
+                  this.prewarmedStartupTurnPending = false;
+                  return this.runStartupTurn(runPrompt);
+                }
+                return this.runOwnedTurn(runPrompt);
+              };
+              try {
+                result = await runTurn();
+              } catch (error) {
+                // A deferred native resume replays the whole prior transcript, which can overflow
+                // the context window. Fall back the way `sendResumeContinuation` does — a fresh
+                // session carrying summarized history — instead of failing the run.
+                const retryPrompt =
+                  deferredResume.consumed && isPromptTooLongError(error)
+                    ? await this.retryOversizedDeferredResume(
+                        commandSession.payload,
+                        builtPrompt.prompt,
+                      )
+                    : null;
+                if (!retryPrompt) {
+                  throw error;
+                }
+                prompt = retryPrompt;
+                result = await runTurn();
               }
 
               if (result.stopReason === "end_turn" && manualCompactPrompt) {
@@ -1411,6 +1433,10 @@ export class AgentServer {
               throw error;
             }
             commitDelivery();
+            if (deferredResume.consumed) {
+              this.resumeState = null;
+              this.nativeResume = null;
+            }
             const outcome = { stopReason: "error_recoverable" };
             resolveDelivery(outcome);
             return outcome;
@@ -1418,6 +1444,10 @@ export class AgentServer {
             this.suppressAdapterTurnComplete = false;
           }
           commitDelivery();
+          if (deferredResume.consumed) {
+            this.resumeState = null;
+            this.nativeResume = null;
+          }
 
           this.logger.debug("User message completed", {
             stopReason: result.stopReason,
@@ -1492,10 +1522,6 @@ export class AgentServer {
       case POSTHOG_NOTIFICATIONS.CLOSE:
       case "close": {
         this.logger.debug("Close requested");
-        const localGitState = this.extractHandoffLocalGitState(params);
-        if (localGitState && this.session) {
-          this.session.pendingHandoffGitState = localGitState;
-        }
         await this.cleanupSession();
         return { closed: true };
       }
@@ -1566,7 +1592,7 @@ export class AgentServer {
 
         return await this.session.clientConnection.extMethod(
           POSTHOG_METHODS.REFRESH_SESSION,
-          { mcpServers: refreshedMcpServers },
+          { mcpServers: toAcpMcpServers(refreshedMcpServers) },
         );
       }
 
@@ -1783,9 +1809,7 @@ export class AgentServer {
       preTask?.repositories ??
       (preTask?.repository ? [preTask.repository] : []);
 
-    this.prewarmedRun =
-      (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===
-      true;
+    this.prewarmedRun = preTaskRun?.state.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
 
     const runtimeAdapter = this.getRuntimeAdapter();
@@ -1799,6 +1823,7 @@ export class AgentServer {
       taskRunId: payload.run_id,
       taskUserId: payload.user_id || preTask?.created_by?.id || null,
       taskTitle: preTask?.title,
+      taskOriginKey: preTask?.origin_key,
       repositories: this.taskRepositories,
       runtimeAdapter,
       sandboxEnvironmentId: getTaskRunStateString(
@@ -1955,7 +1980,7 @@ export class AgentServer {
     const conversationClear =
       extractConversationClearCapability(initializeResult);
 
-    const runState = preTaskRun?.state as Record<string, unknown> | undefined;
+    const runState = preTaskRun?.state;
     // Preserve native Codex modes for cloud runs so they behave the same as
     // local sessions. Claude keeps the historical auto-approved default when
     // PostHog Desktop has not explicitly selected a mode.
@@ -1993,6 +2018,7 @@ export class AgentServer {
       ...(preTask?.origin_product && {
         taskOriginProduct: preTask.origin_product,
       }),
+      ...(runState?.end_run_when_done === true && { endRunWhenDone: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
         this.config.contextWindow && {
@@ -2043,10 +2069,10 @@ export class AgentServer {
             sessionCwd,
             initialPermissionMode,
           );
-          const preparedMcpServers: McpServerConnection[] = [
+          const preparedMcpServers: AcpMcpServer[] = toAcpMcpServers([
             ...(this.config.mcpServers ?? []),
             ...(await this.startMcpRelayServer()),
-          ];
+          ]);
           return [preparedNativeResume, preparedMcpServers] as const;
         } finally {
           if (existingPrCheckoutPromise) {
@@ -2110,7 +2136,6 @@ export class AgentServer {
         return sessionId;
       },
     );
-
     this.evaluatedPrUrls.clear();
     this.prAttributionChain = Promise.resolve();
 
@@ -2125,7 +2150,6 @@ export class AgentServer {
       telemetry,
       permissionMode: initialPermissionMode,
       hasDesktopConnected: sseController !== null,
-      pendingHandoffGitState: undefined,
       sessionMeta: effectiveSessionMeta,
     };
     this.initializingTelemetry = undefined;
@@ -2414,13 +2438,19 @@ export class AgentServer {
       });
     }
 
-    if (this.nativeResume) {
-      if (await this.settleIdleResume(payload, taskRun)) return;
-      await this.sendResumeContinuation(payload, taskRun);
-      return;
-    }
+    const taskRunState = taskRun?.state as Record<string, unknown> | undefined;
+    const prewarmed = taskRunState?.prewarmed === true;
+    const hasPendingUserPrompt =
+      (typeof taskRunState?.pending_user_message === "string" &&
+        taskRunState.pending_user_message.trim().length > 0) ||
+      (Array.isArray(taskRunState?.pending_user_artifact_ids) &&
+        taskRunState.pending_user_artifact_ids.length > 0);
 
-    if (!this.resumeState) {
+    // Load the summary fallback before deciding to idle. A prewarmed run that idles here reads
+    // this state when its first message arrives, and initialization may have failed to fetch the
+    // run that `prepareNativeResume` needed — leaving both resume fields empty and starting the
+    // resumed task with none of its prior conversation.
+    if (!this.nativeResume && !this.resumeState) {
       const resumeRunId = this.getResumeRunId(taskRun);
       if (resumeRunId) {
         await this.loadResumeState(
@@ -2429,6 +2459,24 @@ export class AgentServer {
           payload.run_id,
         );
       }
+    }
+
+    // `await_user_message` is the marker the backend clears on activation. `prewarmed` is permanent
+    // provenance that outlives it, so idling on that alone would strand a run whose first message
+    // was already delivered — every later reinitialization would wait for a message nobody sends.
+    const awaitsFirstMessage = taskRunState?.await_user_message === true;
+    if (prewarmed && awaitsFirstMessage && !hasPendingUserPrompt) {
+      this.prewarmedRun = true;
+      this.logger.debug(
+        "Prewarmed run awaits its forwarded first message, skipping initial message",
+      );
+      return;
+    }
+
+    if (this.nativeResume) {
+      if (await this.settleIdleResume(payload, taskRun)) return;
+      await this.sendResumeContinuation(payload, taskRun);
+      return;
     }
 
     if (this.resumeState && this.resumeState.conversation.length > 0) {
@@ -2448,9 +2496,6 @@ export class AgentServer {
       // A prewarmed run gets its first message forwarded as a user_message
       // signal on activation; building one from task.description here too
       // would deliver it twice (and without the forwarded artifacts).
-      const prewarmed = !!(
-        taskRun?.state as Record<string, unknown> | undefined
-      )?.prewarmed;
       let initialPrompt: ContentBlock[] = [];
       let initialPromptMeta: Record<string, unknown> | undefined;
       let initialPromptMessageId: string | undefined;
@@ -2554,13 +2599,7 @@ export class AgentServer {
         resumeState.conversation,
       );
 
-      const checkpointApplied = await this.applyResumeGitCheckpoint(payload);
-
       const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
-
-      const checkpointContext = checkpointApplied
-        ? `The workspace environment (all files, packages, and code changes) has been fully restored from the latest checkpoint.`
-        : `No additional git checkpoint was applied before resuming. Use the current workspace contents together with the preserved conversation history below.`;
 
       let resumePromptBlocks: ContentBlock[];
       let resumePromptMeta: Record<string, unknown> | undefined;
@@ -2570,7 +2609,7 @@ export class AgentServer {
         resumePromptMessageId = pendingUserPrompt.messageId;
         resumePromptBlocks = [
           hiddenTextBlock(
-            `You are resuming a previous conversation. ${checkpointContext}\n\n` +
+            "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
               `Here is the conversation history from the previous session:\n\n` +
               `${conversationSummary}\n\n` +
               `The user has sent a new message:\n\n`,
@@ -2583,7 +2622,7 @@ export class AgentServer {
       } else {
         resumePromptBlocks = [
           hiddenTextBlock(
-            `You are resuming a previous conversation. ${checkpointContext}\n\n` +
+            "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
               `Here is the conversation history from the previous session:\n\n` +
               `${conversationSummary}\n\n` +
               `Continue from where you left off. The user is waiting for your response.`,
@@ -2596,9 +2635,6 @@ export class AgentServer {
         conversationTurns: resumeState.conversation.length,
         promptLength: promptBlocksToText(resumePromptBlocks).length,
         hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
-        checkpointApplied,
-        hasGitCheckpoint: !!resumeState.latestGitCheckpoint,
-        gitCheckpointBranch: resumeState.latestGitCheckpoint?.branch ?? null,
       });
 
       return {
@@ -2618,16 +2654,11 @@ export class AgentServer {
     const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
     if (pendingUserPrompt?.prompt.length) return false;
 
-    const checkpointApplied = this.nativeResume?.warm
-      ? false
-      : await this.applyResumeGitCheckpoint(payload);
-
     this.logger.debug("Idle resume settled without a turn", {
       taskId: payload.task_id,
       runId: payload.run_id,
       sessionId: this.nativeResume?.sessionId,
       warm: this.nativeResume?.warm,
-      checkpointApplied,
     });
 
     this.resumeState = null;
@@ -2636,6 +2667,121 @@ export class AgentServer {
     this.broadcastTurnComplete("end_turn");
     await this.session.logWriter.flushAll();
     return true;
+  }
+
+  private async preparePrewarmedResumePrompt(
+    payload: JwtPayload,
+    prompt: ContentBlock[],
+  ): Promise<{ prompt: ContentBlock[]; consumed: boolean }> {
+    if (!this.prewarmedRun) {
+      return { prompt, consumed: false };
+    }
+
+    if (this.nativeResume) {
+      this.logger.debug("Applying deferred native resume to user message", {
+        taskId: payload.task_id,
+        sessionId: this.nativeResume.sessionId,
+        warm: this.nativeResume.warm,
+      });
+      return { prompt, consumed: true };
+    }
+
+    if (!this.resumeState?.conversation.length) {
+      return { prompt, consumed: false };
+    }
+
+    const resumeState = this.resumeState;
+
+    this.logger.debug("Applying deferred summary resume to user message", {
+      taskId: payload.task_id,
+      conversationTurns: resumeState.conversation.length,
+    });
+
+    return {
+      prompt: this.wrapPromptWithSummaryResume(resumeState, prompt),
+      consumed: true,
+    };
+  }
+
+  /** Wrap the user's message in the previous session's conversation, hidden from the transcript. */
+  private wrapPromptWithSummaryResume(
+    resumeState: ResumeState,
+    prompt: ContentBlock[],
+  ): ContentBlock[] {
+    const conversationSummary = formatConversationForResume(
+      resumeState.conversation,
+    );
+    return [
+      hiddenTextBlock(
+        "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+          `Here is the conversation history from the previous session:\n\n` +
+          `${conversationSummary}\n\n` +
+          "The user has sent a new message:\n\n",
+      ),
+      ...prompt,
+      hiddenTextBlock(
+        "\n\nRespond to the user's new message above. You have full context from the previous session.",
+      ),
+    ];
+  }
+
+  /**
+   * Recover a deferred native resume whose transcript overflowed the context window: open a fresh
+   * session and rebuild the prompt around summarized history instead. Returns the replacement
+   * prompt, or null when there is nothing to fall back to.
+   *
+   * `sendResumeContinuation` gets this through `runResumeTurn`'s `retryOnOversizedPrompt`, but a
+   * prewarmed run defers its resume onto the first forwarded `user_message` and never goes through
+   * that path — without this it would fail the run instead of retrying.
+   */
+  private async retryOversizedDeferredResume(
+    payload: JwtPayload,
+    prompt: ContentBlock[],
+  ): Promise<ContentBlock[] | null> {
+    if (this.oversizedResumeRetried || !this.session) {
+      return null;
+    }
+    this.oversizedResumeRetried = true;
+
+    const taskRun = await this.refreshTaskRunForResume(payload, null);
+    const resumeRunId = this.getResumeRunId(taskRun);
+    if (!resumeRunId) return null;
+    if (!this.resumeState) {
+      try {
+        await this.loadResumeState(
+          payload.task_id,
+          resumeRunId,
+          payload.run_id,
+        );
+      } catch (error) {
+        this.logger.warn("Failed to reload resume state for retry", {
+          error: getErrorMessage(error),
+        });
+        return null;
+      }
+    }
+    const resumeState = this.resumeState;
+    if (!resumeState?.conversation.length) return null;
+
+    try {
+      const response = await this.session.clientConnection.newSession({
+        cwd: this.config.repositoryPath ?? "/tmp/workspace",
+        mcpServers: this.config.mcpServers ?? [],
+        _meta: this.session.sessionMeta,
+      });
+      this.session.acpSessionId = response.sessionId;
+    } catch (error) {
+      this.logger.warn("Failed to start fresh session for oversized resume", {
+        error: getErrorMessage(error),
+      });
+      return null;
+    }
+
+    this.logger.warn(
+      "Deferred resume prompt exceeded the context window; retrying on a fresh session with summarized history",
+      { taskId: payload.task_id, runId: payload.run_id },
+    );
+    return this.wrapPromptWithSummaryResume(resumeState, prompt);
   }
 
   private async sendResumeContinuation(
@@ -2650,10 +2796,6 @@ export class AgentServer {
       taskRun,
       "Resume continuation",
       async () => {
-        const checkpointApplied = this.nativeResume?.warm
-          ? false
-          : await this.applyResumeGitCheckpoint(payload);
-
         const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
         const prompt: ContentBlock[] = pendingUserPrompt?.prompt.length
           ? pendingUserPrompt.prompt
@@ -2667,7 +2809,6 @@ export class AgentServer {
           taskId: payload.task_id,
           sessionId: this.nativeResume?.sessionId,
           warm: this.nativeResume?.warm,
-          checkpointApplied,
           hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
         });
 
@@ -2738,7 +2879,7 @@ export class AgentServer {
     try {
       const response = await this.session.clientConnection.newSession({
         cwd: this.config.repositoryPath ?? "/tmp/workspace",
-        mcpServers: this.config.mcpServers ?? [],
+        mcpServers: toAcpMcpServers(this.config.mcpServers ?? []),
         _meta: this.session.sessionMeta,
       });
       this.session.acpSessionId = response.sessionId;
@@ -2834,53 +2975,9 @@ export class AgentServer {
     }
   }
 
-  private async applyResumeGitCheckpoint(
-    payload: JwtPayload,
-  ): Promise<boolean> {
-    if (
-      !this.resumeState?.latestGitCheckpoint ||
-      !this.config.repositoryPath ||
-      !this.posthogAPI
-    ) {
-      return false;
-    }
-    try {
-      const checkpointTracker = new HandoffCheckpointTracker({
-        repositoryPath: this.config.repositoryPath,
-        taskId: payload.task_id,
-        runId: payload.run_id,
-        apiClient: this.posthogAPI,
-        logger: this.logger.child("HandoffCheckpoint"),
-      });
-      const metrics = await checkpointTracker.applyFromHandoff(
-        this.resumeState.latestGitCheckpoint,
-      );
-      this.logger.debug("Git checkpoint applied", {
-        branch: this.resumeState.latestGitCheckpoint.branch,
-        head: this.resumeState.latestGitCheckpoint.head,
-        packBytes: metrics.packBytes,
-        indexBytes: metrics.indexBytes,
-        totalBytes: metrics.totalBytes,
-      });
-      return true;
-    } catch (error) {
-      this.logger.warn("Failed to apply git checkpoint", {
-        error: error instanceof Error ? error.message : String(error),
-        branch: this.resumeState.latestGitCheckpoint.branch,
-      });
-      return false;
-    }
-  }
-
   private getInitialPromptOverride(taskRun: TaskRun): string | null {
-    const state = taskRun.state as Record<string, unknown> | undefined;
-    const override = state?.initial_prompt_override;
-    if (typeof override !== "string") {
-      return null;
-    }
-
-    const trimmed = override.trim();
-    return trimmed.length > 0 ? trimmed : null;
+    const override = taskRun.state.initial_prompt_override;
+    return typeof override === "string" ? override.trim() || null : null;
   }
 
   private markMessageDelivered(messageId: string): void {
@@ -2898,14 +2995,14 @@ export class AgentServer {
     taskRun: TaskRun | null,
   ): Promise<BuiltPrompt | null> {
     if (!taskRun) return null;
-    const state = taskRun.state as Record<string, unknown> | undefined;
-    const message = state?.pending_user_message;
+    const state = taskRun.state;
+    const message = state.pending_user_message;
     const pendingMessageId =
-      typeof state?.pending_user_message_id === "string" &&
+      typeof state.pending_user_message_id === "string" &&
       state.pending_user_message_id
         ? state.pending_user_message_id
         : undefined;
-    const artifactIds = Array.isArray(state?.pending_user_artifact_ids)
+    const artifactIds = Array.isArray(state.pending_user_artifact_ids)
       ? state.pending_user_artifact_ids.filter(
           (artifactId): artifactId is string =>
             typeof artifactId === "string" && artifactId.trim().length > 0,
@@ -3050,10 +3147,7 @@ export class AgentServer {
   }
 
   private getClearedPendingUserState(taskRun: TaskRun | null): string[] | null {
-    const state =
-      taskRun?.state && typeof taskRun.state === "object"
-        ? (taskRun.state as Record<string, unknown>)
-        : null;
+    const state = taskRun?.state;
     if (!state) {
       return null;
     }
@@ -3710,11 +3804,8 @@ export class AgentServer {
 
     // Fallback: read from TaskRun state (set by API when creating the run)
     if (!taskRun) return null;
-    const state = taskRun.state as Record<string, unknown> | undefined;
-    const stateRunId = state?.resume_from_run_id;
-    return typeof stateRunId === "string" && stateRunId.trim().length > 0
-      ? stateRunId.trim()
-      : null;
+    const stateRunId = taskRun.state.resume_from_run_id;
+    return typeof stateRunId === "string" ? stateRunId.trim() || null : null;
   }
 
   private buildSessionSystemPrompt(
@@ -3816,13 +3907,13 @@ export class AgentServer {
       return null;
     }
 
-    let state: Record<string, unknown> | undefined;
+    let state: TaskRunState | undefined;
     try {
       const run = await this.posthogAPI.getTaskRun(
         this.session.payload.task_id,
         this.session.payload.run_id,
       );
-      state = run?.state as Record<string, unknown> | undefined;
+      state = run?.state;
     } catch (error) {
       // Keep the settings unresolved so a later message retries. A transient
       // control-plane failure must not prevent the first prompt from running.
@@ -3837,7 +3928,7 @@ export class AgentServer {
   }
 
   private async resolveWarmReasoningEffort(
-    state: Record<string, unknown> | undefined,
+    state: TaskRunState | undefined,
   ): Promise<void> {
     if (this.warmReasoningEffortResolved || !this.session) {
       return;
@@ -3874,7 +3965,7 @@ export class AgentServer {
    * incomplete launch path omits the CLI flag, before the agent sees its first prompt.
    */
   private resolveAutoPublishFromState(
-    state: Record<string, unknown> | undefined,
+    state: TaskRunState | undefined,
   ): string | null {
     if (this.autoPublishStateResolved) {
       return null;
@@ -3999,7 +4090,7 @@ export class AgentServer {
 ## Delivering to Slack
 - Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
 - Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
-- Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, checkpoints, user uploads) are internal: never deliver them to Slack or mention them in your reply.`;
+- Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, user uploads) are internal: never deliver them to Slack or mention them in your reply.`;
 
     // Charts attach to both modes: they post as an image block referencing a PostHog-hosted
     // url, so they work wherever the workspace can post at all.
@@ -4284,9 +4375,10 @@ ${prMentionSafetyInstruction.trimStart()}
 You are a helpful assistant with access to PostHog via MCP tools. You can help with both code tasks and data/analytics questions.
 
 When the user asks about analytics, data, metrics, events, funnels, dashboards, feature flags, experiments, or anything PostHog-related:
-- Use your PostHog MCP tools to query data, search insights, and provide real answers
+- Use the canonical \`posthog:exec\` tool to query data, search insights, and provide real answers
+- Follow its built-in instructions to discover and invoke inner tools
 - Do NOT tell the user to check an external analytics platform — you ARE the analytics platform
-- Use tools like insight-query, query-run, event-definitions-list, and others to answer questions directly
+- Inner tools include \`posthog:read-data-schema\`, \`posthog:execute-sql\`, \`posthog:insight-query\`, and the typed query tools
 
 When the user asks for code changes or software engineering tasks:
 - Choose and clone a repository only when the task requires one. For questions and analysis, answer without cloning when possible.
@@ -4508,6 +4600,7 @@ ${commonInstructions}
     taskRunId,
     taskUserId,
     taskTitle,
+    taskOriginKey,
     repositories,
     runtimeAdapter,
     sandboxEnvironmentId,
@@ -4523,6 +4616,7 @@ ${commonInstructions}
     taskRunId?: string | null;
     taskUserId?: number | null;
     taskTitle?: string | null;
+    taskOriginKey?: string | null;
     repositories?: string[];
     runtimeAdapter?: string | null;
     sandboxEnvironmentId?: string | null;
@@ -4572,6 +4666,7 @@ ${commonInstructions}
       task_run_id: taskRunId,
       task_user_id: taskUserId,
       task_title: taskTitle,
+      task_origin_key: taskOriginKey,
       task_repositories: repositories?.length
         ? JSON.stringify(repositories)
         : null,
@@ -4909,29 +5004,6 @@ ${commonInstructions}
         }
 
         this.maybeAttachCreatedPr(payload, params.update);
-
-        // session/update notifications flow through the tapped stream (like local transport)
-        // Capture checkpoints for file-changing tools so cloud resumes restore
-        // from git checkpoints rather than tree snapshots.
-        if (params.update?.sessionUpdate === "tool_call_update") {
-          const meta = (params.update?._meta as Record<string, unknown>)
-            ?.claudeCode as Record<string, unknown> | undefined;
-          const toolName = meta?.toolName as string | undefined;
-          const toolResponse = meta?.toolResponse as
-            | Record<string, unknown>
-            | undefined;
-
-          if (
-            (toolName === "Write" ||
-              toolName === "Edit" ||
-              toolName === "MultiEdit" ||
-              toolName === "Delete" ||
-              toolName === "Move") &&
-            toolResponse?.filePath
-          ) {
-            await this.captureCheckpointState();
-          }
-        }
       },
     };
   }
@@ -5265,12 +5337,6 @@ ${commonInstructions}
     this.logger.debug("Cleaning up session");
 
     try {
-      await this.captureCheckpointState(this.session.pendingHandoffGitState);
-    } catch (error) {
-      this.logger.error("Failed to capture final checkpoint state", error);
-    }
-
-    try {
       await this.session.logWriter.flush(this.session.payload.run_id, {
         coalesce: true,
       });
@@ -5359,79 +5425,6 @@ ${commonInstructions}
     } catch (error) {
       this.logger.debug("Failed to emit rtk savings", { error });
     }
-  }
-
-  private async captureCheckpointState(
-    localGitState?: HandoffLocalGitState,
-  ): Promise<void> {
-    if (!this.session) {
-      return;
-    }
-    if (!this.posthogAPI) {
-      this.logger.warn(
-        "Skipping checkpoint capture: PostHog API client is not configured",
-      );
-      return;
-    }
-    const session = this.session;
-
-    const repositories =
-      this.taskRepositories.length > 1
-        ? this.taskRepositories.map((repository) => ({
-            repository,
-            path: `/tmp/workspace/repos/${repository.toLowerCase()}`,
-          }))
-        : this.config.repositoryPath
-          ? [
-              {
-                repository: this.taskRepositories[0],
-                path: this.config.repositoryPath,
-              },
-            ]
-          : [];
-
-    await Promise.all(
-      repositories.map(async ({ repository, path }) => {
-        const tracker = new HandoffCheckpointTracker({
-          repositoryPath: path,
-          taskId: session.payload.task_id,
-          runId: session.payload.run_id,
-          apiClient: this.posthogAPI,
-          logger: this.logger.child("HandoffCheckpoint"),
-        });
-        const checkpoint = await tracker.captureForHandoff(
-          repositories.length === 1 ? localGitState : undefined,
-        );
-        if (!checkpoint) return;
-
-        const checkpointWithDevice: GitCheckpointEvent = {
-          ...checkpoint,
-          repository,
-          device: session.deviceInfo,
-        };
-        const notification = {
-          jsonrpc: "2.0" as const,
-          method: POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT,
-          params: checkpointWithDevice,
-        };
-        this.broadcastEvent({
-          type: "notification",
-          timestamp: new Date().toISOString(),
-          notification,
-        });
-        session.logWriter.appendRawLine(
-          session.payload.run_id,
-          JSON.stringify(notification),
-        );
-      }),
-    );
-  }
-
-  private extractHandoffLocalGitState(
-    params: Record<string, unknown>,
-  ): HandoffLocalGitState | null {
-    const result = handoffLocalGitStateSchema.safeParse(params.localGitState);
-    return result.success ? result.data : null;
   }
 
   /**

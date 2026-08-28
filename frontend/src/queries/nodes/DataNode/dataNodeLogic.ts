@@ -22,7 +22,7 @@ import posthog from 'posthog-js'
 import api, { ApiMethodOptions } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
-import { uuid } from 'lib/utils/dom'
+import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
@@ -143,6 +143,10 @@ export interface DataNodeLogicProps {
 
 export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
+
+// Loading and error states render the query id, so a random id per load
+// makes Storybook visual regression captures differ on every run
+const STORYBOOK_QUERY_ID = '00000000-0000-4000-8000-000000000000'
 
 const VALID_REFRESH_TYPES: ReadonlySet<RefreshType> = new Set([
     'async',
@@ -933,7 +937,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             overrideQuery?: DataNode<Record<string, any>>
         ) => ({
             refresh: sanitizeRefreshType(refresh),
-            queryId: alreadyRunningQueryId || uuid(),
+            queryId: alreadyRunningQueryId || (inStorybook() || inStorybookTestRunner() ? STORYBOOK_QUERY_ID : uuid()),
             pollOnly: !!alreadyRunningQueryId,
             overrideQuery,
         }),

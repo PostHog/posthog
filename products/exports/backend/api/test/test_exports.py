@@ -462,6 +462,22 @@ class TestExports(APIBaseTest):
             },
         )
 
+    def test_errors_if_the_request_picks_its_own_limit_context(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "image/png",
+                "export_context": {
+                    "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+                    "limit_context": "posthog_ai",
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "export_context")
+        self.assertEqual(response.json()["detail"], "limit_context is not supported for exports.")
+
     @parameterized.expand(["not/allowed", ExportedAsset.ExportFormat.JSONL])
     def test_errors_if_bad_format(self, export_format: str) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": export_format})
