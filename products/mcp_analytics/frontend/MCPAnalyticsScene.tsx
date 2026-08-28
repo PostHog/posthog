@@ -70,8 +70,8 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     }
 
     const tabs: LemonTab<MCPAnalyticsTab>[] = [
-        activityTab,
         dashboardTab,
+        activityTab,
         {
             key: 'sessions',
             label: 'Sessions',
