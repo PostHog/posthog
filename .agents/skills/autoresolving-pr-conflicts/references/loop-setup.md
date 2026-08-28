@@ -52,7 +52,7 @@ Keep that boundary least-privilege:
 
 - The GitHub App installation behind the integration should grant only `Contents: Read & Write` and `Pull requests: Read & Write`, on as few repos as possible. Never widen it for this loop.
 - Leave `connectors.posthog_mcp_scopes` at its `read_only` default and attach no MCP Store installations; the sweep needs neither.
-- Set `AUTORESOLVE_BOT_LOGIN` in the run environment to the Loop App's `<slug>[bot]` login. The marker helper trusts and updates only comments authored by that login, so a third party can't plant a marker to skip a PR; without it the helper fails closed (never trusts existing state). This is the one required env var; a `sandbox_environment` carrying just this value is the minimal setup. Don't add extra egress; the default GitHub-only allowlist is what the sweep needs.
+- Set `AUTORESOLVE_BOT_LOGIN` in the run environment to the login that authors the sweep's comments, normally the Loop App's `<slug>[bot]`. Confirm it rather than assuming: the identity that posts comments is not always the one `gh api user` reports, so post a comment on a disposable PR and read back its `user.login`. The marker helper trusts and updates only comments authored by that login, so a third party can't plant a marker to skip a PR; without it the helper fails closed (never trusts existing state), and `get` now exits 3 when a marker exists under some other login so the mismatch fails loudly instead of silently re-resolving every PR. This is the one required env var; a `sandbox_environment` carrying just this value is the minimal setup. Don't add extra egress; the default GitHub-only allowlist is what the sweep needs.
 - The sandbox's git guard (signed commits only, no raw `git push`) and GitHub's protected-branch rules are load-bearing; treat any run that reports friction with them as a bug in the run, not a reason to loosen them.
 - Regeneration isolation and untrusted-input handling are defined once, in SKILL.md and its `scripts/`; don't restate or weaken them here. If the tasks platform ships first-class nested credentialless sandboxes, adopt them.
 - If the tasks platform ships an enforced "push to existing branches, never create PRs" behavior flag, adopt it here and drop the reliance on `create_prs: true` plus instructions.
@@ -68,12 +68,22 @@ Keep that boundary least-privilege:
 
 1. Dry-run the config: `POST /api/projects/:project_id/loops/:id/preview/`.
 2. Manual fire: `POST /api/projects/:project_id/loops/:id/run/` with instructions appended via the run input to scope the sweep, e.g. "for this run, only process PR #NNNNN" against a disposable conflicting PR you opened yourself.
-3. Verify on that PR: exactly one signed commit on the head branch, no new PR opened, the sticky marker comment present, and a second manual fire skips the PR (marker dedup).
+3. Verify on that PR: exactly one new commit on the head branch and it has two parents, the PR's changed-file count still reflects only its own changes, no new PR opened, the sticky marker comment present, and a second manual fire skips the PR (marker dedup).
 4. Only then leave the push trigger enabled.
 
 ## Relationship to the CI implementation
 
 `.github/workflows/pr-autoresolve-conflicts.yml` runs the same job as a GitHub Actions workflow.
 Its schedule is disabled and it stays dispatchable by hand, so it is a fallback rather than a second scheduled sweep.
+
 Both write the same `autoresolve-attempt` marker format, so if both do end up running they never double-attempt the same `(head, master)` state.
 Keep exactly one of them scheduled; the Loop version keeps API traffic on a dedicated rate-limit bucket and burns no Actions runners.
+
+Do not re-enable that schedule yet. The workflow carries two defects, both flagged in `commit-resolved.mjs`:
+
+- Its `branches/<ref>.protected` pre-check matches every branch, because an org-level ruleset targets all of them, so the script never commits. That is why nobody has noticed the second defect.
+- `createCommitOnBranch` cannot express a second parent, so it can only land the flattened commit this skill now forbids. Fixing the first defect alone would start producing PRs whose diff includes every file master touched since the branch fell behind.
+
+Whichever path runs needs a commit mechanism that records two parents.
+A Claude routine sandbox allows `git merge` plus `git push`, which does.
+If the Loop sandbox's git guard blocks raw `git push`, then `git_signed_commit` has to gain two-parent support before the Loop can resolve anything; until then SKILL.md has it flag those PRs for a human rather than flatten them.

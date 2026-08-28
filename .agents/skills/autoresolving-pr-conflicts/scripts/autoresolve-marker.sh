@@ -38,12 +38,32 @@ own_comment_bodies() {
         --jq '.[] | select(.user.login == env.BOT_LOGIN) | .body' 2>/dev/null
 }
 
+# A marker written under a different login is invisible to `get` and unreachable by the
+# `set` upsert, so the sweep re-resolves every PR and appends a comment each time. That is
+# indistinguishable from "never attempted", so report it instead of returning empty.
+warn_on_foreign_marker() {
+    gh api "repos/$repo/issues/$pr/comments" --paginate \
+        --jq '[.[] | select(.user.login != env.BOT_LOGIN) | select(.body | test("<!-- autoresolve-attempt:"))
+                   | .user.login] | unique | join(", ")' 2>/dev/null
+}
+
 case "$cmd" in
     get)
-        BOT_LOGIN="$BOT_LOGIN" own_comment_bodies |
+        found=$(BOT_LOGIN="$BOT_LOGIN" own_comment_bodies |
             grep -oE "$MARKER_RE" |
             tail -1 |
-            grep -oE '[0-9a-f]{40}:[0-9a-f]{40}' || true
+            grep -oE '[0-9a-f]{40}:[0-9a-f]{40}' || true)
+        if [ -z "$found" ]; then
+            others=$(BOT_LOGIN="$BOT_LOGIN" warn_on_foreign_marker)
+            if [ -n "$others" ]; then
+                echo "AUTORESOLVE_BOT_LOGIN=$BOT_LOGIN found no marker, but one exists from: $others" >&2
+                echo "Set AUTORESOLVE_BOT_LOGIN to the login that authors this sweep's comments." >&2
+                exit 3
+            fi
+        fi
+        if [ -n "$found" ]; then
+            printf '%s\n' "$found"
+        fi
         ;;
     set)
         head_oid=${4:-}

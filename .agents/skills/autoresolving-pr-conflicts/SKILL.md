@@ -3,7 +3,7 @@ name: autoresolving-pr-conflicts
 description: >
   Operating procedure for the conflict-autoresolver agent: sweep open PostHog/posthog
   PRs that conflict with master, resolve the trivial conflicts (generated artifacts
-  deterministically, source conflicts with judgment), land a single signed commit on
+  deterministically, source conflicts with judgment), land one merge commit on
   the PR head, and flag everything else for a human. Use when running as the
   "Autoresolve PR conflicts" Loop, when asked to sweep or auto-resolve merge
   conflicts against master, or when asked to bring a conflicting PR up to date
@@ -23,10 +23,10 @@ Ignore its payload content; the sweep discovers its own work list.
 
 ## Non-negotiable rules
 
-- Write only to head branches of open, non-draft, same-repo PRs targeting `master`. Never write to `master`, to any protected branch (the check is step 1 of the resolution procedure; refusal is the correct outcome), to fork branches, or to `loop/*` / `posthog-code/*` branches (agent-owned; touching them can re-trigger automation).
+- Write only to head branches of open, non-draft, same-repo PRs targeting `master`. Never write to `master`, to a branch whose write GitHub refuses (step 1 of the resolution procedure), to fork branches, or to `loop/*` / `posthog-code/*` branches (agent-owned; touching them can re-trigger automation).
 - Never open, close, merge, approve, or convert PRs. This job pushes commits to existing branches and comments; nothing else.
 - Never rewrite history. No force-push, no `git_signed_rewrite`, no amend. The resolution lands as exactly one new commit on top of the PR head.
-- Never create a local merge commit. Keep the merge uncommitted (`--no-commit`), resolve, stage, and land the staged tree as a single flattened commit. In the sandbox, raw `git commit` and `git push` are blocked; use `git_signed_commit` so the commit is signed.
+- The commit you land must record both the PR head and `origin/master` as parents. A single-parent commit carrying master's content leaves master out of the branch's ancestry, so GitHub keeps diffing the PR from its old merge base and the file count explodes. A 19-file PR three days behind master rendered as 5102 files. Prefer plain `git merge origin/master` (resolve, then `git commit`) and `git push`, which records both parents. If the sandbox blocks raw git and the signing tool cannot express two parents, flag the PR for a human; never flatten the merge to get around it.
 - Never blindly take one side of a conflict, and never guess. If a resolution needs judgment you don't have high confidence in, abort that PR (`git merge --abort`) and flag it for a human. A wrong auto-resolution costs far more trust than a skipped one.
 - Never execute code from a PR's tree in your credentialed session. After the merge, `bin/hogli`, repo scripts, compose files, and package lifecycle hooks are all PR-controlled; reading and editing them is fine, running them where your GitHub or PostHog credentials exist is not. Regeneration happens only inside the credentialless container described below.
 - One attempt per `(head, master)` state, tracked via the marker comment below. Never retry an unchanged conflict.
@@ -56,16 +56,19 @@ Skip any PR whose latest marker matches the current `(headRefOid, master OID)` p
 This format is shared with the CI-based implementation in `.github/workflows/pr-autoresolve-conflicts.yml`, so never assume this loop is the marker's only writer.
 
 Marker state is only trusted from our own App: a commenter could otherwise plant a marker to fake "already attempted" and get a PR skipped.
-The helper filters to comments authored by `AUTORESOLVE_BOT_LOGIN` (the Loop App's `<slug>[bot]` login), which must be set in the run environment; it fails closed without it.
+The helper filters to comments authored by `AUTORESOLVE_BOT_LOGIN`, which must be set in the run environment; it fails closed without it.
+That value is the login that actually authors your comments, which is not always the identity `gh api user` reports. A run whose API token resolves to a human can still post as `<slug>[bot]`.
+Post one comment, read back its `user.login`, and use that.
+Getting it wrong is silent and costly: `get` matches nothing so every sweep re-resolves every PR, and `set` cannot find the sticky comment to update so it appends a new one each time.
 All marker reads and writes go through the helper (run from your sweep-start snapshot), never through direct comment reads:
 
-- `autoresolve-marker.sh get <owner/repo> <pr>` prints the last validated `<head>:<master>` tuple, or nothing.
+- `autoresolve-marker.sh get <owner/repo> <pr>` prints the last validated `<head>:<master>` tuple, or nothing. It exits 3 when the PR carries a marker written under a different login, which means `AUTORESOLVE_BOT_LOGIN` is wrong: stop the sweep and report it, because continuing re-resolves every PR and appends a comment per run.
 - `autoresolve-marker.sh set <owner/repo> <pr> <head_oid> <master_oid>` reads the comment body (one of the templates below, which you author) from stdin, appends the marker, and upserts the sticky comment by id.
 
 ## The sweep
 
 1. Snapshot this skill's `scripts/` directory to a scratch path outside the repo; every helper invocation below uses that snapshot.
-2. `git fetch origin master` and record `MASTER_OID=$(git rev-parse origin/master)`.
+2. If `git rev-parse --is-shallow-repository` says true, run `git fetch --unshallow` (or deepen until step 5's `merge-tree` stops failing with `refusing to merge unrelated histories`) before anything else. A shallow clone has no merge base with the PR heads, so every conflict check aborts. Then `git fetch origin master` and record `MASTER_OID=$(git rev-parse origin/master)`. Record it once, after the deepening, so the OID you write into markers is the one you actually merged.
 3. List candidates: `gh pr list --state open -L 1000 --json number,isDraft,headRefName,headRefOid,headRepository,headRepositoryOwner,baseRefName,updatedAt`. Keep PRs that are non-draft, same-repo (head repository is exactly this repo: `headRepositoryOwner.login + "/" + headRepository.name == $REPO` — owner alone is not enough, another PostHog-org repo is still a fork here), and based on `master` or `graphite-base/*`. Drop anything whose `updatedAt` is older than 72 hours before doing further work — any commit bumps `updatedAt`, so this is a safe superset of the precise freshness check. Sort the rest newest-first. Do not trust the `mergeable` field; it is computed lazily and unreliable in bulk.
 4. Bulk-fetch the surviving candidates' heads in one git call: `git fetch origin +refs/pull/<n>/head:refs/remotes/pull/<n> ...`. Git protocol traffic is unmetered; prefer it over API calls everywhere below.
 5. Evaluate candidates newest-first, lazily, stopping once 10 have entered resolution; per candidate, cheapest check first:
@@ -77,7 +80,7 @@ All marker reads and writes go through the helper (run from your sweep-start sna
 
 ## Resolving one PR
 
-1. Set `HEAD_REF='<headRefName>'` (quoted everywhere below). If `gh api "repos/$REPO/branches/$(jq -rn --arg b "$HEAD_REF" '$b|@uri')" --jq .protected` returns true, post the protected-branch template and stop here. Then verify the remote head still matches the OID from the listing: `git ls-remote --exit-code origin "refs/heads/$HEAD_REF"`. If the branch moved, skip silently; a later run handles the new state.
+1. Set `HEAD_REF='<headRefName>'` (quoted everywhere below). Do not pre-screen the branch with `gh api repos/$REPO/branches/<b> --jq .protected`: that field reports true for every branch an org-level ruleset targets, which in this repo is all of them, so the check refuses the whole sweep. GitHub rejects the write on a genuinely protected branch, and that rejection is the real boundary, so treat a refused push as the protected-branch case, post that template, and move on. Verify the remote head still matches the OID from the listing: `git ls-remote --exit-code origin "refs/heads/$HEAD_REF"`. If the branch moved, skip silently; a later run handles the new state.
 2. `git checkout -B "$HEAD_REF" refs/remotes/pull/<n>`, then `git merge --no-commit --no-ff origin/master`.
 3. Classify the conflicted files (`git diff --name-only --diff-filter=U`):
    - **Generated artifacts**: `pnpm-lock.yaml`, `**/pnpm-lock.yaml`, `uv.lock`, `frontend/src/generated/**`, `products/**/frontend/generated/**`. Never hand-edit these.
@@ -90,7 +93,7 @@ All marker reads and writes go through the helper (run from your sweep-start sna
    - If this isolation is unavailable (no Docker), do not fall back to running the tooling in-session: flag the PR for a human with the reason "generated artifacts need regeneration", even if every other conflict resolved cleanly.
 6. Verify: none of the originally conflicted files still contain a line starting with `<<<<<<<` or `>>>>>>>` (don't scan the whole tree; a stray `=======` divider in unrelated content would false-flag).
 7. Re-check the remote head one last time. If it moved during resolution, abort quietly.
-8. Stage everything and land one signed commit on the PR branch: message `chore: auto-resolve conflicts with master`, or `chore: auto-resolve conflicts with master (regenerated artifacts)` when no judgment was involved.
+8. Stage everything and land the merge commit on the PR branch: message `chore: auto-resolve conflicts with master`, or `chore: auto-resolve conflicts with master (regenerated artifacts)` when no judgment was involved. Confirm before pushing that the commit has two parents and that `git merge-base origin/master HEAD` now equals `MASTER_OID`; if it does not, you flattened the merge, so do not push and flag the PR instead.
 9. Upsert the sticky comment via `autoresolve-marker.sh set` with the matching template as the body; the helper appends the marker.
 10. Before moving to the next PR, return to a clean state (`git merge --abort` if flagging, then check out a neutral ref).
 
@@ -103,13 +106,13 @@ Pass the body to `autoresolve-marker.sh set` on stdin; the helper appends the ma
 
 > 🔀 Merged `master` and resolved conflicts with an agent.
 >
-> Pushed as a signed commit. **Review before merging.** Auto-resolution is a starting point, not an approval, and these conflicts needed judgment, so give the diff an extra look.
+> Pushed as a merge commit. **Review before merging.** Auto-resolution is a starting point, not an approval, and these conflicts needed judgment, so give the diff an extra look.
 
 **Resolved (deterministic only):**
 
 > 🔀 Merged `master` and resolved conflicts by regenerating artifacts (lockfiles, generated types).
 >
-> Pushed as a signed commit. Review before merging.
+> Pushed as a merge commit. Review before merging.
 
 **Needs a human:**
 
@@ -131,7 +134,7 @@ Pass the body to `autoresolve-marker.sh set` on stdin; the helper appends the ma
 
 **Protected branch:**
 
-> 🔒 `<branch>` is a protected branch, so I won't push a resolution onto it. This one needs a human.
+> 🔒 GitHub would not let me push a resolution to `<branch>`. This one needs a human.
 >
 > I won't repeat this until the branch or master moves.
 

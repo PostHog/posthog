@@ -22,6 +22,16 @@ function gh(args, input) {
 // signing a commit onto a branch they can't push to — anyone can open a PR *from* a protected
 // branch. So refuse to write to one. Everything else rides on same-repo trust: forks never reach
 // this workflow (schedule-triggered + head-owner filter), so there's no untrusted input to bind.
+//
+// This workflow has two defects that must be fixed before its schedule is re-enabled. Both are
+// described in .agents/skills/autoresolving-pr-conflicts/references/loop-setup.md.
+//
+// 1. The `.protected` read below matches every branch, because an org-level ruleset targets all
+//    of them. `branchProtected` is therefore always true and this script never commits.
+// 2. createCommitOnBranch cannot express a second parent, so the commit it lands leaves master
+//    out of the branch ancestry. GitHub then diffs the PR from its old merge base, which inflates
+//    the file count by every file master touched since. Fixing defect 1 alone would start
+//    producing those commits.
 let branchProtected = false
 try {
     branchProtected = gh(['api', `repos/${repo}/branches/${headRef}`, '--jq', '.protected']).trim() === 'true'
