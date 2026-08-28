@@ -77,14 +77,37 @@ describe('normalizeEvent()', () => {
                 expected: 'Mac OS X',
             },
             {
+                name: 'carries a null $os_name through to $os',
+                event: 'some_event',
+                properties: { $os_name: null },
+                expected: null,
+            },
+            {
                 name: 'skips a $snapshot event, which skips person property lifting too',
                 event: '$snapshot',
+                properties: { $os_name: 'Windows' },
+                expected: undefined,
+            },
+            {
+                name: 'skips a $performance_event, which skips person property lifting too',
+                event: '$performance_event',
                 properties: { $os_name: 'Windows' },
                 expected: undefined,
             },
         ])('$name', ({ event, properties, expected }) => {
             const normalized = normalizeEvent({ event, distinct_id: 'user1', properties } as any)
             expect(normalized.properties!['$os']).toBe(expected)
+        })
+
+        it('gives the person $os and drops the $os_name alias', () => {
+            const normalized = normalizeEvent({
+                event: 'some_event',
+                distinct_id: 'user1',
+                properties: { $os_name: 'iOS' },
+            } as any)
+
+            expect(normalized.properties!['$set']).toEqual({ $os: 'iOS' })
+            expect(normalized.properties!['$set_once']).toEqual({ $initial_os: 'iOS' })
         })
 
         it('keeps a server host OS out of $os and $initial_os', () => {
