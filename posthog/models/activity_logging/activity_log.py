@@ -576,6 +576,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # exclude their FK relations) — without this, editing a subscription's integration 500s the save.
         "integration",
     ],
+    "Dashboard": [
+        # Context rows use a fail-closed team manager during signal handling.
+        "subscription_contexts_as_dashboard",
+    ],
     "Cohort": [
         "version",
         "pending_version",
@@ -641,6 +645,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "is_user",
     ],
     "Insight": [
+        # Context rows use a fail-closed team manager during signal handling.
+        "subscription_contexts_as_insight",
         "filters_hash",
         "refreshing",
         "dive_dashboard",
