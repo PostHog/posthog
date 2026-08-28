@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
-from requests.exceptions import HTTPError, JSONDecodeError
+from requests.exceptions import HTTPError, JSONDecodeError, RequestException
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
@@ -326,6 +326,35 @@ class TestSentryTransport:
         assert error.startswith("Sentry token is missing required scopes")
         for scope in REQUIRED_SENTRY_SCOPES:
             assert scope in error
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    def test_validate_credentials_404_does_not_echo_org_slug(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = _response(None, status_code=404)
+
+        valid, error = validate_credentials(auth_token="token", organization_slug="secret-org-slug")
+
+        assert not valid
+        assert error == "Sentry organization not found. Verify your organization slug, then reconnect."
+        assert "secret-org-slug" not in (error or "")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    def test_validate_credentials_unexpected_status_hides_vendor_detail(self, mock_session) -> None:
+        # `_response` sets `response.text = "error"` — the raw body must never reach the customer.
+        mock_session.return_value.get.return_value = _response({"detail": "internal sentry detail"}, status_code=500)
+
+        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+
+        assert not valid
+        assert error == "Could not connect to Sentry. Check your auth token and organization slug, then reconnect."
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    def test_validate_credentials_request_error_hides_exception_text(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = RequestException("connection refused to https://sentry.io")
+
+        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+
+        assert not valid
+        assert error == "Could not reach Sentry to validate your credentials. Check your connection, then try again."
 
     def test_sentry_source_rejects_unknown_api_base_url_at_runtime(self) -> None:
         with pytest.raises(
