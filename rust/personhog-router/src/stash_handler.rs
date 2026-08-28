@@ -178,13 +178,10 @@ async fn forward_one(
         }
         ForwardDecision::Bounced(reason) => Disposition::Bounce(reason),
         // A bounced replay is not an answer: it re-enters the bounce
-        // backoff, which is keyed on the reason alone, so there is no
-        // response here to carry the fence metadata on. A stashed request
-        // that never stops bouncing ends at the stash's own expiry instead,
-        // and that reply says what actually happened to it — the wait ran
-        // out — rather than naming a fence it may no longer be behind.
-        // Callers read that as a plain retry, so a fence met during a
-        // handoff costs a redelivery instead of being recognised.
+        // backoff, so there is no response here to carry fence metadata on.
+        // A stash that never stops bouncing ends at its own expiry with a
+        // plain-retry reply, so a fence met during a handoff costs a
+        // redelivery instead of being recognised.
         ForwardDecision::BouncedFenced { .. } => Disposition::Bounce(BounceReason::Fenced),
     }
 }

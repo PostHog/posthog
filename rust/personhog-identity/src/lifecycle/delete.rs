@@ -427,11 +427,11 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
                 );
                 vanished.push(person_id);
             }
-            // A semantic refusal here would park the op holding the fences
-            // already installed this round, with live marks the healer will
-            // not clear. FencePerson mints no semantic refusal today; if
-            // one is added, this driver needs an abort path first (see the
-            // merge driver's abort_refused for the shape).
+            // A semantic refusal here would park the op holding this
+            // round's fences, with live marks the healer will not clear.
+            // FencePerson mints no semantic refusal today; adding one
+            // requires an abort path first (see the merge driver's
+            // abort_refused).
             Err(status) => return Err(SagaError::leader(status)),
         }
     }

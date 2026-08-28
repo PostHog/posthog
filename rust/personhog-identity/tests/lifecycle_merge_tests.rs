@@ -3095,15 +3095,11 @@ async fn a_retry_with_a_drifted_created_at_replays_the_recorded_outcome() {
     h.ctx.cleanup().await.expect("cleanup");
 }
 
-/// The event properties a merge carries are refreshed by later pipeline
-/// stages, so two deliveries of one event disagree on them. The retry has
-/// to attach to the recorded op and replay its outcome: a refusal here is
-/// permanent, and the ingestion store reads it as evidence that a fence on
-/// these persons belongs to somebody else, dropping the merge and leaving
-/// the fence standing.
-///
-/// The recorded op is re-executed from its own frozen request, so the
-/// drifted values are discarded on this path either way.
+/// Two deliveries of one event disagree on pipeline-refreshed properties,
+/// so the retry must attach to the recorded op and replay its outcome — a
+/// refusal here is permanent and drops the merge with the fence standing.
+/// The recorded op re-executes from its own frozen request, so drifted
+/// values are discarded either way.
 #[tokio::test]
 async fn a_retry_with_drifted_event_properties_replays_the_recorded_outcome() {
     let h = MergeHarness::new().await;

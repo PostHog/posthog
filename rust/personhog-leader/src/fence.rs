@@ -62,9 +62,7 @@ pub struct FenceState {
     pub op_type: LifecycleOpType,
     /// The uuid of the event whose merge installed the fence, where the
     /// saga supplied one. Advisory: echoed on rejections so callers can
-    /// attribute the fence to its event and classify same-event sibling
-    /// operations; ownership decisions key on the op id, and nothing here
-    /// branches on this field.
+    /// attribute the fence to its event; ownership keys on the op id.
     pub creator_event_uuid: Option<Uuid>,
 }
 

@@ -497,15 +497,12 @@ export type MergePersonsRequest = Message<'personhog.identity.v1.MergePersonsReq
 
     /**
      * The uuid of the event that asked for this merge, recorded as
-     * $creator_event_uuid on a person the establish path births. Applied only
-     * on that branch, matching the Postgres backend, which stamps it at
-     * creation and never afterwards. Empty leaves the property unset.
-     *
-     * Also frozen into the saga's op row and carried onto every fence the
-     * seal step installs, where it is echoed on fenced-write rejections as
-     * `x-person-fenced-creator`; the ingestion store classifies fences by
-     * it. Send the executing event's uuid, stable across retries — a
-     * per-delivery value would mis-aim that classification.
+     * $creator_event_uuid on a person the establish path births (only that
+     * branch, matching the Postgres backend) and carried onto every fence
+     * the seal step installs, where it is echoed on rejections as
+     * `x-person-fenced-creator`. Send the executing event's uuid, stable
+     * across retries — a per-delivery value would mis-aim the caller's
+     * fence classification.
      *
      * @generated from field: string creator_event_uuid = 10;
      */
@@ -535,13 +532,10 @@ export type MergeSourceResult = Message<'personhog.identity.v1.MergeSourceResult
     outcome: MergeSourceOutcome
 
     /**
-     * The source person this verdict destroyed. Set only when the outcome is
-     * MERGED, because only then is the person permanently gone: it cannot be
-     * revived or reassigned, so a caller may act on it without re-reading.
-     * Every other outcome leaves it absent rather than naming a person that
-     * is still live — NOOP_SAME_PERSON in particular would otherwise name the
-     * survivor. A caller reconciles cached state against this rather than the
-     * distinct id, which reaches persons it never named.
+     * The source person this verdict destroyed. Set only on MERGED, because
+     * only then is the person permanently gone and safe to act on without
+     * re-reading; every other outcome leaves it absent rather than naming a
+     * person still live.
      *
      * @generated from field: optional int64 source_person_id = 3;
      */
@@ -585,13 +579,11 @@ export type MergePersonsResponse = Message<'personhog.identity.v1.MergePersonsRe
     results: MergeSourceResult[]
 
     /**
-     * True when this call created the survivor rather than resolving or
-     * attaching to a person that already existed. Answered only where the
-     * merge settled without a saga; a saga run reports false whether or not
-     * it created one. A newborn carries the event's properties, but is
-     * identified only when some source settled as attached or as the same
-     * person, so a caller deciding whether to skip its follow-up update has
-     * to weigh both.
+     * True when this call created the survivor rather than resolving one
+     * that existed; a saga run reports false whether or not it created one.
+     * A newborn carries the event's properties but is identified only when
+     * some source settled attached or same-person, so a caller deciding to
+     * skip its follow-up update weighs both.
      *
      * @generated from field: bool survivor_was_born = 4;
      */
@@ -608,9 +600,8 @@ export const MergePersonsResponseSchema: GenMessage<MergePersonsResponse> =
 
 /**
  * Add new values to every client before any server emits them: an old
- * client decodes an unknown value to its generic error outcome, which it
- * treats as a settled, recorded verdict and acks — so an unknown retryable
- * outcome would be acked as a permanent loss during the skew window.
+ * client decodes an unknown value to its generic error outcome and acks
+ * it as a settled loss during the skew window.
  *
  * @generated from enum personhog.identity.v1.MergeSourceOutcome
  */
@@ -683,11 +674,10 @@ export enum MergeSourceOutcome {
 
     /**
      * The saga was definitively refused before destroying anything — a
-     * missing lifecycle database, a dead target mark — and aborted. The
-     * verdict is recorded and every retry replays it, so the caller settles
-     * the pair as lost; unlike SKIPPED_CONFLICT, retrying under a fresh op
-     * id meets the same refusal. Distinct from ERROR, which is a completed
-     * operation whose source ended in an indeterminate state.
+     * missing lifecycle database, a dead target mark — and aborted; every
+     * retry, fresh op id included, meets the same refusal, so the caller
+     * settles the pair as lost. Distinct from ERROR, a completed operation
+     * whose source ended indeterminate.
      *
      * @generated from enum value: MERGE_SOURCE_OUTCOME_SKIPPED_REFUSED = 9;
      */
