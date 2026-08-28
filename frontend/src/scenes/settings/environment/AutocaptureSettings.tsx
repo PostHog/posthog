@@ -114,7 +114,9 @@ function AutocapturePrivacyGuidance(): JSX.Element {
                 <li>
                     At ingestion, as a safety net for every SDK. The{' '}
                     <Link to={urls.hogFunctionNew('template-hash-properties')}>Hash properties transformation</Link>{' '}
-                    hashes chosen properties with SHA-256 before events are stored.
+                    hashes chosen properties with SHA-256 before events are stored. It hashes string values only, so
+                    numbers and other non-string values pass through unchanged. Send those as strings if you need them
+                    hashed.
                 </li>
             </ul>
             <p className="m-0">
