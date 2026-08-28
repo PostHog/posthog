@@ -10,7 +10,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
-import { VERIFICATION_CODE_LENGTH, VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
+import { isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
+import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { urls } from 'scenes/urls'
 
 import { verifyEmailLogic } from './verifyEmailLogic'
@@ -124,11 +125,6 @@ function VerificationCodeEntry(): JSX.Element {
                 autoFocus
                 value={verificationCode}
                 onChange={setVerificationCode}
-                onComplete={() => {
-                    if (!validatedEmailTokenLoading) {
-                        submitVerificationCode()
-                    }
-                }}
                 error={verificationCodeError}
                 disabled={validatedEmailTokenLoading}
                 data-attr="verify-email-code"
@@ -141,9 +137,7 @@ function VerificationCodeEntry(): JSX.Element {
                 htmlType="submit"
                 loading={validatedEmailTokenLoading}
                 disabledReason={
-                    verificationCode.length === VERIFICATION_CODE_LENGTH
-                        ? undefined
-                        : 'Enter the 6-digit code from your email'
+                    isValidVerificationCode(verificationCode) ? undefined : 'Enter the 6-digit code from your email'
                 }
                 data-attr="verify-email-code-submit"
             >

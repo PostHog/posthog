@@ -7,8 +7,10 @@ export function normalizeVerificationCode(code: string): string {
     return (code ?? '').normalize('NFKC').replace(CODE_NOISE_RE, '')
 }
 
+export const VERIFICATION_CODE_LENGTH = 6
+
 export function isValidVerificationCode(code: string): boolean {
-    return /^\d{6}$/.test(code)
+    return code.length === VERIFICATION_CODE_LENGTH && /^\d+$/.test(code)
 }
 
 export function verificationCodeErrorMessage(e: { code?: string; detail?: string }): string {

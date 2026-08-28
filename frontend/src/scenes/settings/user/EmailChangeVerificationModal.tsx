@@ -6,7 +6,8 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { VERIFICATION_CODE_LENGTH, VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
+import { isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
+import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { userLogic } from 'scenes/userLogic'
 
 import { MAX_RESENDS, emailChangeVerificationLogic } from './emailChangeVerificationLogic'
@@ -49,11 +50,6 @@ export function EmailChangeVerificationModal(): JSX.Element {
                     autoFocus
                     value={verificationCode}
                     onChange={setVerificationCode}
-                    onComplete={() => {
-                        if (!verificationResultLoading) {
-                            submitVerificationCode()
-                        }
-                    }}
                     error={verificationCodeError}
                     disabled={verificationResultLoading}
                     data-attr="email-change-verification-code"
@@ -66,9 +62,7 @@ export function EmailChangeVerificationModal(): JSX.Element {
                     htmlType="submit"
                     loading={verificationResultLoading}
                     disabledReason={
-                        verificationCode.length === VERIFICATION_CODE_LENGTH
-                            ? undefined
-                            : 'Enter the 6-digit code from your email'
+                        isValidVerificationCode(verificationCode) ? undefined : 'Enter the 6-digit code from your email'
                     }
                     data-attr="email-change-verification-submit"
                 >

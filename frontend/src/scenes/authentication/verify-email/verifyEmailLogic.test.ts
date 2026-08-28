@@ -30,6 +30,17 @@ describe('verifyEmailLogic', () => {
             .toMatchValues({ verificationCode: '', verificationCodeError: 'That code is wrong.' })
     })
 
+    it('names the stored address only when its uuid matches the page uuid', () => {
+        localStorage.setItem(
+            'ph_pending_verification_email',
+            JSON.stringify({ uuid: '12345678', email: 'signup@example.com' })
+        )
+        expect(logic.values.pendingEmail).toEqual('signup@example.com')
+
+        logic.actions.setUuid('another-account')
+        expect(logic.values.pendingEmail).toEqual(null)
+    })
+
     it('keeps a partial code when it is too short to send', async () => {
         logic.actions.setVerificationCode('123')
 

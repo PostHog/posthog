@@ -2,7 +2,25 @@ import { z } from 'zod'
 
 import { localStorageSlot } from 'lib/utils/localStorageSlot'
 
-// An unverified user has no session, so the verification page cannot ask the API which address it is
-// waiting on. The device that signed up leaves the address here, so the page can name it. Absent
-// when the person opens the page somewhere else — the copy falls back to not naming an address.
-export const pendingVerificationEmailStorage = localStorageSlot('ph_pending_verification_email', z.email())
+// The verification page loads without a session, so it cannot ask the API which address the code
+// went to. The page that starts verification stores the address here, together with the user uuid.
+// The verification page shows the address only when the stored uuid matches the uuid in its URL.
+// This match prevents one problem: a value left behind by an earlier signup on the same device
+// must not name the wrong account.
+const pendingVerificationEmailSlot = localStorageSlot(
+    'ph_pending_verification_email',
+    z.object({ uuid: z.string(), email: z.email() })
+)
+
+export function rememberPendingVerificationEmail(uuid: string, email: string): void {
+    pendingVerificationEmailSlot.set({ uuid, email })
+}
+
+export function pendingVerificationEmailFor(uuid: string | null): string | null {
+    const stored = pendingVerificationEmailSlot.get()
+    return stored && stored.uuid === uuid ? stored.email : null
+}
+
+export function clearPendingVerificationEmail(): void {
+    pendingVerificationEmailSlot.clear()
+}

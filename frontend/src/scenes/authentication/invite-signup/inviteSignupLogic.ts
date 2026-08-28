@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
+import { rememberPendingVerificationEmail } from 'scenes/authentication/shared/pendingVerificationEmail'
 import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
 import type { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 
@@ -313,6 +314,12 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                     }
 
                     const res = await api.create(`api/signup/${values.invite.id}/`, submitPayload)
+                    if (res.uuid && res.email) {
+                        // An invitee with an unverified email is redirected to the verification
+                        // page. That page loads without a session, so store the address for it
+                        // to show.
+                        rememberPendingVerificationEmail(res.uuid, res.email)
+                    }
                     location.href = res.redirect_url || '/' // hard refresh because the current_organization changed
                 } catch (e) {
                     const error = e as Record<string, any>

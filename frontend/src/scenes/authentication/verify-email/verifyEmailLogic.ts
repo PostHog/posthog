@@ -1,11 +1,14 @@
-import { MakeLogicType, actions, connect, kea, path, reducers } from 'kea'
+import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils/url'
-import { pendingVerificationEmailStorage } from 'scenes/authentication/shared/pendingVerificationEmail'
+import {
+    clearPendingVerificationEmail,
+    pendingVerificationEmailFor,
+} from 'scenes/authentication/shared/pendingVerificationEmail'
 import {
     isValidVerificationCode,
     normalizeVerificationCode,
@@ -43,8 +46,8 @@ const redirectAfterVerification = (
     response: PostVerifyResponse,
     values: Parameters<typeof resolvePostVerifyDefault>[0]
 ): void => {
-    // The address has served its purpose once the account is verified.
-    pendingVerificationEmailStorage.clear()
+    // Verification is complete, so the stored address is no longer necessary.
+    clearPendingVerificationEmail()
     const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
     const loginMessage = response.requires_2fa
         ? 'Email verified! Please log in with your password to complete two-factor authentication.'
@@ -119,6 +122,9 @@ export interface verifyEmailLogicActions {
     }
     setVerificationCodeError: (error: string | null) => {
         error: string | null
+    }
+    verificationCodeRejected: (error: string) => {
+        error: string
     }
     setView: (view: 'invalid' | 'pending' | 'success' | 'verify' | null) => {
         view: 'invalid' | 'pending' | 'success' | 'verify' | null
@@ -209,6 +215,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
         requestVerificationLink: (uuid: string) => ({ uuid }),
         setVerificationCode: (code: string) => ({ code }),
         setVerificationCodeError: (error: string | null) => ({ error }),
+        verificationCodeRejected: (error: string) => ({ error }),
         submitVerificationCode: true,
     }),
     loaders(({ actions, values }) => ({
@@ -230,13 +237,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         if (user?.is_email_verified) {
                             actions.setView('success')
                             await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
-                            const nextUrl = getRelativeNextPath(
-                                new URLSearchParams(location.search).get('next'),
-                                location
-                            )
-                            // this url is validated in getRelativeNextPath as either being relative or on the same origin
-                            // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
-                            location.href = nextUrl || resolvePostVerifyDefault(values)
+                            redirectAfterVerification({ success: true }, values)
                             return { success: true, token, uuid }
                         }
                         actions.setView('invalid')
@@ -263,10 +264,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         redirectAfterVerification(response, values)
                         return { success: true, uuid }
                     } catch (e: any) {
-                        // Empty the slots so the retype starts clean. Clear before you set the
-                        // error, because setVerificationCode also resets the error.
-                        actions.setVerificationCode('')
-                        actions.setVerificationCodeError(verificationCodeErrorMessage(e))
+                        actions.verificationCodeRejected(verificationCodeErrorMessage(e))
                         return values.validatedEmailToken
                     }
                 },
@@ -281,9 +279,8 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         lemonToast.success(
                             'A new verification email has been sent to the associated email address. Please check your inbox.'
                         )
-                        // A resend invalidates the previous code, so drop it and its error (the
-                        // setVerificationCode reducer clears the error too). The 6-char field is
-                        // otherwise full and blocks typing the freshly sent code.
+                        // A resend invalidates the previous code. Clear it so the slots are
+                        // empty for the new code; the reducer also clears the error.
                         actions.setVerificationCode('')
                         // Show the pending view after a resend - it has the code entry form.
                         actions.setView('pending')
@@ -317,11 +314,11 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                 setUuid: (_, { uuid }) => uuid,
             },
         ],
-        pendingEmail: [pendingVerificationEmailStorage.get(), {}],
         verificationCode: [
             '',
             {
                 setVerificationCode: (_, { code }) => code,
+                verificationCodeRejected: () => '',
             },
         ],
         verificationCodeError: [
@@ -330,7 +327,19 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                 setVerificationCode: () => null,
                 submitVerificationCode: () => null,
                 setVerificationCodeError: (_, { error }) => error,
+                verificationCodeRejected: (_, { error }) => error,
             },
+        ],
+    }),
+    selectors({
+        pendingEmail: [
+            (s) => [s.uuid, s.user],
+            (uuid, user): string | null =>
+                // The stored address wins because it also covers users without a session. The user
+                // fallback covers a signed-in but unverified user on a device that has no stored
+                // address. Both sources must match the uuid from the URL, so the page never names
+                // a different account.
+                pendingVerificationEmailFor(uuid) ?? (user && user.uuid === uuid ? user.email : null),
         ],
     }),
     urlToAction(({ actions }) => ({
