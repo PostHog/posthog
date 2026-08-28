@@ -85,10 +85,14 @@ class QueryPlan(BaseModel):
 class EnrichedPromptSpec(BaseModel):
     cleaned_prompt: str
     context_blob: str
+    formatted_context: str = ""
     plan: QueryPlan
     # Raw event names whose per-event property schema is folded into context_blob. Persisted in the
     # frozen envelope so the reuse path can rebuild the same property-aware blob the fixer needs.
     relevant_events: list[str] = Field(default_factory=list)
+    prompt_events: list[str] = Field(default_factory=list)
+    context_events: list[str] = Field(default_factory=list)
+    inferred_events: list[str] = Field(default_factory=list)
 
 
 class HogQLFix(BaseModel):

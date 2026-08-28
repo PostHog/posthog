@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from inspect import signature
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -13,6 +14,10 @@ from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
 from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.temporal.subscriptions.ai_subscription import spec_generator
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
+    compute_report_context_fingerprint,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     QueryPlan,
     QueryPlanStep,
@@ -20,6 +25,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     AI_QUERY_PLAN_VERSION,
+    INFERRED_EVENTS_WITH_PROMPT_OR_CONTEXT_LIMIT,
     MAX_PINNED_EVENTS,
     PROMPT_MAX_LENGTH,
     RELEVANT_EVENTS_LIMIT,
@@ -43,6 +49,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 )
 
 _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator"
+_EMPTY_CONTEXT_FINGERPRINT = compute_report_context_fingerprint(dashboard_ids=[], insight_ids=[])
 
 
 def _window(days: int = 7) -> ReportWindow:
@@ -145,6 +152,48 @@ class TestGroupTypeLabels(APIBaseTest):
 
 
 class TestSelectRelevantEvents(APIBaseTest):
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_separates_prompt_context_and_bounded_inferred_events(self, mock_chat: MagicMock) -> None:
+        EventDefinition.objects.create(team=self.team, name="prompt event")
+        EventDefinition.objects.create(team=self.team, name="context event")
+        EventDefinition.objects.create(team=self.team, name="inferred event")
+        structured = mock_chat.return_value.with_structured_output.return_value
+        structured.invoke.return_value = RelevantEvents(events=["inferred event", "unknown event"])
+
+        select_report_events = getattr(spec_generator, "_select_report_events", None)
+        assert select_report_events is not None
+        selected = select_report_events(
+            self.team,
+            self.user,
+            "compare prompt event",
+            context_event_names=["context event", "prompt event", "unknown context event"],
+            formatted_context="computed context",
+        )
+
+        assert selected.prompt_events == ("prompt event",)
+        assert selected.context_events == ("context event", "prompt event")
+        assert selected.inferred_events == ("inferred event",)
+        assert selected.relevant_events == ("prompt event", "context event", "inferred event")
+        (messages,) = structured.invoke.call_args.args
+        selection_prompt = messages[0][1]
+        assert "<prompt_and_context_events>" in selection_prompt
+        assert "computed context" in selection_prompt
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_no_prompt_or_context_selection_keeps_project_wide_inference(self, mock_chat: MagicMock) -> None:
+        EventDefinition.objects.create(team=self.team, name="export created")
+        structured = mock_chat.return_value.with_structured_output.return_value
+        structured.invoke.return_value = RelevantEvents(events=["export created"])
+
+        select_report_events = getattr(spec_generator, "_select_report_events", None)
+        assert select_report_events is not None
+        selected = select_report_events(self.team, self.user, "weekly project summary")
+
+        assert selected.prompt_events == ()
+        assert selected.context_events == ()
+        assert selected.inferred_events == ("export created",)
+        assert selected.relevant_events == ("export created",)
+
     @parameterized.expand(
         [
             ("single_real_event", ["export created"], ["export created"]),
@@ -239,9 +288,9 @@ class TestSelectRelevantEvents(APIBaseTest):
 
         selected = _select_relevant_events(self.team, self.user, "tell me about `named_event`")
 
-        # The pin leads and survives; the cap drops the LLM's last pick instead of the named event.
+        # The pin leads and survives while inferred events stay within the anchored-report cap.
         assert selected[0] == "named_event"
-        assert len(selected) == RELEVANT_EVENTS_LIMIT
+        assert len(selected) == INFERRED_EVENTS_WITH_PROMPT_OR_CONTEXT_LIMIT + 1
 
     @patch(f"{_SG}.CANDIDATE_EVENTS_LIMIT", 5)
     @patch(f"{_SG}.MaxChatOpenAI")
@@ -855,8 +904,31 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
         (_role, system_content) = messages[0]
         assert "CLEANED_PROMPT_MARKER" in system_content
         assert "CONTEXT_BLOB_MARKER" in system_content
+        assert "authoritative computed evidence" in system_content
+        assert "Do not query metrics already answered" in system_content
         # The template's `{{{...}}}` placeholders must be gone — proving substitution ran.
         assert "{{{" not in system_content
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_passes_computed_context_as_authoritative_evidence(self, mock_chat: MagicMock) -> None:
+        structured = mock_chat.return_value.with_structured_output.return_value
+        structured.invoke.return_value = QueryPlan(
+            overall_intent="intent",
+            steps=[QueryPlanStep(description="unanswered need", hogql="SELECT 1")],
+        )
+
+        generate_query_plan(
+            cleaned_prompt="weekly report",
+            context_blob="project schema",
+            formatted_context="COMPUTED_SIGNUPS_RESULT",
+            team=self.team,
+            user=self.user,
+        )
+
+        (messages,) = structured.invoke.call_args[0]
+        system_content = messages[0][1]
+        assert "<computed_context>\nCOMPUTED_SIGNUPS_RESULT\n</computed_context>" in system_content
+        assert "supplemental queries only" in system_content
 
     @patch(f"{_SG}.MaxChatOpenAI")
     def test_rejects_malformed_planner_output(self, mock_chat: MagicMock) -> None:
@@ -873,11 +945,21 @@ class TestBuildFrozenPrompt(APIBaseTest):
     def _stored_plan(self) -> dict:
         return {
             "version": AI_QUERY_PLAN_VERSION,
+            "context_fingerprint": _EMPTY_CONTEXT_FINGERPRINT,
             "plan": QueryPlan(
                 overall_intent="count events",
                 steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
             ).model_dump(),
         }
+
+    def test_requires_current_context_fingerprint(self) -> None:
+        with pytest.raises(TypeError, match="context_fingerprint"):
+            signature(build_frozen_prompt).bind(
+                team=self.team,
+                prompt="p",
+                window=_window(7),
+                ai_query_plan=self._stored_plan(),
+            )
 
     @patch(f"{_SG}.MaxChatOpenAI")
     @patch(f"{_SG}._select_relevant_events")
@@ -889,7 +971,11 @@ class TestBuildFrozenPrompt(APIBaseTest):
         stored = self._stored_plan()
 
         spec = build_frozen_prompt(
-            team=self.team, prompt="how are exports doing?", window=_window(7), ai_query_plan=stored
+            team=self.team,
+            prompt="how are exports doing?",
+            window=_window(7),
+            ai_query_plan=stored,
+            context_fingerprint=_EMPTY_CONTEXT_FINGERPRINT,
         )
 
         # Neither the event-selection model nor the planner runs on the frozen path...
@@ -906,10 +992,44 @@ class TestBuildFrozenPrompt(APIBaseTest):
         # dropping them leaves the reuse path with a property-blind blob and a schema-blind fixer.
         stored = {**self._stored_plan(), "relevant_events": ["export created"]}
 
-        spec = build_frozen_prompt(team=self.team, prompt="p", window=_window(7), ai_query_plan=stored)
+        spec = build_frozen_prompt(
+            team=self.team,
+            prompt="p",
+            window=_window(7),
+            ai_query_plan=stored,
+            context_fingerprint=_EMPTY_CONTEXT_FINGERPRINT,
+        )
 
         assert mock_blob.call_args.kwargs["relevant_events"] == ["export created"]
         assert spec.relevant_events == ["export created"]
+
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_rejects_frozen_plan_when_context_fingerprint_changed(
+        self, _mock_top: object, _mock_groups: object
+    ) -> None:
+        stored = {**self._stored_plan(), "context_fingerprint": "stale fingerprint"}
+
+        with pytest.raises(StoredPlanInvalidError, match="context"):
+            build_frozen_prompt(
+                team=self.team,
+                prompt="p",
+                window=_window(7),
+                ai_query_plan=stored,
+                context_fingerprint=_EMPTY_CONTEXT_FINGERPRINT,
+            )
+
+    def test_rejects_malformed_frozen_context_event_provenance(self) -> None:
+        stored = {**self._stored_plan(), "context_events": "not an event list"}
+
+        with pytest.raises(StoredPlanInvalidError, match="event provenance"):
+            build_frozen_prompt(
+                team=self.team,
+                prompt="p",
+                window=_window(7),
+                ai_query_plan=stored,
+                context_fingerprint=_EMPTY_CONTEXT_FINGERPRINT,
+            )
 
     @parameterized.expand(
         [
@@ -918,7 +1038,11 @@ class TestBuildFrozenPrompt(APIBaseTest):
             # schema change nor an AI_QUERY_PLAN_VERSION bump can brick a frozen subscription.
             (
                 "malformed_plan",
-                {"version": AI_QUERY_PLAN_VERSION, "plan": {"overall_intent": "i", "steps": []}},
+                {
+                    "version": AI_QUERY_PLAN_VERSION,
+                    "context_fingerprint": _EMPTY_CONTEXT_FINGERPRINT,
+                    "plan": {"overall_intent": "i", "steps": []},
+                },
                 "malformed",
             ),
             ("stale_version", {"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "stale"),
@@ -931,4 +1055,10 @@ class TestBuildFrozenPrompt(APIBaseTest):
         self, _name: str, stored: dict, match: str, _mock_top: object, _mock_groups: object
     ) -> None:
         with pytest.raises(StoredPlanInvalidError, match=match):
-            build_frozen_prompt(team=self.team, prompt="p", window=_window(7), ai_query_plan=stored)
+            build_frozen_prompt(
+                team=self.team,
+                prompt="p",
+                window=_window(7),
+                ai_query_plan=stored,
+                context_fingerprint=_EMPTY_CONTEXT_FINGERPRINT,
+            )

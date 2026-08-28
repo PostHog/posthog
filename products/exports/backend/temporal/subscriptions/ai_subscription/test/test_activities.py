@@ -16,6 +16,10 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import RenderedChart
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    AiReportContext,
+    AiReportContexts,
+    AiReportDashboardContext,
+    AiReportInsightContext,
     AiReportResult,
     QueryStepDiagnostic,
 )
@@ -98,6 +102,90 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
     # The generating prompt is captured so the delivery is reproducible and the viewer can show it.
     assert snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "weekly adoption + reliability report"
     assert snapshot[AI_REPORT_CHARTS_KEY] == []
+
+
+async def test_persist_ai_report_writes_only_compact_context_provenance(team, user) -> None:
+    delivery = await _create_delivery(team, user)
+    result = AiReportResult(
+        markdown="# Weekly report",
+        window_end_utc=_WINDOW_END_UTC,
+        diagnostics=(),
+        context=AiReportContext(
+            contexts=AiReportContexts(
+                dashboards=(
+                    AiReportDashboardContext(
+                        id=123,
+                        name="Activation",
+                        insights=(
+                            AiReportInsightContext(
+                                id=987,
+                                name="Signup conversion",
+                                events=("user signed up",),
+                                status="success",
+                            ),
+                        ),
+                    ),
+                ),
+                insights=(
+                    AiReportInsightContext(
+                        id=456,
+                        name="Account creation",
+                        events=("account created",),
+                        status="truncated",
+                    ),
+                ),
+            ),
+            prompt_events=("checkout completed",),
+            context_events=("user signed up", "account created"),
+            inferred_events=("invited teammate",),
+        ),
+    )
+
+    await _persist_ai_report(delivery.id, result, prompt="full report prompt that must stay outside context")
+
+    snapshot = await _snapshot(delivery.id)
+    assert snapshot["ai_report_context"] == {
+        "contexts": {
+            "dashboards": [
+                {
+                    "id": 123,
+                    "name": "Activation",
+                    "insights": [
+                        {
+                            "id": 987,
+                            "name": "Signup conversion",
+                            "events": ["user signed up"],
+                            "status": "success",
+                        }
+                    ],
+                }
+            ],
+            "insights": [
+                {
+                    "id": 456,
+                    "name": "Account creation",
+                    "events": ["account created"],
+                    "status": "truncated",
+                }
+            ],
+        },
+        "prompt_events": ["checkout completed"],
+        "context_events": ["user signed up", "account created"],
+        "inferred_events": ["invited teammate"],
+    }
+    nested_context_events = [
+        event
+        for dashboard in snapshot["ai_report_context"]["contexts"]["dashboards"]
+        for insight in dashboard["insights"]
+        for event in insight["events"]
+    ] + [event for insight in snapshot["ai_report_context"]["contexts"]["insights"] for event in insight["events"]]
+    assert snapshot["ai_report_context"]["context_events"] == list(dict.fromkeys(nested_context_events))
+    persisted_context = str(snapshot["ai_report_context"])
+    assert "raw" not in persisted_context
+    assert "full report prompt" not in persisted_context
+    assert "formatted" not in persisted_context
+    assert "primary" not in persisted_context
+    assert "supporting" not in persisted_context
 
 
 async def test_persist_ai_report_writes_chart_references_not_images(team, user) -> None:

@@ -19,12 +19,17 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.charts impo
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
+    EMPTY_REPORT_CONTEXT_FINGERPRINT,
     QUERY_FAILED_PREFIX,
+    AiReportContext,
+    AiReportContexts,
+    AiReportInsightContext,
     AiReportStageError,
     PlanExecution,
     QueryStepDiagnostic,
     _all_queries_failed_notice,
     _arequest_hogql_fix,
+    _compose_synthesis_human_message,
     _plan_to_freeze,
     _run_steps,
     generate_ai_report,
@@ -67,6 +72,25 @@ def _test_window() -> ReportWindow:
     return ReportWindow(start=_WINDOW_END - timedelta(days=1), end=_WINDOW_END)
 
 
+def test_compact_context_rejects_context_events_that_disagree_with_insight_provenance() -> None:
+    contexts = AiReportContexts(
+        insights=(AiReportInsightContext(id=1, name="Signup", events=("signed up",), status="success"),)
+    )
+
+    with pytest.raises(ValueError, match="must match"):
+        AiReportContext(contexts=contexts, context_events=("different event",))
+
+
+def test_compact_insight_context_rejects_duplicate_events() -> None:
+    with pytest.raises(ValueError, match="deduplicated"):
+        AiReportInsightContext(
+            id=1,
+            name="Signup",
+            events=("signed up", "signed up"),
+            status="success",
+        )
+
+
 _ALL_FAILED_RUN = PlanExecution(
     rendered=["### s0\n\n_Query failed to run (ExposedHogQLError)_"],
     failed_count=1,
@@ -85,6 +109,7 @@ def _spec(steps: int = 1) -> EnrichedPromptSpec:
     return EnrichedPromptSpec(
         cleaned_prompt="p",
         context_blob="c",
+        formatted_context="COMPUTED_CONTEXT_RESULT",
         plan=QueryPlan(
             overall_intent="i",
             steps=[QueryPlanStep(description=f"s{n}", hogql="SELECT 1") for n in range(steps)],
@@ -377,6 +402,13 @@ async def test_synthesis_prompt_carries_the_failure_marker(
     assert "{{{" not in system_message  # no placeholder left unrendered
 
 
+def test_synthesis_receives_authoritative_computed_context_separately() -> None:
+    message = _compose_synthesis_human_message(_spec(), ["### supplemental\n\nresult"])
+
+    assert "<computed_context>\nCOMPUTED_CONTEXT_RESULT\n</computed_context>" in message
+    assert "COMPUTED_CONTEXT_RESULT" not in message.split("<project_context>", 1)[1].split("</project_context>", 1)[0]
+
+
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_retries_then_succeeds(mock_executor_cls: MagicMock, mock_fix: AsyncMock) -> None:
@@ -510,11 +542,26 @@ def test_safe_error_message_strips_null_bytes():
 def _frozen_plan() -> dict:
     return {
         "version": AI_QUERY_PLAN_VERSION,
+        "context_fingerprint": EMPTY_REPORT_CONTEXT_FINGERPRINT,
         "plan": QueryPlan(
             overall_intent="count events",
             steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
         ).model_dump(),
     }
+
+
+def test_frozen_plan_envelope_contains_context_fingerprint() -> None:
+    result = _plan_to_freeze(
+        _spec_with_window_placeholder().plan,
+        freshly_planned=True,
+        failed_count=0,
+        total_steps=1,
+        relevant_events=["export created"],
+        trace_correlation_id=None,
+    )
+
+    assert result is not None
+    assert result["context_fingerprint"]
 
 
 @patch(_SLO_CAPTURE)
@@ -574,6 +621,10 @@ async def test_unfrozen_run_returns_plan_to_persist(
         "version": AI_QUERY_PLAN_VERSION,
         "plan": spec.plan.model_dump(),
         "relevant_events": ["export created"],
+        "prompt_events": [],
+        "context_events": [],
+        "inferred_events": [],
+        "context_fingerprint": EMPTY_REPORT_CONTEXT_FINGERPRINT,
     }
 
 
@@ -612,6 +663,10 @@ def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int
             "version": AI_QUERY_PLAN_VERSION,
             "plan": plan.model_dump(),
             "relevant_events": ["export created"],
+            "prompt_events": [],
+            "context_events": [],
+            "inferred_events": [],
+            "context_fingerprint": EMPTY_REPORT_CONTEXT_FINGERPRINT,
         }
     else:
         assert result is None
@@ -781,6 +836,37 @@ async def test_invalid_stored_plan_self_heals_by_replanning(
     mock_bep.assert_called_once()  # self-healed by re-planning live
     assert result.markdown == "# Report"
     assert result.plan_to_persist is not None  # the fresh re-plan is frozen for next time
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_context_fingerprint_mismatch_replans_and_freezes_current_context(
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
+) -> None:
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\nok"],
+        failed_count=0,
+        diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
+        charts=[],
+    )
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    stored = {**_frozen_plan(), "context_fingerprint": "stale fingerprint"}
+
+    result = await generate_ai_report(
+        team=MagicMock(),
+        user=MagicMock(),
+        prompt="x",
+        window=_test_window(),
+        ai_query_plan=stored,
+        context_fingerprint="current fingerprint",
+    )
+
+    mock_bep.assert_called_once()
+    assert result.plan_to_persist is not None
+    assert result.plan_to_persist["context_fingerprint"] == "current fingerprint"
 
 
 def _charted_spec(

@@ -3,12 +3,15 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
+from django.db import transaction
+
 import nh3
 import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import strip_external_links_markdown
@@ -20,8 +23,15 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, get_unsubscribe_token
+from products.exports.backend.models.subscription_context import SubscriptionContext
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
+    MAX_REPORT_CONTEXTS,
+    compute_report_context_fingerprint,
+    resolve_report_context,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
+    compact_report_context,
     generate_ai_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
@@ -144,9 +154,15 @@ def _last_scheduled_report_cutoff(subscription: Subscription) -> datetime | None
         return None
 
 
-def _resolve_subscription_context(
-    subscription: Subscription,
-) -> tuple[Team, User | None, ReportWindow, dict | None]:
+@frozen
+class SubscriptionReportContext:
+    team: Team
+    user: User | None
+    window: ReportWindow
+    ai_query_plan: dict | None
+
+
+def _resolve_subscription_context(subscription: Subscription) -> SubscriptionReportContext:
     # team/created_by are FK relations and the last-delivery lookup hits the DB; resolving the window
     # here keeps all ORM access (and the timezone math) off the event loop in one sync hop. The frozen
     # plan (if any) is read here too so the generation path stays free of ORM access.
@@ -166,30 +182,69 @@ def _resolve_subscription_context(
         start_days_ago=subscription.ai_window_start_days_ago,
         end_days_ago=subscription.ai_window_end_days_ago,
     )
-    return team, subscription.created_by, window, subscription.ai_query_plan
+    return SubscriptionReportContext(
+        team=team,
+        user=subscription.created_by,
+        window=window,
+        ai_query_plan=subscription.ai_query_plan,
+    )
 
 
-def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, plan: dict) -> None:
-    # Targeted update, never a full save() — that would re-emit the activity-log/analytics signals.
-    # Filtering on the planning-time prompt closes a race: a prompt edited mid-generation clears the
-    # plan via Subscription.save(), and this no-ops instead of re-freezing a plan for the old prompt.
-    Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
+def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, plan: dict) -> bool:
+    planning_fingerprint = plan.get("context_fingerprint")
+    if not isinstance(planning_fingerprint, str):
+        return False
+
+    with transaction.atomic():
+        current_prompt = (
+            Subscription.objects.select_for_update()
+            .filter(id=subscription_id, team_id=team_id)
+            .values_list("prompt", flat=True)
+            .first()
+        )
+        if current_prompt != prompt:
+            return False
+
+        context_rows = list(
+            SubscriptionContext.objects.for_team(team_id)
+            .filter(subscription_id=subscription_id)
+            .order_by("created_at", "id")
+            .values_list("dashboard_id", "insight_id")[: MAX_REPORT_CONTEXTS + 1]
+        )
+        if len(context_rows) > MAX_REPORT_CONTEXTS:
+            return False
+        dashboard_ids = [dashboard_id for dashboard_id, _ in context_rows if dashboard_id is not None]
+        insight_ids = [insight_id for _, insight_id in context_rows if insight_id is not None]
+        current_fingerprint = compute_report_context_fingerprint(
+            dashboard_ids=dashboard_ids,
+            insight_ids=insight_ids,
+        )
+        if current_fingerprint != planning_fingerprint:
+            return False
+
+        return bool(
+            Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
+        )
 
 
 async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
-    team, user, window, ai_query_plan = await database_sync_to_async(
-        _resolve_subscription_context, thread_sensitive=False
-    )(subscription)
+    context = await database_sync_to_async(_resolve_subscription_context, thread_sensitive=False)(subscription)
     # created_by is FK SET_NULL; the pipeline requires a non-None user
-    if user is None:
+    if context.user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
 
+    report_context = await resolve_report_context(subscription)
+
     result = await generate_ai_report(
-        team=team,
-        user=user,
+        team=context.team,
+        user=context.user,
         prompt=subscription.prompt,
-        window=window,
-        ai_query_plan=ai_query_plan,
+        window=context.window,
+        ai_query_plan=context.ai_query_plan,
+        formatted_context=report_context.formatted_evidence,
+        context_event_names=report_context.event_names,
+        context_fingerprint=report_context.fingerprint,
+        context_provenance=compact_report_context(report_context),
         trace_correlation_id=subscription.id,
     )
 

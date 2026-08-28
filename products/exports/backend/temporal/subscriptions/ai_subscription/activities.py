@@ -54,6 +54,7 @@ LOGGER = get_logger(__name__)
 # If the org's AI-credit balance isn't synced yet, reschedule roughly a billing cycle out so a
 # skipped sub still moves forward instead of re-firing every tick.
 _CREDIT_RESET_FALLBACK_DAYS = 31
+AI_REPORT_CONTEXT_KEY = "ai_report_context"
 
 
 async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
@@ -120,6 +121,7 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             AI_REPORT_DIAGNOSTICS_KEY: strip_null_bytes([dataclasses.asdict(d) for d in result.diagnostics]),
             AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
             AI_REPORT_CHARTS_KEY: strip_null_bytes([dataclasses.asdict(chart) for chart in result.charts]),
+            AI_REPORT_CONTEXT_KEY: strip_null_bytes(dataclasses.asdict(result.context)),
             # prompt is None for non-AI subs; "" if cleared — omit either.
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
         }
