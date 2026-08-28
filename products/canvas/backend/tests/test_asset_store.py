@@ -1,5 +1,7 @@
 from io import BytesIO
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -41,9 +43,15 @@ class TestSniffImageContentType(SimpleTestCase):
 
     def test_avif_is_decoded_not_trusted_by_signature(self):
         if not features.check("avif"):
-            self.skipTest("Pillow build has no AVIF support; the sniffer falls back to the signature")
+            self.skipTest("Pillow build has no AVIF support; needs a real encoder to produce a valid sample")
         buffer = BytesIO()
         Image.new("RGB", (2, 2), (255, 0, 0)).save(buffer, format="AVIF")
         assert sniff_image_content_type(buffer.getvalue()) == "image/avif"
         # Carries the ftyp signature but is not a decodable AVIF.
         assert sniff_image_content_type(b"\x00\x00\x00\x18ftypavif" + b"\x00" * 32) is None
+
+    def test_avif_is_rejected_when_pillow_cannot_verify_it(self):
+        # A Pillow build without AVIF support cannot decode these bytes, so the ftyp
+        # signature alone must not be trusted — it would publish unverified bytes.
+        with patch("products.canvas.backend.asset_store.features.check", return_value=False):
+            assert sniff_image_content_type(b"\x00\x00\x00\x18ftypavif" + b"\x00" * 32) is None

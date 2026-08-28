@@ -98,11 +98,10 @@ def sniff_image_content_type(data: bytes) -> str | None:
     if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
         return "image/webp" if _verify_raster(data) else None
     if data[4:12] in (b"ftypavif", b"ftypavis"):
-        # Decode to reject a truncated or forged AVIF where the Pillow build
-        # supports it; older builds without AVIF fall back to the signature.
-        if features.check("avif"):
-            return "image/avif" if _verify_raster(data) else None
-        return "image/avif"
+        # A Pillow build without AVIF support cannot decode these bytes to
+        # verify them, so the signature alone is not enough to accept — reject
+        # rather than publish an unverified, possibly malformed, image.
+        return "image/avif" if features.check("avif") and _verify_raster(data) else None
     head = data[:4096].lstrip(b"\xef\xbb\xbf \t\r\n")
     if head.startswith(b"<") and b"<svg" in head:
         return "image/svg+xml" if _verify_svg(data) else None

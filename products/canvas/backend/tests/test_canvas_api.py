@@ -1382,7 +1382,10 @@ class TestCanvasAssets(CanvasAPIBaseTest):
                 description="d",
                 origin_product=Task.OriginProduct.USER_CREATED,
             )
-        storage_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/abc123/pixel.png"
+            run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={})
+            storage_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/abc123/pixel.png"
+            run.artifacts = [{"id": "abc123", "name": "pixel.png", "storage_path": storage_path}]
+            run.save(update_fields=["artifacts"])
         self.storage.write(storage_path, PIXEL_PNG, extras={"ContentType": "image/png"})
 
         response = self.client.post(
@@ -1543,6 +1546,31 @@ class TestCanvasAssets(CanvasAPIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_attach_rejects_an_untracked_object_under_the_tasks_own_prefix(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Chat",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        # Object sits under this task's own prefix, satisfying the prefix check, but it is not
+        # named by any run manifest or the staged-artifact cache — for example, an abandoned
+        # upload the caller merely knows the path of.
+        storage_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/untracked/pixel.png"
+        self.storage.write(storage_path, PIXEL_PNG, extras={"ContentType": "image/png"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+            {"task_id": str(task.id), "storage_path": storage_path},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_attach_rejects_an_oversized_attachment_without_reading_it(self):
         canvas_id = self._create_canvas()
         with team_scope(self.team.id):
@@ -1554,7 +1582,10 @@ class TestCanvasAssets(CanvasAPIBaseTest):
                 description="d",
                 origin_product=Task.OriginProduct.USER_CREATED,
             )
-        storage_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/abc123/big.png"
+            storage_path = f"tasks/artifacts/team_{self.team.id}/task_{task.id}/staged/abc123/big.png"
+            run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={})
+            run.artifacts = [{"id": "abc123", "name": "big.png", "storage_path": storage_path}]
+            run.save(update_fields=["artifacts"])
         oversized = contract_limits()["maxAssetFileBytes"] + 1
         with (
             patch.object(
