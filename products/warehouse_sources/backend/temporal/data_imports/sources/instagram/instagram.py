@@ -626,6 +626,11 @@ def list_professional_accounts(
 
     A page with no linked professional account is skipped rather than offered as a choice that
     can never sync.
+
+    Accounts owned by a Business portfolio stay invisible here even when the page really is linked:
+    Meta omits `instagram_business_account` rather than erroring unless the token carries
+    `business_management`, which this integration deliberately does not request. Syncing such an
+    account works once its ID is known, so the account field also accepts an ID typed by hand.
     """
     client = InstagramClient(access_token=access_token, api_version=api_version, logger=logger)
     url = client.build_url("me/accounts", {"fields": PAGE_FIELDS, "limit": str(PAGE_SIZE)})

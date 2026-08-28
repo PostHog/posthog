@@ -112,6 +112,7 @@ def build_reviewer_invocation(
     engine_dir: str,
     context_path: str,
     self_driving_review: bool = False,
+    review_trigger: str = "",
 ) -> ReviewerInvocation:
     """Assemble the context payload + command that reviews this PR in the sandbox.
 
@@ -129,6 +130,11 @@ def build_reviewer_invocation(
     ``self_driving_review`` lets the engine review a bot-authored draft, the one exception
     to its bot-author refusal. It defaults closed here and in the engine, the Action runtime
     never sets it, and only a run stamped with inbox provenance turns it on.
+    ``review_trigger`` is a ReviewTrigger value naming why stamphog is looking at this PR, which
+    the reviewer otherwise cannot tell: a requested review and an automatic one reach it identically.
+    It stays separate from ``self_driving_review`` on purpose. That flag relaxes two security gates,
+    this string only describes, and folding them together would put the carve-out back in play for
+    a change to descriptive text. Empty for a local run, where there is no trigger to report.
     """
     context = {
         "repo": repo,
@@ -144,6 +150,7 @@ def build_reviewer_invocation(
         "author_pr_numbers": list(author_pr_numbers),
         "author_team_slugs": list(author_team_slugs),
         "self_driving_review": self_driving_review,
+        "review_trigger": review_trigger,
     }
     command = ["uv", "run", f"{engine_dir}/review_local.py", "--context", context_path]
     return ReviewerInvocation(

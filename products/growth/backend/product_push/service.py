@@ -8,13 +8,14 @@ intent metric.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Exists, Max, OuterRef, Q, QuerySet
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
@@ -28,6 +29,7 @@ from products.growth.backend.product_push.cadence import (
     campaign_ends_at,
     is_cooldown_over,
     is_grace_period_over,
+    is_retry_eligible,
 )
 from products.growth.backend.product_push.selection import Selection, select_next_product
 
@@ -36,6 +38,12 @@ logger = structlog.get_logger(__name__)
 # Re-check a not-yet-activated intent's criterion at most this often. Matches the
 # cadence of `calculate_product_activation`'s debounce.
 ACTIVATION_RECHECK_STALENESS = timedelta(days=1)
+
+# What a custom product push campaign does when the organization is already running one.
+ON_ACTIVE_SKIP = "skip"
+ON_ACTIVE_QUEUE = "queue"
+ON_ACTIVE_OVERRIDE = "override"
+ON_ACTIVE_POLICIES = (ON_ACTIVE_SKIP, ON_ACTIVE_QUEUE, ON_ACTIVE_OVERRIDE)
 
 
 @dataclass(frozen=True)
@@ -51,12 +59,28 @@ class CloseBatchResult:
     skipped: int = 0
 
 
-@dataclass(kw_only=True)
+@frozen(frozen=False)  # counters accumulate while the batch is processed
+class CustomProductPushBatchResult:
+    orgs_processed: int = 0
+    created: int = 0
+    queued_behind_active: int = 0
+    overrode_active: int = 0
+    blocked_by_active: int = 0
+    window_unreachable: int = 0
+    already_pending: int = 0
+    already_adopted: int = 0
+    in_retry_cooldown: int = 0
+    conflicts: int = 0
+    would_create: int = 0  # dry-run only
+
+
+@frozen(frozen=False)  # counters accumulate while the batch is processed
 class StartBatchResult:
     orgs_processed: int = 0
     started: int = 0
     no_candidate: int = 0
     not_eligible: int = 0
+    expired: int = 0
     conflicts: int = 0
     would_start: int = 0  # dry-run only
 
@@ -214,6 +238,18 @@ def start_campaigns_for_org_batch(
             result.not_eligible += 1
             continue
 
+        # Last resort for a campaign whose window ran out before it could start.
+        # Creation refuses the cases it can predict, but not what happens afterwards:
+        # the org can pick up an automatic campaign, another pin can jump the queue,
+        # or this sweep can be paused for a stretch. Retire the campaign rather than
+        # show a push whose window has passed.
+        scheduled = selection.scheduled_campaign
+        if scheduled is not None and scheduled.ends_at is not None and now >= scheduled.ends_at:
+            if not dry_run:
+                cancel_campaigns([str(scheduled.id)], now)
+            result.expired += 1
+            continue
+
         if dry_run:
             result.would_start += 1
             logger.info(
@@ -240,6 +276,155 @@ def start_campaigns_for_org_batch(
         )
 
     _capture_campaign_events(started)
+    return result
+
+
+def create_custom_product_push_campaigns_for_org_batch(
+    organization_ids: list[str],
+    product_key: str,
+    now: datetime,
+    *,
+    starts_on: date,
+    ends_at: datetime,
+    on_active_campaign: str,
+    reason_text: str | None = None,
+    skip_recently_pushed: bool = True,
+    dry_run: bool = False,
+) -> CustomProductPushBatchResult:
+    """Create a custom product push campaign pushing one product to each org in the batch.
+
+    The campaign lands as SCHEDULED with its own window: the daily sweep starts it
+    on or after `starts_on` and closes it at `ends_at`, instead of applying the
+    default campaign duration. Because the campaign is dated it also overrides the
+    signup grace period and the between-campaigns cooldown.
+
+    `on_active_campaign` decides what happens to an org that is already running a
+    campaign — the caller must pick one, since none of the three is a safe default:
+    `skip` writes nothing, `queue` starts the custom product push campaign once the running one
+    closes, and `override` cancels the running one so the custom product push campaign starts on
+    the next sweep.
+
+    Re-running with the same org list is a no-op: an org that already holds a
+    scheduled or active campaign for the product is counted and left alone.
+    """
+    if on_active_campaign not in ON_ACTIVE_POLICIES:
+        raise ValueError(f"on_active_campaign must be one of {ON_ACTIVE_POLICIES}, got {on_active_campaign!r}")
+
+    result = CustomProductPushBatchResult()
+    created_rows: list[tuple[ProductPushCampaign, str]] = []
+
+    organizations = Organization.objects.filter(id__in=organization_ids).only("id", "created_at")
+
+    for organization in organizations:
+        result.orgs_processed += 1
+
+        history = list(
+            ProductPushCampaign.objects.filter(organization=organization, product_key=product_key).values_list(
+                "status", "ended_at"
+            )
+        )
+        if any(
+            status in (ProductPushCampaign.Status.SCHEDULED, ProductPushCampaign.Status.ACTIVE) for status, _ in history
+        ):
+            result.already_pending += 1
+            continue
+        if any(status == ProductPushCampaign.Status.ADOPTED for status, _ in history):
+            result.already_adopted += 1
+            continue
+        if skip_recently_pushed and any(
+            ended_at is not None and not is_retry_eligible(ended_at, now) for _, ended_at in history
+        ):
+            result.in_retry_cooldown += 1
+            continue
+
+        active = (
+            ProductPushCampaign.objects.filter(organization=organization, status=ProductPushCampaign.Status.ACTIVE)
+            .only("id", "ends_at")
+            .first()
+        )
+        if active is not None and on_active_campaign == ON_ACTIVE_SKIP:
+            result.blocked_by_active += 1
+            logger.info(
+                "custom_product_push_blocked_by_active",
+                organization_id=str(organization.id),
+                product_key=product_key,
+                active_campaign_id=str(active.id),
+            )
+            continue
+
+        # A queued campaign only starts once the running one closes, so a running
+        # campaign planned to outlast the requested window leaves it no time to run.
+        # Refuse the org instead of writing a campaign that expires unseen — the
+        # operator can widen the window or override the running campaign.
+        if (
+            active is not None
+            and on_active_campaign == ON_ACTIVE_QUEUE
+            and (active.ends_at is None or active.ends_at >= ends_at)
+        ):
+            result.window_unreachable += 1
+            logger.info(
+                "custom_product_push_window_unreachable",
+                organization_id=str(organization.id),
+                product_key=product_key,
+                active_campaign_id=str(active.id),
+                active_ends_at=str(active.ends_at),
+                ends_at=str(ends_at),
+            )
+            continue
+
+        if dry_run:
+            result.would_create += 1
+            logger.info(
+                "custom_product_push_would_create",
+                organization_id=str(organization.id),
+                product_key=product_key,
+                starts_on=str(starts_on),
+                ends_at=str(ends_at),
+                on_active_campaign=on_active_campaign if active is not None else None,
+            )
+            continue
+
+        campaign = _create_custom_product_push_campaign(
+            organization,
+            product_key,
+            starts_on=starts_on,
+            ends_at=ends_at,
+            reason_text=reason_text,
+        )
+        if campaign is None:
+            result.conflicts += 1
+            continue
+
+        if active is not None:
+            # Cancelling skips a locked row, so an override can come back empty. The
+            # custom push is then simply queued behind the running campaign, and the
+            # run has to say so rather than report an override that did not happen.
+            overrode = on_active_campaign == ON_ACTIVE_OVERRIDE and cancel_campaigns([str(active.id)], now) == 1
+            if overrode:
+                result.overrode_active += 1
+            else:
+                result.queued_behind_active += 1
+                if on_active_campaign == ON_ACTIVE_OVERRIDE:
+                    logger.warning(
+                        "custom_product_push_override_skipped",
+                        organization_id=str(organization.id),
+                        product_key=product_key,
+                        active_campaign_id=str(active.id),
+                    )
+
+        result.created += 1
+        created_rows.append((campaign, "scheduled"))
+        logger.info(
+            "custom_product_push_created",
+            campaign_id=str(campaign.id),
+            organization_id=str(organization.id),
+            product_key=product_key,
+            starts_on=str(starts_on),
+            ends_at=str(ends_at),
+            on_active_campaign=on_active_campaign if active is not None else None,
+        )
+
+    _capture_campaign_events(created_rows)
     return result
 
 
@@ -301,7 +486,10 @@ def _start_campaign(organization: Organization, selection: Selection, now: datet
                     return None
                 campaign.status = ProductPushCampaign.Status.ACTIVE
                 campaign.started_at = now
-                campaign.ends_at = ends_at
+                # A custom product push campaign carries the window its operator asked for; only
+                # fall back to the default duration when it has none.
+                if campaign.ends_at is None:
+                    campaign.ends_at = ends_at
                 campaign.save(update_fields=["status", "started_at", "ends_at", "updated_at"])
                 return campaign
             return ProductPushCampaign.objects.create(
@@ -315,6 +503,39 @@ def _start_campaign(organization: Organization, selection: Selection, now: datet
     except IntegrityError:
         # Another worker started a campaign for this org concurrently — the partial
         # unique constraint makes this a no-op rather than a duplicate push.
+        return None
+
+
+def _create_custom_product_push_campaign(
+    organization: Organization,
+    product_key: str,
+    *,
+    starts_on: date,
+    ends_at: datetime,
+    reason_text: str | None,
+) -> ProductPushCampaign | None:
+    """Queue a custom product push campaign behind whatever the org already has scheduled."""
+    try:
+        with transaction.atomic():
+            last_position = (
+                ProductPushCampaign.objects.filter(
+                    organization=organization, status=ProductPushCampaign.Status.SCHEDULED
+                ).aggregate(last=Max("position"))["last"]
+                or 0
+            )
+            return ProductPushCampaign.objects.create(
+                organization=organization,
+                product_key=product_key,
+                status=ProductPushCampaign.Status.SCHEDULED,
+                source=ProductPushCampaign.Source.TAM,
+                position=last_position + 1,
+                scheduled_for=starts_on,
+                ends_at=ends_at,
+                reason_text=reason_text,
+            )
+    except IntegrityError:
+        # A concurrent run queued the same product for this org — the partial unique
+        # constraint keeps the org on one pending push instead of two.
         return None
 
 

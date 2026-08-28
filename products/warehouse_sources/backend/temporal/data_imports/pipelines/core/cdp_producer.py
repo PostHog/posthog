@@ -135,6 +135,14 @@ class CDPProducer:
                 return files
             except FileNotFoundError:
                 return []
+            except PermissionError:
+                # The worker may lack an s3:ListBucket grant on the cdp_producer/ prefix. Row
+                # staging is best effort, so degrade to producing nothing and log a warning rather
+                # than raise into error tracking.
+                await self.logger.awarning(
+                    f"No permission to list CDP staging files at {self._get_path_prefix()}; skipping CDP row staging"
+                )
+                return []
 
     def _serialize_json(self, record: object, *, sort_keys: bool = False) -> bytes:
         try:

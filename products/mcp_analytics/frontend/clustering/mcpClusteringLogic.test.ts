@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+
 import { urls } from '~/scenes/urls'
 import { initKeaTests } from '~/test/init'
 
@@ -15,6 +17,7 @@ import type {
 import {
     type ClusterFilter,
     type RouteShape,
+    clusterCategories,
     fitDomain,
     mcpClusteringLogic,
     routeShape,
@@ -30,6 +33,7 @@ jest.mock('../generated/api', () => ({
 }))
 
 const mockRetrieve = mcpAnalyticsIntentClustersRetrieve as jest.Mock
+const mockQuery = api.query as jest.Mock
 
 function cluster(id: number, overrides: Partial<MCPIntentClusterApi> = {}): MCPIntentClusterApi {
     return {
@@ -305,6 +309,300 @@ function pivot(clusters: MCPToolPivotClusterEntryApi[]): MCPToolPivotApi {
     }
 }
 
+// Categories live on the events, not in the precomputed snapshot, so they arrive as a
+// separate tool→category map that every view joins against by tool name.
+describe('mcpClusteringLogic category scope', () => {
+    let logic: ReturnType<typeof mcpClusteringLogic.build>
+
+    // `a` and `c` are Data, `b` is Insights, and `loner` deliberately has no category row.
+    const CATEGORY_MAP = [
+        { tool: 'a', category: 'Data' },
+        { tool: 'b', category: 'Insights' },
+        { tool: 'c', category: 'Data' },
+    ]
+
+    // Distinct call counts so the pivot's volume ordering is explicit rather than
+    // resting on sort stability.
+    const named = (tool: string, callCount: number): MCPToolPivotApi => ({
+        ...pivot([]),
+        tool,
+        call_count: callCount,
+    })
+
+    const SCOPED_SNAPSHOT: MCPIntentClusterSnapshotApi = {
+        ...SNAPSHOT,
+        tools: [named('a', 30), named('b', 20), named('loner', 10)],
+        tool_overlaps: [
+            {
+                tool_a: 'a',
+                tool_b: 'b',
+                contested_calls: 10,
+                sessions_with_both: 2,
+                sessions_with_either: 5,
+                top_cluster_id: SPREAD_ID,
+            },
+            {
+                tool_a: 'loner',
+                tool_b: 'stranger',
+                contested_calls: 3,
+                sessions_with_both: 1,
+                sessions_with_either: 4,
+                top_cluster_id: SPREAD_ID,
+            },
+        ],
+    }
+
+    beforeEach(async () => {
+        jest.clearAllMocks()
+        initKeaTests()
+        mockRetrieve.mockResolvedValue(SCOPED_SNAPSHOT)
+        mockQuery.mockResolvedValue({ results: CATEGORY_MAP })
+        router.actions.push(urls.mcpAnalyticsIntentClustering())
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    // Selecting nothing has to mean everything. An empty selection that produced an empty
+    // scope set instead of "no scope" would blank the whole tab on first load.
+    it('shows every cluster and tool while no category is selected', () => {
+        expect(logic.values.selectedCategories).toEqual([])
+        expect(logic.values.scopedClusters).toHaveLength(SHAPED_CLUSTERS.length)
+        expect(logic.values.scopedTools.map((t) => t.tool)).toEqual(['a', 'b', 'loner'])
+    })
+
+    // Matching only the cluster's top tool would be an easy simplification, and it would
+    // silently drop clusters whose secondary tool is the one in the chosen category.
+    it('keeps a cluster when any tool it routes to is in the category, not just its top one', () => {
+        logic.actions.setSelectedCategories(['Insights'])
+
+        // `b` is second by volume in clusters 1 and 4, and third in cluster 3.
+        expect(logic.values.scopedClusters.map((c) => c.id)).toEqual([CONCENTRATED_ID, SPREAD_ID, MIXED_ID])
+    })
+
+    it('drops clusters routing to no tool in the selected categories', () => {
+        logic.actions.setSelectedCategories(['Insights'])
+
+        const ids = logic.values.scopedClusters.map((c) => c.id)
+        expect(ids).not.toContain(NO_TOOLS_ID)
+        expect(ids).not.toContain(FAILING_ID)
+    })
+
+    // A tool the map never mentions belongs to no category, so a live filter must exclude
+    // it — keeping it visible would contradict the scope the user picked.
+    it('excludes an uncategorized tool once a category is selected', () => {
+        expect(logic.values.scopedTools.map((t) => t.tool)).toContain('loner')
+
+        logic.actions.setSelectedCategories(['Data'])
+
+        expect(logic.values.scopedTools.map((t) => t.tool)).toEqual(['a'])
+    })
+
+    // Either side in scope, not both: a contested pair is worth seeing precisely when the
+    // competitor sits in another category.
+    it('keeps a contested pair when only one side is in scope', () => {
+        logic.actions.setSelectedCategories(['Insights'])
+
+        expect(logic.values.toolOverlaps.map((o) => [o.tool_a, o.tool_b])).toEqual([['a', 'b']])
+    })
+
+    it('moves the selection into the scoped set when the category excludes it', () => {
+        logic.actions.selectTool('loner')
+
+        logic.actions.setSelectedCategories(['Data'])
+
+        expect(logic.values.selectedToolName).toBe('a')
+    })
+
+    // A shared `?categories=…&cluster=…` link applies the selection before the category map
+    // has loaded, so the scope isn't known yet and the reconcile has nothing to work with.
+    // Once the map arrives the selection must move into the scoped list — otherwise the list
+    // is scoped but the detail pane sits on a cluster the scope excludes, with no row lit up.
+    it('reconciles an out-of-scope url selection once the category map arrives', async () => {
+        logic.unmount()
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), {
+            categories: 'Data',
+            cluster: String(NO_TOOLS_ID),
+        })
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // NO_TOOLS_ID routes to no Data tool, so it is never in the Data scope.
+        const scopedIds = logic.values.scopedClusters.map((c) => c.id)
+        expect(scopedIds).not.toContain(NO_TOOLS_ID)
+        expect(scopedIds).toContain(logic.values.selectedClusterId)
+    })
+
+    // The 30-day category window is wider than the snapshot's, so a category can name only
+    // tools the snapshot never carried. Its scope then matches nothing, and the selection
+    // must clear rather than strand the detail pane on a cluster the scope excludes.
+    it('clears the selection when the selected category matches nothing in the snapshot', async () => {
+        logic.unmount()
+        mockQuery.mockResolvedValue({ results: [...CATEGORY_MAP, { tool: 'ghost', category: 'Ghost' }] })
+        router.actions.push(urls.mcpAnalyticsIntentClustering())
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSelectedCategories(['Ghost'])
+
+        expect(logic.values.scopedClusters).toEqual([])
+        expect(logic.values.scopedTools).toEqual([])
+        expect(logic.values.selectedClusterId).toBeNull()
+        expect(logic.values.selectedToolName).toBeNull()
+    })
+
+    // A recompute reloads the snapshot but not the category map, so the reload's own reconcile
+    // has to honour the active scope. Reconciling against the unscoped snapshot would fall back
+    // to the highest-volume cluster overall, which can sit outside the scope — stranding the
+    // detail there while the list shows the scoped subset.
+    it('falls back to the scoped top, not the snapshot top, when a recompute drops the selection', async () => {
+        logic.actions.setSelectedCategories(['Insights'])
+        logic.actions.selectCluster(CONCENTRATED_ID)
+        expect(logic.values.selectedClusterId).toBe(CONCENTRATED_ID)
+
+        // Drop the selected cluster. The new unscoped top is cluster 2, which routes only to Data
+        // tools, so an unscoped fallback would land the detail outside the Insights scope.
+        const survivors = SHAPED_CLUSTERS.filter((c) => c.id !== CONCENTRATED_ID)
+        mockRetrieve.mockResolvedValue({ ...SCOPED_SNAPSHOT, clusters: survivors })
+        logic.actions.loadSnapshot()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // SPREAD_ID is the highest-volume Insights cluster left, so the reconcile picks it.
+        expect(logic.values.selectedClusterId).toBe(SPREAD_ID)
+        expect(logic.values.scopedClusters.map((c) => c.id)).toContain(logic.values.selectedClusterId)
+    })
+
+    // The map is a slower query than the stored snapshot and can also fail or return nothing.
+    // A category carried in from a bookmarked url must not scope every view down to nothing when
+    // there is no map to scope against — the views render unscoped until (if ever) the map lands.
+    it('applies no scope when a category is selected but the map load fails', async () => {
+        logic.unmount()
+        mockQuery.mockRejectedValue(new Error('clickhouse timeout'))
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), { categories: 'Data' })
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedCategories).toEqual(['Data'])
+        expect(logic.values.categoryMap).toEqual([])
+        expect(logic.values.toolsInScope).toBeNull()
+        expect(logic.values.scopedClusters).toHaveLength(SHAPED_CLUSTERS.length)
+        expect(logic.values.scopedTools.map((t) => t.tool)).toEqual(['a', 'b', 'loner'])
+    })
+
+    // Requesting the map sets a flag that stops urlToAction refetching on every click. Left set
+    // through a failure, one blip makes the tab unfilterable for the session; cleared without a
+    // bound, a failing ClickHouse query lands behind every row the user clicks.
+    it('retries a failed category map once, then stops', async () => {
+        logic.unmount()
+        mockQuery.mockRejectedValue(new Error('clickhouse timeout'))
+        router.actions.push(urls.mcpAnalyticsIntentClustering())
+        const before = mockQuery.mock.calls.length
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockQuery.mock.calls.length - before).toBe(1)
+
+        logic.actions.selectCluster(SPREAD_ID)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockQuery.mock.calls.length - before).toBe(2)
+
+        logic.actions.selectTool('b')
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), { view: 'tools' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockQuery.mock.calls.length - before).toBe(2)
+    })
+
+    // The selector hides itself when no tool carries a category, which is also what a failed
+    // map load looks like. Offering only what the map knows would hide a category arriving from
+    // a bookmarked url behind no control at all, leaving no way to see or clear it.
+    it('keeps a url category clearable when the map load fails', async () => {
+        logic.unmount()
+        mockQuery.mockRejectedValue(new Error('clickhouse timeout'))
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), { categories: 'Data' })
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.availableCategories).toEqual([])
+        expect(logic.values.categoryScopeOptions).toEqual(['Data'])
+    })
+
+    // Tool names come from events, so a call named `__proto__` or `constructor` can reach the
+    // category map. A plain-object lookup resolves those to inherited values and throws on the
+    // `.includes` check, taking the whole view down; the map has to be prototype-free.
+    it('handles tool names that collide with object prototype keys', async () => {
+        logic.unmount()
+        mockQuery.mockResolvedValue({
+            results: [
+                { tool: '__proto__', category: 'Data' },
+                { tool: '__proto__', category: 'Insights' },
+                { tool: 'constructor', category: 'Data' },
+            ],
+        })
+        router.actions.push(urls.mcpAnalyticsIntentClustering())
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.categoriesByTool['__proto__']).toEqual(['Data', 'Insights'])
+        expect(logic.values.categoriesByTool['constructor']).toEqual(['Data'])
+    })
+
+    // A single category comes back from the url as a bare string rather than an array,
+    // which would otherwise scope to the individual characters of its name.
+    it.each([
+        ['one category', 'Insights', ['Insights']],
+        ['several categories', ['Data', 'Insights'], ['Data', 'Insights']],
+    ])('round-trips %s through the url', async (_label, param, expected) => {
+        logic.unmount()
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), { categories: param })
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedCategories).toEqual(expected)
+    })
+
+    it('offers only categories that some tool actually belongs to', () => {
+        expect(logic.values.availableCategories).toEqual(['Data', 'Insights'])
+    })
+
+    // Selecting a cluster rewrites the url, which re-runs urlToAction. Refetching the map
+    // on every click would put a ClickHouse query behind each row.
+    it('fetches the category map once however often the url is rewritten', () => {
+        const before = mockQuery.mock.calls.length
+
+        logic.actions.selectCluster(SPREAD_ID)
+        logic.actions.selectTool('b')
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), { view: 'tools' })
+
+        expect(mockQuery.mock.calls.length).toBe(before)
+    })
+
+    // The dashboard tab connects to this logic purely for cluster counts, so mounting it
+    // there must not fire the category query.
+    it('does not fetch the category map when mounted away from the clustering tab', async () => {
+        logic.unmount()
+        jest.clearAllMocks()
+        mockRetrieve.mockResolvedValue(SCOPED_SNAPSHOT)
+        router.actions.push(urls.mcpAnalyticsDashboard())
+
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockQuery).not.toHaveBeenCalled()
+        expect(logic.values.availableCategories).toEqual([])
+    })
+})
+
 describe('mcpClusteringLogic helpers', () => {
     // A cluster with no tool distribution used to fall through to a `?? 100` default and
     // be counted as the best-routed shape there is, inflating the headline number.
@@ -408,6 +706,24 @@ describe('mcpClusteringLogic helpers', () => {
 
     // The pivot no longer ships the cluster's label with every entry, so a broken
     // join renders the intents table with blank rows instead of intent text.
+    // Two tools in one category used to mean the badge rendered twice, which React also
+    // flags as a duplicate key.
+    it('clusterCategories lists each category once, busiest tool first', () => {
+        const c = cluster(1, {
+            tool_distribution: dist([
+                ['b', 60],
+                ['a', 30],
+                ['c', 10],
+            ]),
+        })
+
+        expect(clusterCategories(c, { a: ['Data'], b: ['Insights'], c: ['Data'] })).toEqual(['Insights', 'Data'])
+    })
+
+    it('clusterCategories is empty when none of the cluster tools are mapped', () => {
+        expect(clusterCategories(cluster(1, { tool_distribution: dist([['a', 100]]) }), {})).toEqual([])
+    })
+
     it('toolClusterRows joins each entry to the cluster it points at', () => {
         const rows = toolClusterRows(pivot([entry({ cluster_id: 3 }), entry({ cluster_id: 1 })]), [
             cluster(1),

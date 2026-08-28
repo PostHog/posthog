@@ -18,6 +18,7 @@ axum = { workspace = true }
 metrics = { workspace = true }
 chrono = { workspace = true }
 quick_cache = { workspace = true }
+common-database = { path = "../common/database" }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }

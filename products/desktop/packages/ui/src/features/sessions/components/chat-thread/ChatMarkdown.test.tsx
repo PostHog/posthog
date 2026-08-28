@@ -73,6 +73,15 @@ Verdict: valid.
       'data-github-ref-url="https://github.com/PostHog/posthog/pull/23985"',
     );
   });
+
+  it("labels a pull request review comment without dropping its anchor", () => {
+    const href =
+      "https://github.com/PostHog/posthog/pull/86811/changes#r3832262653";
+    const html = renderToStaticMarkup(<ChatMarkdown content={href} />);
+
+    expect(html).toContain("Comment on PR #86811");
+    expect(html).toContain(`data-github-ref-url="${href}"`);
+  });
 });
 
 describe("ChatMarkdown object tags", () => {

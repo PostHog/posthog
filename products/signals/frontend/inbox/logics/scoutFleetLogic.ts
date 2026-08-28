@@ -1,10 +1,12 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
+import { reconcileById } from 'lib/utils/objects'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -37,16 +39,17 @@ import {
 } from '../inboxAnalytics'
 import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
-import { groupScouts, scoutGroup, ScoutGroupBucket, ScoutGroupKey } from '../utils/scoutGroups'
+import { compareScoutsByName, SCOUT_GROUP_ORDER, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
+/** Roster order: A to Z by name, or by lifecycle group so scouts that need a decision lead. */
+export type ScoutRosterSort = 'name' | 'status'
 import {
     computeFleetSummary,
     computeScoutRollups,
     FleetSummary,
     isSettledRun,
     prettifyScoutSkillName,
-    reconcileById,
     SCOUT_ROSTER_WINDOW_HOURS,
     SCOUT_RUNS_PER_SCOUT,
     SCOUT_RUNS_WINDOW_HOURS,
@@ -55,7 +58,9 @@ import {
 import { configMatchesScoutTags, listScoutTagOptions } from '../utils/scoutTags'
 import type { ScoutTagOption } from '../utils/scoutTags'
 
-type SignalScoutConfig = SignalScoutConfigApi
+// Exported because kea-typegen writes an import for it into any logic that connects `scoutConfigs`,
+// which Replay Vision's scanner scouts do.
+export type SignalScoutConfig = SignalScoutConfigApi
 type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
 
 /**
@@ -91,22 +96,77 @@ const RUNS_REFETCH_INTERVAL_MS = 60_000
 const RUNS_PAGE_LIMIT = 100
 const MAX_RUNS_PAGES = 15
 
-/** Rows the roster is showing after every filter, for the `filter_match_count` analytics property. */
-function rosterMatchCount(buckets: ScoutGroupBucket[]): number {
-    return buckets.reduce((total, bucket) => total + bucket.configs.length, 0)
+// Roster filter state also lives in the URL so a filtered view survives a refresh and is shareable.
+// The search param is written on this debounce, so typing does not rewrite the URL per keystroke.
+const ROSTER_SEARCH_DEBOUNCE_MS = 600
+
+interface RosterFilterState {
+    scoutSearch: string
+    scoutEnabledFilter: ScoutEnabledFilter
+    selectedScoutTags: string[]
 }
 
-/** Where each scout's row belongs, given the configs and run rollups currently loaded. */
-function computeRosterPlacement(values: {
-    scoutConfigs: SignalScoutConfig[] | null
-    rollups: Map<string, ScoutRollup>
-}): Record<string, ScoutGroupKey> {
-    const now = new Date()
-    const placement: Record<string, ScoutGroupKey> = {}
-    for (const config of values.scoutConfigs ?? []) {
-        placement[config.id] = scoutGroup(config, values.rollups.get(config.skill_name), now)
+// Merge the roster filters into `base`, writing only params that differ from the default so the bare
+// `/inbox/scouts` URL stays clean.
+function rosterFilterSearchParams(base: Record<string, any>, filters: RosterFilterState): Record<string, any> {
+    const params = { ...base }
+    const search = filters.scoutSearch.trim()
+    if (search) {
+        params.scoutSearch = search
+    } else {
+        delete params.scoutSearch
     }
-    return placement
+    if (filters.scoutEnabledFilter !== 'all') {
+        params.scoutEnabled = filters.scoutEnabledFilter
+    } else {
+        delete params.scoutEnabled
+    }
+    if (filters.selectedScoutTags.length > 0) {
+        params.scoutTags = filters.selectedScoutTags.join(',')
+    } else {
+        delete params.scoutTags
+    }
+    return params
+}
+
+// kea-router parses `?scoutSearch=123` into a number and `?scoutSearch=true` into a boolean, so a
+// string-only check would drop searches and tags that a person can type. Read a scalar back as the
+// text it came from, and reject the array and object forms, which no roster param ever takes.
+function readTextParam(value: unknown): string {
+    if (typeof value === 'string') {
+        return value
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+        return String(value)
+    }
+    return ''
+}
+
+function parseRosterFilterSearchParams(searchParams: Record<string, any>): RosterFilterState {
+    const tags = readTextParam(searchParams.scoutTags)
+    return {
+        scoutSearch: readTextParam(searchParams.scoutSearch),
+        scoutEnabledFilter:
+            searchParams.scoutEnabled === 'enabled' || searchParams.scoutEnabled === 'disabled'
+                ? searchParams.scoutEnabled
+                : 'all',
+        selectedScoutTags: tags ? tags.split(',').filter(Boolean) : [],
+    }
+}
+
+// The URL mirrors what the tag control shows, and that control only lists tags the fleet still uses.
+// Until the configs load there is nothing to check a selection against, so the raw selection stands
+// and a shared link keeps its tags.
+function rosterFilterUrlState(values: scoutFleetLogicValues): RosterFilterState {
+    return {
+        scoutSearch: values.scoutSearch,
+        scoutEnabledFilter: values.scoutEnabledFilter,
+        selectedScoutTags: values.scoutConfigs === null ? values.selectedScoutTags : values.activeScoutTags,
+    }
+}
+
+function sameTags(a: string[], b: string[]): boolean {
+    return a.length === b.length && a.every((tag, index) => tag === b[index])
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -133,9 +193,9 @@ export interface scoutFleetLogicValues {
     lastRunAt: string | null
     manualRunScoutIds: string[]
     rollups: Map<string, ScoutRollup>
-    rosterBuckets: ScoutGroupBucket[]
+    rosterEvaluatedAt: number
     rosterGroupCounts: Record<ScoutGroupKey, number>
-    rosterPlacement: Record<string, ScoutGroupKey>
+    rosterScouts: ScoutRosterRow[]
     runningChatType: ScoutChatType | null
     runsWindow: {
         complete: boolean
@@ -149,6 +209,7 @@ export interface scoutFleetLogicValues {
     scoutEnabledFilter: ScoutEnabledFilter
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
+    scoutRosterSort: ScoutRosterSort
     scoutRuns: SignalScoutRunSummary[]
     scoutRunsLoadedOnce: boolean
     scoutRunsLoading: boolean
@@ -170,6 +231,15 @@ export interface scoutFleetLogicActions {
     deleteScoutFinished: (configId: string) => {
         configId: string
     }
+    hydrateRosterFilters: (
+        search: string,
+        filter: ScoutEnabledFilter,
+        tags: string[]
+    ) => {
+        filter: ScoutEnabledFilter
+        search: string
+        tags: string[]
+    }
     loadFleetFindingsSummary: () => any
     loadFleetFindingsSummaryFailure: (
         error: string,
@@ -185,7 +255,7 @@ export interface scoutFleetLogicActions {
         fleetFindingsSummary: FleetFindingsSummaryApi | null
         payload?: any
     }
-    loadRunsWindow: () => any
+    loadRunsWindow: (_: void) => void
     loadRunsWindowFailure: (
         error: string,
         errorObject?: any
@@ -198,15 +268,15 @@ export interface scoutFleetLogicActions {
             complete: boolean
             runs: SignalScoutRunSummary[]
         },
-        payload?: any
+        payload?: void
     ) => {
         runsWindow: {
             complete: boolean
             runs: SignalScoutRunSummary[]
         }
-        payload?: any
+        payload?: void
     }
-    loadScoutConfigs: () => any
+    loadScoutConfigs: (_: void) => void
     loadScoutConfigsFailure: (
         error: string,
         errorObject?: any
@@ -216,10 +286,10 @@ export interface scoutFleetLogicActions {
     }
     loadScoutConfigsSuccess: (
         scoutConfigs: SignalScoutConfigApi[] | null,
-        payload?: any
+        payload?: void
     ) => {
         scoutConfigs: SignalScoutConfigApi[] | null
-        payload?: any
+        payload?: void
     }
     loadScoutMetadata: () => any
     loadScoutMetadataFailure: (
@@ -236,7 +306,7 @@ export interface scoutFleetLogicActions {
         scoutMetadata: ScoutMetadataApi | null
         payload?: any
     }
-    loadScoutRuns: () => any
+    loadScoutRuns: (_: void) => void
     loadScoutRunsFailure: (
         error: string,
         errorObject?: any
@@ -246,10 +316,10 @@ export interface scoutFleetLogicActions {
     }
     loadScoutRunsSuccess: (
         scoutRuns: SignalScoutRunSummary[],
-        payload?: any
+        payload?: void
     ) => {
         scoutRuns: SignalScoutRunSummary[]
-        payload?: any
+        payload?: void
     }
     patchScoutConfigLocally: (
         configId: string,
@@ -267,11 +337,14 @@ export interface scoutFleetLogicActions {
     runScoutNowFinished: (configId: string) => {
         configId: string
     }
-    setRosterPlacement: (placement: Record<string, ScoutGroupKey>) => {
-        placement: Record<string, ScoutGroupKey>
+    setRosterEvaluatedAt: (evaluatedAt: number) => {
+        evaluatedAt: number
     }
     setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
         filter: ScoutEnabledFilter
+    }
+    setScoutRosterSort: (sort: ScoutRosterSort) => {
+        sort: ScoutRosterSort
     }
     setScoutSearch: (search: string) => {
         search: string
@@ -327,18 +400,19 @@ export interface scoutFleetLogicMeta {
         lastRunAt: (scoutConfigs: SignalScoutConfigApi[] | null) => string | null
         scoutTagOptions: (scoutConfigs: SignalScoutConfigApi[] | null) => ScoutTagOption[]
         activeScoutTags: (selectedScoutTags: string[], scoutTagOptions: ScoutTagOption[]) => string[]
-        rosterBuckets: (
+        rosterScouts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>,
+            rosterEvaluatedAt: number,
             activeScoutTags: string[],
             scoutSearch: string,
             scoutEnabledFilter: ScoutEnabledFilter,
-            rosterPlacement: Record<string, ScoutGroupKey>
-        ) => ScoutGroupBucket[]
+            scoutRosterSort: ScoutRosterSort
+        ) => ScoutRosterRow[]
         rosterGroupCounts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>,
-            rosterPlacement: Record<string, ScoutGroupKey>
+            rosterEvaluatedAt: number
         ) => Record<ScoutGroupKey, number>
         emittedFindingsSummary: (fleetFindingsSummary: FleetFindingsSummaryApi | null) => {
             authoredReportCount: number
@@ -387,10 +461,18 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         removeScoutConfigLocally: (configId: string) => ({ configId }),
         setScoutTagFilter: (tags: string[]) => ({ tags }),
         setScoutSearch: (search: string) => ({ search }),
+        setRosterEvaluatedAt: (evaluatedAt: number) => ({ evaluatedAt }),
         setScoutEnabledFilter: (filter: ScoutEnabledFilter) => ({ filter }),
+        setScoutRosterSort: (sort: ScoutRosterSort) => ({ sort }),
+        // Bulk-applies the roster filters from the URL. Kept out of `actionToUrl` so hydrating from a
+        // link does not echo the same URL back as a fresh history entry.
+        hydrateRosterFilters: (search: string, filter: ScoutEnabledFilter, tags: string[]) => ({
+            search,
+            filter,
+            tags,
+        }),
         runScoutNow: (configId: string) => ({ configId }),
         runScoutNowFinished: (configId: string) => ({ configId }),
-        setRosterPlacement: (placement: Record<string, ScoutGroupKey>) => ({ placement }),
         // Started/stopped by the fleet-list component so the always-mounted setup widget
         // (which only reads configs) doesn't trigger the paginated runs-window polling.
         startRunsPolling: true,
@@ -407,9 +489,31 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         scoutConfigs: [
             null as SignalScoutConfig[] | null,
             {
-                loadScoutConfigs: async () => {
+                loadScoutConfigs: async (_: void, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
-                    return teamId ? await signalsScoutConfigList(String(teamId)) : null
+                    if (!teamId) {
+                        return null
+                    }
+                    try {
+                        const configs = await signalsScoutConfigList(String(teamId))
+                        // The breakpoint must run before the `values` read below. The roster mounts from
+                        // short-lived components, so the logic can unmount while this request is in
+                        // flight. The reducer branch is then gone from the store, and the read throws.
+                        breakpoint()
+                        // The 60s poll refetches all configs every cycle. Reconcile against the previous
+                        // list so an unchanged fleet keeps the same references — otherwise the whole
+                        // roster re-renders on every poll even when nothing changed.
+                        return reconcileById(values.scoutConfigs ?? [], configs, (config) => config.id)
+                    } catch (error) {
+                        // A stale project id left in the URL by a project switch, or a member without
+                        // access, are expected — degrade to the same null the no-team guard returns
+                        // instead of reporting them. Anything else, notably a 5xx, still throws so a
+                        // real backend failure keeps reaching error tracking.
+                        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -456,7 +560,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         scoutRuns: [
             [] as SignalScoutRunSummary[],
             {
-                loadScoutRuns: async () => {
+                loadScoutRuns: async (_: void, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return values.scoutRuns
@@ -464,6 +568,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     const runs = await signalsScoutRunsRecentPerScout(String(teamId), {
                         per_scout_limit: SCOUT_RUNS_PER_SCOUT,
                     })
+                    breakpoint()
                     // Reuse prior references for unchanged runs so the 60s poll doesn't churn every
                     // run's identity and needlessly re-render the memoized run/emission rows. Live
                     // (running/queued) runs are never reused: their rows show a wall-clock duration
@@ -478,7 +583,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 complete: boolean
             },
             {
-                loadRunsWindow: async () => {
+                loadRunsWindow: async (_: void, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return values.runsWindow
@@ -497,6 +602,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                             date_from: windowStart,
                             date_to: cursor,
                         })
+                        breakpoint()
                         for (const run of pageRuns) {
                             // `date_to` is exclusive, so a boundary row can reappear on the next
                             // page — dedupe by run_id to be safe.
@@ -549,18 +655,33 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             [] as string[],
             {
                 setScoutTagFilter: (_, { tags }) => tags,
+                hydrateRosterFilters: (_, { tags }) => tags,
             },
         ],
         scoutSearch: [
             '',
             {
                 setScoutSearch: (_, { search }) => search,
+                hydrateRosterFilters: (_, { search }) => search,
             },
         ],
         scoutEnabledFilter: [
             'all' as ScoutEnabledFilter,
             {
                 setScoutEnabledFilter: (_, { filter }) => filter,
+                hydrateRosterFilters: (_, { filter }) => filter,
+            },
+        ],
+        scoutRosterSort: [
+            'name' as ScoutRosterSort,
+            {
+                setScoutRosterSort: (_, { sort }) => sort,
+            },
+        ],
+        rosterEvaluatedAt: [
+            0,
+            {
+                setRosterEvaluatedAt: (_, { evaluatedAt }) => evaluatedAt,
             },
         ],
         scoutConfigs: [
@@ -588,17 +709,6 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             {
                 updateScoutConfig: (state, { configId }) => (state.includes(configId) ? state : [...state, configId]),
                 updateScoutConfigFinished: (state, { configId }) => state.filter((id) => id !== configId),
-            },
-        ],
-        /**
-         * Which group each scout's row currently sits in. Refreshed only when server data lands
-         * (configs or the runs window), never on a local edit — so toggling a scout leaves its row
-         * where it is instead of relocating it mid-click. The next poll re-places it truthfully.
-         */
-        rosterPlacement: [
-            {} as Record<string, ScoutGroupKey>,
-            {
-                setRosterPlacement: (_, { placement }) => placement,
             },
         ],
         manualRunScoutIds: [
@@ -685,35 +795,32 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 selectedScoutTags.filter((tag) => scoutTagOptions.some((option) => option.tag === tag)),
         ],
         /**
-         * The roster, bucketed by lifecycle group and narrowed by the roster's own chrome (search
-         * and the tag filter). Grouping is time-dependent (the cold-start window), so this
-         * recomputes on every runs poll — which is also when a scout can cross between Working and
-         * Watching, so the two stay in step.
+         * The roster as one alphabetical list, each row tagged with its lifecycle group and narrowed
+         * by the roster's own chrome (search and the tag filter). `rosterEvaluatedAt` advances only
+         * when time changes a lifecycle group, so settled polls keep this selector's output stable.
          */
-        rosterBuckets: [
+        rosterScouts: [
             (s) => [
                 s.scoutConfigs,
                 s.rollups,
+                s.rosterEvaluatedAt,
                 s.activeScoutTags,
                 s.scoutSearch,
                 s.scoutEnabledFilter,
-                s.rosterPlacement,
+                s.scoutRosterSort,
             ],
             (
                 scoutConfigs: SignalScoutConfig[] | null,
                 rollups: Map<string, ScoutRollup>,
+                rosterEvaluatedAt: number,
                 activeScoutTags: string[],
                 scoutSearch: string,
                 scoutEnabledFilter: ScoutEnabledFilter,
-                rosterPlacement: Record<string, ScoutGroupKey>
-            ): ScoutGroupBucket[] => {
+                scoutRosterSort: ScoutRosterSort
+            ): ScoutRosterRow[] => {
                 const query = scoutSearch.trim().toLowerCase()
-                // Alphabetical only. Sorting by `enabled` too would jump a row to the bottom of its
-                // group the moment you switched it off, on top of the group change itself.
-                const matching = [...(scoutConfigs ?? [])]
-                    .sort((a, b) =>
-                        prettifyScoutSkillName(a.skill_name).localeCompare(prettifyScoutSkillName(b.skill_name))
-                    )
+                const now = new Date(rosterEvaluatedAt)
+                const rows = [...(scoutConfigs ?? [])]
                     .filter((config) => configMatchesScoutTags(config, activeScoutTags))
                     .filter(
                         (config) =>
@@ -726,20 +833,27 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                             config.skill_name.toLowerCase().includes(query) ||
                             (config.description ?? '').toLowerCase().includes(query)
                     )
-                return groupScouts(matching, rollups, new Date(), rosterPlacement)
+                    .sort(compareScoutsByName)
+                    .map((config) => ({ config, group: scoutGroup(config, rollups.get(config.skill_name), now) }))
+                if (scoutRosterSort === 'status') {
+                    // Stable: rows are already A to Z, so scouts in one group keep their name order.
+                    rows.sort((a, b) => SCOUT_GROUP_ORDER.indexOf(a.group) - SCOUT_GROUP_ORDER.indexOf(b.group))
+                }
+                return rows
             },
         ],
         /**
-         * Group sizes over the whole fleet, unnarrowed by search — the roster header states how many
+         * Group sizes over the whole fleet, unnarrowed by search — the roster stats state how many
          * scouts need a decision, and that number must not move as you type into the search box.
          */
         rosterGroupCounts: [
-            (s) => [s.scoutConfigs, s.rollups, s.rosterPlacement],
+            (s) => [s.scoutConfigs, s.rollups, s.rosterEvaluatedAt],
             (
                 scoutConfigs: SignalScoutConfig[] | null,
                 rollups: Map<string, ScoutRollup>,
-                rosterPlacement: Record<string, ScoutGroupKey>
+                rosterEvaluatedAt: number
             ): Record<ScoutGroupKey, number> => {
+                const now = new Date(rosterEvaluatedAt)
                 const counts: Record<ScoutGroupKey, number> = {
                     needs_you: 0,
                     working: 0,
@@ -748,8 +862,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     settling_in: 0,
                     off: 0,
                 }
-                for (const bucket of groupScouts(scoutConfigs ?? [], rollups, new Date(), rosterPlacement)) {
-                    counts[bucket.key] = bucket.configs.length
+                for (const config of scoutConfigs ?? []) {
+                    counts[scoutGroup(config, rollups.get(config.skill_name), now)] += 1
                 }
                 return counts
             },
@@ -787,6 +901,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
+        loadScoutRunsSuccess: () => {
+            const evaluatedAt = new Date(values.rosterEvaluatedAt)
+            const now = new Date()
+            const groupChanged = (values.scoutConfigs ?? []).some((config) => {
+                const rollup = values.rollups.get(config.skill_name)
+                return scoutGroup(config, rollup, evaluatedAt) !== scoutGroup(config, rollup, now)
+            })
+            if (groupChanged) {
+                actions.setRosterEvaluatedAt(now.valueOf())
+            }
+        },
         setScoutTagFilter: ({ tags }) => {
             captureScoutAction({
                 actionType: 'filter_tags',
@@ -803,30 +928,44 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             captureScoutAction({
                 actionType: 'filter_enabled',
                 surface: 'fleet_list',
-                extra: { filter, filter_match_count: rosterMatchCount(values.rosterBuckets) },
+                // `filter_match_count`: rows still shown after every filter.
+                extra: { filter, filter_match_count: values.rosterScouts.length },
             })
         },
-        // Debounced so a typed query fires once per pause, not per keystroke; clearing fires nothing.
-        // The term itself is not sent — it can name a customer's own scouts — only its length.
+        // Debounced so a burst of keystrokes settles once, on pause. The URL is rewritten through
+        // `replace`, so Back does not step through every partial query. Analytics ride the same pause:
+        // a typed query reports once, clearing reports nothing. The event payload carries only the
+        // length, not the term. That is no longer a privacy boundary: the term is in the URL, so
+        // `$current_url` carries it on this event and on every later one from the same page.
         setScoutSearch: async ({ search }, breakpoint) => {
+            const searchedPathname = router.values.location.pathname
+            await breakpoint(ROSTER_SEARCH_DEBOUNCE_MS)
+            // Hydrating from the URL replaces the search without aborting this breakpoint, so the
+            // typed query can be stale by now. Drop it: the hydrated search owns the URL, and
+            // reporting the abandoned query here would pair its length with the new match count.
+            if (values.scoutSearch !== search) {
+                return
+            }
+            // The logic stays mounted across a master-detail navigation, so the breakpoint does not
+            // abort on a same-scene route change. Only write the roster filter if the user is still on
+            // the route they searched from — otherwise the delayed write lands a roster param on a
+            // route it does not own (e.g. an open scout's detail URL).
+            if (router.values.location.pathname === searchedPathname) {
+                router.actions.replace(
+                    router.values.location.pathname,
+                    rosterFilterSearchParams(router.values.searchParams, rosterFilterUrlState(values)),
+                    router.values.hashParams
+                )
+            }
             const query = search.trim()
             if (!query) {
                 return
             }
-            await breakpoint(600)
             captureScoutAction({
                 actionType: 'search_scouts',
                 surface: 'fleet_list',
-                extra: { search_length: query.length, filter_match_count: rosterMatchCount(values.rosterBuckets) },
+                extra: { search_length: query.length, filter_match_count: values.rosterScouts.length },
             })
-        },
-        // Placement is refreshed here, off server data only, and deliberately not from
-        // `patchScoutConfigLocally` — an optimistic toggle must not relocate the row being clicked.
-        loadScoutConfigsSuccess: () => {
-            actions.setRosterPlacement(computeRosterPlacement(values))
-        },
-        loadScoutRunsSuccess: () => {
-            actions.setRosterPlacement(computeRosterPlacement(values))
         },
         runScoutNow: async ({ configId }) => {
             const teamId = teamLogic.values.currentTeamId
@@ -1065,10 +1204,84 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         },
     })),
 
+    // Enabled and tag filters push, so Back and Forward step through them. Search is written by its
+    // own debounced listener via `replace`, so it is not registered here.
+    actionToUrl(({ values }) => {
+        const toUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
+            router.values.location.pathname,
+            rosterFilterSearchParams(router.values.searchParams, rosterFilterUrlState(values)),
+            router.values.hashParams,
+            { replace: false },
+        ]
+        return {
+            setScoutEnabledFilter: toUrl,
+            setScoutTagFilter: toUrl,
+        }
+    }),
+
+    urlToAction(({ actions, values }) => {
+        const applyFromUrl = (
+            _: unknown,
+            searchParams: Record<string, any>,
+            __: unknown,
+            { method }: { method: 'PUSH' | 'REPLACE' | 'POP' }
+        ): void => {
+            const hasRosterParams =
+                'scoutSearch' in searchParams || 'scoutEnabled' in searchParams || 'scoutTags' in searchParams
+            if (!hasRosterParams) {
+                // Back or Forward onto a bare roster URL asks for the default, unfiltered view: reset
+                // the filters and leave the URL bare so a second Back can still reach the entries
+                // beneath it. Reflecting the persisted filters back here would undo the navigation.
+                if (method === 'POP') {
+                    if (
+                        values.scoutSearch !== '' ||
+                        values.scoutEnabledFilter !== 'all' ||
+                        values.selectedScoutTags.length > 0
+                    ) {
+                        actions.hydrateRosterFilters('', 'all', [])
+                    }
+                    return
+                }
+                // Only a fresh navigation reflects the persisted filters back, so the current view
+                // is immediately shareable. A replace is not a navigation: a sibling inbox logic
+                // replaces the bare URL to restore its own params while a Back is still being
+                // handled, and writing the roster filters there would leave the URL filtered after
+                // that Back resets the controls.
+                if (method !== 'PUSH') {
+                    return
+                }
+                const desired = rosterFilterSearchParams({}, rosterFilterUrlState(values))
+                if (Object.keys(desired).length > 0) {
+                    router.actions.replace(
+                        router.values.location.pathname,
+                        { ...router.values.searchParams, ...desired },
+                        router.values.hashParams
+                    )
+                }
+                return
+            }
+            // A shared link is authoritative: apply what it carries and reset the rest to defaults.
+            // Guarded so plain navigation onto the roster does not re-dispatch an unchanged state.
+            const parsed = parseRosterFilterSearchParams(searchParams)
+            if (
+                parsed.scoutSearch === values.scoutSearch &&
+                parsed.scoutEnabledFilter === values.scoutEnabledFilter &&
+                sameTags(parsed.selectedScoutTags, values.selectedScoutTags)
+            ) {
+                return
+            }
+            actions.hydrateRosterFilters(parsed.scoutSearch, parsed.scoutEnabledFilter, parsed.selectedScoutTags)
+        }
+        return {
+            [urls.inbox('scouts')]: applyFromUrl,
+        }
+    }),
+
     events(({ actions }) => ({
         afterMount: () => {
             // Configs are cheap and the always-mounted setup widget needs them. The paginated
             // runs window is loaded + polled only while the fleet list is open (startRunsPolling).
+            actions.setRosterEvaluatedAt(Date.now())
             actions.loadScoutConfigs()
         },
     })),

@@ -41,6 +41,7 @@ SLACK_APP_ASSISTANT_FLAG = "slack-app-assistant"
 SLACK_APP_LIVING_ARTIFACTS_FLAG = "slack-app-living-artifacts"
 SLACK_APP_CANVAS_FILE_ARTIFACTS_FLAG = "slack-app-canvas-file-artifacts"
 SLACK_APP_MODEL_CLASSIFIER_FLAG = "slack-app-model-classifier"
+SLACK_APP_FORKING_FLAG = "slack-app-forking"
 UNTAGGED_THREAD_FOLLOWUPS_FLAG = "posthog-slack-app-untagged-thread-followups"
 
 
@@ -275,3 +276,34 @@ def is_slack_app_assistant_enabled(integration: Integration) -> bool:
     if not has_scopes(integration, ASSISTANT_REQUIRED_SCOPES):
         return False
     return is_slack_app_assistant_flag_enabled(integration.team)
+
+
+def is_slack_app_forking_enabled(integration: Integration) -> bool:
+    """Gate for the "Fork to DM" menu under a reply.
+
+    A fork lands in a DM and is answered there, so it inherits the assistant
+    surface's scope requirements wholesale — ``im:history`` in particular, without
+    which the forked thread would answer once and then go deaf to follow-ups.
+    Gating on the assistant scopes rather than its flag keeps the two rollouts
+    independent: a workspace can get forking without opting into cold-start DMs.
+
+    Keyed on the Slack workspace like its neighbours, not the team: the menu hangs off
+    a reply, and a workspace connected to two projects would otherwise show it on some
+    replies and not others.
+    """
+    if not has_scopes(integration, ASSISTANT_REQUIRED_SCOPES):
+        return False
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SLACK_APP_FORKING_FLAG,
+                f"slack_workspace:{integration.integration_id}",
+                groups={"organization": str(integration.team.organization_id)},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("slack_app_forking_feature_flag_check_failed", integration_id=integration.id)
+        return False

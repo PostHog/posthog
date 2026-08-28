@@ -406,7 +406,7 @@ class Harness {
             const message = this.makeMessage(spec)
             return createOkContext<In, Ctx>({ message }, { message })
         })
-        return this.pipeline.feed(batch)
+        return this.pipeline.feed(batch, {})
     }
 
     /** Drain the pipeline like the consumer/API server: next() until null, scheduling side effects. */

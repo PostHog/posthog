@@ -1,0 +1,72 @@
+// The instructions editor paints its text twice: a backdrop div that can style the `<ALL CAPS>`
+// placeholders, and the real textarea on top holding the caret and selection. The two layers must
+// lay text out identically or the caret lands away from the glyphs under it, so every property that
+// affects line breaking is declared once for both.
+//
+// This is SCSS rather than utility classes for two reasons: `.LemonTextArea` sets its own font-size,
+// line-height, color and background in plain unlayered CSS, which beats Tailwind's layered utilities
+// no matter their specificity; and `LemonTextArea` puts its `className` on both its wrapper and the
+// textarea, so styling through it would give the wrapper a second copy of the padding.
+.ScoutInstructionsField {
+    position: relative;
+
+    // Everything that decides where a line breaks. The two layers must agree on all of it.
+    &__backdrop,
+    textarea.LemonTextArea {
+        padding: 0.5rem;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        line-height: 1.4;
+
+        // Reserve the scrollbar's width on both layers whether or not one is showing. Without this
+        // the textarea narrows by the scrollbar once its content overflows, wraps earlier than the
+        // backdrop, and clicks below the first wrapped line land on the wrong character.
+        scrollbar-gutter: stable;
+    }
+
+    &__backdrop {
+        position: absolute;
+        inset: 0;
+
+        // The backdrop is positioned and the field's wrapper is not, so without an explicit order
+        // the backdrop paints over the field, hiding both the caret and the field's own border.
+        z-index: 0;
+        overflow: hidden;
+        color: var(--color-text-primary);
+        overflow-wrap: break-word;
+        white-space: pre-wrap;
+        pointer-events: none;
+        background-color: var(--color-bg-fill-input);
+
+        // Matches the field's 1px border, so both layers wrap text at the same width.
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+    }
+
+    &__placeholder {
+        font-weight: 700;
+
+        // Monospace keeps its advance width when bold, so emphasis here doesn't shift the glyphs
+        // under the caret.
+        color: var(--color-text-error);
+    }
+
+    // `LemonTextArea` puts this class on its wrapper and its textarea; both only need to sit above
+    // the backdrop, and the wrapper must keep the border and padding the design system gives it.
+    &__field {
+        position: relative;
+        z-index: 1;
+
+        // `.input-like` fills its background on focus, and this layer sits above the backdrop, so
+        // without this the text vanishes the moment the field is focused. The backdrop owns the
+        // background; this layer stays glass all the way down.
+        background-color: transparent;
+    }
+
+    // The backdrop paints the text and the background; the textarea keeps the caret and selection.
+    textarea.LemonTextArea {
+        color: transparent;
+        caret-color: var(--color-text-primary);
+        background-color: transparent;
+    }
+}

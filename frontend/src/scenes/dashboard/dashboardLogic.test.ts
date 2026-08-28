@@ -326,23 +326,6 @@ describe('dashboardLogic', () => {
         })
     })
 
-    describe('inline tile insertion experiment', () => {
-        beforeEach(() => {
-            logic = dashboardLogic({ id: 5 })
-            logic.mount()
-        })
-
-        it.each([
-            ['control', false],
-            ['test', true],
-        ])('uses the %s variant', async (variant, expectedEnabled) => {
-            const experimentFlag = FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION_EXPERIMENT
-            await expectLogic(logic, () => {
-                featureFlagLogic.actions.setFeatureFlags([experimentFlag], { [experimentFlag]: variant })
-            }).toMatchValues({ inlineTileInsertionEnabled: expectedEnabled })
-        })
-    })
-
     describe('tile layouts', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 5 })
@@ -399,7 +382,7 @@ describe('dashboardLogic', () => {
             }
         })
 
-        it('does not report the default tile density', async () => {
+        it('reports the tile density when reset to standard', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const reportTileDensityConfigured = jest.spyOn(
                 eventUsageLogic.actions,
@@ -413,7 +396,7 @@ describe('dashboardLogic', () => {
                 await jest.advanceTimersByTimeAsync(750)
                 await expectLogic(logic).toFinishAllListeners()
 
-                expect(reportTileDensityConfigured).not.toHaveBeenCalled()
+                expect(reportTileDensityConfigured).toHaveBeenCalledWith('standard')
             } finally {
                 jest.useRealTimers()
             }

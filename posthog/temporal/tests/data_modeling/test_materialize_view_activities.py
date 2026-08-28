@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Collection, Iterable
+from dataclasses import replace
 from io import BytesIO
 from typing import Any, cast
 from uuid import uuid4
@@ -42,6 +43,8 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
 )
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
 
+from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
+from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
 from products.data_modeling.backend.facade.api import compute_enrichment_hash
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import (
@@ -54,10 +57,15 @@ from products.data_modeling.backend.facade.models import (
 )
 from products.data_warehouse.backend.facade.api import CreateTableResult
 from products.notifications.backend.facade.api import NotificationType, TargetType
-from products.warehouse_sources.backend.facade.hooks import PersonPropertySourceProjection, saved_query_binding
+from products.warehouse_sources.backend.facade.hooks import (
+    AccountPropertySourceProjection,
+    PersonPropertySourceProjection,
+    saved_query_binding,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_paths import (
-    job_staged_prefix,
+from products.warehouse_sources.backend.facade.temporal import (
+    account_property_job_staged_prefix,
+    person_property_job_staged_prefix,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -964,7 +972,7 @@ class TestNodeSuspension:
     async def test_does_not_resuspend_on_failures_from_before_a_resume(self, ateam, anode, asaved_query, adag):
         from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
 
-        from products.data_modeling.backend.logic.node_suspension import resume_nodes
+        from products.data_modeling.backend.facade.api import resume_nodes
 
         jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(5)]
         first_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
@@ -1775,7 +1783,7 @@ class TestMaterializeViewStagesPersonPropertyRows:
         with self._env(bucket_name, projection):
             result = await activity_environment.run(materialize_view_activity, inputs)
             # Resolved inside the overridden settings, so it names the same bucket the sink wrote to.
-            prefix = job_staged_prefix(ateam.pk, saved_query_binding(asaved_query.id), str(ajob.id))
+            prefix = person_property_job_staged_prefix(ateam.pk, saved_query_binding(asaved_query.id), str(ajob.id))
 
         # The workflow gates the person-property child on this field.
         assert result.person_property_sync_enabled is True
@@ -1803,3 +1811,89 @@ class TestMaterializeViewStagesPersonPropertyRows:
         assert result.person_property_sync_enabled is False
         listing = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix="person_property_sync/")
         assert listing.get("Contents", []) == []
+
+
+class TestMaterializeViewStagesAccountPropertyRows:
+    @staticmethod
+    def _hogql_table(*args, **kwargs):
+        del args, kwargs
+        data = cast(
+            Collection[pa.Array],
+            [pa.array(["org-1", "org-2"], type=pa.string()), pa.array([100.0, 200.0], type=pa.float64())],
+        )
+        batch = pa.RecordBatch.from_arrays(data, names=["organization_id", "mrr"])
+
+        async def async_generator():
+            yield batch, [("organization_id", "String"), ("mrr", "Float64")]
+
+        return async_generator()
+
+    async def test_exposes_account_delta_snapshot_without_staging_inside_materialization(
+        self, activity_environment, ateam, anode, asaved_query, ajob, adag, bucket_name, minio_client
+    ) -> None:
+        projection = [
+            AccountPropertySourceProjection(
+                key_column="organization_id",
+                columns=frozenset({"organization_id", "mrr"}),
+            )
+        ]
+        inputs = MaterializeViewInputs(
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            node_id=str(anode.id),
+            job_id=str(ajob.id),
+        )
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_BUCKET=bucket_name,
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+                USE_LOCAL_SETUP=True,
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table",
+                self._hogql_table,
+            ),
+            unittest.mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports."
+                "pipelines.core.account_property_row_sink.account_property_projection_for",
+                return_value=projection,
+            ),
+        ):
+            result = await activity_environment.run(materialize_view_activity, inputs)
+            prefix = account_property_job_staged_prefix(
+                ateam.pk,
+                saved_query_binding(asaved_query.id),
+                str(ajob.id),
+            )
+            listing_before_staging = await minio_client.list_objects_v2(
+                Bucket=bucket_name,
+                Prefix=prefix.removeprefix(f"{bucket_name}/"),
+            )
+            assert result.delta_version is not None
+            activity_environment.info = replace(activity_environment.info, workflow_run_id=str(uuid4()))
+            staged = await activity_environment.run(
+                stage_warehouse_account_property_files_activity,
+                StageAccountPropertySyncInput(
+                    team_id=ateam.pk,
+                    saved_query_id=str(asaved_query.id),
+                    job_id=str(ajob.id),
+                    table_uri=result.table_uri,
+                    delta_version=result.delta_version,
+                ),
+            )
+            listing_after_staging = await minio_client.list_objects_v2(
+                Bucket=bucket_name,
+                Prefix=prefix.removeprefix(f"{bucket_name}/"),
+            )
+
+        assert result.account_property_sync_enabled is True
+        assert listing_before_staging.get("Contents", []) == []
+        assert staged is True
+        keys = [obj["Key"] for obj in listing_after_staging.get("Contents", [])]
+        assert len(keys) == 1
+        staged_object = await minio_client.get_object(Bucket=bucket_name, Key=keys[0])
+        table = pq.read_table(BytesIO(await staged_object["Body"].read()))
+        assert table.column_names == ["mrr", "organization_id"]

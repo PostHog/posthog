@@ -36,6 +36,25 @@ CREATE TABLE posthog.kafka_events_json_native_json (
   dmat_string_8 Nullable(String),
   dmat_string_9 Nullable(String)
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_events_json_native_json\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_events_json\'';
+CREATE TABLE posthog.kafka_logs_avro (
+  uuid String,
+  trace_id String,
+  span_id String,
+  trace_flags Int32,
+  timestamp DateTime64(6),
+  observed_timestamp DateTime64(6),
+  body String,
+  severity_text String,
+  severity_number Int32,
+  service_name String,
+  resource_attributes Map(LowCardinality(String), String),
+  instrumentation_scope String,
+  event_name String,
+  attributes Map(LowCardinality(String), String),
+  retention_days Nullable(Int32),
+  pattern Nullable(String),
+  pattern_version Nullable(Int32)
+) ENGINE = Kafka() SETTINGS input_format_avro_allow_missing_fields = 1, kafka_broker_list = 'warpstream_logs', kafka_format = 'kafka_format = \'Avro\'', kafka_group_name = 'kafka_group_name = \'clickhouse-logs-avro-new\'', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_logs\'';
 CREATE TABLE posthog.query_log_archive (
   hostname LowCardinality(String),
   user LowCardinality(String),
@@ -162,6 +181,41 @@ CREATE TABLE posthog.writable_events_json (
   consumer_breadcrumbs Array(String),
   historical_migration Bool DEFAULT false
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_events_json', sipHash64(distinct_id));
+CREATE TABLE posthog.writable_logs34 (
+  time_bucket DateTime MATERIALIZED toStartOfDay(timestamp),
+  original_expiry_timestamp DateTime64(6),
+  uuid String,
+  team_id Int32,
+  trace_id String,
+  span_id String,
+  trace_flags Int32,
+  timestamp DateTime64(6) CODEC(DoubleDelta),
+  observed_timestamp DateTime64(6),
+  created_at DateTime64(6) MATERIALIZED now(),
+  body String,
+  severity_text LowCardinality(String),
+  severity_number Int32,
+  service_name LowCardinality(String),
+  resource_attributes Map(LowCardinality(String), String),
+  resource_fingerprint UInt64 MATERIALIZED cityHash64(resource_attributes),
+  instrumentation_scope String,
+  event_name String,
+  attributes_map_str Map(LowCardinality(String), String),
+  level String ALIAS severity_text,
+  mat_body_ipv4_matches Array(String) ALIAS extractAll(body, '(\\d\\.((25[0-5]|(2[0-4]|1(0, 1)[0-9])(0, 1)[0-9])\\.)(2, 2)([0-9]))'),
+  time_minute DateTime ALIAS toStartOfMinute(timestamp),
+  attributes Map(LowCardinality(String), String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
+  attributes_map_float Map(LowCardinality(String), Float64) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str)),
+  attributes_map_datetime Map(LowCardinality(String), DateTime64(6)) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__datetime'), parseDateTimeBestEffortOrNull(v, 6)), attributes_map_str)),
+  _partition UInt32,
+  _topic String,
+  _offset UInt64,
+  _bytes_uncompressed UInt64,
+  _bytes_compressed UInt64,
+  _record_count UInt64,
+  pattern String,
+  pattern_version UInt8
+) ENGINE = Distributed('logs', 'posthog', 'logs34') SETTINGS background_insert_batch = 1;
 CREATE MATERIALIZED VIEW posthog.events_json_table_mv TO posthog.writable_events_json (uuid UUID, event String, properties JSON, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, elements_chain String, created_at DateTime64(6, 'UTC'), person_id UUID, person_created_at DateTime64(3), person_properties JSON, group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), historical_migration Bool, _timestamp Nullable(DateTime), _offset UInt64, consumer_breadcrumbs Array(String)) AS SELECT
   uuid,
   event,
@@ -202,3 +256,36 @@ CREATE MATERIALIZED VIEW posthog.events_json_table_mv TO posthog.writable_events
     )
   ) AS consumer_breadcrumbs
 FROM posthog.kafka_events_json_native_json;
+CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64), pattern String, pattern_version UInt8) AS SELECT
+  uuid,
+  trace_id,
+  span_id,
+  trace_flags,
+  timestamp,
+  observed_timestamp,
+  body,
+  severity_text,
+  severity_number,
+  service_name,
+  instrumentation_scope,
+  event_name,
+  mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
+  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
+  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
+  observed_timestamp
+  + toIntervalDay(
+    if(
+      (retention_days IS NOT NULL) AND (retention_days > 0),
+      retention_days,
+      toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    )
+  ) AS original_expiry_timestamp,
+  _partition,
+  _topic,
+  _offset,
+  toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count,
+  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
+  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
+  ifNull(pattern, '') AS pattern,
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
+FROM posthog.kafka_logs_avro;

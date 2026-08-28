@@ -11,6 +11,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { captureInboxWelcomeCommandCopied, captureInboxWelcomeViewed } from '../../inboxAnalytics'
 import { SELF_DRIVING_WIZARD_COMMAND } from './InboxOnboarding'
+import { ManualSetupAction } from './ManualSetupAction'
 
 /** How long the copy button reads "Copied" before flipping back. */
 const COPIED_RESET_MS = 1600
@@ -191,6 +192,7 @@ export function InboxWelcomeRedesign(): JSX.Element {
                         Run it in your repo. That's the whole setup: it connects GitHub and picks the signal sources and
                         scouts to watch. PRs start landing in this inbox.
                     </p>
+                    <ManualSetupAction variant="redesign" className="mt-7 items-center text-center" />
                 </div>
             </div>
             <div className="px-6 md:px-12">

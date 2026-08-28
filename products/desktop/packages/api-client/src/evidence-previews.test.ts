@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  cohortCriteriaSection,
   compactCount,
   dailySparkPoints,
   decorateFlagPreview,
@@ -7,6 +8,8 @@ import {
   exposureFact,
   gridRows,
   hogqlEscape,
+  pivotDailyGroups,
+  shapeActionPreview,
   shapeCohortPreview,
   shapeDashboardPreview,
   shapeErrorIssuePreview,
@@ -36,11 +39,52 @@ describe("evidence preview shaping", () => {
       },
       experiment_set: [7],
     } as unknown as Schemas.FeatureFlag);
-    expect(preview).toEqual({
+    expect(preview).toMatchObject({
       title: "new-checkout-flow",
-      detail: "Enabled · New checkout rollout",
+      detail: "New checkout rollout",
+      status: { label: "Enabled", tone: "positive" },
       facts: ["25% rollout", "2 variants", "Used by 1 experiment"],
       resolvedId: "42",
+    });
+    expect(preview.sections).toContainEqual({
+      title: "Configuration",
+      fields: expect.arrayContaining([
+        { label: "Type", value: "Multivariate" },
+        { label: "Release conditions", value: "1 condition" },
+      ]),
+    });
+  });
+
+  it("summarizes flag release conditions without exposing raw filter JSON", () => {
+    const preview = shapeFlagPreview({
+      id: 42,
+      key: "new-checkout-flow",
+      active: true,
+      filters: {
+        groups: [
+          {
+            properties: [
+              {
+                key: "plan",
+                operator: "exact",
+                value: "pro",
+              },
+            ],
+            rollout_percentage: 25,
+            variant: "test",
+          },
+        ],
+      },
+    } as unknown as Schemas.FeatureFlag);
+
+    expect(preview.sections).toContainEqual({
+      title: "Release conditions",
+      fields: [
+        {
+          label: "Set 1",
+          value: "plan exact pro · 25% rollout · Variant: test",
+        },
+      ],
     });
   });
 
@@ -50,30 +94,57 @@ describe("evidence preview shaping", () => {
       key: "old-flag",
       active: false,
     } as Schemas.FeatureFlag);
-    expect(preview.detail).toBe("Disabled");
+    expect(preview.detail).toBeUndefined();
+    expect(preview.status).toEqual({ label: "Disabled", tone: "neutral" });
   });
 
   it.each([
-    ["draft", {}, "Draft"],
-    ["running", { start_date: "2024-01-03T10:00:00Z" }, /^Running since Jan 3/],
+    ["draft", {}, "Draft", undefined],
+    [
+      "running",
+      { start_date: "2024-01-03T10:00:00Z" },
+      "Running",
+      /· Started Jan 3/,
+    ],
     [
       "ended",
       { start_date: "2024-01-03T10:00:00Z", end_date: "2024-02-02T10:00:00Z" },
-      /^Ended Feb 2/,
+      "Ended",
+      /^Jan 3(, \d{4})? to Feb 2/,
     ],
-  ])("describes a %s experiment", (_state, dates, expected) => {
-    const preview = shapeExperimentPreview({
-      id: 7,
-      name: "Reminder timing",
-      ...dates,
-    } as Schemas.Experiment);
-    expect(preview.title).toBe("Reminder timing");
-    if (typeof expected === "string") {
-      expect(preview.detail).toBe(expected);
-    } else {
-      expect(preview.detail).toMatch(expected);
-    }
-  });
+  ] as const)(
+    "describes a %s experiment",
+    (_state, dates, statusLabel, detail) => {
+      const preview = shapeExperimentPreview({
+        id: 7,
+        name: "Reminder timing",
+        ...dates,
+      } as Schemas.Experiment);
+      expect(preview.title).toBe("Reminder timing");
+      expect(preview.status?.label).toBe(statusLabel);
+      if (detail) {
+        expect(preview.detail).toMatch(detail);
+      } else {
+        expect(preview.detail).toBeUndefined();
+      }
+    },
+  );
+
+  it.each([
+    ["paused", "Paused", "caution"],
+    ["exposure_frozen", "Exposure frozen", "neutral"],
+  ] as const)(
+    "labels a %s experiment from the API status, not the start date",
+    (apiStatus, label, tone) => {
+      const preview = shapeExperimentPreview({
+        id: 7,
+        name: "Reminder timing",
+        start_date: "2024-01-03T10:00:00Z",
+        status: apiStatus,
+      } as unknown as Schemas.Experiment);
+      expect(preview.status).toEqual({ label, tone });
+    },
+  );
 
   it("humanizes the error issue status", () => {
     const preview = shapeErrorIssuePreview({
@@ -82,7 +153,11 @@ describe("evidence preview shaping", () => {
       status: "pending_release",
       first_seen: "2024-01-03T10:00:00Z",
     } as Schemas.ErrorTrackingIssueFull);
-    expect(preview.detail).toMatch(/^Pending release · First seen Jan 3/);
+    expect(preview.detail).toMatch(/^First seen Jan 3/);
+    expect(preview.status).toEqual({
+      label: "Pending release",
+      tone: "neutral",
+    });
   });
 
   it.each([
@@ -125,7 +200,7 @@ describe("evidence preview shaping", () => {
         status_reason: "Provider key expired",
         evaluation_type: "llm_judge",
       } as unknown as Schemas.Evaluation),
-    ).toEqual({
+    ).toMatchObject({
       title: "Faithfulness eval",
       detail: "Enabled · Provider key expired",
       facts: ["LLM judge"],
@@ -149,6 +224,32 @@ describe("evidence preview shaping", () => {
       "Revenue",
       "+1 more",
     ]);
+  });
+
+  it("exposes chartable tiles by insight short id, skipping tiles without one", () => {
+    const preview = shapeDashboardPreview({
+      id: 12,
+      name: "Growth",
+      tiles: [
+        { insight: { name: "DAU", short_id: "abc123" } },
+        { insight: { name: "Text tile without insight id" } },
+        { text: { body: "A text tile" } },
+      ],
+    } as unknown as Schemas.Dashboard);
+    expect(preview.tiles).toEqual([{ shortId: "abc123", name: "DAU" }]);
+  });
+
+  it("caps chartable tiles so a large dashboard doesn't open one query per tile", () => {
+    const tiles = Array.from({ length: 20 }, (_, index) => ({
+      insight: { name: `Insight ${index}`, short_id: `id${index}` },
+    }));
+    const preview = shapeDashboardPreview({
+      id: 12,
+      name: "Growth",
+      tiles,
+    } as unknown as Schemas.Dashboard);
+    expect(preview.tiles).toHaveLength(6);
+    expect(preview.tiles?.[0]).toEqual({ shortId: "id0", name: "Insight 0" });
   });
 
   // The remainder counts unnamed tiles too: named tiles are shown, but every
@@ -193,6 +294,219 @@ describe("evidence preview shaping", () => {
         description: "Weekly active users",
       } as Schemas.Cohort).detail,
     ).toBe("Weekly active users");
+  });
+
+  it("describes cohort membership criteria as prose, skipping unknown nodes", () => {
+    const sections = cohortCriteriaSection({
+      properties: {
+        type: "OR",
+        values: [
+          {
+            type: "AND",
+            values: [
+              {
+                type: "behavioral",
+                value: "performed_event",
+                key: "$pageview",
+                time_value: 30,
+                time_interval: "day",
+              },
+              {
+                type: "person",
+                key: "email",
+                operator: "icontains",
+                value: "@example.com",
+              },
+            ],
+          },
+          {
+            type: "OR",
+            values: [
+              { type: "mystery", key: "??" },
+              {
+                type: "behavioral",
+                value: "performed_event_multiple",
+                key: "file saved",
+                operator: "gte",
+                operator_value: 3,
+                time_value: 1,
+                time_interval: "week",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(sections).toEqual([
+      {
+        title: "Membership criteria",
+        fields: [
+          {
+            label: "Group 1",
+            value:
+              "Completed $pageview in the last 30 days and email contains @example.com",
+          },
+          {
+            label: "Group 2 (or)",
+            value: "Completed file saved at least 3 times in the last 1 week",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("renders negated criteria as their negative meaning", () => {
+    const sections = cohortCriteriaSection({
+      properties: {
+        type: "AND",
+        values: [
+          {
+            type: "AND",
+            values: [
+              {
+                type: "behavioral",
+                value: "performed_event",
+                key: "checkout",
+                negation: true,
+              },
+              {
+                type: "cohort",
+                value: "Power users",
+                negation: true,
+              },
+              {
+                type: "person",
+                key: "email",
+                operator: "icontains",
+                value: "@example.com",
+                negation: true,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(sections).toEqual([
+      {
+        title: "Membership criteria",
+        fields: [
+          {
+            label: "Criteria",
+            value:
+              "Did not complete checkout and Is not in cohort Power users and email does not contain @example.com",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("renders the legacy multiple-event alias with its count rule", () => {
+    const sections = cohortCriteriaSection({
+      properties: {
+        type: "AND",
+        values: [
+          {
+            type: "AND",
+            values: [
+              {
+                type: "behavioral",
+                value: "performed_event_multiple_times",
+                key: "$pageview",
+                operator: "gte",
+                operator_value: 5,
+                time_value: 30,
+                time_interval: "day",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(sections[0]?.fields[0]?.value).toBe(
+      "Completed $pageview at least 5 times in the last 30 days",
+    );
+  });
+
+  it("returns no criteria section for a static or malformed cohort", () => {
+    expect(cohortCriteriaSection(undefined)).toEqual([]);
+    expect(cohortCriteriaSection({ properties: { values: "junk" } })).toEqual(
+      [],
+    );
+  });
+
+  it("pivots (day, group, count) rows into zero-filled series per group", () => {
+    expect(
+      pivotDailyGroups([
+        ["2026-08-02", "control", 4],
+        ["2026-08-01", "control", 2],
+        ["2026-08-01", "test", 3],
+      ]),
+    ).toEqual({
+      labels: ["2026-08-01", "2026-08-02"],
+      series: [
+        { label: "control", data: [2, 4] },
+        { label: "test", data: [3, 0] },
+      ],
+      omittedGroups: 0,
+    });
+    expect(pivotDailyGroups([["2026-08-01", "control", 2]])).toBeNull();
+  });
+
+  it("keeps the highest-volume groups and counts the omitted ones", () => {
+    // 7 variants over 2 days; "control" has the largest total but appears last
+    // in row order, so first-seen slicing would have dropped it.
+    const variants: Array<[string, number]> = [
+      ["a", 1],
+      ["b", 2],
+      ["c", 3],
+      ["d", 4],
+      ["e", 5],
+      ["f", 6],
+      ["control", 100],
+    ];
+    const rows = ["2026-08-01", "2026-08-02"].flatMap((day) =>
+      variants.map(([variant, count]) => [day, variant, count]),
+    );
+    const pivot = pivotDailyGroups(rows);
+    expect(pivot?.omittedGroups).toBe(1);
+    expect(pivot?.series.map((entry) => entry.label)).toEqual([
+      "control",
+      "f",
+      "e",
+      "d",
+      "c",
+      "b",
+    ]);
+  });
+
+  it("describes action match groups in its details", () => {
+    const preview = shapeActionPreview({
+      id: 42,
+      name: "Checkout click",
+      description: "Tracks checkout clicks",
+      steps: [
+        {
+          event: "$autocapture",
+          url: "/checkout",
+          selector: "button[data-attr=checkout]",
+          properties: [{ key: "$current_url", value: "/checkout" }],
+        },
+      ],
+      is_calculating: false,
+      last_calculated_at: "2024-01-03T10:00:00Z",
+      created_at: "2024-01-02T10:00:00Z",
+    } as unknown as Schemas.Action);
+
+    expect(preview.sections).toContainEqual({
+      title: "Match groups",
+      fields: [
+        {
+          label: "Group 1",
+          value:
+            "Event: $autocapture · URL: /checkout · Selector: button[data-attr=checkout] · 1 property",
+        },
+      ],
+    });
   });
 
   it("summarizes a ticket with its snippet, state line, and traffic", () => {
@@ -319,6 +633,7 @@ describe("evidence preview shaping", () => {
     expect(preview.facts).toEqual(["Stale", "100% rollout", "2.1M calls (7d)"]);
     expect(preview.spark).toEqual({
       points: [900000, 1200000],
+      labels: ["2024-01-01", "2024-01-02"],
       render: "line",
     });
   });
@@ -337,7 +652,7 @@ describe("evidence preview shaping", () => {
   it("rolls a trace up to generations, cost, latency, and errors", () => {
     expect(
       shapeTracePreview([7, 0.42, 18.3, ["gpt-5", "claude-4"], 2]),
-    ).toEqual({
+    ).toMatchObject({
       title: "7 generations",
       facts: ["$0.42", "18.3s", "2 models", "2 errors"],
     });
@@ -369,7 +684,7 @@ describe("evidence preview shaping", () => {
         ],
       },
     } as unknown as Schemas.Experiment);
-    expect(preview.detail).toMatch(/· Day 12$/);
+    expect(preview.detail).toMatch(/^Day 12 ·/);
     expect(preview.facts).toEqual([
       "2 variants (50/50)",
       "Flag: reminder-timing",
@@ -381,6 +696,9 @@ describe("evidence preview shaping", () => {
       id: "srv-11",
       name: "Checkout survey",
     } as Schemas.Survey);
-    expect(preview).toEqual({ title: "Checkout survey", detail: "Draft" });
+    expect(preview).toMatchObject({
+      title: "Checkout survey",
+      status: { label: "Draft", tone: "neutral" },
+    });
   });
 });

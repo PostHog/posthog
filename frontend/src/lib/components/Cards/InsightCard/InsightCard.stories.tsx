@@ -17,6 +17,7 @@ import EXAMPLE_TRENDS_PIE from '../../../../mocks/fixtures/api/projects/team_id/
 import EXAMPLE_TRENDS_TABLE from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
 import EXAMPLE_TRENDS_HORIZONTAL_BAR from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
 import EXAMPLE_TRENDS_WORLD_MAP from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
+import { ApiError } from '../../../api-error'
 import { InsightCard as InsightCardComponent } from './index'
 import type { InsightCardProps } from './InsightCard'
 
@@ -209,6 +210,72 @@ export const InsightCard: Story = {
                         highlighted={args.highlighted}
                         timedOut={args.timedOut}
                         showResizeHandles={args.showResizeHandles}
+                    />
+                ))}
+            </div>
+        )
+    },
+}
+
+export const ErrorStates: Story = {
+    render: () => {
+        const errors = [
+            {
+                name: 'Invalid query',
+                error: new ApiError('The query is invalid.', 400, undefined, {
+                    detail: 'The query is invalid.',
+                    code: 'invalid_query',
+                    queryId: 'invalid-query-id',
+                }),
+            },
+            {
+                name: 'Rate limit',
+                error: new ApiError('Too many requests.', 429, new Headers({ 'Retry-After': '120' }), {
+                    detail: 'Too many requests.',
+                    code: 'rate_limited',
+                    queryId: 'rate-limit-query-id',
+                }),
+            },
+            {
+                name: 'Permission denied',
+                error: new ApiError('You do not have permission to run this query.', 403, undefined, {
+                    detail: 'You do not have permission to run this query.',
+                    code: 'permission_denied',
+                    queryId: 'permission-query-id',
+                }),
+            },
+            {
+                name: 'Temporary server failure',
+                error: new ApiError('The query service is temporarily unavailable.', 503, undefined, {
+                    detail: 'The query service is temporarily unavailable.',
+                    code: 'service_unavailable',
+                    queryId: 'temporary-query-id',
+                }),
+            },
+            {
+                name: 'Unknown server failure',
+                error: new ApiError('The query service failed.', 500, undefined, {
+                    detail: 'The query service failed.',
+                    code: 'server_error',
+                    queryId: 'server-query-id',
+                }),
+            },
+        ]
+
+        return (
+            <div className="grid gap-4 grid-cols-2 min-w-[60rem]">
+                {errors.map(({ name, error }) => (
+                    <InsightCardComponent
+                        key={name}
+                        tile={defaultTile}
+                        insight={{ ...EXAMPLE_TRENDS, name } as unknown as QueryBasedInsightModel}
+                        apiErrored
+                        apiError={error}
+                        refresh={() => {}}
+                        queryId={error.data?.queryId}
+                        rename={() => {}}
+                        duplicate={() => {}}
+                        placement="SavedInsightGrid"
                     />
                 ))}
             </div>

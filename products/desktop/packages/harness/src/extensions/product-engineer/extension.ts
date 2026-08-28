@@ -1,9 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type {
   ExtensionAPI,
   ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
+import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
 
 function resolveProductEngineerResource(relativePath: string): string {
   const adjacentPath = fileURLToPath(new URL(relativePath, import.meta.url));
@@ -13,17 +14,6 @@ function resolveProductEngineerResource(relativePath: string): string {
   return fileURLToPath(
     new URL(`./product-engineer/${relativePath}`, import.meta.url),
   );
-}
-
-const PRODUCT_ENGINEER_PROMPT = readFileSync(
-  resolveProductEngineerResource("prompts/product-engineer.md"),
-  "utf8",
-).trim();
-
-function addProductEngineerPrompt(systemPrompt: string): string {
-  return systemPrompt.startsWith(PRODUCT_ENGINEER_PROMPT)
-    ? systemPrompt
-    : `${PRODUCT_ENGINEER_PROMPT}\n\n${systemPrompt}`;
 }
 
 export function createProductEngineerExtension(
@@ -36,7 +26,7 @@ export function createProductEngineerExtension(
         : [],
     }));
     pi.on("before_agent_start", (event) => ({
-      systemPrompt: addProductEngineerPrompt(event.systemPrompt),
+      systemPrompt: prependProductEngineerPrompt(event.systemPrompt),
     }));
   };
 }

@@ -388,7 +388,8 @@ suppressed → resolved (resolve an archived report straight out of the archive;
 # - suppressed transitions back to potential, or straight to the researched status it held before
 #   being archived (ready | pending_input | resolved | failed) — see restore_target_status()
 # - any non-deleted status can transition to deleted or suppressed
-# - snooze = transition to potential with snooze_for=N (sets signals_at_run = signal_count + N)
+# - reset/snooze = transition in_progress | pending_input | ready | resolved | failed → potential;
+#   snooze_for=N sets signals_at_run = signal_count + N
 suppressed → potential
 any (except deleted) → deleted
 any (except deleted) → suppressed
@@ -596,18 +597,21 @@ Thin bridge from a Tasks `TaskRun` to the scout skill that ran inside it: one sc
 
 Narrow per-team scratchpad surface the scout fleet writes during runs and reads back on future runs (known issues, false positives, dedupe fingerprints, learned team quirks). Distinct from `SignalProjectProfile`: profile is _deterministic ground truth_, scratchpad is the _scout's inferred learnings_ (possibly wrong). MCP-readable across agents so PostHog AI and other scouts can see what the fleet has learned about a team.
 
-| Field            | Type                           | Description                                                                               |
-| ---------------- | ------------------------------ | ----------------------------------------------------------------------------------------- |
-| `team`           | FK → Team                      | Owning team (`related_name="signal_scratchpads"`)                                         |
-| `key`            | CharField(300)                 | Semantic key, agent-chosen; unique per team                                               |
-| `content`        | TextField                      | Prose for prompt injection — the agent reads this verbatim                                |
-| `created_by_run` | FK → SignalScoutRun (SET_NULL) | The run that wrote this entry; `SET_NULL` so deleting a run row doesn't destroy the entry |
-| `created_at`     | DateTime                       | Auto-set on creation                                                                      |
-| `updated_at`     | DateTime                       | Auto-set on save                                                                          |
+| Field            | Type                           | Description                                                                                      |
+| ---------------- | ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `team`           | FK → Team                      | Owning team (`related_name="signal_scratchpads"`)                                                |
+| `key`            | CharField(300)                 | Semantic key, agent-chosen; unique per team                                                      |
+| `content`        | TextField                      | Prose for prompt injection — the agent reads this verbatim                                       |
+| `created_by_run` | FK → SignalScoutRun (SET_NULL) | The run that wrote this entry; `SET_NULL` so deleting a run row doesn't destroy the entry        |
+| `expires_at`     | DateTime (nullable)            | Optional TTL — null (the default) is durable; past expiry drops the row from `search_scratchpad` |
+| `created_at`     | DateTime                       | Auto-set on creation                                                                             |
+| `updated_at`     | DateTime                       | Auto-set on save                                                                                 |
 
 **Constraints:** Unique on `(team, key)`.
 
-`authority`, `tags`, and `expires_at` (with their backing GIN / expiry indexes) were dropped in the PR2 review simplification — retrieval is now plain ILIKE over `key` + `content`, and every entry is durable per-team scratchpad.
+`authority` and `tags` (with their backing GIN index) were dropped in the PR2 review simplification — retrieval is now plain ILIKE over `key` + `content`.
+
+`expires_at` was dropped in that same pass and later restored: a scout that wrote a time-boxed memory almost never came back to `forget` it, so stale entries kept loading into run prompts. Entries stay durable by default. Expiry hides a row from `search_scratchpad` (`include_expired=True` is the human audit path); it never deletes one, so the key stays taken and both `forget` and the `remember` upsert still find it. `remember` writes the whole entry, so a write that omits `expires_at` clears an expiry an earlier write set. A `followup:` key may not carry one — `remember` rejects that, since an expired follow-up would vanish from the self-validation queue before the scout could work it.
 
 ### `SignalProjectProfile`
 

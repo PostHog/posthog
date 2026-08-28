@@ -8,7 +8,6 @@ import json
 from datetime import datetime, timedelta
 from typing import Any
 
-from django.apps import apps
 from django.db import transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save, pre_save
@@ -21,7 +20,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 
 from products.signals.backend.implementation_pr import PrCloseReason
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCanvas
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import (
     emit_report_embedding,
     emit_report_tombstone,
@@ -36,47 +35,6 @@ _SNOOZE_SOURCE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Sta
 # The fields the embedded report document is rendered from. A save touching none of them cannot
 # change the document, so it skips both the prior-state read and the re-embed.
 _DOCUMENT_FIELDS = frozenset({"title", "summary"})
-
-
-@receiver(post_save, sender="tasks.TaskThreadMessage")
-def mark_report_canvas_collaborative_from_message(
-    sender: type[object], instance: Any, created: bool, **kwargs: Any
-) -> None:
-    if created:
-        SignalReportCanvas.objects.for_team(instance.team_id).filter(discussion_task_id=instance.task_id).update(
-            collaboration_mode=SignalReportCanvas.CollaborationMode.COLLABORATIVE,
-            updated_at=timezone.now(),
-        )
-
-
-@receiver(post_save, sender="canvas.CanvasSourceVersion")
-def mark_report_canvas_collaborative_from_version(
-    sender: type[object], instance: Any, created: bool, **kwargs: Any
-) -> None:
-    if not created:
-        return
-    canvases = SignalReportCanvas.objects.for_team(instance.team_id).filter(canvas_id=instance.canvas_id)
-    # A version's task_id is null only on a human or app publish (the sandbox publish path always
-    # stamps its task). That is a direct edit and always claims the canvas. A version stamped with
-    # this session's own generation task is the pipeline republishing, so it is excluded.
-    if instance.task_id is not None:
-        if canvases.filter(generation_task_id=instance.task_id).exists():
-            return
-        report_ids = canvases.values("report_id")
-        task_model = apps.get_model("tasks", "Task")
-        is_report_generation = task_model.objects.filter(
-            id=instance.task_id,
-            team_id=instance.team_id,
-            internal=True,
-            origin_product="signal_report",
-            signal_report_id__in=report_ids,
-        ).exists()
-        if is_report_generation:
-            return
-    canvases.update(
-        collaboration_mode=SignalReportCanvas.CollaborationMode.COLLABORATIVE,
-        updated_at=timezone.now(),
-    )
 
 
 def _schedule_tombstone(*, team_id: int, report_id: str, created_at: datetime, reason: str) -> None:

@@ -4,6 +4,7 @@ import {
   getCellCount,
   getOptimalLayout,
   type LayoutPreset,
+  makeCanvasCellValue,
   makeTerminalCellValue,
   reflowCells,
   resizeCells,
@@ -19,6 +20,12 @@ export {
   getGridDimensions,
 } from "@posthog/core/command-center/grid";
 
+export type CommandCenterPlacement = {
+  kind: "task" | "canvas";
+  id: string;
+  title: string;
+};
+
 interface CommandCenterStoreState {
   layout: LayoutPreset;
   cells: (string | null)[];
@@ -28,7 +35,7 @@ interface CommandCenterStoreState {
   creatingCells: number[];
   // Persisted so autofill bootstraps the grid only once, not on every remount.
   hasAutofilled: boolean;
-  pendingPlacement: { taskId: string; taskTitle: string } | null;
+  pendingPlacement: CommandCenterPlacement | null;
 }
 
 interface CommandCenterStoreActions {
@@ -36,6 +43,7 @@ interface CommandCenterStoreActions {
   setActiveTask: (taskId: string | null) => void;
   setActiveCell: (cellIndex: number | null) => void;
   assignTask: (cellIndex: number, taskId: string) => void;
+  setCanvasCell: (cellIndex: number, canvasId: string) => void;
   setBrainrotCell: (cellIndex: number) => void;
   setTerminalCell: (
     cellIndex: number,
@@ -57,7 +65,7 @@ interface CommandCenterStoreActions {
   zoomOut: () => void;
   startCreating: (cellIndex: number) => void;
   stopCreating: (cellIndex: number) => void;
-  requestPlacement: (taskId: string, taskTitle: string) => void;
+  requestPlacement: (placement: CommandCenterPlacement) => void;
   cancelPlacement: () => void;
 }
 
@@ -123,6 +131,26 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
             activeCellIndex: cellIndex,
             creatingCells: state.creatingCells.filter((i) => i !== cellIndex),
             // Manually placing a task counts as curating the grid.
+            hasAutofilled: true,
+            pendingPlacement: null,
+          };
+        }),
+
+      setCanvasCell: (cellIndex, canvasId) =>
+        set((state) => {
+          if (cellIndex < 0 || cellIndex >= state.cells.length) return state;
+          const cellValue = makeCanvasCellValue(canvasId);
+          const cells = [...state.cells];
+          const existingIndex = cells.indexOf(cellValue);
+          if (existingIndex !== -1) {
+            cells[existingIndex] = null;
+          }
+          cells[cellIndex] = cellValue;
+          return {
+            cells,
+            activeTaskId: null,
+            activeCellIndex: cellIndex,
+            creatingCells: state.creatingCells.filter((i) => i !== cellIndex),
             hasAutofilled: true,
             pendingPlacement: null,
           };
@@ -277,8 +305,7 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
           creatingCells: state.creatingCells.filter((i) => i !== cellIndex),
         })),
 
-      requestPlacement: (taskId, taskTitle) =>
-        set({ pendingPlacement: { taskId, taskTitle } }),
+      requestPlacement: (placement) => set({ pendingPlacement: placement }),
       cancelPlacement: () => set({ pendingPlacement: null }),
     }),
     {

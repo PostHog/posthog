@@ -8,7 +8,11 @@ import { WIDGET_TILE_REFRESH_DEBOUNCE_MS } from '../constants'
 import { ActivityEventsWidgetTileFilters } from './ActivityEventsWidgetTileFilters'
 
 jest.mock('products/actions/frontend/components/EventName', () => ({
-    EventName: (): JSX.Element => <div>Event name filter</div>,
+    EventName: ({ onChange }: { onChange: (value: string | null) => void }): JSX.Element => (
+        <button type="button" onClick={() => onChange('')}>
+            Clear event filter
+        </button>
+    ),
 }))
 
 jest.mock('~/queries/nodes/EventsNode/EventPropertyFilters', () => ({
@@ -89,6 +93,31 @@ describe('ActivityEventsWidgetTileFilters', () => {
             dateRange: { date_from: '-7d' },
             eventName: '$pageview',
             properties: [],
+        })
+    })
+
+    it('persists a cleared event filter as null', async () => {
+        const onUpdateConfig = jest.fn().mockResolvedValue(undefined)
+
+        render(
+            <ActivityEventsWidgetTileFilters
+                tileId={1}
+                config={{ limit: 10, dateRange: { date_from: '-7d' }, eventName: '$pageview' }}
+                onUpdateConfig={onUpdateConfig}
+            />
+        )
+
+        fireEvent.click(screen.getByText('Clear event filter'))
+
+        await act(async () => {
+            await Promise.resolve()
+        })
+
+        expect(onUpdateConfig).toHaveBeenCalledWith({
+            limit: 10,
+            dateRange: { date_from: '-7d' },
+            eventName: null,
+            properties: undefined,
         })
     })
 })

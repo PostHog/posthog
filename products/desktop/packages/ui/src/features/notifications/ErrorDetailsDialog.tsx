@@ -10,7 +10,8 @@ import {
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { formatCapturedLogs } from "@posthog/ui/shell/logCapture";
-import { serializeError, useErrorDetailsStore } from "./errorDetails";
+import { serializeError } from "./errorDetails";
+import { useErrorDetailsStore } from "./errorDetailsStore";
 
 // Keep the create-task prompt readable: the full 500-entry buffer belongs in
 // the downloaded bundle, not in a composer draft.
@@ -34,7 +35,7 @@ function buildBundle(
   ].join("\n");
 }
 
-// Global inspector behind every error toast's "Details" action: the full
+// Global inspector behind every error toast's "View larger" action: the full
 // pretty-printed payload the toast had no room for, a downloadable
 // error-plus-logs bundle, and (dev builds only) a one-click task prefilled
 // with the same context.

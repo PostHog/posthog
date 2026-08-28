@@ -178,6 +178,7 @@ export type AgentConversationEvent = (
       type: "turn_completed";
       timestamp: number;
       stopReason?: string;
+      totalTokens?: number;
     }
 ) &
   AgentConversationEventIdentity;

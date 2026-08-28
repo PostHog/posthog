@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+from typing import TypedDict
 from uuid import UUID
 
 import structlog
@@ -52,6 +54,15 @@ EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
 # serial queries so another task cannot overlap catalog writes near the lock boundary.
 MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 30 * 60
 MANAGED_WAREHOUSE_RECONCILE_INTERVAL_SECONDS = 60
+MANAGED_WAREHOUSE_RECONCILE_SWEEP_SECONDS = 30 * 60
+MANAGED_WAREHOUSE_RECONCILE_WAVE_SECONDS = 60
+MANAGED_WAREHOUSE_RECONCILE_EXPIRY_GRACE_SECONDS = 5 * 60
+
+
+class _ManagedWarehouseReconcileWaveItem(TypedDict):
+    team_id: int
+    organization_id: str
+    countdown: int
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_managed_warehouse_tables")
@@ -78,6 +89,24 @@ def schedule_managed_warehouse_tables_reconcile(*, team_id: int, organization_id
     except Exception:
         client.delete(schedule_key)
         raise
+
+
+@shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_managed_warehouse_tables_wave")
+@skip_team_scope_audit
+def reconcile_managed_warehouse_tables_wave_task(
+    items: list[_ManagedWarehouseReconcileWaveItem], wave_due_at: str
+) -> None:
+    wave_due_datetime = datetime.fromisoformat(wave_due_at)
+    for item in items:
+        eta = wave_due_datetime + timedelta(seconds=item["countdown"])
+        expires = eta + timedelta(seconds=MANAGED_WAREHOUSE_RECONCILE_EXPIRY_GRACE_SECONDS)
+        if eta <= datetime.now(UTC):
+            continue
+        reconcile_managed_warehouse_tables_task.apply_async(
+            kwargs={"team_id": item["team_id"], "organization_id": item["organization_id"]},
+            eta=eta,
+            expires=expires,
+        )
 
 
 @shared_task(
@@ -168,8 +197,29 @@ def reconcile_all_managed_warehouse_tables_task() -> None:
         # scheduled sweep retries.
         logger.warning("Managed warehouse reconcile sweep skipped: control plane unreachable")
         return
-    for row in rows:
-        schedule_managed_warehouse_tables_reconcile(team_id=row.team_id, organization_id=row.organization_id)
+    if not rows:
+        return
+    ordered_rows = sorted(rows, key=lambda row: (row.organization_id, row.team_id))
+    row_count = len(ordered_rows)
+    sweep_started_at = datetime.now(UTC)
+    waves: dict[int, list[_ManagedWarehouseReconcileWaveItem]] = {}
+    for index, row in enumerate(ordered_rows):
+        countdown = index * MANAGED_WAREHOUSE_RECONCILE_SWEEP_SECONDS // row_count
+        wave_countdown = countdown - countdown % MANAGED_WAREHOUSE_RECONCILE_WAVE_SECONDS
+        waves.setdefault(wave_countdown, []).append(
+            {
+                "team_id": row.team_id,
+                "organization_id": row.organization_id,
+                "countdown": countdown - wave_countdown,
+            }
+        )
+    for wave_countdown, items in waves.items():
+        wave_due_at = sweep_started_at + timedelta(seconds=wave_countdown)
+        reconcile_managed_warehouse_tables_wave_task.apply_async(
+            kwargs={"items": items, "wave_due_at": wave_due_at.isoformat()},
+            countdown=wave_countdown,
+            expires=wave_due_at + timedelta(seconds=MANAGED_WAREHOUSE_RECONCILE_EXPIRY_GRACE_SECONDS),
+        )
 
 
 def schedule_external_data_failure_digest(team_id: int, *, trigger: str = "inline") -> None:

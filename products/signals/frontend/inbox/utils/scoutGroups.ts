@@ -3,7 +3,7 @@ import { dayjs } from 'lib/dayjs'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
-import { dailyCronToTime, formatRunIntervalShort, ScoutRollup } from './scoutRunsWindow'
+import { dailyCronToTime, formatRunIntervalShort, prettifyScoutSkillName, ScoutRollup } from './scoutRunsWindow'
 
 /**
  * Where a scout sits in the roster, in the backend's own lifecycle vocabulary.
@@ -26,16 +26,6 @@ export const SCOUT_GROUP_LABEL: Record<ScoutGroupKey, string> = {
     dry_run: 'Dry run',
     settling_in: 'Settling in',
     off: 'Off',
-}
-
-/** Shown beside the group heading, so a group's bar is stated rather than inferred from its name. */
-export const SCOUT_GROUP_HINT: Record<ScoutGroupKey, string | null> = {
-    needs_you: null,
-    working: 'filed something recently',
-    watching: 'running, nothing worth filing',
-    dry_run: 'investigating, but filing nothing',
-    settling_in: 'too new to judge',
-    off: null,
 }
 
 /** Matches `SignalScoutConfig.COLD_START_GRACE` — how long the sweep leaves a new scout alone. */
@@ -92,38 +82,15 @@ export function scoutGroup(config: SignalScoutConfig, rollup: ScoutRollup | unde
     return rollupProducedOutput(rollup) ? 'working' : 'watching'
 }
 
-export interface ScoutGroupBucket {
-    key: ScoutGroupKey
-    configs: SignalScoutConfig[]
+/** A roster row: a scout config paired with the lifecycle group it currently sits in. */
+export interface ScoutRosterRow {
+    config: SignalScoutConfig
+    group: ScoutGroupKey
 }
 
-/**
- * Buckets in display order, empty groups dropped. Input order is preserved inside each bucket.
- *
- * `placement` pins a scout to the group it was last placed in. Without it, flipping a scout's
- * switch moves its row to another group the instant you click — the row you were aiming at jumps
- * out from under the pointer. Placement is refreshed when server data lands, not on local edits.
- */
-export function groupScouts(
-    configs: SignalScoutConfig[],
-    rollups: Map<string, ScoutRollup>,
-    now: Date,
-    placement?: Record<string, ScoutGroupKey>
-): ScoutGroupBucket[] {
-    const buckets = new Map<ScoutGroupKey, SignalScoutConfig[]>()
-    for (const config of configs) {
-        const key = placement?.[config.id] ?? scoutGroup(config, rollups.get(config.skill_name), now)
-        const bucket = buckets.get(key)
-        if (bucket) {
-            bucket.push(config)
-        } else {
-            buckets.set(key, [config])
-        }
-    }
-    return SCOUT_GROUP_ORDER.filter((key) => buckets.has(key)).map((key) => ({
-        key,
-        configs: buckets.get(key) ?? [],
-    }))
+/** A→Z by display name — the roster's default order and the Scout column's sort. */
+export function compareScoutsByName(a: SignalScoutConfig, b: SignalScoutConfig): number {
+    return prettifyScoutSkillName(a.skill_name).localeCompare(prettifyScoutSkillName(b.skill_name))
 }
 
 /** Longest run summary the roster shows before it stops being scannable. */

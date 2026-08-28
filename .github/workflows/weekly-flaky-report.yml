@@ -47,6 +47,7 @@ jobs:
               with:
                   sparse-checkout: |
                       .github/scripts/weekly-flaky-report.mjs
+                      .github/scripts/weekly-report-common.mjs
                       .nvmrc
                       tools/owners
                       owners.yaml

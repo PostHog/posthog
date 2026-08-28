@@ -81,7 +81,13 @@ test.describe("Pi extensions", () => {
       );
       client = createPiRpcClient({
         cliPath: rpcHostPath,
-        cwd: e2eHome,
+        taskContext: {
+          taskId: "pi-extension-e2e",
+          cwd: e2eHome,
+          projectId: 1,
+          apiHost: "https://us.posthog.com",
+          environment: "local",
+        },
         projectTrusted: false,
         providerOptions: { apiKey: "unused-e2e-key" },
       });

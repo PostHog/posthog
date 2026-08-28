@@ -100,6 +100,7 @@ import { CanvasPermissionDialog } from "./CanvasPermissionDialog";
 import { CanvasSelectionCommentAction } from "./CanvasSelectionCommentAction";
 import { CanvasSidePanel } from "./CanvasSidePanel";
 import { canvasCommentTaskId } from "./canvasCommentTask";
+import { canvasRuntimeErrorAnalytics } from "./canvasRuntimeError";
 import { canvasSidePanelVisibility } from "./canvasSidePanelVisibility";
 import {
   canvasVersionNavigation,
@@ -118,15 +119,6 @@ import { usePinnedArtifact } from "./usePinnedArtifact";
 // history), and an edit composer. Generation runs as a dedicated task; while
 // one is in flight the empty canvas shows a "Generating…" state with the run's
 // chat panel open by default (in view mode too), so the work is watchable.
-// The canvas runtime error string is user/agent-authored and can carry source
-// fragments, query results, or secrets. Reduce it to the leading error class name
-// (e.g. "TypeError") for analytics, so no interpolated content crosses the boundary.
-function canvasErrorType(message: string): string {
-  return (
-    message.match(/^([A-Z][A-Za-z0-9]*(?:Error|Exception))\b/)?.[1] ?? "unknown"
-  );
-}
-
 // One toast per outcome: only new_run actually starts a run — signaled hands
 // the prompt to a run already in progress, and already_queued means an
 // identical request beat this one, so "Agent run started" would misreport both.
@@ -154,9 +146,11 @@ function draftBadgeVariant(
 export function FreeformCanvasView({
   threadId,
   interactive,
+  embedded = false,
 }: {
   threadId: string;
   interactive: boolean;
+  embedded?: boolean;
 }) {
   const dashboardId = dashboardIdOf(threadId);
   const { runtimeError, browseVersionId } = useFreeformThread(threadId);
@@ -677,10 +671,10 @@ export function FreeformCanvasView({
     (message: string) => {
       if (message !== lastRuntimeErrorRef.current) {
         lastRuntimeErrorRef.current = message;
-        const errorType = canvasErrorType(message);
+        const analytics = canvasRuntimeErrorAnalytics(message);
         track(ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR, {
           ...canvasTrackProps,
-          error_type: errorType,
+          ...analytics,
         });
         // File the error in the authoring task's thread so its agent hears
         // about it — the class name only; the full message stays client-side.
@@ -688,7 +682,7 @@ export function FreeformCanvasView({
           reportRuntimeError({
             id: dashboardId,
             buildId: canvasTrackProps.build_id,
-            errorType,
+            errorType: analytics.error_type,
           });
         }
       }
@@ -775,6 +769,7 @@ export function FreeformCanvasView({
     if (effectiveTaskId) setGeneratingPanelDismissed(false);
   }, [effectiveTaskId]);
   const generatingPanelOpen =
+    !embedded &&
     isGenerating &&
     !!effectiveTaskId &&
     !pinnedArtifact &&
@@ -788,7 +783,7 @@ export function FreeformCanvasView({
     hasContent,
     hasActiveTask: !!effectiveTaskId,
     generatingPanelOpen,
-    viewOpen: panelViewOpen,
+    viewOpen: embedded ? false : panelViewOpen,
     collapsed,
     hasCommentTask: !!commentTaskId,
   });
@@ -801,7 +796,7 @@ export function FreeformCanvasView({
     (hasActiveCanvasBuild(lifecycle) ||
       !!currentHeadBuildFailure(lifecycle) ||
       latestFinishedCanvasBuild(lifecycle)?.buildStatus === "failed");
-  const showToolbar = interactive || hasBuildSignal;
+  const showToolbar = !embedded && (interactive || hasBuildSignal);
 
   return (
     <Flex height="100%" overflow="hidden" position="relative">
@@ -938,7 +933,7 @@ export function FreeformCanvasView({
                     </Text>
                     <RadixButton size="1" variant="soft" asChild>
                       <Link
-                        to="/website/$channelId/tasks/$taskId"
+                        to="/spaces/$channelId/tasks/$taskId"
                         params={{ channelId, taskId: effectiveTaskId }}
                       >
                         View task
@@ -1249,14 +1244,16 @@ export function FreeformCanvasView({
         </ResizableSidebar>
       )}
 
-      <CanvasSelectionCommentAction
-        selection={textSelection}
-        taskId={commentTaskId}
-        dashboardId={dashboardId}
-        canvasName={dashboard?.name ?? "Canvas"}
-        versionId={displayedVersionId}
-        onDismiss={dismissTextSelection}
-      />
+      {!embedded && (
+        <CanvasSelectionCommentAction
+          selection={textSelection}
+          taskId={commentTaskId}
+          dashboardId={dashboardId}
+          canvasName={dashboard?.name ?? "Canvas"}
+          versionId={displayedVersionId}
+          onDismiss={dismissTextSelection}
+        />
+      )}
 
       {/* The empty-canvas landing: a centered composer with suggestions,
           overlaying the canvas area. On submit it slides down; once it's gone
@@ -1329,7 +1326,7 @@ function GeneratingState({
             size="default"
             render={
               <Link
-                to="/website/$channelId/tasks/$taskId"
+                to="/spaces/$channelId/tasks/$taskId"
                 params={{ channelId, taskId }}
               />
             }

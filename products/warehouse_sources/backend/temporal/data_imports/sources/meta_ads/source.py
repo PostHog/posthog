@@ -1,3 +1,4 @@
+from datetime import date
 from typing import cast
 
 from posthog.schema import (
@@ -20,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -87,6 +89,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
     supported_versions = (META_ADS_API_VERSION_V25, META_ADS_API_VERSION_V26)
     default_version = META_ADS_API_VERSION_V26
     api_docs_url = "https://developers.facebook.com/docs/graph-api/changelog"
+    deprecated_versions = (VersionDeprecation(version=META_ADS_API_VERSION_V25, sunset_at=date(2028, 7, 29)),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -221,7 +224,17 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             name=SchemaExternalDataSourceType.META_ADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             featured=True,
-            keywords=["facebook ads", "instagram ads", "facebook", "instagram", "fb"],
+            keywords=[
+                "facebook ads",
+                "instagram ads",
+                "facebook",
+                "instagram",
+                "fb",
+                "meta business",
+                "meta business suite",
+                "business manager",
+                "facebook business",
+            ],
             label="Meta Ads",
             caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
             iconPath="/static/services/meta-ads.png",
@@ -248,6 +261,10 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                         required=False,
                         placeholder="90",
                         secret=False,
+                        caption=(
+                            "A stats table that already imported keeps its current start date. A higher "
+                            "value pulls in older data only after you resync that table."
+                        ),
                     ),
                     # Attribution settings for insights (spend/conversion) tables. Left unset, Meta
                     # applies its own default, so existing connections are unaffected. Set them to

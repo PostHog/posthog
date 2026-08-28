@@ -59,6 +59,8 @@ export const notebooksCreateBodyTitleMax = 256
 export const notebooksCreateBodyVersionMin = -2147483648
 export const notebooksCreateBodyVersionMax = 2147483647
 
+export const notebooksCreateBodyVariablesItemNameMax = 200
+
 export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
     content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
@@ -72,6 +74,34 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
             'Version number for optimistic concurrency control. Must match the current version when updating content.'
         ),
     deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
+    variables: zod
+        .array(
+            zod
+                .object({
+                    name: zod
+                        .string()
+                        .max(notebooksCreateBodyVariablesItemNameMax)
+                        .describe(
+                            'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
+                        ),
+                    type: zod
+                        .string()
+                        .describe(
+                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                        ),
+                    value: zod
+                        .unknown()
+                        .optional()
+                        .describe(
+                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                        ),
+                })
+                .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
+        )
+        .optional()
+        .describe(
+            'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
+        ),
 })
 
 /**
@@ -103,6 +133,8 @@ export const notebooksPartialUpdateBodyTitleMax = 256
 export const notebooksPartialUpdateBodyVersionMin = -2147483648
 export const notebooksPartialUpdateBodyVersionMax = 2147483647
 
+export const notebooksPartialUpdateBodyVariablesItemNameMax = 200
+
 export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
     content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
@@ -116,6 +148,34 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Version number for optimistic concurrency control. Must match the current version when updating content.'
         ),
     deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
+    variables: zod
+        .array(
+            zod
+                .object({
+                    name: zod
+                        .string()
+                        .max(notebooksPartialUpdateBodyVariablesItemNameMax)
+                        .describe(
+                            'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
+                        ),
+                    type: zod
+                        .string()
+                        .describe(
+                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                        ),
+                    value: zod
+                        .unknown()
+                        .optional()
+                        .describe(
+                            "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                        ),
+                })
+                .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
+        )
+        .optional()
+        .describe(
+            'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
+        ),
 })
 
 /**

@@ -142,7 +142,7 @@ vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mocks.navigate,
-  useRouterState: () => "/website",
+  useRouterState: () => "/spaces",
 }));
 
 import {
@@ -153,9 +153,10 @@ import {
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import {
-  requestSpaceSearchFocus,
-  useSpaceTreeStore,
-} from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+  requestSidebarSearchFocus,
+  useSidebarSearchStore,
+} from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
+import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelsList } from "./ChannelsList";
 
@@ -207,8 +208,10 @@ describe("ChannelsList", () => {
     useSidebarStore.setState({ collapsedSections: new Set() });
     useSpaceTreeStore.setState({
       expandedSpaceIds: new Set(),
-      searchFocusRequest: 0,
       highlightedValue: undefined,
+    });
+    useSidebarSearchStore.setState({
+      focusRequest: 0,
     });
     mocks.totals = {};
     useCurrentChannelStore.setState({ currentChannelId: null });
@@ -235,6 +238,7 @@ describe("ChannelsList", () => {
     await user.click(screen.getByText("engineering"));
 
     expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    expect(useChannelPaneStore.getState().animateTransition).toBe(true);
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
@@ -256,11 +260,13 @@ describe("ChannelsList", () => {
     });
 
     it("rebrands only the spaces layout", () => {
-      renderList();
-      expect(screen.getByText("Spaces")).toBeTruthy();
+      const view = renderList();
+      expect(screen.getByRole("heading", { name: "Spaces" })).toBeTruthy();
 
+      view.unmount();
       mocks.channelsLayout = false;
       renderList();
+      expect(screen.queryByRole("heading", { name: "Spaces" })).toBeNull();
       expect(screen.getByText("Channels")).toBeTruthy();
     });
   });
@@ -414,7 +420,7 @@ describe("ChannelsList", () => {
       renderList();
       expect(screen.getByText("engineering")).toBeTruthy();
 
-      await user.click(screen.getByText("Spaces"));
+      await user.click(screen.getByRole("option", { name: "Spaces" }));
 
       expect(screen.queryByText("engineering")).toBeNull();
     });
@@ -554,14 +560,21 @@ describe("ChannelsList", () => {
     // ⌘⇧S is bound in ChannelHotkeys, which can only ask; the list is what
     // actually takes the keyboard.
     it("takes the keyboard on a focus request", async () => {
-      renderList();
+      const firstRender = renderList();
 
-      act(() => requestSpaceSearchFocus());
+      act(() => requestSidebarSearchFocus());
 
       await waitFor(() =>
         expect(document.activeElement).toBe(
           screen.getByLabelText("Search spaces"),
         ),
+      );
+
+      firstRender.unmount();
+      renderList();
+
+      expect(document.activeElement).not.toBe(
+        screen.getByLabelText("Search spaces"),
       );
     });
 
