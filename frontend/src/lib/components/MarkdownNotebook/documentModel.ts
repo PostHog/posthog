@@ -808,6 +808,39 @@ export function serializeNotebookNodes(nodes: NotebookBlockNode[]): string {
     return serializeMarkdownNotebook({ type: 'doc', nodes, errors: [] })
 }
 
+// Remove cached media (e.g. base64 chart images) from component results so notebook markdown fits
+// inside AI request size limits. Returns the input unchanged when there is no media, so the common
+// case stays byte-identical.
+export function stripNotebookMediaFromMarkdown(markdown: string): string {
+    const document = parseMarkdownNotebook(markdown)
+    let removedMedia = false
+    const nodes = document.nodes.map((node): NotebookBlockNode => {
+        if (node.type !== 'component') {
+            return node
+        }
+
+        const result = getNotebookObjectProp(node.props.result)
+        if (!result || !Array.isArray(result.media) || result.media.length === 0) {
+            return node
+        }
+
+        const { media: _media, ...resultWithoutMedia } = result
+        removedMedia = true
+        // The serializer re-emits `raw` verbatim when a node carries parse errors, which would
+        // restore the media we just dropped. Discard `raw`/`errors` so serialization uses the props.
+        const { raw: _raw, errors: _errors, ...nodeWithoutRaw } = node
+        return {
+            ...nodeWithoutRaw,
+            props: {
+                ...node.props,
+                result: resultWithoutMedia,
+            },
+        }
+    })
+
+    return removedMedia ? serializeMarkdownNotebook({ ...document, nodes }) : markdown
+}
+
 export function getAskAIInlineNotebookQuery(userQuery: string, responseMarker: string): string {
     return [
         'The user is writing in a markdown notebook and asked PostHog AI to continue inline.',
@@ -835,7 +868,7 @@ export function getAskAISelectionQuery(
     responseMarker: string,
     refId?: string
 ): string {
-    const highlightedMarkdown = selectedMarkdown.trim()
+    const highlightedMarkdown = stripNotebookMediaFromMarkdown(selectedMarkdown).trim()
     // A fence longer than any backtick run in the content, so embedded ``` can't close the block early
     const longestBacktickRun = highlightedMarkdown.match(/`+/g)?.reduce((max, run) => Math.max(max, run.length), 0) ?? 0
     const fence = '`'.repeat(Math.max(3, longestBacktickRun + 1))

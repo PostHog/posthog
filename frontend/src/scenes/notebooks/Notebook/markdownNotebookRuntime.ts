@@ -1,8 +1,7 @@
 import { createContext } from 'react'
 
 import type { MarkdownNotebookAskAIRequest } from 'lib/components/MarkdownNotebook'
-import { parseMarkdownNotebook, serializeMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
-import type { NotebookBlockNode, NotebookPropValue } from 'lib/components/MarkdownNotebook/types'
+import { stripNotebookMediaFromMarkdown } from 'lib/components/MarkdownNotebook/documentModel'
 import { ThreadMessage } from 'scenes/max/maxThreadLogic'
 import { MaxContextType } from 'scenes/max/maxTypes'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
@@ -47,39 +46,8 @@ export const MarkdownNotebookRuntimeContext = createContext<MarkdownNotebookRunt
 
 const INLINE_NOTEBOOK_AI_CONTEXT_MAX_LENGTH = 100_000
 
-function getNotebookPropObject(value: NotebookPropValue | undefined): Record<string, NotebookPropValue> | null {
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : null
-}
-
 function getInlineNotebookAIContextMarkdown(markdown: string): string {
-    const document = parseMarkdownNotebook(markdown)
-    let removedMedia = false
-    const nodes = document.nodes.map((node): NotebookBlockNode => {
-        if (node.type !== 'component') {
-            return node
-        }
-
-        const result = getNotebookPropObject(node.props.result)
-        if (!result || !Array.isArray(result.media) || result.media.length === 0) {
-            return node
-        }
-
-        const { media: _media, ...resultWithoutMedia } = result
-        removedMedia = true
-        // The serializer re-emits `raw` verbatim when a node carries parse errors, which would
-        // restore the media we just dropped. Discard `raw`/`errors` so serialization uses the props.
-        const { raw: _raw, errors: _errors, ...nodeWithoutRaw } = node
-        return {
-            ...nodeWithoutRaw,
-            props: {
-                ...node.props,
-                result: resultWithoutMedia,
-            },
-        }
-    })
-    const contextMarkdown = removedMedia ? serializeMarkdownNotebook({ ...document, nodes }) : markdown
-
-    return contextMarkdown.slice(0, INLINE_NOTEBOOK_AI_CONTEXT_MAX_LENGTH)
+    return stripNotebookMediaFromMarkdown(markdown).slice(0, INLINE_NOTEBOOK_AI_CONTEXT_MAX_LENGTH)
 }
 
 export function getInlineNotebookAIUIContext({
