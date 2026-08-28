@@ -24,8 +24,8 @@ same contents into a hogland snapshot, it does not change the container image.
    `needs.validate_ref.outputs.ref`, never the raw input, and every privileged
    job additionally gates on `github.ref == 'refs/heads/master'`. This closes the
    `ref` RCE in the workflow YAML (see "Known open security issues").
-1. `render_skills` job — renders the agent skills the golden ships. It `uv
-   sync`s, then runs `hogli build:skills` to expand the skill `.md.j2` templates
+1. `render_skills` job — renders the agent skills the golden ships. It runs
+   `uv sync`, then `hogli build:skills` to expand the skill `.md.j2` templates
    and merges in the context-mill skills. `build:skills` calls `django.setup()`
    for model metadata but never connects to a database, so this job needs no
    Docker, no Postgres, and no migrations — it finishes in a few minutes. Uploads
