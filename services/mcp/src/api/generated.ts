@@ -58490,39 +58490,10 @@ export namespace Schemas {
       results: User[];
     }
 
-    /**
-     * * `default` - Default
-     * * `onboarding` - Onboarding
-     * * `product_intent` - Product Intent
-     * * `used_by_colleagues` - Used by Colleagues
-     * * `used_similar_products` - Used Similar Products
-     * * `used_on_separate_team` - Used on Separate Team
-     * * `new_product` - New Product
-     * * `sales_led` - Sales Led
-     * * `onboarding_delegated` - Onboarding Delegated
-     */
-    export type UserProductListReasonEnum = typeof UserProductListReasonEnum[keyof typeof UserProductListReasonEnum];
-
-
-    export const UserProductListReasonEnum = {
-      Default: 'default',
-      Onboarding: 'onboarding',
-      ProductIntent: 'product_intent',
-      UsedByColleagues: 'used_by_colleagues',
-      UsedSimilarProducts: 'used_similar_products',
-      UsedOnSeparateTeam: 'used_on_separate_team',
-      NewProduct: 'new_product',
-      SalesLed: 'sales_led',
-      OnboardingDelegated: 'onboarding_delegated',
-    } as const;
-
     export interface UserProductList {
       readonly id: string;
       readonly product_path: string;
       enabled?: boolean;
-      readonly reason: UserProductListReasonEnum | null;
-      /** @nullable */
-      readonly reason_text: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
@@ -67325,9 +67296,6 @@ export namespace Schemas {
       readonly id?: string;
       readonly product_path?: string;
       enabled?: boolean;
-      readonly reason?: UserProductListReasonEnum | null;
-      /** @nullable */
-      readonly reason_text?: string | null;
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
