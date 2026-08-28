@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from posthog.models.scoping import team_scope
 
-from products.mcp_analytics.backend.constants import MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
+from products.mcp_analytics.backend.facade.contracts import MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
 
 
 def _only_mcp_analytics_flag(flag_key: str, *args: object, **kwargs: object) -> bool:
