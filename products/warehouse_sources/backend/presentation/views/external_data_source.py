@@ -3794,7 +3794,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 eligible_schemas=eligible_schemas,
                 config=source_config,
             )
-            if hog_fn_result.error or hog_fn_result.hog_function is None:
+            if hog_fn_result.error or hog_fn_result.hog_function_id is None:
                 return failure(hog_fn_result.error)
 
             registration = create_and_register_webhook(
@@ -3811,7 +3811,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not registration.success:
             # The external registration failed (e.g. credentials can't create webhooks), so the
             # handler would never receive events — remove it and keep the polling defaults.
-            hog_function = hog_fn_result.hog_function
+            hog_function = HogFunction.objects.get(id=hog_fn_result.hog_function_id, team_id=self.team_id)
             hog_function.deleted = True
             hog_function.enabled = False
             hog_function.save(update_fields=["deleted", "enabled"])
