@@ -35,6 +35,7 @@ from .skill_services import (
     check_allowed_tool_name,
     normalize_skill_file_path,
 )
+from .skill_template_services import TemplateRenderError, _validate_and_project, parse_template_variables
 
 logger = structlog.get_logger(__name__)
 
@@ -177,6 +178,7 @@ def render_skill_md(
     license: str = "",
     compatibility: str = "",
     author_handle: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> str:
     """Render an LLMSkill's fields into community-skills `SKILL.md` content (frontmatter + body).
 
@@ -227,6 +229,24 @@ def render_skill_md(
         frontmatter["compatibility"] = compatibility.strip()
     if allowed_tools:
         frontmatter["allowed_tools"] = list(allowed_tools)
+    template_variables = parse_template_variables(metadata)
+    bindings = {variable.name: "" for variable in template_variables}
+    try:
+        _validate_and_project(body, bindings, dict.fromkeys(bindings, 0))
+    except TemplateRenderError as err:
+        raise CommunitySkillPublishValidationError(str(err)) from err
+    if template_variables:
+        frontmatter["metadata"] = {
+            "variables": [
+                {
+                    "name": variable.name,
+                    "prompt": variable.prompt,
+                    "required": variable.required,
+                    "default": variable.default,
+                }
+                for variable in template_variables
+            ]
+        }
 
     # sort_keys=False keeps the human-friendly field order above; default_flow_style=False emits
     # block-style YAML (lists as `- item`) that the repo's yaml.safe_load round-trips.
@@ -249,6 +269,7 @@ def render_community_skill_files(
     license: str = "",
     compatibility: str = "",
     author_handle: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> list[RenderedFile]:
     """Render the full set of files to commit for a skill: SKILL.md plus any bundled files.
 
@@ -257,6 +278,9 @@ def render_community_skill_files(
     """
     _validate_slug(slug)
     _validate_entry_caps(body=body, files=files or [])
+    template_variables = parse_template_variables(metadata)
+    bindings = {variable.name: "" for variable in template_variables}
+    binding_sizes = dict.fromkeys(bindings, 0)
     skill_root = f"{SKILLS_DIR}/{slug}"
 
     rendered: list[RenderedFile] = [
@@ -271,6 +295,7 @@ def render_community_skill_files(
                 license=license,
                 compatibility=compatibility,
                 author_handle=author_handle,
+                metadata=metadata,
             ),
         )
     ]
@@ -283,6 +308,10 @@ def render_community_skill_files(
         # paths that community_skill_sync._validate_entry_within_caps then folds into one and
         # rejects as a duplicate: the pull request merges and the skill never appears in the catalog.
         rel_path = _publishable_file_path(file["path"])
+        try:
+            _validate_and_project(file["content"], bindings, binding_sizes)
+        except TemplateRenderError as err:
+            raise CommunitySkillPublishValidationError(str(err)) from err
         path = f"{skill_root}/{rel_path}"
         # Case-insensitive, matching community_skill_sync._validate_entry_within_caps: two paths
         # differing only by case pass every check on this side, and then ingest rejects the whole
@@ -551,6 +580,7 @@ def publish_skill_to_community(
     license: str = "",
     compatibility: str = "",
     author_handle: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Open a PR in PostHog/community-skills adding (or updating) this skill. Returns the PR url/number.
 
@@ -582,6 +612,7 @@ def publish_skill_to_community(
         license=license,
         compatibility=compatibility,
         author_handle=author_handle,
+        metadata=metadata,
     )
 
     publisher = get_community_skills_publisher()

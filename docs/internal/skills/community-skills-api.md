@@ -101,6 +101,9 @@ Rendering and the GitHub calls are in `community_publish_services.py`.
   against the publisher's PostHog account, so the PR body presents it as a handle the publisher gave.
 - Bundled files are text only. `CommunitySkillFile.content` is a `TextField` and the renderer takes
   `str`, so a skill referencing an image or other binary asset cannot round-trip through the catalog.
+- Template skills publish their normalized `metadata.variables` schema (and no other store metadata).
+  Every `{{ variable }}` in `SKILL.md` or a bundled file must be declared there; otherwise publishing
+  stops with `400` before any GitHub write.
 
 ### Settings
 

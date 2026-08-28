@@ -72,6 +72,56 @@ class TestRenderSkillMd:
         assert frontmatter["compatibility"] == "Requires gh"
         assert frontmatter["author_handle"] == "andymaguire"
 
+    def test_renders_normalized_template_variables(self) -> None:
+        content = render_skill_md(
+            name="Deploy service",
+            description="Deploy a service to an environment.",
+            body="Deploy {{ service }} to {{ environment }}.",
+            metadata={
+                "owner": "internal-only",
+                "variables": [
+                    {"name": "service", "prompt": "Service name", "required": True},
+                    {"name": "environment", "prompt": "Target environment", "default": "staging"},
+                ],
+            },
+        )
+
+        frontmatter, _ = _parse(content)
+
+        assert frontmatter["metadata"] == {
+            "variables": [
+                {"name": "service", "prompt": "Service name", "required": True, "default": ""},
+                {"name": "environment", "prompt": "Target environment", "required": False, "default": "staging"},
+            ]
+        }
+
+    def test_rejects_undeclared_template_placeholder(self) -> None:
+        with pytest.raises(CommunitySkillPublishValidationError, match="undeclared variable 'missing'"):
+            render_skill_md(
+                name="Deploy service",
+                description="Deploy a service to an environment.",
+                body="Deploy {{ missing }}.",
+                metadata={"variables": [{"name": "service", "prompt": "Service name"}]},
+            )
+
+    @parameterized.expand(
+        [
+            ("no metadata", None),
+            ("variables is not a list", {"variables": "repository"}),
+            ("variables has no valid declarations", {"variables": [{"prompt": "Repository"}]}),
+        ]
+    )
+    def test_rejects_placeholder_without_a_valid_variable_declaration(
+        self, _label: str, metadata: dict[str, Any] | None
+    ) -> None:
+        with pytest.raises(CommunitySkillPublishValidationError, match="undeclared variable 'repository'"):
+            render_skill_md(
+                name="Deploy service",
+                description="Deploy a service to an environment.",
+                body="Deploy {{ repository }}.",
+                metadata=metadata,
+            )
+
     def test_preserves_leading_whitespace_in_the_body(self) -> None:
         # strip() would turn an opening indented code block into an ordinary paragraph, so the
         # published skill would instruct differently from the skill it was published from.
@@ -151,6 +201,44 @@ class TestRenderCommunitySkillFiles:
             "skills/make-pr/references/playbook.md",
             "skills/make-pr/scripts/run.sh",
         }
+
+    def test_rejects_undeclared_placeholder_in_bundled_file(self) -> None:
+        with pytest.raises(CommunitySkillPublishValidationError, match="undeclared variable 'missing'"):
+            render_community_skill_files(
+                slug="make-pr",
+                name="Make PR",
+                description="Open a PR.",
+                body="body",
+                files=[
+                    {"path": "references/playbook.md", "content": "Use {{ missing }}.", "content_type": "text/markdown"}
+                ],
+                metadata={"variables": [{"name": "repository", "prompt": "Repository"}]},
+            )
+
+    @parameterized.expand(
+        [
+            ("no metadata", None),
+            ("variables has no valid declarations", {"variables": [{"prompt": "Repository"}]}),
+        ]
+    )
+    def test_rejects_bundled_placeholder_without_a_valid_variable_declaration(
+        self, _label: str, metadata: dict[str, Any] | None
+    ) -> None:
+        with pytest.raises(CommunitySkillPublishValidationError, match="undeclared variable 'repository'"):
+            render_community_skill_files(
+                slug="make-pr",
+                name="Make PR",
+                description="Open a PR.",
+                body="body",
+                files=[
+                    {
+                        "path": "references/playbook.md",
+                        "content": "Use {{ repository }}.",
+                        "content_type": "text/markdown",
+                    }
+                ],
+                metadata=metadata,
+            )
 
     def test_rejects_bad_slug(self) -> None:
         # "new" and the category-tab slugs are rejected by ingest, so publishing one merges a pull
