@@ -1,6 +1,6 @@
 import importlib
 import threading
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
@@ -1268,6 +1268,86 @@ class TestAppendLogAgentActivity(TestCase):
             run.reset_mock()
             facade.append_task_run_log("r", "t", 1, entries=[{"notification": {"method": "session/update"}}])
             run.heartbeat_workflow.assert_called_once_with(agent_active=True)
+
+    def test_append_task_run_log_retires_followups_the_entries_echo(self):
+        run = MagicMock()
+        entries = [{"notification": {"method": "session/prompt", "params": {"prompt": []}}}]
+        with (
+            patch.object(facade, "_get_visible_run", return_value=run),
+            patch.object(facade, "_task_run_detail_to_dto", return_value=None),
+        ):
+            facade.append_task_run_log("r", "t", 1, entries=entries)
+
+        run.clear_echoed_followup_messages.assert_called_once_with(entries)
+
+
+class TestSignalTaskRunUserMessage(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Signal Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Signal Team")
+        cls.user = User.objects.create(email="signal@test.com", distinct_id="signal-distinct")
+
+    def _run(self) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            title="A task",
+            description="desc",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+            repository="posthog/posthog",
+        )
+        return TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+    def _signal(self, run: TaskRun, **kwargs) -> bool | None:
+        defaults: dict[str, Any] = {"content": "check the paste path", "artifact_ids": [], "message_id": "m1"}
+        with patch("products.tasks.backend.temporal.client.signal_task_followup_message"):
+            return facade.signal_task_run_user_message(run.id, run.task_id, self.team.id, **{**defaults, **kwargs})
+
+    def test_records_the_message_so_a_reload_can_show_it_before_the_agent_takes_it(self):
+        run = self._run()
+
+        self.assertTrue(self._signal(run))
+
+        run.refresh_from_db()
+        recorded = run.state["pending_followup_messages"]
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(recorded[0]["id"], "m1")
+        self.assertEqual(recorded[0]["content"], "check the paste path")
+
+    def test_the_recorded_time_predates_the_signal(self):
+        run = self._run()
+        signalled_at: list[datetime] = []
+
+        with patch(
+            "products.tasks.backend.temporal.client.signal_task_followup_message",
+            side_effect=lambda *args, **kwargs: signalled_at.append(django_timezone.now()),
+        ):
+            facade.signal_task_run_user_message(
+                run.id,
+                run.task_id,
+                self.team.id,
+                content="check the paste path",
+                artifact_ids=[],
+                message_id="m1",
+            )
+
+        run.refresh_from_db()
+        recorded_at = datetime.fromisoformat(run.state["pending_followup_messages"][0]["ts"])
+        self.assertLessEqual(recorded_at, signalled_at[0])
+
+    @parameterized.expand([("no message id", {"message_id": None}), ("no content", {"content": "  "})])
+    def test_records_nothing_without_an_identifiable_message(self, _name, overrides):
+        run = self._run()
+
+        self.assertTrue(self._signal(run, **overrides))
+
+        run.refresh_from_db()
+        self.assertNotIn("pending_followup_messages", run.state or {})
 
 
 class TestRecentWizardCloudRunTimes(TestCase):

@@ -201,6 +201,7 @@ export function PropertyFilters({
                                                         filter={item}
                                                         onChange={(filter) => setFilter(index, filter)}
                                                         editable={editable}
+                                                        pageKey={`${pageKey}-behavioral-${displayedFilterIds[index]}`}
                                                         size={buttonSize}
                                                     />
                                                 </div>
