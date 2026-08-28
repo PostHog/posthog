@@ -1,7 +1,7 @@
 import dataclasses
 from typing import Final, Literal, Optional, TypedDict
 
-from posthog.temporal.common.errors import resolve_error_trace, unwrap_temporal_cause
+from posthog.temporal.common.errors import find_temporal_timeout_error, resolve_error_trace, unwrap_temporal_cause
 
 EXPORT_FAILURE_METADATA_KIND: Final[Literal["export_activity_failure"]] = "export_activity_failure"
 
@@ -42,7 +42,20 @@ def export_failure_metadata(slo_failure_details: dict[str, str | bool]) -> Expor
 
 def extract_error_details(exc: BaseException) -> ExportError | None:
     cause = unwrap_temporal_cause(exc)
-    if cause is None or not cause.type:
+    if cause is None:
+        timeout = find_temporal_timeout_error(exc)
+        if timeout is None:
+            return None
+        return ExportError(
+            exception_class=type(timeout).__name__,
+            error_trace=resolve_error_trace(exc),
+            failure_details={
+                "failure_category": "activity_timeout",
+                "failure_component": "export_worker",
+                "failure_retryable": True,
+            },
+        )
+    if not cause.type:
         return None
     metadata = next(
         (

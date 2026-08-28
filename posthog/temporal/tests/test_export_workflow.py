@@ -203,7 +203,8 @@ async def test_export_failure_emits_slo_outcome(
     assert props["error_type"] == expected_exception_class
     assert props["error_message"] == expected_error_msg
     assert "Traceback" in props["error_trace"]
-    assert props["failure_stage"] == "asset_generation"
+    if expected_outcome == SloOutcome.FAILURE:
+        assert props["failure_stage"] == "asset_generation"
     if expected_exception_class == "CHQueryErrorS3Error":
         assert props["failure_category"] == "storage"
         assert props["failure_component"] == "object_storage"

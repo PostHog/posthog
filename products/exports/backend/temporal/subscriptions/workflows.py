@@ -3,7 +3,7 @@ import uuid
 import asyncio
 import datetime as dt
 from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import Any, Literal
 
 import temporalio.common
 import temporalio.workflow
@@ -12,6 +12,14 @@ from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlrea
 from posthog.event_usage import EventSource
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import (
+    MAX_ERROR_MESSAGE_CHARS,
+    find_temporal_timeout_error,
+    resolve_error_trace,
+    resolve_exception_class,
+    truncate_for_temporal_payload,
+    unwrap_temporal_cause,
+)
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
 from posthog.temporal.exports.types import (
@@ -59,6 +67,38 @@ from products.exports.backend.temporal.subscriptions.types import (
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
+)
+
+type SubscriptionFailureStage = Literal[
+    "delivery_record",
+    "validation",
+    "asset_preparation",
+    "asset_generation",
+    "report_generation",
+    "delivery",
+    "record_update",
+    "schedule_update",
+]
+
+_FAILURE_STAGE_COMPONENT: dict[SubscriptionFailureStage, str] = {
+    "delivery_record": "delivery_record",
+    "validation": "subscription_validation",
+    "asset_preparation": "export_preparation",
+    "asset_generation": "export_worker",
+    "report_generation": "ai_report_generation",
+    "delivery": "subscription_delivery",
+    "record_update": "delivery_record",
+    "schedule_update": "subscription_schedule",
+}
+
+_AGGREGATE_FAILURE_DETAIL_KEYS = (
+    "failure_categories",
+    "failure_components",
+    "failed_asset_count",
+    "failure_category_count",
+    "retryable_failed_asset_count",
+    "non_retryable_failed_asset_count",
+    "unclassified_failed_asset_count",
 )
 
 
@@ -131,6 +171,37 @@ def _summarize_export_failure_details(errors: list[ExportError]) -> dict[str, st
         "non_retryable_failed_asset_count": len(details) - retryable_failure_count,
         "unclassified_failed_asset_count": unclassified_failure_count,
     }
+
+
+def _record_subscription_failure(
+    slo: SloConfig | None,
+    stage: SubscriptionFailureStage,
+    exc: BaseException,
+) -> None:
+    if slo is None:
+        return
+
+    properties = slo.completion_properties
+    for key in _AGGREGATE_FAILURE_DETAIL_KEYS:
+        properties.pop(key, None)
+
+    application_error = unwrap_temporal_cause(exc)
+    if application_error is None and isinstance(exc, ApplicationError):
+        application_error = exc
+    timeout = find_temporal_timeout_error(exc)
+    cause = application_error or timeout or exc
+
+    properties.update(
+        {
+            "error_type": type(timeout).__name__ if timeout else resolve_exception_class(exc),
+            "error_message": truncate_for_temporal_payload(str(cause), MAX_ERROR_MESSAGE_CHARS),
+            "error_trace": resolve_error_trace(exc),
+            "failure_stage": stage,
+            "failure_category": "activity_timeout" if timeout else "activity_failure",
+            "failure_component": _FAILURE_STAGE_COMPONENT[stage],
+            "failure_retryable": True if timeout else bool(application_error and not application_error.non_retryable),
+        }
+    )
 
 
 @temporalio.workflow.defn(name="schedule-all-subscriptions")
@@ -249,6 +320,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         asset_errors: list[ExportError] = []
         caught_error: BaseException | None = None
         delivery_error: NoExportableInsightsErrorDetails | None = None
+        failure_stage: SubscriptionFailureStage = "delivery_record"
 
         # Delivery record tracking
         delivery_id: uuid.UUID | None = None
@@ -281,6 +353,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # Validate up-front: if the subscription is already disabled or its target
             # configuration is permanently broken, auto-disable and short-circuit before
             # the export pipeline runs.
+            failure_stage = "validation"
             abort_info = await temporalio.workflow.execute_activity(
                 validate_subscription_for_delivery,
                 inputs.subscription_id,
@@ -298,6 +371,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # onto SubscriptionDelivery.content_snapshot (written from within the
             # activity to avoid shipping multi-MB query_results across Temporal's
             # ~2 MiB payload boundary).
+            failure_stage = "asset_preparation"
             prepare_result = await temporalio.workflow.execute_activity(
                 create_export_assets,
                 CreateExportAssetsInputs(
@@ -359,6 +433,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             delivery_exported_asset_ids = prepare_result.exported_asset_ids
 
             # Phase 2: Fan-out export — one activity per insight, independent retry
+            failure_stage = "asset_generation"
             export_tasks = []
             for asset_id in prepare_result.exported_asset_ids:
                 task = temporalio.workflow.execute_activity(
@@ -431,6 +506,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 if temporalio.workflow.patched("subscription-delivery-campaign-v2")
                 else deliver_subscription
             )
+            failure_stage = "delivery"
             deliver_result: DeliverSubscriptionResult = await temporalio.workflow.execute_activity(
                 delivery_activity,
                 DeliverSubscriptionInputs(
@@ -470,6 +546,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     recipient_results = details[0].get("recipient_results")
                     if isinstance(recipient_results, list):
                         delivery_recipient_results = recipient_results
+            _record_subscription_failure(inputs.slo, failure_stage, e)
             caught_error = e
             final_status = DeliveryStatus.FAILED
             # Defer the re-raise until after the finally block — see note below.
@@ -496,11 +573,12 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
-                except Exception:
+                except Exception as update_error:
                     temporalio.workflow.logger.exception(
                         "update_delivery_record failed (delivery history is best-effort when a prior error exists)"
                     )
                     if caught_error is None:
+                        _record_subscription_failure(inputs.slo, "record_update", update_error)
                         raise
 
             delivery_failed_without_exception = bool(delivery_recipient_results) and all(
@@ -529,12 +607,16 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # The activity itself no-ops when the subscription is disabled, so a
             # just-auto-disabled sub doesn't get a misleading future delivery date.
             if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
-                await temporalio.workflow.execute_activity(
-                    advance_next_delivery_date,
-                    inputs.subscription_id,
-                    start_to_close_timeout=dt.timedelta(minutes=2),
-                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
-                )
+                try:
+                    await temporalio.workflow.execute_activity(
+                        advance_next_delivery_date,
+                        inputs.subscription_id,
+                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                    )
+                except Exception as e:
+                    _record_subscription_failure(inputs.slo, "schedule_update", e)
+                    raise
 
             # Enrich SLO event with per-insight detail (non-user errors only).
             if inputs.slo:
@@ -581,6 +663,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
         final_status = DeliveryStatus.SKIPPED
         delivery_recipient_results: list[dict] = []
         caught_error: BaseException | None = None
+        failure_stage: SubscriptionFailureStage = "delivery_record"
         # Set when a delivered-but-degraded report should record a reason without an exception
         # (every generated query failed). Falls through to update_delivery_record's error column.
         generation_error: dict | None = None
@@ -603,6 +686,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             # Up-front validation: already-disabled (idempotency redispatch) or a
             # permanently broken target (e.g. unsupported target_type) auto-disables and
             # short-circuits before any LLM cost.
+            failure_stage = "validation"
             abort_info = await temporalio.workflow.execute_activity(
                 validate_subscription_for_delivery,
                 inputs.subscription_id,
@@ -620,6 +704,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             # Phase 1: generate the report. Consent is gated inside, before any LLM cost.
             # The markdown is persisted onto the delivery row (read back by delivery),
             # never returned on the wire — it can exceed Temporal's ~2 MiB payload cap.
+            failure_stage = "report_generation"
             generate_result = await temporalio.workflow.execute_activity(
                 generate_ai_subscription_report,
                 GenerateAIReportInputs(subscription_id=inputs.subscription_id, delivery_id=delivery_id),
@@ -651,6 +736,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 if temporalio.workflow.patched("subscription-delivery-campaign-v2")
                 else deliver_subscription
             )
+            failure_stage = "delivery"
             deliver_result = await temporalio.workflow.execute_activity(
                 delivery_activity,
                 DeliverSubscriptionInputs(
@@ -687,6 +773,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     recipient_results = details[0].get("recipient_results")
                     if isinstance(recipient_results, list):
                         delivery_recipient_results = recipient_results
+            _record_subscription_failure(inputs.slo, failure_stage, e)
             caught_error = e
             final_status = DeliveryStatus.FAILED
 
@@ -707,11 +794,12 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
-                except Exception:
+                except Exception as update_error:
                     temporalio.workflow.logger.exception(
                         "update_delivery_record failed (delivery history is best-effort when a prior error exists)"
                     )
                     if caught_error is None:
+                        _record_subscription_failure(inputs.slo, "record_update", update_error)
                         raise
 
             if (
@@ -737,12 +825,16 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             # no-ops when the subscription is disabled, so a just-auto-disabled sub
             # doesn't get a misleading future delivery date.
             if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
-                await temporalio.workflow.execute_activity(
-                    advance_next_delivery_date,
-                    inputs.subscription_id,
-                    start_to_close_timeout=dt.timedelta(minutes=2),
-                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
-                )
+                try:
+                    await temporalio.workflow.execute_activity(
+                        advance_next_delivery_date,
+                        inputs.subscription_id,
+                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                    )
+                except Exception as e:
+                    _record_subscription_failure(inputs.slo, "schedule_update", e)
+                    raise
 
             # Auto-disable aborts (consent revoked / prompt invalid) return normally rather
             # than raising, so they record delivery status FAILED but keep the SLO outcome
