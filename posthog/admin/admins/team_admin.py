@@ -1080,8 +1080,23 @@ class TeamAdmin(admin.ModelAdmin):
         if decision is None:
             self.message_user(
                 request,
-                f"Team '{team.name}' keeps its current tier. Pinned teams and teams that do not meet the "
-                "promotion bar do not move.",
+                f"Team '{team.name}' was not evaluated: it is pinned, or its config changed while recomputing.",
+                level=messages.INFO,
+            )
+        elif not decision.changed:
+            hold_reasons = {
+                "too_soon": "it has not held its current tier for the required number of days yet",
+                "tier_not_used_enough": "it has not used enough of its current tier's daily allowance "
+                "on enough separate days since the tier was set",
+                "demotion_cooldown": "a recent demotion's cooldown is still active",
+                "rates_recovering": "its complaint or bounce rate over the promotion window is not clean yet",
+                "ses_reputation_not_clean": "AWS currently flags its SES tenant reputation",
+                "already_top_tier": "it is already at the top tier",
+            }
+            explanation = hold_reasons.get(decision.reason, f"decision reason: {decision.reason}")
+            self.message_user(
+                request,
+                f"Team '{team.name}' keeps tier {decision.previous_tier}: {explanation}.",
                 level=messages.INFO,
             )
         else:

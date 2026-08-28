@@ -31,6 +31,7 @@ from posthog.personhog_client.fake_client import FakePersonHogClient
 from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.services.email_sending_tier import TierDecision
 
 
 def _attach_messages(request) -> None:
@@ -715,6 +716,19 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         assert "onclick=" not in html
         assert "onsubmit=" not in html
         assert 'nonce="test-nonce-value"' in html
+
+    def test_recompute_message_names_the_hold_reason(self) -> None:
+        # A held recompute used to report a canned guess ("pinned or does not meet the promotion
+        # bar"), which misled staff when the real reason was the dwell or a cooldown.
+        request = self._post()
+        with patch(
+            "posthog.admin.admins.team_admin.recompute_email_sending_tier_for_team",
+            return_value=TierDecision(team_id=self.team.id, previous_tier=4, new_tier=4, reason="too_soon"),
+        ):
+            response = self.admin.recompute_email_sending_tier_view(request, str(self.team.pk))
+        assert response.status_code == 302
+        rendered = [str(message) for message in request._messages]
+        assert any("keeps tier 4" in message and "has not held its current tier" in message for message in rendered)
 
     def test_recompute_creates_a_missing_workflows_config(self) -> None:
         # A team that predates the extension signal can have no config row, and the sweep skips a

@@ -16,7 +16,8 @@ def recompute_workflows_email_sending_tiers() -> None:
     decisions = recompute_email_sending_tiers()
     logger.info(
         "workflows_email_sending_tier_sweep_finished",
-        changed_teams=len(decisions),
+        evaluated_teams=len(decisions),
+        changed_teams=sum(1 for decision in decisions if decision.changed),
         promoted=sum(1 for decision in decisions if decision.new_tier > decision.previous_tier),
         demoted=sum(1 for decision in decisions if decision.new_tier < decision.previous_tier),
     )

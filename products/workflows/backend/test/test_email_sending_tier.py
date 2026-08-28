@@ -382,6 +382,20 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         ):
             recompute_email_sending_tiers()
 
+    def test_returns_a_held_decision_with_its_reason(self) -> None:
+        # The admin recompute action reports why a team did not move, so the sweep must return
+        # holds with their reason rather than only the applied changes.
+        self._config(email_sending_tier=2, email_sending_tier_updated_at=timezone.now() - timedelta(days=10))
+        with patch(
+            "products.workflows.backend.services.email_sending_tier.build_sending_history_windows",
+            return_value=SendingHistoryWindows(window={}, recent={}),
+        ):
+            decisions = recompute_email_sending_tiers()
+        held = next(decision for decision in decisions if decision.team_id == self.team.id)
+        assert not held.changed
+        assert held.reason == "tier_not_used_enough"
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 2
+
     def test_promotion_is_persisted_with_a_fresh_timestamp(self) -> None:
         self._config(email_sending_tier=0, email_sending_tier_updated_at=timezone.now() - timedelta(days=30))
         used = clean_days(2, TIER_DAILY_CAPS[0])

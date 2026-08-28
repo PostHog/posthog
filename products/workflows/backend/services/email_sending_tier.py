@@ -420,6 +420,11 @@ def recompute_email_sending_tiers(team_ids: Optional[list[int]] = None) -> list[
     Candidates are teams that sent workflow email in the window plus teams whose stored state can
     only be corrected by a run: a suspended team owed a demotion, and any team already above tier 0.
     A pinned team is skipped in both directions.
+
+    Returns every decision, including holds (`changed` False, with the reason), so callers like the
+    admin recompute action can say why a team did not move. A changed decision whose write lost to
+    a concurrent staff change is dropped: the stored state moved underneath it, so neither the
+    change nor its reason describes the row anymore.
     """
     now = timezone.now()
     after = now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS)
@@ -475,7 +480,7 @@ def recompute_email_sending_tiers(team_ids: Optional[list[int]] = None) -> list[
             ),
             last_rate_demotion_at=config.email_sending_tier_demoted_at,
         )
-        if apply_tier_decision(config, decision):
+        if not decision.changed or apply_tier_decision(config, decision):
             decisions.append(decision)
     return decisions
 
@@ -483,7 +488,9 @@ def recompute_email_sending_tiers(team_ids: Optional[list[int]] = None) -> list[
 def recompute_email_sending_tier_for_team(team_id: int) -> Optional[TierDecision]:
     """
     Recompute one team now, so a staff suspension takes its tier down without waiting for the
-    next periodic run. Returns the applied decision, or None when nothing changed.
+    next periodic run. Returns the decision, held or applied, so the caller can say why a team
+    did not move. None means the team was not evaluated at all: it is pinned, it has no config
+    row, or its state changed while recomputing.
     """
-    applied = recompute_email_sending_tiers(team_ids=[team_id])
-    return applied[0] if applied else None
+    decisions = recompute_email_sending_tiers(team_ids=[team_id])
+    return decisions[0] if decisions else None
