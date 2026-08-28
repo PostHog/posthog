@@ -170,6 +170,15 @@ describe('ml-mirror-pipeline', () => {
                                     '@context': 'https://schema.org',
                                     '@type': 'Product',
                                     name: 'Camera',
+                                    email: 'viewer@example.com',
+                                    offers: {
+                                        '@type': 'Offer',
+                                        price: 100,
+                                        seller: {
+                                            '@type': 'Person',
+                                            name: 'Example Viewer',
+                                        },
+                                    },
                                 },
                             },
                         },
@@ -269,6 +278,10 @@ describe('ml-mirror-pipeline', () => {
                 '@context': 'https://schema.org',
                 '@type': 'Product',
                 name: 'Camera',
+                offers: {
+                    '@type': 'Offer',
+                    price: 100,
+                },
             },
         })
     })

@@ -66,7 +66,7 @@ fn end_to_end_contract() {
         { "type": 3, "timestamp": TS0 + 2000.5, "data": { "source": 2, "type": 2, "id": 5, "x": 1, "y": 2 } },
         // Console warn plugin: counted, payload scrubbed.
         { "type": 6, "timestamp": TS0 + 3000.0, "data": { "plugin": "rrweb/console@1", "payload": { "level": "warn", "payload": ["secret"], "trace": [] } } },
-        { "type": 5, "timestamp": TS0 + 4000.0, "data": { "tag": "$json_ld", "payload": { "@context": "https://schema.org", "@type": "Product", "name": "Camera", "offers": { "@type": "Offer", "price": 100, "priceCurrency": "USD" } } } },
+        { "type": 5, "timestamp": TS0 + 4000.0, "data": { "tag": "$json_ld", "payload": { "@context": "https://schema.org", "@type": "Product", "name": "Camera", "email": "viewer@example.com", "offers": { "@type": "Offer", "price": 100, "priceCurrency": "USD", "seller": { "@type": "Person", "name": "Example Viewer" } } } } },
         // Filtered out: no timestamp, non-object, non-positive timestamp.
         { "type": 3, "data": { "source": 1 } },
         "junk",

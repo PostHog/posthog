@@ -89,7 +89,7 @@ export class SessionRecordingIngesterMetrics {
 
     private static readonly mlJsonLdEvents = new Counter({
         name: 'recording_blob_ingestion_v2_ml_json_ld_events',
-        help: 'JSON-LD custom replay events preserved in ML training data',
+        help: 'JSON-LD custom replay events observed during ML mirror anonymization',
     })
 
     private static readonly mlImagesCollected = new Counter({
