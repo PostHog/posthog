@@ -10,12 +10,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
-from posthog.api.oauth.cimd import (
-    enqueue_cimd_refresh_if_stale,
-    get_application_by_client_id,
-    is_cimd_client_id,
-    is_cimd_url_blocked,
-)
+from posthog.api.oauth.cimd import enqueue_cimd_refresh_if_stale, is_cimd_client_id, is_cimd_url_blocked
 from posthog.api.oauth.client_assertion import (
     ClientAssertionError,
     ResolvedClientAssertion,
@@ -166,7 +161,7 @@ class ProvisioningAuthentication(BaseAuthentication):
         brought its own proof has to already exist for that proof to mean anything.
         """
         try:
-            app = get_application_by_client_id(client_id)
+            app = OAuthApplication.objects.get(client_id=client_id)
         except OAuthApplication.DoesNotExist:
             return None
 
@@ -179,7 +174,7 @@ class ProvisioningAuthentication(BaseAuthentication):
             # again: scope ceiling and jwks_uri edits would freeze at whatever the app was
             # promoted with. Async, so this request still serves the app we already have.
             try:
-                enqueue_cimd_refresh_if_stale(app.cimd_metadata_url or client_id)
+                enqueue_cimd_refresh_if_stale(app.client_id)
             except Exception as e:
                 logger.warning(
                     "provisioning_cimd_refresh_enqueue_error",

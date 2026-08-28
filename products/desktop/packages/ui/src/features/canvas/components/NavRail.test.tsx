@@ -42,7 +42,7 @@ vi.mock(
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: (key: string) => mocks.featureFlags.get(key) ?? false,
 }));
-vi.mock("@posthog/ui/features/feature-flags/useSpacesTabs", () => ({
+vi.mock("@posthog/ui/features/browser-tabs/useSpacesTabs", () => ({
   useSpacesTabs: () => true,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
