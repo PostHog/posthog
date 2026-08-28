@@ -4,7 +4,9 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, CancelledError
@@ -14,7 +16,10 @@ from posthog.models import Organization, Team
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    resolve_incremental_sync_fallback,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     CANCELLED_RUN_MESSAGE,
@@ -408,3 +413,36 @@ def test_missing_primary_key_on_a_non_incremental_schema_still_disables() -> Non
     schema.refresh_from_db()
     assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
     assert schema.sync_type_fallback_reason is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_fallback_reads_the_schema_under_a_row_lock() -> None:
+    # The read that decides to move off `incremental` and the write that applies it have to share
+    # one critical section. An unlocked read lets a sync type the operator chose in the gap be
+    # replaced by the fallback's own target, and they picked theirs deliberately.
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    source = ExternalDataSource.objects.create(team=team, source_type=ExternalDataSourceType.REDSHIFT.value)
+    schema = ExternalDataSchema.objects.create(
+        team=team,
+        source=source,
+        name="table",
+        should_sync=True,
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "updated_at"},
+    )
+
+    with CaptureQueriesContext(connection) as queries:
+        resolve_incremental_sync_fallback(str(schema.id), team.id, "switched to {fallback}")
+
+    table = ExternalDataSchema._meta.db_table
+    reads = [
+        query["sql"]
+        for query in queries.captured_queries
+        if query["sql"].lstrip().upper().startswith("SELECT") and table in query["sql"]
+    ]
+    assert reads
+    assert all("FOR UPDATE" in sql for sql in reads)
+
+    schema.refresh_from_db()
+    assert schema.sync_type == ExternalDataSchema.SyncType.APPEND

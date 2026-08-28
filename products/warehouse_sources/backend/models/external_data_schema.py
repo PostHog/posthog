@@ -1146,24 +1146,28 @@ def resolve_incremental_sync_fallback(
     is persisted so the sync settings UI can show why the sync type changed.
 
     Returns None when the schema is no longer incremental, so a concurrent edit that already chose
-    a sync type wins instead of being overwritten.
+    a sync type wins instead of being overwritten. That check and the write it guards share one row
+    lock. Without the lock, a sync type an operator commits between the two is replaced by the
+    fallback's own target.
     """
-    schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
-    if schema.sync_type != ExternalDataSchema.SyncType.INCREMENTAL:
-        return None
+    with transaction.atomic():
+        schema = ExternalDataSchema.objects.select_for_update().get(id=schema_id, team_id=team_id)
+        if schema.sync_type != ExternalDataSchema.SyncType.INCREMENTAL:
+            return None
 
-    target = (
-        ExternalDataSchema.SyncType.APPEND
-        if (schema.sync_type_config or {}).get("incremental_field")
-        else ExternalDataSchema.SyncType.FULL_REFRESH
-    )
-    reason = reason_template.format(fallback=_SYNC_TYPE_FALLBACK_LABELS[target])
-    update_sync_type_config_keys(
-        schema_id,
-        team_id,
-        updates={"sync_type_fallback_reason": reason},
-        extra_model_fields={"sync_type": target},
-    )
+        target = (
+            ExternalDataSchema.SyncType.APPEND
+            if (schema.sync_type_config or {}).get("incremental_field")
+            else ExternalDataSchema.SyncType.FULL_REFRESH
+        )
+        reason = reason_template.format(fallback=_SYNC_TYPE_FALLBACK_LABELS[target])
+        # Re-takes a lock this transaction already holds, so the merge stays in the same section.
+        update_sync_type_config_keys(
+            schema_id,
+            team_id,
+            updates={"sync_type_fallback_reason": reason},
+            extra_model_fields={"sync_type": target},
+        )
     return ResolvedSyncTypeFallback(to_sync_type=target.value, reason=reason)
 
 
