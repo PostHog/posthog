@@ -14,6 +14,7 @@ purpose is *derived* — there is no relationship label on the task↔report ass
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import datetime
 
 from django.db import transaction
@@ -165,7 +166,7 @@ def _live_implementation_exists(*, team_id: int, report_id: str, exclude_task_id
     return any(_runs_claim_implementation_slot(runs) for runs in runs_by_task.values())
 
 
-def _runs_claim_implementation_slot(runs: list[tuple[str | None, object]]) -> bool:
+def _runs_claim_implementation_slot(runs: Sequence[tuple[str | None, object]]) -> bool:
     """Whether one implementation task's runs still claim its slot.
 
     A task with no runs yet still claims the slot; a live (non-terminal) run or a run that
@@ -275,14 +276,17 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     would put two live implementations on it, spending unbilled inference twice over.
 
     A re-run of a *released* task also loses to a fresher verdict: if the task shipped no PR and
-    holds no live run, and the report's latest `actionability_judgment` now says the fix is
-    already addressed, re-running it would open a competing PR, so the re-run is refused. A task
-    that still holds its slot is continuing its own work (fixing CI, answering review on the PR it
-    opened), and the verdict may be naming that very PR, so it stays allowed. Otherwise only
-    another task holding the slot blocks — a task reclaiming the slot it released is the ordinary
-    "my run failed, try again" path and stays allowed. Non-implementation tasks are unaffected,
-    since the discussion cap counts tasks rather than runs and conversation inside one is
-    deliberately unlimited.
+    holds no live run, and a verdict that landed *after* the task was dispatched says the fix is
+    already addressed, re-running it would open a competing PR, so the re-run is refused. Two
+    cases stay allowed. A task that still holds its slot continues its own work (fixing CI,
+    answering review on the PR it opened), and the verdict can name that very PR. And a verdict
+    older than the task was already visible when the task started, so it is not the news this
+    guard exists for; blocking on it would strand a task that can never run.
+
+    Otherwise only another task holding the slot blocks — a task reclaiming the slot it released
+    is the ordinary "my run failed, try again" path and stays allowed. Non-implementation tasks
+    are unaffected, since the discussion cap counts tasks rather than runs and conversation inside
+    one is deliberately unlimited.
 
     Must be called inside an open transaction: it locks the report row, the same lock creation
     and auto-start take. That lock only serializes for as long as the caller's transaction stays
@@ -295,10 +299,14 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
         raise RuntimeError(
             "enforce_report_implementation_rerun_cap must run inside a transaction; it locks the report row"
         )
-    is_implementation = SignalReportTask.objects.filter(
-        team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
-    ).exists()
-    if not is_implementation:
+    dispatched_at = (
+        SignalReportTask.objects.filter(
+            team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+        .values_list("created_at", flat=True)
+        .first()
+    )
+    if dispatched_at is None:
         return
     report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
     if report is None:
@@ -306,10 +314,12 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     # Only a task that released its slot can open a competing PR; a task that still holds its slot
     # (it shipped a PR or has a live run) is continuing its own work, and the verdict that judged
     # the report addressed may be naming that very PR. So re-check the verdict only for a released
-    # task, mirroring the `exclude_task_id` allowance the slot check below already makes.
+    # task, mirroring the `exclude_task_id` allowance the slot check below already makes — and only
+    # for a verdict that arrived after the task, so a verdict someone already saw when they started
+    # the task cannot strand it.
     if not _task_holds_implementation_slot(team_id=team_id, report_id=report_id, task_id=task_id):
         addressed_at = _report_already_addressed_at(report_id=report_id)
-        if addressed_at is not None:
+        if addressed_at is not None and addressed_at > dispatched_at:
             raise ReportTaskCapExceeded(
                 kind=TASK_RUN_TYPE_IMPLEMENTATION,
                 detail=(
