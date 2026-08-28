@@ -75,13 +75,28 @@ export interface CompletedSubBatch {
 }
 
 /**
+ * A sub-batch's time allowance, as it arrived on the wire and when it was
+ * armed. The consumer sizes it; the worker has no sizing config of its own, so
+ * these two numbers are the whole input to its budget.
+ */
+export interface SubBatchBudget {
+    /**
+     * Epoch milliseconds at frame read. The allowance counts from here, so
+     * time the sub-batch spends parked in the admission queue counts too.
+     */
+    armedAt: number
+    /** Milliseconds of work before the pipeline stops starting more; `0` means no soft deadline. */
+    softBudgetMs: number
+}
+
+/**
  * Pipeline mechanics behind the stream protocol. The server owns ordering,
  * acks, capacity admission, and stream lifecycle; the driver owns how a
  * sub-batch enters the shared pipeline and when its processing is durably
  * done (`settled`).
  */
 export interface StreamIngestDriver {
-    feed(streamId: number, seq: number, messages: SerializedKafkaMessage[]): Promise<FeedResult>
+    feed(streamId: number, seq: number, messages: SerializedKafkaMessage[], budget: SubBatchBudget): Promise<FeedResult>
     next(): Promise<CompletedSubBatch | null>
 }
 
@@ -703,6 +718,13 @@ export class WorkerIngestServer {
                 }
 
                 const subBatch = request.msg.value
+                // Arm the allowance the moment the frame is read, before the
+                // admission wait, so time parked in the queue counts against
+                // the budget the pipeline mints later.
+                const budget: SubBatchBudget = {
+                    armedAt: Date.now(),
+                    softBudgetMs: Number(subBatch.softBudgetMs),
+                }
                 const seq = Number(subBatch.seq)
                 if (seq !== stream.nextSeq) {
                     throw this.protocolError(
@@ -757,7 +779,7 @@ export class WorkerIngestServer {
                             this.finishReader(stream, seq)
                             return
                         }
-                        const result = await this.feedGuarded(stream, seq, serialized)
+                        const result = await this.feedGuarded(stream, seq, serialized, budget)
                         if (result.ok) {
                             feedAccepted = true
                             this.acceptedBatches.set(this.acceptedKey(stream.id, seq), batchAccepted(serialized.length))
@@ -798,10 +820,11 @@ export class WorkerIngestServer {
     private async feedGuarded(
         stream: StreamState,
         seq: number,
-        messages: SerializedKafkaMessage[]
+        messages: SerializedKafkaMessage[],
+        budget: SubBatchBudget
     ): Promise<FeedResult> {
         try {
-            return await this.deps.driver.feed(stream.id, seq, messages)
+            return await this.deps.driver.feed(stream.id, seq, messages, budget)
         } catch (error) {
             this.fatal(error instanceof Error ? error : new Error(String(error)))
             throw new ConnectError('ingest pipeline failed', Code.Internal)

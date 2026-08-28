@@ -1,7 +1,8 @@
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { CompletedSubBatch, StreamIngestDriver } from '~/ingestion/api/grpc-server'
+import { CompletedSubBatch, StreamIngestDriver, SubBatchBudget } from '~/ingestion/api/grpc-server'
 import { deserializeKafkaMessage } from '~/ingestion/api/kafka-message-converter'
 import { SerializedKafkaMessage } from '~/ingestion/api/types'
+import { BatchBudget, budgetDeadline } from '~/ingestion/framework/batch-budget'
 import { FeedResult } from '~/ingestion/framework/batching-pipeline'
 import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import {
@@ -29,12 +30,26 @@ export class GrpcStreamIngestDriver implements StreamIngestDriver {
         private promiseScheduler: PromiseScheduler
     ) {}
 
-    feed(streamId: number, seq: number, messages: SerializedKafkaMessage[]): Promise<FeedResult> {
+    feed(
+        streamId: number,
+        seq: number,
+        messages: SerializedKafkaMessage[],
+        budget: SubBatchBudget
+    ): Promise<FeedResult> {
         const batch = messages.map((serialized) => {
             const message = deserializeKafkaMessage(serialized)
             return createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
         })
-        return this.pipeline.feed(batch, { grpcStreamId: streamId, grpcSeq: seq })
+        return this.pipeline.feed(batch, { grpcStreamId: streamId, grpcSeq: seq }, this.wireBudget(budget))
+    }
+
+    /**
+     * Turn what the consumer sent into the batch's budget, and nothing else:
+     * the worker has no sizing config of its own.
+     */
+    private wireBudget({ armedAt, softBudgetMs }: SubBatchBudget): BatchBudget {
+        const softAt = budgetDeadline(armedAt, softBudgetMs)
+        return softAt === null ? BatchBudget.unlimited() : BatchBudget.softDeadline(softAt)
     }
 
     async next(): Promise<CompletedSubBatch | null> {

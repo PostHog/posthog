@@ -14,7 +14,7 @@ import {
 import { FeedResult } from '~/ingestion/framework/batching-pipeline'
 
 import { FeedOrderSentinel } from './feed-order-sentinel'
-import { CompletedSubBatch, StreamIngestDriver, WorkerIngestServer } from './grpc-server'
+import { CompletedSubBatch, StreamIngestDriver, SubBatchBudget, WorkerIngestServer } from './grpc-server'
 
 class Deferred<T> {
     resolve!: (value: T) => void
@@ -66,14 +66,14 @@ class FrameSource implements AsyncIterable<IngestStreamRequest> {
 
 /** Records feeds and lets the test hand-complete batches. */
 class FakeDriver implements StreamIngestDriver {
-    feeds: { streamId: number; seq: number; offsets: number[] }[] = []
+    feeds: { streamId: number; seq: number; offsets: number[]; budget: SubBatchBudget }[] = []
     feedResult: FeedResult = { ok: true }
     private completions: CompletedSubBatch[] = []
     private nextWaiters: Deferred<CompletedSubBatch | null>[] = []
     nextError: Error | null = null
 
-    feed(streamId: number, seq: number, messages: { offset: number }[]): Promise<FeedResult> {
-        this.feeds.push({ streamId, seq, offsets: messages.map((m) => m.offset) })
+    feed(streamId: number, seq: number, messages: { offset: number }[], budget: SubBatchBudget): Promise<FeedResult> {
+        this.feeds.push({ streamId, seq, offsets: messages.map((m) => m.offset), budget })
         return Promise.resolve(this.feedResult)
     }
 
@@ -123,7 +123,11 @@ function hello(overrides: { consumerId?: string; streamEpoch?: bigint } = {}): I
 function subBatch(
     seq: number,
     offsets: number[],
-    overrides: { replay?: boolean; assignmentEpoch?: bigint } = {}
+    overrides: {
+        replay?: boolean
+        assignmentEpoch?: bigint
+        softBudgetMs?: bigint
+    } = {}
 ): IngestStreamRequest {
     return create(IngestStreamRequestSchema, {
         msg: {
@@ -133,6 +137,7 @@ function subBatch(
                 batchId: `batch-${seq}`,
                 replay: overrides.replay ?? false,
                 assignmentEpoch: overrides.assignmentEpoch ?? 1n,
+                softBudgetMs: overrides.softBudgetMs ?? 0n,
                 messages: offsets.map((offset) =>
                     create(KafkaMessageSchema, {
                         topic: 'events',
@@ -346,6 +351,44 @@ describe('WorkerIngestServer', () => {
         expect(collected.error).toBeNull()
         expect(collected.acks[0].accepted).toBe(0)
         expect(driver.feeds).toEqual([])
+    })
+
+    it('arms the frame budget at read time, before the sub-batch waits for admission', async () => {
+        // A sub-batch parked behind a full pipeline has already spent part of
+        // its allowance, so the arming point has to be the frame read rather
+        // than the feed.
+        const source = new FrameSource()
+        const collected = collect(server, source)
+
+        const before = Date.now()
+        source.push(hello())
+        source.push(subBatch(1, [10], { softBudgetMs: 300n }))
+        await until(() => driver.feeds.length === 1)
+        const after = Date.now()
+
+        const { budget } = driver.feeds[0]
+        expect(budget.softBudgetMs).toBe(300)
+        expect(budget.armedAt).toBeGreaterThanOrEqual(before)
+        expect(budget.armedAt).toBeLessThanOrEqual(after)
+
+        source.end()
+        driver.complete({ streamId: driver.feeds[0].streamId, seq: 1, accepted: 1 })
+        await collected.ended
+    })
+
+    it('passes a consumer that sends no budget through as unlimited', async () => {
+        const source = new FrameSource()
+        const collected = collect(server, source)
+
+        source.push(hello())
+        source.push(subBatch(1, [10]))
+        await until(() => driver.feeds.length === 1)
+
+        expect(driver.feeds[0].budget.softBudgetMs).toBe(0)
+
+        source.end()
+        driver.complete({ streamId: driver.feeds[0].streamId, seq: 1, accepted: 1 })
+        await collected.ended
     })
 
     it('fails the stream and reports fatal when the pipeline dies mid-batch', async () => {
