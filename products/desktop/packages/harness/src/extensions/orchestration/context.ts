@@ -13,25 +13,27 @@
  *    fallback when the caller didn't pass explicit context. This mirrors
  *    "forked context filtering" without forwarding the raw session tree.
  */
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionContext,
+  SessionMessageEntry,
+} from "@earendil-works/pi-coding-agent";
 
 const DEFAULT_MAX_AUTO_CONTEXT_CHARS = 4000;
 const DEFAULT_MAX_AUTO_CONTEXT_MESSAGES = 6;
 
-interface MinimalMessage {
-  role: string;
-  content?: Array<{ type: string; text?: string }>;
-}
+type ContextMessage = Extract<
+  SessionMessageEntry["message"],
+  { role: "user" | "assistant" }
+>;
 
-interface MinimalSessionEntry {
-  type: string;
-  message?: MinimalMessage;
-}
+function textOf(message: ContextMessage): string {
+  const content =
+    typeof message.content === "string"
+      ? [{ type: "text" as const, text: message.content }]
+      : message.content;
 
-function textOf(message: MinimalMessage): string {
-  return (message.content ?? [])
-    .filter((part) => part.type === "text" && part.text)
-    .map((part) => part.text as string)
+  return content
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n")
     .trim();
 }
@@ -49,14 +51,13 @@ export function buildAutoContext(
   const maxMessages = options.maxMessages ?? DEFAULT_MAX_AUTO_CONTEXT_MESSAGES;
   const maxChars = options.maxChars ?? DEFAULT_MAX_AUTO_CONTEXT_CHARS;
 
-  const branch =
-    ctx.sessionManager.getBranch() as unknown as MinimalSessionEntry[];
+  const branch = ctx.sessionManager.getBranch();
   const turns: string[] = [];
 
   for (let i = branch.length - 1; i >= 0 && turns.length < maxMessages; i--) {
     const entry = branch[i];
     if (entry.type !== "message" || !entry.message) continue;
-    const { role } = entry.message;
+    const role = entry.message.role;
     if (role !== "user" && role !== "assistant") continue;
 
     const text = textOf(entry.message);

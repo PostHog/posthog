@@ -682,7 +682,7 @@ export class PiAgentServer {
   }
 
   private handleExtensionEvent(event: PiExtensionEvent): void {
-    this.broadcast(event as unknown as Record<string, unknown>);
+    this.broadcast({ ...event });
   }
 
   private handleMcpToolPermissionRequest(

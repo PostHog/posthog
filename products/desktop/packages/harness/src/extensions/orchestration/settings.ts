@@ -8,41 +8,47 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { z } from "zod";
 import type { AgentConfig } from "./agents";
 
-export type ThinkingLevel =
-  | "off"
-  | "minimal"
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh";
+const thinkingLevelSchema = z.enum([
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+]);
+export type ThinkingLevel = z.infer<typeof thinkingLevelSchema>;
 
-export interface AgentOverride {
-  model?: string;
-  thinking?: ThinkingLevel;
-  tools?: string;
-  fallbackModels?: string[];
-}
+const agentOverrideSchema = z.object({
+  model: z.string().optional(),
+  thinking: thinkingLevelSchema.optional(),
+  tools: z.string().optional(),
+  fallbackModels: z.array(z.string()).optional(),
+});
+export type AgentOverride = z.infer<typeof agentOverrideSchema>;
 
-export interface ModelScopeConfig {
-  enforce?: boolean;
-  allow?: string[];
-}
+const modelScopeConfigSchema = z.object({
+  enforce: z.boolean().optional(),
+  allow: z.array(z.string()).optional(),
+});
+export type ModelScopeConfig = z.infer<typeof modelScopeConfigSchema>;
 
-export interface SubagentSettings {
-  disableThinking?: boolean;
-  agentOverrides?: Record<string, AgentOverride>;
-  modelScope?: ModelScopeConfig;
-}
+const subagentSettingsSchema = z.object({
+  disableThinking: z.boolean().optional(),
+  agentOverrides: z.record(z.string(), agentOverrideSchema).optional(),
+  modelScope: modelScopeConfigSchema.optional(),
+});
+export type SubagentSettings = z.infer<typeof subagentSettingsSchema>;
+
+const jsonObjectSchema = z.record(z.string(), z.unknown());
 
 function readJsonFile(filePath: string): Record<string, unknown> | undefined {
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object"
-      ? (parsed as Record<string, unknown>)
-      : undefined;
+    const parsed = jsonObjectSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
   }
@@ -62,10 +68,8 @@ function findNearestProjectSettingsFile(cwd: string): string | null {
 function extractSubagentSettings(
   raw: Record<string, unknown> | undefined,
 ): SubagentSettings {
-  const section = raw?.subagents;
-  return section && typeof section === "object"
-    ? (section as SubagentSettings)
-    : {};
+  const parsed = subagentSettingsSchema.safeParse(raw?.subagents);
+  return parsed.success ? parsed.data : {};
 }
 
 function mergeSettings(

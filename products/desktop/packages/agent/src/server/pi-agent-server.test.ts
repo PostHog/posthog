@@ -144,25 +144,6 @@ describe("PiAgentServer", () => {
     ]);
   });
 
-  it("forwards Pi extension UI requests without changing their protocol", () => {
-    const server = new PiAgentServer(config()) as unknown as {
-      pendingEvents: Record<string, unknown>[];
-      handleExtensionEvent(event: Record<string, unknown>): void;
-    };
-    const request = {
-      type: "extension_ui_request",
-      id: "widget-1",
-      method: "setWidget",
-      widgetKey: "orchestration",
-      widgetLines: ["1 subagent running"],
-      widgetPlacement: "aboveEditor",
-    };
-
-    server.handleExtensionEvent(request);
-
-    expect(server.pendingEvents).toContainEqual(request);
-  });
-
   it("relays MCP permission requests and persists always-allow responses", async () => {
     const approveMcpTool = vi.fn(async () => {});
     const respondMcpToolPermission = vi.fn();

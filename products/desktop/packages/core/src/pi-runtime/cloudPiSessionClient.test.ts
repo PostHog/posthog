@@ -3,7 +3,6 @@ import {
   type AgentConversationEvent,
   mcpToolKey,
   posthogToolMeta,
-  type StoredLogEntry,
 } from "@posthog/shared";
 import type { CloudTaskUpdatePayload } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
@@ -90,16 +89,33 @@ describe("CloudPiSessionClient", () => {
       widgetKey: "orchestration",
       widgetLines: ["1 subagent running"],
       widgetPlacement: "aboveEditor" as const,
+      futureField: "preserved",
     };
     cloud.sendUpdate({
       taskId: "task-1",
       runId: "run-1",
       kind: "logs",
-      newEntries: [request as unknown as StoredLogEntry],
+      newEntries: [request],
       totalEntryCount: 1,
     });
 
     expect(onEvent).toHaveBeenCalledWith(request);
+
+    const invalidRequest = {
+      type: "extension_ui_request",
+      id: "invalid-widget",
+      method: "setWidget",
+      widgetKey: 42,
+    };
+    cloud.sendUpdate({
+      taskId: "task-1",
+      runId: "run-1",
+      kind: "logs",
+      newEntries: [invalidRequest],
+      totalEntryCount: 2,
+    });
+
+    expect(onEvent).toHaveBeenCalledTimes(1);
 
     vi.mocked(cloud.client.sendCommand).mockResolvedValue({ success: true });
     const response = {

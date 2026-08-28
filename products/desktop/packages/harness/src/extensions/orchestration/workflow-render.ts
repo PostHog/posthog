@@ -17,6 +17,10 @@ import {
   Text,
   truncateToWidth,
 } from "@earendil-works/pi-tui";
+import type {
+  PiWorkflowToolDetails,
+  WorkflowAgentState,
+} from "@posthog/shared";
 import {
   extractWorkflowName,
   type WorkflowInputs,
@@ -41,15 +45,13 @@ export interface WorkflowAgentStatus {
   inputs?: WorkflowInputs;
   produces?: string;
   schema?: Record<string, unknown>;
-  status: "running" | "done" | "error";
+  status: WorkflowAgentState;
   resultPreview?: string;
 }
 
-export interface WorkflowSnapshot {
-  name?: string;
+export interface WorkflowSnapshot extends PiWorkflowToolDetails {
   phases: string[];
   phaseMetadata?: Record<string, WorkflowPhaseMetadata>;
-  currentPhase?: string;
   agents: WorkflowAgentStatus[];
   logs: string[];
   done: boolean;

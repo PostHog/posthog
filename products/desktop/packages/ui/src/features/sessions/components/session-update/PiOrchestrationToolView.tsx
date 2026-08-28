@@ -1,4 +1,10 @@
 import { ListChecks, Robot } from "@phosphor-icons/react";
+import {
+  type PiSubagentToolDetails,
+  type PiWorkflowToolDetails,
+  piSubagentToolDetailsSchema,
+  piWorkflowToolDetailsSchema,
+} from "@posthog/shared";
 import { type Step, StepList } from "@posthog/ui/primitives/StepList";
 import { Text } from "@radix-ui/themes";
 import { type ReactElement, useEffect, useState } from "react";
@@ -15,14 +21,6 @@ interface PiOrchestrationViewModel {
   steps: Step[];
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
 function truncateTask(task: string | undefined): string | undefined {
   if (!task) {
     return undefined;
@@ -33,7 +31,9 @@ function truncateTask(task: string | undefined): string | undefined {
   return `${task.slice(0, TASK_PREVIEW_LENGTH - 1)}…`;
 }
 
-function readWorkflowStatus(value: unknown): Step["status"] {
+function readWorkflowStatus(
+  value: PiWorkflowToolDetails["agents"][number]["status"],
+): Step["status"] {
   if (value === "done") {
     return "completed";
   }
@@ -43,7 +43,9 @@ function readWorkflowStatus(value: unknown): Step["status"] {
   return "in_progress";
 }
 
-function readSubagentStatus(result: Record<string, unknown>): Step["status"] {
+function readSubagentStatus(
+  result: PiSubagentToolDetails["results"][number],
+): Step["status"] {
   if (result.state === "running") {
     return "in_progress";
   }
@@ -54,7 +56,7 @@ function readSubagentStatus(result: Record<string, unknown>): Step["status"] {
     return "failed";
   }
 
-  const exitCode = typeof result.exitCode === "number" ? result.exitCode : -1;
+  const exitCode = result.exitCode ?? -1;
   if (exitCode === -1) {
     return "in_progress";
   }
@@ -64,35 +66,20 @@ function readSubagentStatus(result: Record<string, unknown>): Step["status"] {
 function readWorkflowDetails(
   details: unknown,
 ): PiOrchestrationViewModel | undefined {
-  if (!isRecord(details) || !Array.isArray(details.agents)) {
+  const parsed = piWorkflowToolDetailsSchema.safeParse(details);
+  if (!parsed.success) {
     return undefined;
   }
 
-  const name = readString(details.name);
-  const currentPhase = readString(details.currentPhase);
-  const steps = details.agents.flatMap((agent, index): Step[] => {
-    if (!isRecord(agent)) {
-      return [];
-    }
-
-    const label = readString(agent.label);
-    const role = readString(agent.agent);
-    if (!label || !role) {
-      return [];
-    }
-
-    const status = readWorkflowStatus(agent.status);
-    const objective = readString(agent.objective);
-
-    return [
-      {
-        key: String(agent.id ?? index),
-        label,
-        status,
-        detail: [role, objective].filter(Boolean).join(" · "),
-      },
-    ];
-  });
+  const { name, currentPhase, agents } = parsed.data;
+  const steps = agents.map(
+    (agent): Step => ({
+      key: String(agent.id),
+      label: agent.label,
+      status: readWorkflowStatus(agent.status),
+      detail: [agent.agent, agent.objective].filter(Boolean).join(" · "),
+    }),
+  );
 
   return {
     kind: "workflow",
@@ -105,33 +92,20 @@ function readWorkflowDetails(
 function readSubagentDetails(
   details: unknown,
 ): PiOrchestrationViewModel | undefined {
-  if (!isRecord(details) || !Array.isArray(details.results)) {
+  const parsed = piSubagentToolDetailsSchema.safeParse(details);
+  if (!parsed.success) {
     return undefined;
   }
 
-  const steps = details.results.flatMap((result, index): Step[] => {
-    if (!isRecord(result)) {
-      return [];
-    }
-
-    const agent = readString(result.agent);
-    if (!agent) {
-      return [];
-    }
-
-    const status = readSubagentStatus(result);
-    const firstTaskLine = readString(result.task)?.trim().split("\n")[0];
+  const steps = parsed.data.results.map((result, index): Step => {
+    const firstTaskLine = result.task.trim().split("\n")[0];
     const task = truncateTask(firstTaskLine);
-    const model = readString(result.model);
-
-    return [
-      {
-        key: readString(result.runId) ?? String(index),
-        label: agent,
-        status,
-        detail: [model, task].filter(Boolean).join(" · "),
-      },
-    ];
+    return {
+      key: result.runId ?? String(index),
+      label: result.agent,
+      status: readSubagentStatus(result),
+      detail: [result.model, task].filter(Boolean).join(" · "),
+    };
   });
 
   return {

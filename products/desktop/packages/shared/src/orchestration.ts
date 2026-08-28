@@ -1,0 +1,44 @@
+import { z } from "zod";
+
+export const agentRunStateSchema = z.enum([
+  "running",
+  "completed",
+  "failed",
+  "aborted",
+]);
+export type AgentRunState = z.infer<typeof agentRunStateSchema>;
+
+export const piSubagentRunDetailsSchema = z.object({
+  runId: z.string().optional(),
+  agent: z.string(),
+  task: z.string(),
+  state: agentRunStateSchema.optional(),
+  exitCode: z.number().optional(),
+  model: z.string().optional(),
+  stopReason: z.string().optional(),
+  errorMessage: z.string().optional(),
+});
+
+export const piSubagentToolDetailsSchema = z.object({
+  mode: z.enum(["single", "parallel"]),
+  results: z.array(piSubagentRunDetailsSchema),
+});
+export type PiSubagentToolDetails = z.infer<typeof piSubagentToolDetailsSchema>;
+
+export const workflowAgentStateSchema = z.enum(["running", "done", "error"]);
+export type WorkflowAgentState = z.infer<typeof workflowAgentStateSchema>;
+
+export const piWorkflowAgentDetailsSchema = z.object({
+  id: z.union([z.number(), z.string()]),
+  label: z.string(),
+  agent: z.string(),
+  status: workflowAgentStateSchema,
+  objective: z.string().optional(),
+});
+
+export const piWorkflowToolDetailsSchema = z.object({
+  name: z.string().optional(),
+  currentPhase: z.string().optional(),
+  agents: z.array(piWorkflowAgentDetailsSchema),
+});
+export type PiWorkflowToolDetails = z.infer<typeof piWorkflowToolDetailsSchema>;

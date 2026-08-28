@@ -149,6 +149,7 @@ describe("createPiMessageTranslator", () => {
           id: "extension-1",
           status: "completed",
           rawOutput: content,
+          details: { resultCount: 3 },
           content: [
             {
               type: "content",

@@ -191,7 +191,10 @@ export function registerWorkflowTool(pi: ExtensionAPI): void {
             },
             {
               async runAgentTask(request, taskSignal) {
-                const baseConfig = agents.get(request.agent) as AgentConfig;
+                const baseConfig = agents.get(request.agent);
+                if (!baseConfig) {
+                  throw new Error(`Unknown workflow agent: ${request.agent}`);
+                }
                 const config = request.model
                   ? {
                       ...baseConfig,

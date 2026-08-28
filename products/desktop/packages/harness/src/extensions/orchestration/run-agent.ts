@@ -8,6 +8,7 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import type { AgentRunState } from "@posthog/shared";
 import { createWebAccessExtension } from "../web-access/extension";
 import type { AgentConfig } from "./agents";
 import {
@@ -40,8 +41,6 @@ export interface UsageStats {
   contextTokens: number;
   turns: number;
 }
-
-export type AgentRunState = "running" | "completed" | "failed" | "aborted";
 
 export interface SingleRunResult {
   runId: string;
@@ -89,13 +88,6 @@ export interface RunAgentOptions {
   onUpdate?: OnRunUpdate;
   publishStatus?: boolean;
   includeWebAccess?: boolean;
-}
-
-function isMessage(value: unknown): value is Message {
-  if (typeof value !== "object" || value === null || !("role" in value)) {
-    return false;
-  }
-  return value.role === "assistant" || value.role === "toolResult";
 }
 
 function finalRunState(result: SingleRunResult): Exclude<RunState, "running"> {
@@ -272,7 +264,11 @@ export async function runAgent(
     });
     childSession = sessionResult.session;
     unsubscribeSession = childSession.subscribe((event) => {
-      if (event.type === "message_end" && isMessage(event.message)) {
+      if (
+        event.type === "message_end" &&
+        (event.message.role === "assistant" ||
+          event.message.role === "toolResult")
+      ) {
         recordMessage(result, event.message, emitUpdate);
       }
     });

@@ -1,6 +1,7 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import type { PiSubagentToolDetails } from "@posthog/shared";
 import { Type } from "typebox";
 import type { AgentConfig } from "./agents";
 import {
@@ -68,8 +69,7 @@ const SubagentParams = Type.Object({
   ),
 });
 
-interface SubagentToolDetails {
-  mode: "single" | "parallel";
+interface SubagentToolDetails extends PiSubagentToolDetails {
   results: SingleRunResult[];
 }
 
@@ -115,8 +115,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
       renderCall: renderSubagentCall,
       renderResult: renderSubagentResult,
       async execute(_toolCallId, params, signal, onUpdate, ctx) {
-        const agentScope: AgentScope =
-          (params.agentScope as AgentScope | undefined) ?? "bundled";
+        const agentScope: AgentScope = params.agentScope ?? "bundled";
         const discovery = discoverAgents(ctx.cwd, agentScope);
         const findAgent = (name: string): AgentConfig | undefined =>
           discovery.agents.find((a) => a.name === name);
@@ -178,13 +177,12 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
             );
           }
         }
-        if (hasSingle) {
-          if (!findAgent(params.agent as string)) {
-            return errorResult(
-              `Unknown agent "${params.agent}". Available agents: ${listAvailable()}`,
-              "single",
-            );
-          }
+        const singleAgent = params.agent ? findAgent(params.agent) : undefined;
+        if (hasSingle && !singleAgent) {
+          return errorResult(
+            `Unknown agent "${params.agent}". Available agents: ${listAvailable()}`,
+            "single",
+          );
         }
 
         const publishUpdate = (
@@ -211,7 +209,10 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
             const activeResults = new Map<number, SingleRunResult>();
             const results = await Promise.all(
               tasks.map(async (task, index) => {
-                const agent = findAgent(task.agent) as AgentConfig;
+                const agent = findAgent(task.agent);
+                if (!agent) {
+                  throw new Error(`Unknown agent: ${task.agent}`);
+                }
                 return runAgent({
                   ctx,
                   agent,
@@ -238,11 +239,13 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
             };
           }
 
-          const agent = findAgent(params.agent as string) as AgentConfig;
+          if (!singleAgent || !params.task) {
+            throw new Error("Single subagent parameters are missing");
+          }
           const result = await runAgent({
             ctx,
-            agent,
-            task: params.task as string,
+            agent: singleAgent,
+            task: params.task,
             cwd: params.cwd,
             context: params.context,
             signal: dispatchSignal,

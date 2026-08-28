@@ -6,11 +6,12 @@ import type {
   PiMcpPermissionResponseCommand,
   RpcCommand,
 } from "@posthog/agent/pi/rpc-transport";
-import type {
-  PiExtensionEvent,
-  PiPersistedSessionConfig,
-  PiQueueSnapshot,
-  RpcExtensionUIResponse,
+import {
+  type PiExtensionEvent,
+  type PiPersistedSessionConfig,
+  type PiQueueSnapshot,
+  piExtensionEventSchema,
+  type RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import {
   type AgentConversationEvent,
@@ -74,23 +75,8 @@ function createTerminalPiRpcClient(
 function extensionEventFromLogEntry(
   entry: StoredLogEntry,
 ): PiExtensionEvent | undefined {
-  const candidate = entry as unknown as Partial<PiExtensionEvent>;
-  if (
-    candidate.type === "extension_ui_request" &&
-    typeof candidate.id === "string" &&
-    typeof candidate.method === "string"
-  ) {
-    return candidate as PiExtensionEvent;
-  }
-  if (
-    candidate.type === "extension_error" &&
-    typeof candidate.extensionPath === "string" &&
-    typeof candidate.event === "string" &&
-    typeof candidate.error === "string"
-  ) {
-    return candidate as PiExtensionEvent;
-  }
-  return undefined;
+  const parsed = piExtensionEventSchema.safeParse(entry);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function permissionDescription(

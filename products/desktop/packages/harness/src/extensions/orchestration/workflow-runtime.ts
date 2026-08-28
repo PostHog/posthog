@@ -32,6 +32,7 @@
  * they don't chain back to the host realm).
  */
 import * as vm from "node:vm";
+import { z } from "zod";
 
 export type WorkflowInputs = string[] | Record<string, string>;
 
@@ -54,6 +55,60 @@ export interface WorkflowDeclaredPlan {
   phases: WorkflowDeclaredPhase[];
   synthesis: { phase: string; inputs: string[]; produces: string[] };
 }
+
+const nonEmptyStringSchema = z.string().trim().min(1);
+const optionalNonEmptyStringSchema = z.preprocess(
+  (value) =>
+    typeof value === "string" && value.trim() ? value.trim() : undefined,
+  z.string().optional(),
+);
+const stringListSchema = z.array(nonEmptyStringSchema);
+const unknownRecordSchema = z.record(z.string(), z.unknown());
+const workflowAgentOptionsSchema = z.object({
+  label: z.unknown().optional(),
+  agent: z.unknown().optional(),
+  cwd: z.unknown().optional(),
+  schema: z.unknown().optional(),
+  model: z.unknown().optional(),
+  objective: z.unknown().optional(),
+  inputs: z.unknown().optional(),
+  produces: z.unknown().optional(),
+});
+const workflowDeclaredPhaseSchema = z
+  .object({
+    title: optionalNonEmptyStringSchema,
+    name: optionalNonEmptyStringSchema,
+    goal: optionalNonEmptyStringSchema,
+    inputs: stringListSchema,
+    produces: stringListSchema,
+  })
+  .transform((phase, context): WorkflowDeclaredPhase => {
+    const title = phase.title ?? phase.name;
+    if (!title) {
+      context.addIssue({
+        code: "custom",
+        message: "A workflow phase requires a title or name",
+      });
+      return z.NEVER;
+    }
+    return {
+      title,
+      goal: phase.goal,
+      inputs: phase.inputs,
+      produces: phase.produces,
+    };
+  });
+const workflowDeclaredPlanSchema: z.ZodType<WorkflowDeclaredPlan> = z.object({
+  name: nonEmptyStringSchema,
+  goal: optionalNonEmptyStringSchema,
+  inputs: stringListSchema.catch([]),
+  phases: z.array(workflowDeclaredPhaseSchema),
+  synthesis: z.object({
+    phase: nonEmptyStringSchema,
+    inputs: stringListSchema,
+    produces: stringListSchema,
+  }),
+});
 
 export interface WorkflowArtifactStatus {
   name: string;
@@ -220,57 +275,11 @@ export function extractDeclaredPlan(
   const literal = readObjectLiteral(script, equals + 1);
   if (!literal) return undefined;
   try {
-    const value = parseLiteral(literal) as Record<string, unknown>;
-    const phases = value.phases;
-    const synthesis = value.synthesis;
-    if (!Array.isArray(phases) || !synthesis || typeof synthesis !== "object")
-      return undefined;
-    const name = stringValue(value.name);
-    if (!name) return undefined;
-    const parsedPhases = phases.map((item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item))
-        return undefined;
-      const phase = item as Record<string, unknown>;
-      const title = stringValue(phase.title) ?? stringValue(phase.name);
-      const inputs = stringList(phase.inputs);
-      const produces = stringList(phase.produces);
-      return title && inputs && produces
-        ? { title, goal: stringValue(phase.goal), inputs, produces }
-        : undefined;
-    });
-    const final = synthesis as Record<string, unknown>;
-    const parsedSynthesis = {
-      phase: stringValue(final.phase),
-      inputs: stringList(final.inputs),
-      produces: stringList(final.produces),
-    };
-    const inputs = stringList(value.inputs) ?? [];
-    if (
-      parsedPhases.some((phase) => !phase) ||
-      !parsedSynthesis.phase ||
-      !parsedSynthesis.inputs ||
-      !parsedSynthesis.produces
-    )
-      return undefined;
-    return {
-      name,
-      goal: stringValue(value.goal),
-      inputs,
-      phases: parsedPhases as WorkflowDeclaredPhase[],
-      synthesis: parsedSynthesis as WorkflowDeclaredPlan["synthesis"],
-    };
+    const parsed = workflowDeclaredPlanSchema.safeParse(parseLiteral(literal));
+    return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
   }
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-function stringList(value: unknown): string[] | undefined {
-  return Array.isArray(value) && value.every((item) => stringValue(item))
-    ? value.map((item) => (item as string).trim())
-    : undefined;
 }
 function readObjectLiteral(source: string, from: number): string | undefined {
   const first = source.slice(from).search(/\S/);
@@ -498,13 +507,12 @@ function buildArtifactContext(
   artifacts: Map<string, { value: unknown }>,
   args: unknown,
 ): string | undefined {
+  const argumentValues = unknownRecordSchema.safeParse(args);
   const values = Object.fromEntries(
     inputs.map((name) => [
       name,
       artifacts.get(name)?.value ??
-        (args && typeof args === "object"
-          ? (args as Record<string, unknown>)[name]
-          : undefined),
+        (argumentValues.success ? argumentValues.data[name] : undefined),
     ]),
   );
   return `Artifact inputs (use these exact values):\n${JSON.stringify(values, null, 2)}`;
@@ -562,27 +570,27 @@ function validateInputs(value: unknown): WorkflowInputs {
     throw new WorkflowFatalError(
       "agent inputs must be an array of strings or a record of string values",
     );
-  const entries = Object.entries(value);
-  if (
-    entries.some(
-      ([key, item]) => !key.trim() || typeof item !== "string" || !item.trim(),
-    )
-  )
-    throw new WorkflowFatalError(
-      "agent inputs record keys and values must be non-empty strings",
-    );
-  return Object.fromEntries(
-    entries.map(([key, item]) => [key.trim(), item.trim() as string]),
-  );
+  const inputs: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (!key.trim() || typeof item !== "string" || !item.trim()) {
+      throw new WorkflowFatalError(
+        "agent inputs record keys and values must be non-empty strings",
+      );
+    }
+    inputs[key.trim()] = item.trim();
+  }
+  return inputs;
 }
 
 function validatePhaseMetadata(
   value: unknown,
 ): WorkflowPhaseMetadata | undefined {
   if (value === undefined) return undefined;
-  if (value === null || typeof value !== "object" || Array.isArray(value))
+  const parsed = unknownRecordSchema.safeParse(value);
+  if (!parsed.success) {
     throw new WorkflowFatalError("phase metadata must be an object");
-  const metadata = value as Record<string, unknown>;
+  }
+  const metadata = parsed.data;
   return {
     goal: optionalString(metadata.goal, "phase goal"),
     inputs:
@@ -742,18 +750,11 @@ export async function runWorkflowScript(
   const agent = (prompt: unknown, agentOptions: unknown = {}) => {
     throwIfAborted();
     const taskPrompt = requireString(prompt, "agent prompt");
-    if (agentOptions === null || typeof agentOptions !== "object")
+    const parsedOptions = workflowAgentOptionsSchema.safeParse(agentOptions);
+    if (!parsedOptions.success) {
       throw new WorkflowFatalError("agent options must be an object");
-    const opts = agentOptions as {
-      label?: unknown;
-      agent?: unknown;
-      cwd?: unknown;
-      schema?: unknown;
-      model?: unknown;
-      objective?: unknown;
-      inputs?: unknown;
-      produces?: unknown;
-    };
+    }
+    const opts = parsedOptions.data;
     const agentName =
       opts.agent === undefined
         ? defaultAgent
@@ -765,15 +766,13 @@ export async function runWorkflowScript(
     }
     let schema: Record<string, unknown> | undefined;
     if (opts.schema !== undefined) {
-      if (
-        opts.schema === null ||
-        typeof opts.schema !== "object" ||
-        Array.isArray(opts.schema)
-      )
+      const parsedSchema = unknownRecordSchema.safeParse(opts.schema);
+      if (!parsedSchema.success) {
         throw new WorkflowFatalError(
           "agent schema must be a plain JSON Schema object, e.g. { type: 'object', required: [...], properties: {...} }",
         );
-      schema = opts.schema as Record<string, unknown>;
+      }
+      schema = parsedSchema.data;
     }
     agentCount++;
     if (agentCount > maxAgents)
