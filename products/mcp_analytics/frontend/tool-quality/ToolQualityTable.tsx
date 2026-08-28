@@ -71,7 +71,6 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
     { key: 'last_seen', label: 'Last seen' },
 ]
 
-// Tool column + every sortable column + the trailing "Full report" action.
 const COLUMN_COUNT = SORTABLE_COLUMNS.length + 2
 
 function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
@@ -179,12 +178,19 @@ function ToolRows(): JSX.Element {
 }
 
 export function ToolQualityTable(): JSX.Element {
-    const { toolQualitySort, toolQualityPageIndex, toolRows, toolRowsPageLoading, toolRowsTotalCount, searchTerm } =
-        useValues(mcpAnalyticsToolQualityLogic)
+    const {
+        toolQualitySort,
+        toolQualityPageIndex,
+        loadedToolQualityPageIndex,
+        toolRows,
+        toolRowsPageLoading,
+        toolRowsTotalCount,
+        searchTerm,
+    } = useValues(mcpAnalyticsToolQualityLogic)
     const { setToolQualitySort, setToolQualityPageIndex, setSearchTerm } = useActions(mcpAnalyticsToolQualityLogic)
     const pageCount = Math.max(Math.ceil(toolRowsTotalCount / TOOL_QUALITY_PAGE_SIZE), 1)
     const pageRange = getPaginationRange(pageCount, toolQualityPageIndex)
-    const firstRow = toolRowsTotalCount === 0 ? 0 : toolQualityPageIndex * TOOL_QUALITY_PAGE_SIZE + 1
+    const firstRow = toolRowsTotalCount === 0 ? 0 : loadedToolQualityPageIndex * TOOL_QUALITY_PAGE_SIZE + 1
     const lastRow = Math.min(firstRow + toolRows.length - 1, toolRowsTotalCount)
 
     return (

@@ -222,9 +222,11 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             logic.actions.setToolQualityPageIndex(1)
 
             expect(logic.values.toolRowsPageLoading).toBe(true)
+            expect(logic.values.loadedToolQualityPageIndex).toBe(0)
             expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-one-tool'])
 
             await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.loadedToolQualityPageIndex).toBe(1)
             expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-two-tool'])
         })
 
