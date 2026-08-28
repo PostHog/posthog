@@ -894,7 +894,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 let recentlyPaused = 0
                 const windowStart = dayjs(rosterEvaluatedAt).subtract(SCOUT_ROSTER_WINDOW_HOURS, 'hours')
                 for (const config of scoutConfigs ?? []) {
-                    if (config.status === 'pending_pause') {
+                    if (config.status === 'pending_pause' && config.pause_reason === 'ignored') {
                         pausingSoon += 1
                     } else if (
                         config.status === 'paused_by_system' &&

@@ -67,7 +67,7 @@ export function ScoutsRosterStats(): JSX.Element {
                     value={String(pauseAttentionCounts.pausingSoon)}
                     label="pausing soon"
                     tone="warning"
-                    tooltip="Scouts that will pause themselves: nobody acted on their reports, or they surfaced nothing for a while. They still run. Open one to keep it going."
+                    tooltip="Scouts that will pause themselves because nobody acted on their reports. They still run. Open one to keep it going."
                 />
             )}
             {pauseAttentionCounts.recentlyPaused > 0 && (

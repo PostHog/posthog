@@ -223,6 +223,13 @@ describe('scoutFleetLogic', () => {
                 status: 'pending_pause',
                 pause_reason: 'ignored',
             },
+            {
+                ...BASE_CONFIG,
+                id: 'quiet-warning',
+                skill_name: 'signals-scout-quiet-warning',
+                status: 'pending_pause',
+                pause_reason: 'no_output',
+            },
         ])
         // `busy` filed a report in the window, which is what separates Working from Watching.
         logic.actions.loadScoutRunsSuccess([makeRun({ skill_name: 'signals-scout-busy', emitted_report_ids: ['r-1'] })])
@@ -233,6 +240,7 @@ describe('scoutFleetLogic', () => {
             ['busy', 'working'],
             ['off', 'off'],
             ['quiet', 'watching'],
+            ['quiet-warning', 'needs_you'],
             ['stale-pause', 'needs_you'],
             ['warned', 'needs_you'],
         ])
