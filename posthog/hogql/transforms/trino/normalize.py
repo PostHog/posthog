@@ -84,6 +84,24 @@ class TrinoPhysicalFieldLowerer(CloningVisitor):
         return super().visit_field(node)
 
 
+class TrinoSemanticCallLowerer(CloningVisitor):
+    def __init__(self) -> None:
+        super().__init__(clear_types=False)
+
+    def visit_call(self, node: ast.Call) -> ast.Expr:
+        lowered = super().visit_call(node)
+        if lowered.name.lower() != "not":
+            return lowered
+        if len(lowered.args) != 1:
+            raise TrinoLoweringError("TRINO_NOT_ARGUMENT_COUNT", "not with other than one argument", node)
+        return ast.Not(
+            start=lowered.start,
+            end=lowered.end,
+            expr=lowered.args[0],
+            type=lowered.type,
+        )
+
+
 class TrinoSelectAliasLowerer(CloningVisitor):
     def __init__(self) -> None:
         super().__init__(clear_types=False)
@@ -189,6 +207,7 @@ class TrinoNormalizer(TraversingVisitor):
         if node.prewhere is not None:
             node.where = ast.And(exprs=[node.prewhere, node.where]) if node.where is not None else node.prewhere
             node.prewhere = None
+        node.settings = None
         self._lower_array_join(node)
         super().visit_select_query(node)
 
@@ -237,7 +256,13 @@ class TrinoNormalizer(TraversingVisitor):
         while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
             table_type = table_type.table_type
         if isinstance(table_type, ast.TableType) and isinstance(table_type.table, NumbersTable):
-            node.table_args = [self._lower_numbers_args(node.table_args)]
+            if not (
+                node.table_args is not None
+                and len(node.table_args) == 1
+                and isinstance(node.table_args[0], ast.Call)
+                and node.table_args[0].name.lower() == "range"
+            ):
+                node.table_args = [self._lower_numbers_args(node.table_args)]
             if node.column_aliases is None:
                 node.column_aliases = ["number"]
         super().visit_join_expr(node)
@@ -265,6 +290,7 @@ class TrinoNormalizer(TraversingVisitor):
 def normalize_trino_ast(node: ast.AST, context: HogQLContext) -> ast.AST:
     lowered = TrinoArrayJoinFunctionLowerer(context).visit(node)
     lowered = TrinoPhysicalFieldLowerer().visit(lowered)
+    lowered = TrinoSemanticCallLowerer().visit(lowered)
     lowered = lower_trino_any_joins(lowered)
     lowered = lower_trino_query_wrappers(lowered)
     lowered = TrinoSelectAliasLowerer().visit(lowered)

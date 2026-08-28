@@ -245,6 +245,19 @@ def prepare_ast_for_printing(
         # wrongly pruned column fails loudly at compile time instead of emitting broken SQL.
         context.cte_database_table_cache.clear()
 
+    if dialect == "trino":
+        with context.timings.measure("trino_structural_lowering"):
+            node = cast(_T_AST, normalize_trino_ast(node, context))
+        with context.timings.measure("resolve_types_after_trino_structural_lowering"):
+            node = clone_expr(node, clear_types=True)
+            node = resolve_types(
+                node,
+                context,
+                dialect=dialect,
+                scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
+                resolver_factory=resolver_factory,
+            )
+
     if dialect in SQL_TARGET_DIALECTS:
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
@@ -356,17 +369,10 @@ def prepare_ast_for_printing(
             validate_trino_ready_ast,
         )
 
-        with context.timings.measure("trino_lowering"):
+        with context.timings.measure("finalize_trino_lowering"):
             node = cast(_T_AST, normalize_trino_ast(node, context))
-        with context.timings.measure("resolve_types_after_trino_lowering"):
-            node = clone_expr(node, clear_types=True)
-            node = resolve_types(
-                node,
-                context,
-                dialect=dialect,
-                scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
-                resolver_factory=resolver_factory,
-            )
+        with context.timings.measure("finalize_trino_property_access"):
+            node = lower_property_access(node, context)
         with context.timings.measure("validate_trino_ready_ast"):
             validate_trino_ready_ast(node, context)
 

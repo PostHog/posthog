@@ -94,6 +94,11 @@ _SUPPORTED_CALLS = frozenset(
 
 
 class TrinoSourceValidator(TraversingVisitor):
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if node.settings is not None:
+            raise TrinoLoweringError("TRINO_SETTINGS_UNSUPPORTED", "SETTINGS", node)
+        super().visit_select_query(node)
+
     def visit_pivot_expr(self, node: ast.PivotExpr) -> None:
         raise TrinoLoweringError("TRINO_PIVOT_UNSUPPORTED", "PIVOT", node)
 
@@ -186,13 +191,19 @@ class TrinoReadyValidator(TraversingVisitor):
         self._fail("TRINO_LAZY_TABLE_NOT_RESOLVED", node.table.name or node.table.__class__.__name__)
 
     def visit_lazy_join_type(self, node: ast.LazyJoinType) -> None:
-        self._fail("TRINO_LAZY_JOIN_NOT_RESOLVED", node.table.name or node.table.__class__.__name__)
+        self._fail("TRINO_LAZY_JOIN_NOT_RESOLVED", f"lazy join {node.field}")
 
     def visit_virtual_table_type(self, node: ast.VirtualTableType) -> None:
         self._fail("TRINO_VIRTUAL_TABLE_NOT_RESOLVED", "virtual relationship")
 
-    def visit_property_type(self, node: ast.PropertyType) -> None:
-        self._fail("TRINO_PROPERTY_NOT_LOWERED", "logical property access")
+    def visit_field(self, node: ast.Field) -> None:
+        if (
+            isinstance(node.type, ast.PropertyType)
+            and node.type.joined_subquery is None
+            and node.type.joined_subquery_field_name is None
+        ):
+            self._fail("TRINO_PROPERTY_NOT_LOWERED", "logical property access", node)
+        super().visit_field(node)
 
     def visit_map_property_type(self, node: ast.PropertyType) -> None:
         self._fail("TRINO_PROPERTY_NOT_LOWERED", "logical map property access")

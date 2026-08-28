@@ -1,6 +1,7 @@
 import pytest
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
@@ -714,3 +715,14 @@ def test_rejects_clickhouse_query_clauses_without_safe_trino_semantics(query: st
         prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
 
     assert error.value.feature_code == feature_code
+
+
+def test_rejects_source_ast_with_clickhouse_settings() -> None:
+    query = parse_select("SELECT user_id FROM users")
+    assert isinstance(query, ast.SelectQuery)
+    query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(query, _context_with_trino_table(), "trino")
+
+    assert error.value.feature_code == "TRINO_SETTINGS_UNSUPPORTED"

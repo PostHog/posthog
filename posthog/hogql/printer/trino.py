@@ -8,7 +8,6 @@ from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
 from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.functions import find_hogql_aggregation
-from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.trino_functions import (
     TRINO_FUNCTION_HANDLERS_LOWER,
@@ -373,8 +372,8 @@ class TrinoPrinter(PostgresPrinter):
             left, right = self._visit_binary_args(node)
             return f"split({right}, {left})"
         if name == "md5":
-            value = self._visit_unary_arg(node)
-            return f"lower(to_hex(md5(to_utf8(CAST({value} AS VARCHAR)))))"
+            rendered_value = self._visit_unary_arg(node)
+            return f"lower(to_hex(md5(to_utf8(CAST({rendered_value} AS VARCHAR)))))"
         if name == "extract":
             return self._visit_extract(node)
         if name in {"quantile", "quantileif"}:
@@ -652,10 +651,10 @@ class TrinoPrinter(PostgresPrinter):
             self._invalid_function_arguments(node, f"{node.name} expects exactly 1 argument in Trino mode.")
         arg = node.args[0]
         rendered = self.visit(arg)
-        arg_type = resolve_field_type(arg)
         value_expr = arg
         while isinstance(value_expr, ast.Alias):
             value_expr = value_expr.expr
+        arg_type = self._resolve_type(value_expr)
         if isinstance(value_expr, ast.PropertyAccess):
             arg_type = ast.StringType(nullable=True)
         if isinstance(arg_type, (ast.ArrayType, ast.MapType)):

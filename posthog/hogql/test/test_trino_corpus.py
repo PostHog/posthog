@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 
 from posthog.hogql.trino_corpus import (
@@ -26,14 +28,15 @@ SELECT value FROM events ARRAY JOIN properties.items AS value LIMIT 1 BY value
 """
 
     manifest = build_corpus_manifest(markdown)
-    queries = manifest["queries"]
+    queries = cast(list[dict[str, object]], manifest["queries"])
+    source = cast(dict[str, object], manifest["source"])
 
     assert isinstance(queries, list)
     assert [query["id"] for query in queries] == ["q0001", "q0002", "q0003"]
     assert queries[1]["duplicateOf"] == "q0001"
     assert queries[2]["features"] == ["array_join", "limit_by", "property_access"]
-    assert manifest["source"]["sqlFenceCount"] == 3
-    assert manifest["source"]["uniqueQueryCount"] == 2
+    assert source["sqlFenceCount"] == 3
+    assert source["uniqueQueryCount"] == 2
     assert "sql" not in queries[0]
 
 
@@ -66,9 +69,10 @@ SELECT 1
         "generatedSqlBytes": 8,
     }
     report = build_corpus_report(manifest, {"q0001": result})
+    report_queries = cast(list[dict[str, object]], report["queries"])
 
     assert report["categoryCounts"] == {"PASS_PARSE": 1}
-    assert report["queries"][0]["generatedSqlSha256"] == "generated-hash"
+    assert report_queries[0]["generatedSqlSha256"] == "generated-hash"
 
 
 def test_report_rejects_results_for_unknown_queries() -> None:
