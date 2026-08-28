@@ -16846,9 +16846,9 @@ export namespace Schemas {
       table_id?: string;
       /** Warehouse view (saved query) id to certify. */
       saved_query_id?: string;
-      /** Table name; 409 with candidates if ambiguous. */
+      /** Queryable HogQL table name; 409 with candidates if ambiguous. */
       table_name?: string;
-      /** View name; 409 with candidates if ambiguous. */
+      /** Queryable HogQL view name; 409 with candidates if ambiguous. */
       view_name?: string;
       /** Why this mark exists. */
       notes?: string;
@@ -20945,7 +20945,7 @@ export namespace Schemas {
       readonly saved_query: string | null;
       /** Whether the marked target is a 'table' or a 'view'. */
       readonly target_type: string;
-      /** Name of the marked table or view. */
+      /** Queryable HogQL name of the marked table or view. */
       readonly target_name: string;
       /** proposed, certified (prefer this source), or deprecated (avoid this source). */
       readonly status: string;
@@ -44691,20 +44691,54 @@ export namespace Schemas {
       results: MCPToolQualityRowItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Number of tools matching the date, category, and search filters. */
+      totalCount: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    export type MCPToolQualitySortColumn = typeof MCPToolQualitySortColumn[keyof typeof MCPToolQualitySortColumn];
+
+
+    export const MCPToolQualitySortColumn = {
+      TotalCalls: 'total_calls',
+      ErrorRatePct: 'error_rate_pct',
+      P50DurationMs: 'p50_duration_ms',
+      P95DurationMs: 'p95_duration_ms',
+      P99DurationMs: 'p99_duration_ms',
+      Users: 'users',
+      Sessions: 'sessions',
+      LastSeen: 'last_seen',
+    } as const;
+
+    export type MCPToolQualitySortDirection = typeof MCPToolQualitySortDirection[keyof typeof MCPToolQualitySortDirection];
+
+
+    export const MCPToolQualitySortDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
     export interface MCPToolQualityRowsQuery {
       /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
       categories?: string[] | null;
       dateRange?: DateRange | null;
       kind?: 'MCPToolQualityRowsQuery';
+      /** Page size. The server defaults to 50 and caps this at 100. */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Number of matching tools to skip. */
+      offset?: number | null;
       response?: MCPToolQualityRowsQueryResponse | null;
+      /** Case-insensitive substring search on the effective tool name. */
+      search?: string | null;
+      /** Aggregate column used to order tools. Defaults to total_calls. */
+      sortColumn?: MCPToolQualitySortColumn | null;
+      /** Sort direction. Defaults to DESC. */
+      sortDirection?: MCPToolQualitySortDirection | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -45711,15 +45745,18 @@ export namespace Schemas {
       client_secret?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
-      /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
+      /** 'personal' is per-user; 'shared' makes the credential available to project members. PostHog agents get access to the connection automatically; see agent_scope.
        *
        * * `personal` - personal
        * * `shared` - shared */
       scope?: MCPInstallationScopeEnum;
       /** Whether the server starts enabled for the whole team. Non-default values are admin-only. */
       team_enabled?: boolean;
-      /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
-      agent_ids?: string[];
+      /** How far the automatic agent grants for this connection reach. 'personal' (the default) lets PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. Grants are created when the caller may manage agent access: project admins always, members when team settings allow it. Sending a value without that permission is rejected.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      agent_scope?: MCPAgentGrantScopeEnum;
       /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
       return_path?: string;
     }
@@ -45729,15 +45766,18 @@ export namespace Schemas {
       api_key?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
-      /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
+      /** 'personal' is per-user; 'shared' makes the credential available to project members. PostHog agents get access to the connection automatically; see agent_scope.
        *
        * * `personal` - personal
        * * `shared` - shared */
       scope?: MCPInstallationScopeEnum;
       /** Whether the server starts enabled for the whole team. Non-default values are admin-only. */
       team_enabled?: boolean;
-      /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
-      agent_ids?: string[];
+      /** How far the automatic agent grants for this connection reach. 'personal' (the default) lets PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. Grants are created when the caller may manage agent access: project admins always, members when team settings allow it. Sending a value without that permission is rejected.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      agent_scope?: MCPAgentGrantScopeEnum;
       /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
       return_path?: string;
     }
@@ -72997,6 +73037,8 @@ export namespace Schemas {
       results: MCPToolQualityRowItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Number of tools matching the date, category, and search filters. */
+      totalCount: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
@@ -85109,6 +85151,61 @@ export namespace Schemas {
       summary: unknown;
     }
 
+    export interface TrunkQuarantineTeamDebt {
+      /** Owning team slug, or 'unowned'. */
+      owner_team: string;
+      /** Tests this team owns that Trunk currently quarantines. */
+      test_count: number;
+      /** Of those, tests quarantined longer than ttl_days. */
+      overdue_count: number;
+      /** Age in days of the team's oldest standing quarantine. */
+      oldest_age_days: number;
+    }
+
+    export interface TrunkQuarantinedTest {
+      /** Test runner: 'pytest' or 'jest'. */
+      runner: string;
+      /** Runner-native test id reconstructed from Trunk's (file, classname, name) key. */
+      nodeid: string;
+      /** Repo-relative path of the test file, as Trunk reports it. */
+      file: string;
+      /** Owning team slug from the per-test CI spans' emission-time stamp, or 'unowned' when no in-retention span carries one. */
+      owner_team: string;
+      /** Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'. */
+      status: string;
+      /** How the quarantine was applied in Trunk, e.g. 'AUTO_QUARANTINE'. */
+      quarantine_setting: string;
+      /** When Trunk quarantined the test. */
+      quarantined_at: string;
+      /** Whole days since the quarantine started. */
+      age_days: number;
+      /** True once age_days exceeds ttl_days: the quarantine has outlived the TTL. */
+      overdue: boolean;
+      /**
+         * The Trunk app's page for this test; null when the connected source has no organization slug or the row carries no test case id.
+         * @nullable
+         */
+      trunk_url: string | null;
+    }
+
+    export interface TrunkQuarantineDebt {
+      /** Per-team rollup, most indebted first: overdue count, then test count, then oldest age. */
+      teams: TrunkQuarantineTeamDebt[];
+      /** Every currently quarantined test, oldest first. */
+      tests: TrunkQuarantinedTest[];
+      /** False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error. */
+      available: boolean;
+      /** Days a quarantine may stand before it counts as overdue. */
+      ttl_days: number;
+      /** The 'owner/name' repository the debt was read for; test file paths are relative to it. */
+      repository: string;
+      /**
+         * The Trunk app's flaky-tests page for this repository; null when the connected source has no organization slug.
+         * @nullable
+         */
+      trunk_url: string | null;
+    }
+
     export interface UnquarantineQuery {
       /**
          * Snapshot identifier to unquarantine
@@ -91914,6 +92011,17 @@ export namespace Schemas {
      * Team slug to scope to (as returned by team_ci_health), matched against the GitHub org team slug of the source's team_members snapshot. The literal 'unowned' names an ownership gap, not an org team, and has no merge trend.
      */
     owner_team: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsTrunkQuarantineParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

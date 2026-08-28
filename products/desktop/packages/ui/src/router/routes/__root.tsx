@@ -64,7 +64,7 @@ import { TourOverlay } from "@posthog/ui/features/tour/components/TourOverlay";
 import { UpdateAvailableModal } from "@posthog/ui/features/updates/UpdateAvailableModal";
 import { WhatsNewModal } from "@posthog/ui/features/updates/WhatsNewModal";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
-import LogosLandscape from "@posthog/ui/primitives/Logo";
+import { AnimatedLogo } from "@posthog/ui/primitives/AnimatedLogo";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
@@ -366,9 +366,7 @@ function RootLayout() {
             }}
           >
             <Flex align="center" gap="2" className="no-drag">
-              <Box className="h-[14px] w-[30px] overflow-hidden [&>svg]:h-[14px] [&>svg]:w-auto">
-                <LogosLandscape code={false} />
-              </Box>
+              <AnimatedLogo size={26} animate="hover" />
               <Button
                 size="icon-sm"
                 aria-label="Toggle sidebar"
