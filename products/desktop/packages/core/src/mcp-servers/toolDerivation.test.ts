@@ -1,10 +1,12 @@
 import type { McpInstallationTool } from "@posthog/api-client/types";
 import { describe, expect, it } from "vitest";
 import {
+  categorizeTool,
   countActiveTools,
   countRemovedTools,
   countToolsByApproval,
   filterToolsByName,
+  groupToolsByCategory,
   sortToolsForDisplay,
 } from "./toolDerivation";
 
@@ -67,5 +69,85 @@ describe("count helpers", () => {
     const tools = [tool("a"), tool("b", { removed_at: "2026-04-01" })];
     expect(countActiveTools(tools)).toBe(1);
     expect(countRemovedTools(tools)).toBe(1);
+  });
+});
+
+describe("categorizeTool", () => {
+  it("categorizes read operations", () => {
+    expect(categorizeTool("getFile")).toBe("read");
+    expect(categorizeTool("listFiles")).toBe("read");
+    expect(categorizeTool("readDocument")).toBe("read");
+    expect(categorizeTool("searchUsers")).toBe("read");
+    expect(categorizeTool("findItem")).toBe("read");
+    expect(categorizeTool("queryDatabase")).toBe("read");
+    expect(categorizeTool("fetchData")).toBe("read");
+    expect(categorizeTool("checkStatus")).toBe("read");
+  });
+
+  it("categorizes write operations", () => {
+    expect(categorizeTool("createFile")).toBe("write");
+    expect(categorizeTool("updateRecord")).toBe("write");
+    expect(categorizeTool("deleteItem")).toBe("write");
+    expect(categorizeTool("removeUser")).toBe("write");
+    expect(categorizeTool("writeDocument")).toBe("write");
+    expect(categorizeTool("editContent")).toBe("write");
+    expect(categorizeTool("sendEmail")).toBe("write");
+    expect(categorizeTool("executeCommand")).toBe("write");
+  });
+
+  it("defaults to write for unknown prefixes", () => {
+    expect(categorizeTool("unknownOperation")).toBe("write");
+    expect(categorizeTool("customAction")).toBe("write");
+  });
+
+  it("is case-insensitive", () => {
+    expect(categorizeTool("GET_FILE")).toBe("read");
+    expect(categorizeTool("Create_Record")).toBe("write");
+  });
+});
+
+describe("groupToolsByCategory", () => {
+  it("groups tools by read and write categories", () => {
+    const tools = [
+      tool("getFile"),
+      tool("createFile"),
+      tool("listItems"),
+      tool("deleteItem"),
+    ];
+    const groups = groupToolsByCategory(tools);
+    expect(groups).toHaveLength(2);
+    expect(groups[0].category).toBe("read");
+    expect(groups[0].tools.map((t) => t.tool_name)).toEqual(["getFile", "listItems"]);
+    expect(groups[1].category).toBe("write");
+    expect(groups[1].tools.map((t) => t.tool_name)).toEqual(["createFile", "deleteItem"]);
+  });
+
+  it("excludes removed tools", () => {
+    const tools = [
+      tool("getFile"),
+      tool("deletedFile", { removed_at: "2026-04-01" }),
+    ];
+    const groups = groupToolsByCategory(tools);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].tools).toHaveLength(1);
+    expect(groups[0].tools[0].tool_name).toBe("getFile");
+  });
+
+  it("returns empty array for no tools", () => {
+    expect(groupToolsByCategory([])).toEqual([]);
+  });
+
+  it("returns only read group when all tools are read", () => {
+    const tools = [tool("getFile"), tool("listItems")];
+    const groups = groupToolsByCategory(tools);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].category).toBe("read");
+  });
+
+  it("returns only write group when all tools are write", () => {
+    const tools = [tool("createFile"), tool("deleteItem")];
+    const groups = groupToolsByCategory(tools);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].category).toBe("write");
   });
 });

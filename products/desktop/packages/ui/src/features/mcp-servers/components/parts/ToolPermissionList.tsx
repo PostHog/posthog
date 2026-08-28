@@ -14,6 +14,7 @@ import {
   countActiveTools,
   countToolsByApproval,
   filterToolsByName,
+  groupToolsByCategory,
   sortToolsForDisplay,
 } from "@posthog/core/mcp-servers/toolDerivation";
 import { ToolPolicyToggle } from "@posthog/ui/features/mcp-servers/components/parts/ToolPolicyToggle";
@@ -119,6 +120,10 @@ export function ToolPermissionList({
   const filteredTools = useMemo(
     () => filterToolsByName(visibleTools, toolSearch),
     [visibleTools, toolSearch],
+  );
+  const toolGroups = useMemo(
+    () => groupToolsByCategory(filteredTools),
+    [filteredTools],
   );
 
   const bulkDisabled = disabled || bulk?.pending || filteredTools.length === 0;
@@ -294,14 +299,21 @@ export function ToolPermissionList({
               </Text>
             </Flex>
           ) : (
-            filteredTools.map((tool) => (
-              <ToolRow
-                key={tool.tool_name}
-                tool={tool}
-                onChange={(approval_state) =>
-                  onSetTool(tool.tool_name, approval_state)
-                }
-              />
+            toolGroups.map((group) => (
+              <Flex key={group.category} direction="column" gap="2">
+                <Text color="gray" className="font-medium text-[13px]">
+                  {group.label}
+                </Text>
+                {group.tools.map((tool) => (
+                  <ToolRow
+                    key={tool.tool_name}
+                    tool={tool}
+                    onChange={(approval_state) =>
+                      onSetTool(tool.tool_name, approval_state)
+                    }
+                  />
+                ))}
+              </Flex>
             ))
           )}
         </Flex>
