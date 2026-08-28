@@ -52,9 +52,9 @@ jobs:
             matrix:
                 include:
                     - arch: arm64
-                      runner: macos-15
+                      runner: macos-26
                     - arch: x64
-                      runner: macos-15-intel
+                      runner: macos-26-intel
         runs-on: ${{ matrix.runner }}
         timeout-minutes: 90
         defaults:
@@ -166,13 +166,11 @@ jobs:
               run: pnpm --filter @posthog/agent run build
 
             # build/Assets.car is gitignored; regenerate it on the runner so the packaged app
-            # ships the liquid-glass icon. The runner's default Xcode 16 actool cannot compile
-            # a macOS 26 .icon bundle, so pick the newest Xcode 26 installed on the image.
+            # ships the liquid-glass icon. Compiling a .icon bundle needs Xcode 26 on a macOS 26
+            # host: on macOS 15 the default Xcode 16 actool skips it and Xcode 26's actool crashes.
             - name: Compile macOS liquid-glass icon
               working-directory: products/desktop/apps/code
-              run: |
-                  xcode="$(find /Applications -maxdepth 1 -name 'Xcode_26*.app' | sort -V | tail -n 1)"
-                  DEVELOPER_DIR="$xcode/Contents/Developer" bash scripts/compile-glass-icon.sh
+              run: bash scripts/compile-glass-icon.sh
 
             - name: Build release artifacts
               env:
