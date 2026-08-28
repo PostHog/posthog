@@ -125,7 +125,8 @@ flowchart TD
     RESTRICT --> RL[rate limit to overflow]
     RL --> PARSE[parse message]
     PARSE --> TEAM[resolve team]
-    TEAM --> COOKIELESS[cookieless processing]
+    TEAM --> FILTERS[customer event filters]
+    FILTERS --> COOKIELESS[cookieless processing]
     COOKIELESS --> CYMBAL[cymbal: symbolication, fingerprint, issue link]
     CYMBAL --> PERSON[fetch person]
     PERSON --> TRANSFORM[hog transformations]
@@ -136,6 +137,7 @@ flowchart TD
     CREATE --> EMIT[emit to clickhouse_events_json]
 
     CYMBAL -.suppressed.-> X[not counted]
+    FILTERS -.dropped.-> X
     RESTRICT -.dropped.-> X
     PARSE -.dlq.-> X
 ```
@@ -143,6 +145,10 @@ flowchart TD
 Cymbal is the Rust symbolication service, and it suppresses exceptions — a suppressed exception is dropped from the pipeline.
 Counting runs after it, so a suppressed exception is never billed.
 Cymbal runs before enrichment for an unrelated reason (it only needs the raw exception, so suppressing early saves the enrichment work), which happens to put every one of its drops upstream of the counting step.
+
+Customer event filters run on this lane too, right after team resolution.
+A live-mode filter that matches an exception drops it before the counting step, so a filtered exception is never billed, the same as on the analytics lane.
+A `dry_run` filter records the match but does not drop, so those exceptions are still counted.
 
 ## CDP
 
