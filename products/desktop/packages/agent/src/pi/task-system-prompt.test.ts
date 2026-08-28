@@ -24,7 +24,7 @@ describe("buildTaskSystemPrompt", () => {
     expect(prompt).toContain("## Channel task");
   });
 
-  it("includes attribution instructions for cloud tasks", () => {
+  it("includes signed commit attribution instructions for cloud tasks", () => {
     const prompt = buildTaskSystemPrompt({
       projectId: 42,
       apiHost: "https://us.posthog.com",
@@ -34,8 +34,10 @@ describe("buildTaskSystemPrompt", () => {
       additionalInstructions: "Use the existing pull request.",
     });
 
+    expect(prompt).toContain("git_signed_commit");
     expect(prompt).toContain("Generated-By: PostHog Desktop");
     expect(prompt).toContain("Task-Id: task-123");
+    expect(prompt).not.toContain('git commit -m "$(cat');
     expect(prompt).toContain("Use the existing pull request.");
   });
 });
