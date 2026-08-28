@@ -23,6 +23,7 @@ from typing import Optional, TypeVar
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
+from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor
 
 _T_AST = TypeVar("_T_AST", bound=AST)
@@ -91,8 +92,8 @@ def _flatten_and(node: Optional[ast.Expr]) -> Optional[list[ast.Expr]]:
     return None
 
 
-def _rewrite_select_expr(expr: ast.Expr, alias: str) -> Optional[ast.Expr]:
-    """The persons-table version of a select column, or None when ineligible.
+def _rewrite_any_call(expr: ast.Expr, alias: str) -> Optional[ast.Call]:
+    """The persons-table version of an `any(person_field)` call, or None when ineligible.
 
     Only an undecorated `any(person_field)` qualifies. A bare field returns one row
     per matching event, so retargeting it would change cardinality, and `argMax(...,
@@ -100,12 +101,12 @@ def _rewrite_select_expr(expr: ast.Expr, alias: str) -> Optional[ast.Expr]:
     current-person row does not preserve. Call decorations (DISTINCT, FILTER, ORDER
     BY, parametric parameters) all change what `any` returns, so any field beyond
     the name and its single argument disqualifies rather than being silently dropped.
+
+    Table-qualified so an output alias like `AS created_at` cannot capture the field,
+    and wrapped in `toNullable` because the events-side person fields are nullable:
+    `any()` over no matching rows must stay NULL, not the persons column's type
+    default (zero UUID, epoch, empty properties).
     """
-    if isinstance(expr, ast.Alias):
-        inner = _rewrite_select_expr(expr.expr, alias)
-        if inner is None:
-            return None
-        return ast.Alias(alias=expr.alias, expr=inner)
     if (
         isinstance(expr, ast.Call)
         and expr.name == "any"
@@ -118,9 +119,41 @@ def _rewrite_select_expr(expr: ast.Expr, alias: str) -> Optional[ast.Expr]:
         subchain = _person_subchain(first, alias)
         if subchain is None:
             return None
-        # Table-qualified so an output alias like `AS created_at` cannot capture the field.
-        return ast.Call(name="any", args=[ast.Field(chain=["persons", *subchain])])
+        return ast.Call(name="any", args=[ast.Call(name="toNullable", args=[ast.Field(chain=["persons", *subchain])])])
     return None
+
+
+def _implicit_column_name(call: ast.Call) -> Optional[str]:
+    """The column name the query had before the rewrite, for an unaliased eligible call.
+
+    The resolver and the response derive an unaliased column's name from the printed
+    HogQL of the expression, so the rewrite must pin that exact string as an alias or
+    outer queries referencing the column break and `response.columns` changes.
+    """
+    field = call.args[0]
+    if not isinstance(field, ast.Field) or any(isinstance(part, str) and "%" in part for part in field.chain):
+        return None
+    printed_chain = ".".join(
+        str(part) if isinstance(part, int) else escape_hogql_identifier(part) for part in field.chain
+    )
+    return f"any({printed_chain})"
+
+
+def _rewrite_select_expr(expr: ast.Expr, alias: str) -> Optional[ast.Expr]:
+    if isinstance(expr, ast.Alias):
+        inner = _rewrite_any_call(expr.expr, alias)
+        if inner is None:
+            return None
+        return ast.Alias(alias=expr.alias, expr=inner)
+    if not isinstance(expr, ast.Call):
+        return None
+    inner = _rewrite_any_call(expr, alias)
+    if inner is None:
+        return None
+    implicit_name = _implicit_column_name(expr)
+    if implicit_name is None:
+        return None
+    return ast.Alias(alias=implicit_name, expr=inner)
 
 
 def _rewrite_predicate(expr: ast.Expr, alias: str) -> Optional[ast.Expr]:

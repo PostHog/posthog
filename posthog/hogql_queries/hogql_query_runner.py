@@ -83,6 +83,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def get_cache_payload(self) -> dict:
         self._validate_direct_connection()
         payload = super().get_cache_payload()
+        # The person-lookup rewrite (hogql/transforms/person_lookup_rewrite.py) changes
+        # results for eligible shapes, so pre-rewrite cache entries must not be served
+        # under the same key. Bump when an optimizer changes result semantics again.
+        payload["hogql_optimizer_version"] = 1
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
             payload["managed_warehouse_sql_mode"] = self._managed_warehouse_sql_mode.value
         return payload

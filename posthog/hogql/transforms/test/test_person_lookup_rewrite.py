@@ -68,6 +68,19 @@ class TestPersonLookupRewrite(BaseTest):
         assert "FROM persons" in result
         assert "persons.id" in result
 
+    def test_unaliased_select_keeps_its_implicit_column_name(self):
+        result = self._transform(
+            "select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000'"
+        )
+        assert "AS `any(person.properties.email)`" in result
+
+    def test_outer_query_can_reference_the_implicit_column_name(self):
+        result = self._transform(
+            "select `any(person.properties.email)` from "
+            "(select any(person.properties.email) from events where person.id = '019cf684-0000-0000-0000-000000000000')"
+        )
+        assert "FROM persons" in result
+
     @parameterized.expand([("id",), ("properties",), ("created_at",)])
     def test_rewritten_select_fields_are_table_qualified_against_alias_capture(self, colliding_name):
         result = self._transform(
@@ -75,7 +88,7 @@ class TestPersonLookupRewrite(BaseTest):
             "from events where person.id = '019cf684-0000-0000-0000-000000000000'"
         )
         assert "FROM persons" in result
-        assert f"any(persons.{colliding_name}) FROM" in result
+        assert f"any(toNullable(persons.{colliding_name}))" in result
 
     @parameterized.expand(
         [
@@ -278,12 +291,14 @@ class TestPersonLookupRewrite(BaseTest):
 
 
 class TestPersonLookupRewriteExecution(ClickhouseTestMixin, BaseTest):
-    def _lookup(self, predicate: str, rewrite: bool):
-        query = f"select any(person.properties.email) from events where {predicate}"
+    def _execute(self, query: str, rewrite: bool):
         if rewrite:
-            return execute_hogql_query(query, team=self.team).results
+            return execute_hogql_query(query, team=self.team)
         with mock.patch("posthog.hogql.query.rewrite_person_lookups", new=lambda node: (node, False)):
-            return execute_hogql_query(query, team=self.team).results
+            return execute_hogql_query(query, team=self.team)
+
+    def _lookup(self, predicate: str, rewrite: bool):
+        return self._execute(f"select any(person.properties.email) from events where {predicate}", rewrite).results
 
     @parameterized.expand([("one_event", 1), ("multiple_events", 3)])
     def test_lookup_parity_when_person_has_events(self, _name, event_count):
@@ -322,3 +337,17 @@ class TestPersonLookupRewriteExecution(ClickhouseTestMixin, BaseTest):
         person = create_person(team=self.team, distinct_ids=["lookup-user"], properties={"email": "a@example.com"})
         assert self._lookup(f"person.id = '{person.uuid}'", rewrite=False) == [(None,)]
         assert self._lookup(f"person.id = '{person.uuid}'", rewrite=True) == [("a@example.com",)]
+
+    def test_lookup_returns_null_for_unknown_person_across_all_fields(self):
+        query = (
+            "select any(person.id), any(person.created_at), any(person.properties) "
+            "from events where person.id = '019cf684-9999-0000-0000-000000000000'"
+        )
+        assert self._execute(query, rewrite=True).results == [(None, None, None)]
+
+    def test_lookup_preserves_implicit_response_columns(self):
+        query = (
+            "select any(person.properties.email) from events where person.id = '019cf684-9999-0000-0000-000000000000'"
+        )
+        assert self._execute(query, rewrite=True).columns == self._execute(query, rewrite=False).columns
+        assert self._execute(query, rewrite=True).columns == ["any(person.properties.email)"]

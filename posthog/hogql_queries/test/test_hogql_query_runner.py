@@ -131,6 +131,10 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         self.assertEqual(response.results[0][0], 1)
 
+    def test_cache_payload_separates_optimizer_semantics(self):
+        runner = self._create_runner(HogQLQuery(query="select count(event) from events"))
+        assert runner.get_cache_payload()["hogql_optimizer_version"] == 1
+
     def test_cache_target_age_is_two_hours_in_future_after_run(self):
         runner = self._create_runner(HogQLQuery(query="select count(event) from events"))
 
