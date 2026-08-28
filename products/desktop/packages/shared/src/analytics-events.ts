@@ -100,6 +100,7 @@ export interface TaskCreateProperties {
   /** Worktree mode: repo has a non-empty .worktreeinclude file */
   uses_worktree_include?: boolean;
   adapter?: Adapter;
+  codex_model_access?: "posthog-gateway" | "own-subscription";
 }
 
 export interface TaskViewProperties {
@@ -1438,6 +1439,8 @@ export const ANALYTICS_EVENTS = {
   SETTING_CHANGED: "Setting changed",
   CUSTOM_SOUND_ADDED: "Custom sound added",
   CUSTOM_SOUND_RECORDING_SILENT: "Custom sound recording silent",
+  CODEX_SUBSCRIPTION_CONNECTED: "Codex subscription connected",
+  CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
 
   // Feedback events
   TASK_FEEDBACK: "Task feedback",
@@ -1629,6 +1632,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
+  [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;
+  [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT]: never;
 
   // Feedback events
   [ANALYTICS_EVENTS.TASK_FEEDBACK]: TaskFeedbackProperties;

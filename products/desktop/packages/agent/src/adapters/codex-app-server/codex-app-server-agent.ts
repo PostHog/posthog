@@ -89,6 +89,7 @@ import {
   APP_SERVER_METHODS,
   APP_SERVER_NOTIFICATIONS,
   APP_SERVER_REQUESTS,
+  CODEX_CLIENT_INFO,
 } from "./protocol";
 import {
   type CodexSandboxPolicy,
@@ -341,11 +342,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
 
   async initialize(request: InitializeRequest): Promise<InitializeResponse> {
     await this.rpc.request(APP_SERVER_METHODS.INITIALIZE, {
-      clientInfo: {
-        name: "posthog-code",
-        title: "PostHog",
-        version: "0.1.0",
-      },
+      clientInfo: CODEX_CLIENT_INFO,
       // Opt into codex's experimental API so experimental turn/start fields are honored.
       capabilities: { experimentalApi: true, requestAttestation: false },
     });
