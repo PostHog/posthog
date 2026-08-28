@@ -106,6 +106,12 @@ function mergeSearchSurveysData(
     }
 }
 
+// The counts endpoint omits surveys with no responses, so fill the zeros in: a missing entry then
+// means "not fetched yet" rather than "no responses", which is what decides whether to fetch.
+function withZeroCounts(requestedIds: string[], counts: Record<string, number>): Record<string, number> {
+    return Object.fromEntries(requestedIds.map((id) => [id, counts[id] ?? 0]))
+}
+
 function deleteSurvey(surveys: Survey[], id: string): Survey[] {
     return surveys.filter((s) => s.id !== id)
 }
@@ -285,12 +291,12 @@ export interface surveysLogicActions {
     }
     loadResponsesCountSuccess: (
         surveysResponsesCount: {
-            [key: string]: number
+            [x: string]: number
         },
         payload?: string
     ) => {
         surveysResponsesCount: {
-            [key: string]: number
+            [x: string]: number
         }
         payload?: string
     }
@@ -398,11 +404,11 @@ export interface surveysLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         searchedSurveys: (data: SurveyDataState, searchTerm: any, filters: Partial<SurveysFilters>) => Survey[]
         surveysStylingAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         formBuilderEnabled: (enabledFlags: FeatureFlagsSet) => boolean
         globalSurveyAppearanceConfigAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         showSurveysDisabledBanner: (currentTeam: TeamPublicType | TeamType | null) => boolean
     }
@@ -531,8 +537,8 @@ export const surveysLogic = kea<surveysLogicType>([
         surveysResponsesCount: {
             __default: {} as { [key: string]: number },
             loadResponsesCount: async (surveyIds: string) => {
-                const surveysResponsesCount = await api.surveys.getResponsesCount(surveyIds)
-                return surveysResponsesCount
+                const counts = await api.surveys.getResponsesCount(surveyIds)
+                return { ...values.surveysResponsesCount, ...withZeroCounts(surveyIds.split(','), counts) }
             },
         },
         duplicatedSurvey: {
@@ -644,75 +650,90 @@ export const surveysLogic = kea<surveysLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        deleteSurveySuccess: (_, __, action) => {
-            lemonToast.success('Survey deleted')
-            router.actions.push(urls.surveys())
-            actions.addProductIntent({
-                product_type: ProductKey.SURVEYS,
-                intent_context: ProductIntentContext.SURVEY_DELETED,
-                metadata: {
-                    survey_id: String(action.payload),
-                },
-            })
-        },
-        updateSurveySuccess: () => {
-            lemonToast.success('Survey updated')
-            actions.loadCurrentTeam()
-        },
-        duplicateSurveySuccess: () => {
-            actions.loadSurveys()
-        },
-        duplicateToProjectsSuccess: () => {
-            actions.loadSurveys()
-        },
-        setSurveysFilters: () => {
-            actions.loadSurveys()
-        },
-        loadSurveysSuccess: () => {
-            actions.loadCurrentTeam()
+    listeners(({ actions, values }) => {
+        // Request only the surveys we haven't counted yet — every loaded id at once would outgrow a GET URL.
+        const loadMissingResponsesCounts = (surveys: Survey[]): void => {
+            const missingIds = surveys.filter((s) => !(s.id in values.surveysResponsesCount)).map((s) => s.id)
+            if (missingIds.length > 0) {
+                actions.loadResponsesCount(missingIds.join(','))
+            }
+        }
 
-            if (values.data.surveys.length > 0) {
-                const surveyIds = values.data.surveys.map((s) => s.id).join(',')
-                actions.loadResponsesCount(surveyIds)
-            }
-        },
-        loadResponsesCountSuccess: () => {
-            if (Object.values(values.surveysResponsesCount).some((count) => count > 0)) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CollectSurveyResponses)
-            }
-        },
-        setTab: ({ tab }) => {
-            actions.setSurveysFilters({ ...values.filters, archived: tab === SurveysTabs.Archived })
-        },
-        handleMaxSurveyCreated: ({ toolOutput, source }) => {
-            actions.addProductIntent({
-                product_type: ProductKey.SURVEYS,
-                intent_context: ProductIntentContext.SURVEY_CREATED,
-                metadata: {
-                    survey_id: toolOutput.survey_id,
-                    source,
-                    created_successfully: !toolOutput?.error,
-                },
-            })
+        return {
+            deleteSurveySuccess: (_, __, action) => {
+                lemonToast.success('Survey deleted')
+                router.actions.push(urls.surveys())
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_DELETED,
+                    metadata: {
+                        survey_id: String(action.payload),
+                    },
+                })
+            },
+            updateSurveySuccess: () => {
+                lemonToast.success('Survey updated')
+                actions.loadCurrentTeam()
+            },
+            duplicateSurveySuccess: () => {
+                actions.loadSurveys()
+            },
+            duplicateToProjectsSuccess: () => {
+                actions.loadSurveys()
+            },
+            setSurveysFilters: () => {
+                actions.loadSurveys()
+            },
+            loadSurveysSuccess: () => {
+                actions.loadCurrentTeam()
+                loadMissingResponsesCounts(values.data.surveys)
+            },
+            loadNextPageSuccess: () => {
+                loadMissingResponsesCounts(values.data.surveys)
+            },
+            loadSearchResultsSuccess: () => {
+                loadMissingResponsesCounts(values.data.searchSurveys)
+            },
+            loadNextSearchPageSuccess: () => {
+                loadMissingResponsesCounts(values.data.searchSurveys)
+            },
+            loadResponsesCountSuccess: () => {
+                if (Object.values(values.surveysResponsesCount).some((count) => count > 0)) {
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CollectSurveyResponses)
+                }
+            },
+            setTab: ({ tab }) => {
+                actions.setSurveysFilters({ ...values.filters, archived: tab === SurveysTabs.Archived })
+            },
+            handleMaxSurveyCreated: ({ toolOutput, source }) => {
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_CREATED,
+                    metadata: {
+                        survey_id: toolOutput.survey_id,
+                        source,
+                        created_successfully: !toolOutput?.error,
+                    },
+                })
 
-            if (toolOutput?.error || !toolOutput?.survey_id) {
-                captureMaxAISurveyCreationException(toolOutput.error, source)
-                return
-            }
+                if (toolOutput?.error || !toolOutput?.survey_id) {
+                    captureMaxAISurveyCreationException(toolOutput.error, source)
+                    return
+                }
 
-            actions.loadSurveys()
-            if (toolOutput.survey_type === 'popover') {
-                router.actions.push(urls.surveyWizard(toolOutput.survey_id))
-            } else {
-                router.actions.push(urls.survey(toolOutput.survey_id) + '?edit=true')
-            }
-        },
-        setSearchTerm: async (_, breakpoint) => {
-            await breakpoint(300)
-            actions.loadSearchResults()
-        },
-    })),
+                actions.loadSurveys()
+                if (toolOutput.survey_type === 'popover') {
+                    router.actions.push(urls.surveyWizard(toolOutput.survey_id))
+                } else {
+                    router.actions.push(urls.survey(toolOutput.survey_id) + '?edit=true')
+                }
+            },
+            setSearchTerm: async (_, breakpoint) => {
+                await breakpoint(300)
+                actions.loadSearchResults()
+            },
+        }
+    }),
     selectors({
         searchedSurveys: [
             (selectors) => [selectors.data, selectors.searchTerm, selectors.filters],

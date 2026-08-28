@@ -104,6 +104,96 @@ describe('surveysLogic', () => {
             })
         })
 
+        it('loads response counts for surveys beyond the first page, keeping the counts already loaded', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/surveys/responses_count': ({ request }) => {
+                        const ids = new URL(request.url).searchParams.get('survey_ids')?.split(',') ?? []
+                        return [200, Object.fromEntries(ids.map((id) => [id, Number(id) * 10]))]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveysSuccess({
+                    surveys: [createTestSurvey('1', 'First')],
+                    surveysCount: 2,
+                    searchSurveys: [],
+                    searchSurveysCount: 0,
+                })
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadNextPageSuccess({
+                    ...logic.values.data,
+                    surveys: [createTestSurvey('1', 'First'), createTestSurvey('2', 'Second')],
+                    surveysCount: 2,
+                })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    surveysResponsesCount: { '1': 10, '2': 20 },
+                })
+        })
+
+        it('loads response counts for surveys only surfaced by search', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/surveys/responses_count': ({ request }) => {
+                        const ids = new URL(request.url).searchParams.get('survey_ids')?.split(',') ?? []
+                        return [200, Object.fromEntries(ids.map((id) => [id, Number(id) * 10]))]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSearchResultsSuccess({
+                    ...logic.values.data,
+                    searchSurveys: [createTestSurvey('7', 'Old survey')],
+                    searchSurveysCount: 1,
+                })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    surveysResponsesCount: { '7': 70 },
+                })
+        })
+
+        it('records a zero for surveys the counts endpoint omits, so they are not requested again', async () => {
+            let requests = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/surveys/responses_count': () => {
+                        requests += 1
+                        return [200, {}]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveysSuccess({
+                    surveys: [createTestSurvey('1', 'First')],
+                    surveysCount: 1,
+                    searchSurveys: [],
+                    searchSurveysCount: 0,
+                })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    surveysResponsesCount: { '1': 0 },
+                })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadNextPageSuccess({
+                    ...logic.values.data,
+                    surveys: [createTestSurvey('1', 'First')],
+                    surveysCount: 1,
+                })
+            }).toFinishAllListeners()
+
+            expect(requests).toEqual(1)
+        })
+
         it('loads next page and maintains correct state', async () => {
             const page1 = [createTestSurvey('1', 'First'), createTestSurvey('2', 'Second')]
             const page2 = [createTestSurvey('3', 'Third'), createTestSurvey('4', 'Fourth')]
