@@ -74,7 +74,7 @@ pub struct PendingWorkerStreamSend {
 }
 
 impl PendingWorkerStreamSend {
-    /// All-or-nothing, like `HttpTransport::send_batch`: `Ok` only when every
+    /// All-or-nothing: `Ok` only when every
     /// chunk was accepted; on any failure the `SendError` carries back the
     /// full original message set, in order, so the caller defers all of it.
     /// Already-accepted chunks then replay, which is ordinary at-least-once.
@@ -155,7 +155,7 @@ pub struct GrpcTransport {
     /// How each worker's stream address is derived from its HTTP URL.
     grpc_port: GrpcPort,
     /// Max un-acked sub-batches per worker stream (aligned with the worker's
-    /// `concurrentBatches`, like the HTTP semaphore it replaces).
+    /// `concurrentBatches`).
     max_unacked: usize,
     /// Fence the worker stream when un-acked work sees no ack for this long.
     ack_timeout: Duration,
@@ -166,7 +166,7 @@ pub struct GrpcTransport {
     probe_client: reqwest::Client,
     /// Cap on one frame's estimated size. A sub-batch over it is sent as
     /// consecutive chunks (see `begin_send`), so no frame crosses the worker's
-    /// message limit — the HTTP body cap, applied per frame.
+    /// message limit.
     max_body_bytes: usize,
 }
 
@@ -576,8 +576,7 @@ impl WorkerStreamRunner {
     /// sub-batch may sit unacked. Each entry carries its own deadline, armed
     /// when it was sent, so the watchdog keys on the oldest (front) entry,
     /// which is never acked (acked prefixes pop at once): a stuck sub-batch
-    /// fences even while its siblings keep acking — the per-send bound the
-    /// HTTP timeout it replaces gave. A worker that stops acking (saturated
+    /// fences even while its siblings keep acking. A worker that stops acking (saturated
     /// by other consumers, wedged, half-dead network) becomes a fence — and
     /// so a defer-and-reroute — rather than a silent forever-wait.
     async fn await_next_ack(
@@ -878,7 +877,8 @@ fn jittered(base: Duration) -> Duration {
     base.mul_f64(jitter)
 }
 
-/// Process-unique sender id, matching the HTTP transport's semantics.
+/// Process-unique sender id: workers scope feed-order baselines to one
+/// consumer incarnation.
 fn make_consumer_id() -> String {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

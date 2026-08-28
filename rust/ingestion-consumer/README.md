@@ -1,7 +1,7 @@
 # ingestion-consumer
 
-Rust Kafka consumer that routes analytics events to Node.js ingestion workers over HTTP with sticky per-key assignment.
-It reads batches from Kafka, groups messages by Kafka message key, pins each key to a worker (preserving per-key ordering; unkeyed messages can go to any worker), scatters sub-batches over HTTP, and commits offsets only after every message in the batch is accepted.
+Rust Kafka consumer that routes analytics events to Node.js ingestion workers over ordered gRPC streams with sticky per-key assignment.
+It reads batches from Kafka, groups messages by Kafka message key, pins each key to a worker (preserving per-key ordering; unkeyed messages can go to any worker), sends each worker's sub-batches on its `WorkerIngest` stream, and commits offsets only after every message in the batch is accepted.
 Worker health combines active `/_ready` probes with passive send outcomes; workers that leave the pool drain gracefully — in-flight work finishes, new work for their keys defers and re-routes to survivors in order.
 
 ## Ordering sentinels
@@ -22,7 +22,7 @@ Alerts should gate on `ingestion_consumer_offset_commits_total > 0` — an idle 
 
 Both sides default to enabled and have kill switches: `CONSUMER_ORDER_SENTINEL_ENABLED` here, `INGESTION_API_FEED_ORDER_SENTINEL_ENABLED` (plus `INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS`) on the worker.
 The rebalance metrics from the consumer context stay on regardless, and the `consumer_id`/`replay` request fields are always stamped so either side can be toggled independently.
-The worker-side check lives in `nodejs/src/ingestion/api/feed-order-sentinel.ts`, fed by the `consumer_id` (process incarnation) and `replay` fields the transport stamps on every `/ingest` request.
+The worker-side check lives in `nodejs/src/ingestion/api/feed-order-sentinel.ts`, fed by the `consumer_id` (process incarnation) and `replay` fields the transport stamps on every sub-batch.
 It measures the invariant at its end point: the worker's grouping stage processes each key strictly in feed order, so "fed in offset order per key" is "processed in order per key".
 Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.
 Null-key messages (e.g. overflow rerouting) are excluded from both checks: the producer deliberately forfeits per-key order for them, and the consumer routes each one individually rather than pinning it, so there is no invariant to check on either side.
@@ -33,7 +33,7 @@ Set `DEBUG_API_ENABLED=true` **and** `DEBUG_API_SECRET` to mount a real-time deb
 Every request must present the secret as `X-Debug-Api-Secret`; enabling without a secret fails closed (nothing is mounted).
 The secret is dedicated to this control-plane→consumer hop — deliberately not `INTERNAL_API_SECRET` (see `.agents/security.md`).
 The ingestion control plane UI consumes these endpoints to render the consumer's live state.
-`debug_recorder.rs` keeps a bounded in-memory buffer of structured lifecycle events — batch dispatch/assignment/commit, deferrals and flushes, send retries/exhaustion, worker health and membership — recorded at the same points that emit metrics, and it never influences routing.
+`debug_recorder.rs` keeps a bounded in-memory buffer of structured lifecycle events — batch dispatch/assignment/commit, deferrals and flushes, worker health and membership — recorded at the same points that emit metrics, and it never influences routing.
 
 - `/debug/load` — cheap JSON snapshot (worker health + dispatcher in-flight/pins/stash), safe to poll fast.
 - `/debug/state` — the same plus the retained event backlog.
@@ -49,11 +49,9 @@ The ingestion control plane UI consumes these endpoints to render the consumer's
 Known gaps in priority order.
 The details below are grounded in the current code — re-verify limits and paths before building on them.
 
-### 1. Sub-batch size cap and 413 handling (incident-class)
+### 1. Sub-batch size cap — done
 
-Sub-batches have no size bound: a batch (default 500 messages, each up to ~1 MB of Kafka payload) can merge onto one worker as a single HTTP request, while the worker's express app rejects bodies over 20 MB (`nodejs/src/common/api/router.ts`) with a 413.
-The transport treats 4xx as non-retriable, so the same oversized sub-batch re-sends until the deferred-flush timeout, the process exits, Kafka redelivers, and it crash-loops deterministically — a stalled partition triggered by an ordinary burst of large events.
-Fix: cap sub-batch payload size at build time (chunks sent sequentially per worker to preserve per-key order), plus a defensive split-in-half retry on 413.
+Sub-batches are split at `INGESTION_TRANSPORT_MAX_BODY_BYTES` (default 10 MiB) into consecutive frames on the worker stream, under the worker's `INGESTION_API_GRPC_READ_MAX_BYTES` (32 MiB).
 
 ### 2. Commit-error observability — done
 
@@ -63,7 +61,7 @@ Remaining: alert rules on the new metrics.
 
 ### 3. DLQ for poison messages
 
-A message a worker permanently rejects (4xx, or persistent `status:"error"`) has no dead-letter path: after the flush timeout the batch fails and the process crash-loops on redelivery.
+A message a worker permanently rejects (a nack on every delivery) has no dead-letter path: after the flush timeout the batch fails and the process crash-loops on redelivery.
 `poison_batch_fails_safely_without_committing` pins the safe half of the trade-off (never commit past unaccepted messages).
 Needs a design pass: DLQ topic, retry budget before giving up, the per-key ordering caveat (DLQ-ing one message then delivering later ones for the same person), and replay ownership.
 Non-UTF-8 payloads — currently nulled in `collect_batch` with no metric — should route to the same DLQ as malformed input; a bytes-preserving wire format is not worth it while the producer (capture) guarantees UTF-8 JSON.
