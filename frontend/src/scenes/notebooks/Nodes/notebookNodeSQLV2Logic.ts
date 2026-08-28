@@ -14,9 +14,12 @@ import {
 } from 'kea'
 
 import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
+import { notebooksKernelStatusRetrieve } from 'products/notebooks/frontend/generated/api'
 
 import { notebookKernelInfoLogic } from '../Notebook/notebookKernelInfoLogic'
 import {
@@ -223,6 +226,9 @@ export interface notebookNodeSQLV2LogicActions {
     setShowKernelInfo: (showKernelInfo: boolean) => {
         showKernelInfo: boolean
     } // notebookSettingsLogic
+    announceSandboxStart: () => {
+        value: true
+    }
     interruptRun: () => {
         value: true
     }
@@ -346,6 +352,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         resetPaging: true,
         setDirectRows: (directRows: NotebookNodeSQLV2DirectRows | null) => ({ directRows }),
         setPendingKernelStart: (pendingKernelStart: boolean) => ({ pendingKernelStart }),
+        announceSandboxStart: true,
     }),
     reducers({
         // Tracks the run being in progress; driven by the run's status, not a socket lifecycle.
@@ -552,7 +559,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     if (!kernelKnownRunning) {
                         actions.setShowKernelInfo(true)
                         actions.setPendingKernelStart(true)
-                        lemonToast.info('Starting a compute sandbox. The cell will run once it’s ready.')
+                        actions.announceSandboxStart()
                     }
                 }
                 // Read from the notebook rather than the caller: every run path (Run button,
@@ -594,6 +601,31 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     actions.finishOperation(runOperation.id)
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
                 }
+            },
+            announceSandboxStart: async () => {
+                // The panel that shows the price is only just opening, so say the rate in the
+                // toast too. A user who runs a Python cell never opens the panel deliberately and
+                // would otherwise start paid compute without being told what it costs.
+                let hourlyPrice =
+                    notebookKernelInfoLogic.findMounted({ shortId: props.notebookShortId })?.values.kernelInfo
+                        ?.hourly_price ?? null
+                if (hourlyPrice == null) {
+                    try {
+                        const status = await notebooksKernelStatusRetrieve(
+                            String(ApiConfig.getCurrentTeamId()),
+                            props.notebookShortId
+                        )
+                        hourlyPrice = status.hourly_price
+                    } catch {
+                        // Fall through to the priceless message rather than hold up the run.
+                    }
+                }
+                lemonToast.info(
+                    hourlyPrice == null
+                        ? 'Starting a compute sandbox. The cell will run once it’s ready.'
+                        : `Starting a compute sandbox at $${hourlyPrice.toFixed(2)} / h while it runs. ` +
+                              'Change its size in the kernel panel.'
+                )
             },
             runNode: ({ overrides }) => {
                 const content = props.getContent?.() ?? null

@@ -7,6 +7,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
 
+import { notebooksKernelStatusRetrieve } from 'products/notebooks/frontend/generated/api'
+
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
 import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeType } from '../types'
@@ -16,6 +18,10 @@ import {
     pollIntervalMs,
     sqlV2RunErrorMessage,
 } from './notebookNodeSQLV2Logic'
+
+jest.mock('products/notebooks/frontend/generated/api', () => ({
+    notebooksKernelStatusRetrieve: jest.fn(),
+}))
 
 describe('notebookNodeSQLV2Logic', () => {
     let logic: ReturnType<typeof notebookNodeSQLV2Logic.build>
@@ -36,6 +42,13 @@ describe('notebookNodeSQLV2Logic', () => {
         resultSpy = jest
             .spyOn(api.notebooks, 'sqlV2RunResult')
             .mockResolvedValue({ status: 'running', result: null, error: null })
+        jest.mocked(notebooksKernelStatusRetrieve).mockResolvedValue({
+            status: 'stopped',
+            frames: [],
+            cpu_cores: 1,
+            memory_gb: 2,
+            hourly_price: 0.25,
+        } as Awaited<ReturnType<typeof notebooksKernelStatusRetrieve>>)
     })
 
     afterEach(() => {
@@ -232,7 +245,8 @@ describe('notebookNodeSQLV2Logic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(true)
             expect(logic.values.pendingKernelStart).toBe(true)
-            expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Starting a compute sandbox'))
+            // The user never asked for a sandbox here, so the notice has to name the rate.
+            expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('$0.25 / h'))
         })
     })
 
