@@ -41,9 +41,13 @@ own_comment_bodies() {
 # A marker written under a different login is invisible to `get` and unreachable by the
 # `set` upsert, so the sweep re-resolves every PR and appends a comment each time. That is
 # indistinguishable from "never attempted", so report it instead of returning empty.
+#
+# Only another App identity can mean that, so match bot authors and a complete marker. A human
+# who pastes marker-shaped text would otherwise halt every sweep that reaches their PR.
 warn_on_foreign_marker() {
     gh api "repos/$repo/issues/$pr/comments" --paginate \
-        --jq '[.[] | select(.user.login != env.BOT_LOGIN) | select(.body | test("<!-- autoresolve-attempt:"))
+        --jq '[.[] | select(.user.login != env.BOT_LOGIN) | select(.user.type == "Bot")
+                   | select(.body | test("<!-- autoresolve-attempt:[0-9a-f]{40}:[0-9a-f]{40} -->"))
                    | .user.login] | unique | join(", ")' 2>/dev/null
 }
 
