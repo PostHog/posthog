@@ -110,7 +110,7 @@ describe('Projects', { concurrent: false }, () => {
             expect(eventDef.name).toBe(eventName)
             expect(eventDef.description).toBe('Defined before ingestion')
             expect(eventDef.tags).toContain('mcp-test')
-            expect(eventDef.url).toContain('/data-management/events/')
+            expect(eventDef.url).toContain(`/data-management/events/${eventDef.id}`)
         })
 
         it('should throw error when the event definition already exists', async () => {
