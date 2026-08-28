@@ -14,11 +14,6 @@ pub const MAX_DELETE_BATCH_SIZE: usize = 250;
 /// Maximum sources per MergePersons request — the same per-op cap.
 pub const MAX_MERGE_BATCH_SIZE: usize = 250;
 
-/// Carried operations are leader writes issued before the durable op row
-/// exists, so they are capped well below the source limit: a caller carries
-/// one lane per distinct id its batch folded, not one per merge source.
-pub const MAX_CARRIED_OPERATIONS: usize = 32;
-
 const MAX_DISTINCT_ID_LENGTH: usize = 400;
 
 /// Longer than the `posthog_persondistinctid.distinct_id` column admits.
@@ -182,40 +177,6 @@ pub fn validate_merge_persons(request: &MergePersonsRequest) -> Result<(Uuid, i6
             return Err(Status::invalid_argument(format!(
                 "duplicate source distinct id: the caller must dedupe (\"{}\")",
                 source.source_distinct_id
-            )));
-        }
-    }
-    if request.carried_operations.len() > MAX_CARRIED_OPERATIONS {
-        return Err(Status::invalid_argument(format!(
-            "carried operation count {} exceeds maximum {MAX_CARRIED_OPERATIONS}",
-            request.carried_operations.len()
-        )));
-    }
-    let mut carried = HashSet::with_capacity(request.carried_operations.len());
-    for entry in &request.carried_operations {
-        // A merge refuses to touch an illegal distinct id, so it must not
-        // become a property-write surface for one either.
-        if is_distinct_id_illegal(&entry.distinct_id) {
-            return Err(Status::invalid_argument(
-                "a carried distinct id is an illegal distinct id",
-            ));
-        }
-        if is_distinct_id_oversized(&entry.distinct_id) {
-            return Err(Status::invalid_argument(format!(
-                "a carried distinct id exceeds {MAX_DISTINCT_ID_LENGTH} characters"
-            )));
-        }
-        if entry.distinct_id.contains('\u{0000}') {
-            return Err(Status::invalid_argument(
-                "carried distinct ids must not contain NUL",
-            ));
-        }
-        // One entry per distinct id: two would race each other on the same
-        // person with no defined precedence between them.
-        if !carried.insert(entry.distinct_id.as_str()) {
-            return Err(Status::invalid_argument(format!(
-                "duplicate carried distinct id: the caller must fold them (\"{}\")",
-                entry.distinct_id
             )));
         }
     }

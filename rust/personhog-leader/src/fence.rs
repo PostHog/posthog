@@ -60,6 +60,12 @@ use crate::cache::PersonCacheKey;
 pub struct FenceState {
     pub op_id: Uuid,
     pub op_type: LifecycleOpType,
+    /// The uuid of the event whose merge installed the fence, where the
+    /// saga supplied one. Advisory: echoed on rejections so callers can
+    /// attribute the fence to its event and classify same-event sibling
+    /// operations; ownership decisions key on the op id, and nothing here
+    /// branches on this field.
+    pub creator_event_uuid: Option<Uuid>,
 }
 
 pub type FenceMap = Arc<DashMap<PersonCacheKey, FenceState>>;
@@ -70,6 +76,10 @@ pub type FenceMap = Arc<DashMap<PersonCacheKey, FenceState>>;
 pub const FENCED_METADATA_KEY: &str = "x-person-fenced";
 /// Metadata key carrying the fencing operation's id on rejections.
 pub const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
+/// Metadata key carrying the fencing operation's creator event uuid on
+/// rejections, absent where the fence carries none (delete ops, and merge
+/// ops frozen before the field existed).
+pub const FENCED_CREATOR_METADATA_KEY: &str = "x-person-fenced-creator";
 
 /// A definitive FAILED_PRECONDITION the router passes through to the
 /// caller instead of bouncing. Bare FAILED_PRECONDITION classifies as a
@@ -101,6 +111,13 @@ pub fn fenced_status(state: &FenceState) -> Status {
         status
             .metadata_mut()
             .insert(FENCED_OP_ID_METADATA_KEY, value);
+    }
+    if let Some(creator) = state.creator_event_uuid {
+        if let Ok(value) = creator.to_string().parse() {
+            status
+                .metadata_mut()
+                .insert(FENCED_CREATOR_METADATA_KEY, value);
+        }
     }
     status
 }
@@ -137,7 +154,8 @@ pub async fn rebuild_partition_fences(
     let start = std::time::Instant::now();
     let query = sqlx::query(
         r#"
-        SELECT lop.team_id, lop.person_id, lop.op_id, o.op_type
+        SELECT lop.team_id, lop.person_id, lop.op_id, o.op_type,
+               o.request->>'creator_event_uuid' AS creator_event_uuid
         FROM lifecycle_op_person lop
         JOIN lifecycle_op o ON o.op_id = lop.op_id
         WHERE lop.status IN ('marked', 'sealed')
@@ -175,6 +193,10 @@ pub async fn rebuild_partition_fences(
         }
         let op_id: Uuid = row.get("op_id");
         let op_type: String = row.get("op_type");
+        // Frozen requests predating the field, and delete ops, carry none.
+        let creator_event_uuid = row
+            .get::<Option<String>, _>("creator_event_uuid")
+            .and_then(|raw| Uuid::parse_str(&raw).ok());
         fences.insert(
             PersonCacheKey {
                 team_id: team_id as i64,
@@ -183,6 +205,7 @@ pub async fn rebuild_partition_fences(
             FenceState {
                 op_id,
                 op_type: LifecycleOpType::from_op_type_str(&op_type),
+                creator_event_uuid,
             },
         );
         installed += 1;

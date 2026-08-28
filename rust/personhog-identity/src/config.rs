@@ -119,8 +119,13 @@ pub struct Config {
     #[envconfig(default = "15")]
     pub lifecycle_lease_secs: u64,
 
-    /// How long a DeletePersons call keeps driving (or waiting on another
-    /// driver's lease) before returning UNAVAILABLE (seconds).
+    /// How long one lifecycle call — MergePersons or DeletePersons — keeps
+    /// driving (or waiting on another driver's lease) before returning
+    /// UNAVAILABLE (seconds). Checked between steps, so a slow final step
+    /// can overrun it. The ingestion client's merge deadline
+    /// (PERSONHOG_MERGE_TIMEOUT_MS, Node) must exceed this value, or the
+    /// client cancels drives mid-lease and every follow-up waits out the
+    /// abandoned lease; raise both together.
     #[envconfig(default = "30")]
     pub lifecycle_execute_timeout_secs: u64,
 
@@ -134,8 +139,13 @@ pub struct Config {
 
     /// Run the background sweeper + GC loop for abandoned lifecycle ops.
     /// One sweeper per fleet is enough; every instance running it is also
-    /// fine (the lease arbitrates), so this is a plain per-pod toggle.
-    #[envconfig(default = "false")]
+    /// fine (the lease arbitrates), so it defaults on — the protocol
+    /// depends on it: a claim-race drop can orphan a live saga whose op id
+    /// no client will present again (a redelivered fold plans different
+    /// pairs, so a different op id), and without the sweeper its fences
+    /// freeze the sealed persons until an operator intervenes. Disable
+    /// only on pods deliberately excluded from sweeping.
+    #[envconfig(default = "true")]
     pub lifecycle_sweeper_enabled: bool,
 
     /// Interval between sweeper passes (seconds).
@@ -144,7 +154,17 @@ pub struct Config {
 
     /// How long completed op rows are retained for op_id idempotency before
     /// GC (hours). The durable deletion shield is the person tombstone row,
-    /// not the op row.
+    /// not the op row. The ingestion memo holds its destroyed-person marks
+    /// for 25 hours to outlive this window (personhog-person-memo.ts,
+    /// destroyedRetentionMs), because a retained op's verdict can replay for
+    /// exactly this long; raising this past 25 silently re-opens the
+    /// replayed-verdict resurrection that retention closes, so change both
+    /// together. The sweeper is what enforces this window; it defaults on
+    /// (lifecycle_sweeper_enabled), and a fleet that disables it retains
+    /// terminal rows indefinitely — a sweeper outage longer than the hour
+    /// of slack has the same effect. Replays past the marks settle safely
+    /// (the caller re-reads the survivor through the leader), so the cost
+    /// is table growth and late settled verdicts, not resurrection.
     #[envconfig(default = "24")]
     pub lifecycle_op_retention_hours: u64,
 }

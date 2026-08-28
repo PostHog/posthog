@@ -505,15 +505,17 @@ class SetPersonVersionFloorResponse(_message.Message):
     def __init__(self, updated: bool = ...) -> None: ...
 
 class FencePersonRequest(_message.Message):
-    __slots__ = ("team_id", "person_id", "op_id", "op_type")
+    __slots__ = ("team_id", "person_id", "op_id", "op_type", "creator_event_uuid")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PERSON_ID_FIELD_NUMBER: _ClassVar[int]
     OP_ID_FIELD_NUMBER: _ClassVar[int]
     OP_TYPE_FIELD_NUMBER: _ClassVar[int]
+    CREATOR_EVENT_UUID_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     person_id: int
     op_id: str
     op_type: LifecycleOpType
+    creator_event_uuid: str
 
     def __init__(
         self,
@@ -521,6 +523,7 @@ class FencePersonRequest(_message.Message):
         person_id: _Optional[int] = ...,
         op_id: _Optional[str] = ...,
         op_type: _Optional[_Union[LifecycleOpType, str]] = ...,
+        creator_event_uuid: _Optional[str] = ...,
     ) -> None: ...
 
 class FencePersonResponse(_message.Message):

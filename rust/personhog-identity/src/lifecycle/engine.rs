@@ -58,6 +58,12 @@ pub enum SagaError {
     /// Another instance held the lease past our deadline.
     #[error("another instance is driving this operation")]
     Busy,
+    /// This drive ran out its own execute deadline while the op was still
+    /// live. Distinct from `Busy` so the retry advice does not blame
+    /// contention that does not exist; a retry with the same op id
+    /// resumes the drive.
+    #[error("execute deadline elapsed")]
+    DeadlineElapsed,
     /// A leader RPC (fence, release, fold) failed transiently. The step made
     /// no durable progress; a retry with the same op_id re-drives it. Boxed
     /// so the rare failure does not widen every step's Result.
@@ -122,6 +128,9 @@ impl From<SagaError> for Status {
             }
             SagaError::Busy => Status::unavailable(
                 "another instance is driving this operation; retry with the same op_id",
+            ),
+            SagaError::DeadlineElapsed => Status::unavailable(
+                "execute deadline elapsed while the operation was still being driven; retry with the same op_id",
             ),
             SagaError::Leader(status) => Status::unavailable(format!(
                 "leader call failed ({}: {}); retry with the same op_id",
@@ -328,7 +337,11 @@ impl Engine {
             if let Some(completed_at) = row.completed_at {
                 if claim_attempt.is_some() {
                     // We drove it over the line (vs attaching to an op that
-                    // was already done).
+                    // was already done). A driver whose lease was stolen
+                    // between its last renewal and this reload still counts
+                    // here alongside the stealer — a narrow double-count
+                    // accepted because attributing the terminal CAS would
+                    // cost a verification query per completion.
                     common_metrics::inc(
                         OPS_COMPLETED_TOTAL,
                         &[
@@ -348,8 +361,13 @@ impl Engine {
                 return Ok(row);
             }
             if tokio::time::Instant::now() >= deadline {
+                // Who ran the clock out decides the message: with the claim
+                // in hand this drive was simply slow, and blaming contention
+                // would point triage at another instance that does not
+                // exist. Without it, another driver genuinely held the op.
                 if let Some(attempt) = claim_attempt {
                     self.release_lease(op_id, attempt).await.ok();
+                    return Err(SagaError::DeadlineElapsed);
                 }
                 return Err(SagaError::Busy);
             }
@@ -412,9 +430,14 @@ impl Engine {
                     SagaError::Leader(_) => "leader",
                     SagaError::LeaderRefused(_) => "leader_refused",
                     SagaError::CorruptState(_) => "corrupt_state",
-                    // Not constructed by drivers; collapsed so dashboards
-                    // never chase dead labels.
-                    SagaError::RequestMismatch(_) | SagaError::Busy => "other",
+                    // RequestMismatch and DeadlineElapsed are never step
+                    // errors (only attach and drive() mint them); Busy can
+                    // arrive from a stale drive deferring to the op row,
+                    // which logs at its mint site. Collapsed so dashboards
+                    // never chase labels with no attribution behind them.
+                    SagaError::RequestMismatch(_)
+                    | SagaError::Busy
+                    | SagaError::DeadlineElapsed => "other",
                 };
                 common_metrics::inc(
                     STEP_FAILURES_TOTAL,

@@ -14,6 +14,14 @@ use tonic::{Code, Status};
 use tower::{Service, ServiceExt};
 
 use personhog_common::grpc::{current_client_name, SEMANTIC_REFUSAL_METADATA_KEY};
+
+/// Set by the leader on any write it refuses because a lifecycle op holds
+/// the person, alongside the holding op's id. Mirrored here rather than
+/// imported: the router forwards these opaquely and must not take a
+/// dependency on the leader crate to do it.
+const FENCED_METADATA_KEY: &str = "x-person-fenced";
+const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
+const FENCED_CREATOR_METADATA_KEY: &str = "x-person-fenced-creator";
 use personhog_common::partitioning::partition_for_person;
 
 use super::stash::{StashDecision, StashTable};
@@ -100,6 +108,18 @@ pub enum ForwardDecision {
         call_ms: f64,
     },
     Bounced(BounceReason),
+    /// Any non-semantic FAILED_PRECONDITION, carrying the refusal's own
+    /// metadata. Most are partition-level refusals during a handoff and
+    /// carry no person keys at all; the case the metadata exists for is a
+    /// person held by a lifecycle op. Such a fence never clears on its own —
+    /// only an explicit retry from the caller driving that op resumes it —
+    /// so when the retries run out, the identity of the holder is the one
+    /// thing that lets that caller tell "keep waiting" from "this one is
+    /// mine to finish". Bouncing without it hands back generic retry advice
+    /// that is wrong for the only party who can act on it.
+    BouncedFenced {
+        headers: HeaderMap,
+    },
 }
 
 /// Static configuration for `LeaderBackend`. Bundles the knobs that come
@@ -340,7 +360,9 @@ impl LeaderBackend {
                 {
                     ForwardDecision::Delivered { response, call_ms }
                 } else {
-                    ForwardDecision::Bounced(BounceReason::Fenced)
+                    ForwardDecision::BouncedFenced {
+                        headers: response.headers().clone(),
+                    }
                 }
             }
             Ok((response, call_ms)) => ForwardDecision::Delivered { response, call_ms },
@@ -391,6 +413,9 @@ impl LeaderBackend {
         frame: Bytes,
     ) -> (http::Response<BoxBody>, Option<f64>) {
         let mut consecutive_bounces = 0u32;
+        // Whether any attempt may have reached the leader and been applied,
+        // which the stash needs in order to treat a replay as at-least-once
+        // rather than exactly-once.
         let mut possibly_applied = false;
         loop {
             // The stash module emits its own enqueued/rejected counters
@@ -430,20 +455,69 @@ impl LeaderBackend {
                 ForwardDecision::Delivered { response, call_ms } => {
                     return (response, Some(call_ms));
                 }
-                ForwardDecision::Bounced(reason) => {
+                decision
+                @ (ForwardDecision::Bounced(_) | ForwardDecision::BouncedFenced { .. }) => {
+                    let reason = match &decision {
+                        ForwardDecision::Bounced(reason) => *reason,
+                        _ => BounceReason::Fenced,
+                    };
                     if counts_as_possibly_applied(reason) {
                         possibly_applied = true;
                     }
                     consecutive_bounces += 1;
                     if consecutive_bounces >= MAX_CONSECUTIVE_BOUNCES {
-                        counter!("personhog_router_forward_retries_exhausted_total").increment(1);
-                        return (
-                            grpc_error_response(
-                                Code::Unavailable,
-                                "leader unreachable or transitioning; retry",
-                            ),
-                            None,
+                        // Labelled by the reason that ended it: exhausting on
+                        // a fence makes the caller drop its operation and ack,
+                        // exhausting on transport makes it redeliver. An
+                        // unlabelled count cannot separate a lost merge from a
+                        // retried one.
+                        counter!(
+                            "personhog_router_forward_retries_exhausted_total",
+                            "reason" => reason.label(),
+                        )
+                        .increment(1);
+                        // The message follows what actually ended the
+                        // request. A refusal carrying fence metadata names a
+                        // lifecycle holder; a bare FAILED_PRECONDITION is the
+                        // handoff/ownership majority the Fenced class also
+                        // carries, and calling that a lifecycle operation
+                        // points triage at ops that do not exist.
+                        let held_by_op = matches!(
+                            &decision,
+                            ForwardDecision::BouncedFenced { headers }
+                                if headers.contains_key(FENCED_METADATA_KEY)
                         );
+                        let mut response = grpc_error_response(
+                            Code::Unavailable,
+                            if held_by_op {
+                                "person is held by a lifecycle operation; retries exhausted"
+                            } else if matches!(reason, BounceReason::Fenced) {
+                                "leader refused the write precondition (handoff or ownership); retries exhausted"
+                            } else {
+                                "leader unreachable or transitioning; retry"
+                            },
+                        );
+                        // Only the fence keys travel, and only from the
+                        // bounce that actually ended the request. The caller
+                        // reads them to recognise its own operation, and
+                        // every other header on the refusal belongs to a
+                        // response we are not forwarding. Taking them from
+                        // this decision rather than a remembered one is what
+                        // keeps a leader that died after being fenced from
+                        // coming back labelled as a person somebody holds —
+                        // a verdict callers ack rather than retry.
+                        if let ForwardDecision::BouncedFenced { headers: fence } = &decision {
+                            for key in [
+                                FENCED_METADATA_KEY,
+                                FENCED_OP_ID_METADATA_KEY,
+                                FENCED_CREATOR_METADATA_KEY,
+                            ] {
+                                if let Some(value) = fence.get(key) {
+                                    response.headers_mut().insert(key, value.clone());
+                                }
+                            }
+                        }
+                        return (response, None);
                     }
                     counter!(
                         "personhog_router_forward_retries_total",

@@ -391,6 +391,8 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
                 person_id: victim.person_id,
                 op_id: op.op_id.to_string(),
                 op_type: LifecycleOpType::Delete.into(),
+                // A delete has no creating event to name.
+                creator_event_uuid: String::new(),
             };
             let person_id = victim.person_id;
             async move { (person_id, leader.fence_person(request).await) }
@@ -425,6 +427,11 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
                 );
                 vanished.push(person_id);
             }
+            // A semantic refusal here would park the op holding the fences
+            // already installed this round, with live marks the healer will
+            // not clear. FencePerson mints no semantic refusal today; if
+            // one is added, this driver needs an abort path first (see the
+            // merge driver's abort_refused for the shape).
             Err(status) => return Err(SagaError::leader(status)),
         }
     }
