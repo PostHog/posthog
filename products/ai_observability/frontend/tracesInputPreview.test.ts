@@ -35,9 +35,14 @@ describe('pickLastInputMessage', () => {
         expect(pickLastInputMessage(conversation)).toEqual({ role: 'assistant', content: 'tool result' })
     })
 
-    it('wraps a single bare message object from the Vercel AI OTel path', () => {
-        const message = { role: 'user', content: 'what is the weather?' }
-        expect(pickLastInputMessage(message, { strict: true })).toEqual(message)
+    it.each([
+        ['content', { role: 'user', content: 'what is the weather?' }],
+        ['parts', { role: 'user', parts: [{ type: 'text', content: 'what is the weather?' }] }],
+    ])('wraps a single bare %s message from the Vercel AI OTel path', (_, message) => {
+        expect(pickLastInputMessage(message, { strict: true })).toEqual({
+            role: 'user',
+            content: 'what is the weather?',
+        })
     })
 
     it('rejects unknown state-wrapper shapes in strict mode', () => {

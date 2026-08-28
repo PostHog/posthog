@@ -563,12 +563,13 @@ function unwrapMessageContainer(raw: unknown, strict: boolean): unknown {
 }
 
 /**
- * A bare message carries a `role` plus either `content` or `parts`. Requiring
- * one of those two fields keeps state wrappers (like `{ current_step, ... }`)
- * from matching, so they still fall through to the strict-mode fallback.
+ * `role` alone is too weak a signal, since a state wrapper can carry one too.
+ * Requiring the payload as well (`content` for the chat shapes, a `parts` array
+ * for the OTel one) keeps those wrappers falling through to the strict-mode
+ * fallback.
  */
 function isSingleMessage(obj: Record<string, unknown>): boolean {
-    return typeof obj.role === 'string' && ('content' in obj || 'parts' in obj)
+    return typeof obj.role === 'string' && ('content' in obj || Array.isArray(obj.parts))
 }
 
 function safeNormalize(
