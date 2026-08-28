@@ -803,6 +803,49 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert self._reserved_counter_value() == 0
 
+    @override_settings(DEBUG=False)
+    @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_induced_failures_cannot_buy_extra_tokens(self, mock_authentication, mock_flag, mock_authorized, mock_key):
+        """The counter must equal the tokens actually issued, however many failures ran.
+
+        The refund exists so an outage does not burn a user's quota, which invites
+        the mirror question: induce failures on purpose and keep the slot each time.
+        That is only safe while a refund is impossible on any path that hands back a
+        token, so the ceiling has to bind on issued tokens rather than on attempts.
+        """
+        self._mock_oauth(mock_authentication)
+
+        with patch(
+            "posthog.api.wizard.http.mint_wizard_gateway_token",
+            side_effect=WizardGatewayMintError("unreachable", token_may_exist=False),
+        ):
+            for _ in range(20):
+                failed = self.client.post(
+                    self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+                )
+                assert failed.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+        assert self._reserved_counter_value() == 0
+
+        with patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=self.MINTED) as mock_mint:
+            for _ in range(5):
+                ok = self.client.post(
+                    self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+                )
+                assert ok.status_code == status.HTTP_201_CREATED
+            # The ceiling counts issued tokens, so the 20 refunded failures bought
+            # nothing: the sixth mint is refused even though 25 requests preceded it.
+            refused = self.client.post(
+                self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+            )
+
+        assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert mock_mint.call_count == 5
+        assert self._reserved_counter_value() == 6
+
     @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
