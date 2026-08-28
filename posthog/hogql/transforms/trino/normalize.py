@@ -3,7 +3,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_unnest_table import TrinoUnnestTable
-from posthog.hogql.errors import QueryError
+from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.query_wrappers import lower_trino_query_wrappers
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
@@ -44,9 +44,11 @@ class TrinoArrayJoinFunctionLowerer(CloningVisitor):
         if node.name.lower() != "arrayjoin":
             return super().visit_call(node)
         if len(node.args) != 1:
-            raise QueryError("arrayJoin expects exactly one argument in Trino mode.")
+            raise TrinoLoweringError("TRINO_ARRAY_JOIN_ARGUMENT_COUNT", "arrayJoin with other than one argument", node)
         if self.context.database is None:
-            raise QueryError("arrayJoin lowering requires a resolved database in Trino mode.")
+            raise TrinoLoweringError(
+                "TRINO_ARRAY_JOIN_DATABASE_REQUIRED", "arrayJoin without a resolved database", node
+            )
         table_name = f"__trino_array_function_{self.unnest_index}"
         output_name = f"value_{self.unnest_index}"
         self.unnest_index += 1
@@ -74,16 +76,20 @@ class TrinoNormalizer(TraversingVisitor):
         if node.array_join_op is None and not node.array_join_list:
             return
         if node.array_join_op not in {"ARRAY JOIN", "INNER ARRAY JOIN"}:
-            raise QueryError("Only single INNER ARRAY JOIN is supported in Trino mode.")
+            raise TrinoLoweringError(
+                "TRINO_ARRAY_JOIN_MODE_UNSUPPORTED", node.array_join_op or "ARRAY JOIN without an operation", node
+            )
         if node.array_join_list is None or len(node.array_join_list) != 1:
-            raise QueryError("Only single-array ARRAY JOIN is supported in Trino mode.")
+            raise TrinoLoweringError("TRINO_ARRAY_JOIN_MULTIPLE_ARRAYS_UNSUPPORTED", "multiple-array ARRAY JOIN", node)
         array_expr = node.array_join_list[0]
         if not isinstance(array_expr, ast.Alias):
-            raise QueryError("ARRAY JOIN requires an explicit output alias in Trino mode.")
+            raise TrinoLoweringError("TRINO_ARRAY_JOIN_ALIAS_REQUIRED", "ARRAY JOIN without an output alias", node)
         if node.select_from is None:
-            raise QueryError("ARRAY JOIN requires a FROM relation in Trino mode.")
+            raise TrinoLoweringError("TRINO_ARRAY_JOIN_RELATION_REQUIRED", "ARRAY JOIN without a FROM relation", node)
         if self.context.database is None:
-            raise QueryError("ARRAY JOIN lowering requires a resolved database in Trino mode.")
+            raise TrinoLoweringError(
+                "TRINO_ARRAY_JOIN_DATABASE_REQUIRED", "ARRAY JOIN without a resolved database", node
+            )
 
         table_name = f"__trino_unnest_{self.unnest_index}"
         self.unnest_index += 1
@@ -116,17 +122,21 @@ class TrinoNormalizer(TraversingVisitor):
 
     def _lower_numbers_args(self, args: list[ast.Expr] | None) -> ast.Call:
         if args is None or len(args) not in {1, 2}:
-            raise QueryError("numbers expects one or two arguments in Trino mode.")
+            raise TrinoLoweringError("TRINO_NUMBERS_ARGUMENT_COUNT", "numbers with other than one or two arguments")
         values: list[int] = []
         for arg in args:
             if not isinstance(arg, ast.Constant) or isinstance(arg.value, bool) or not isinstance(arg.value, int):
-                raise QueryError("numbers requires constant integer arguments in Trino mode.")
+                raise TrinoLoweringError(
+                    "TRINO_NUMBERS_NON_CONSTANT_ARGUMENT", "numbers requires constant integer arguments", arg
+                )
             values.append(arg.value)
         start, count = (0, values[0]) if len(values) == 1 else values
         if count < 0:
-            raise QueryError("numbers requires a non-negative row count in Trino mode.")
+            raise TrinoLoweringError("TRINO_NUMBERS_NEGATIVE_ROW_COUNT", "numbers with a negative row count")
         if count > _MAX_NUMBERS_ROWS:
-            raise QueryError(f"numbers is limited to {_MAX_NUMBERS_ROWS:,} rows in Trino mode.")
+            raise TrinoLoweringError(
+                "TRINO_NUMBERS_ROW_LIMIT_EXCEEDED", f"numbers above the {_MAX_NUMBERS_ROWS:,}-row limit"
+            )
         return ast.Call(name="range", args=[ast.Constant(value=start), ast.Constant(value=start + count)])
 
 

@@ -8,7 +8,7 @@ from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseF
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
-from posthog.hogql.transforms.trino.validate import TrinoLoweringError
+from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
 
 def _context_with_trino_table() -> HogQLContext:
@@ -191,8 +191,10 @@ def test_rejects_unbounded_numbers_input() -> None:
         restricted_properties=set(),
     )
 
-    with pytest.raises(QueryError, match="constant integer arguments"):
+    with pytest.raises(TrinoLoweringError, match="constant integer arguments") as error:
         prepare_and_print_ast(parse_select("SELECT number FROM numbers(number)"), context, "trino")
+
+    assert error.value.feature_code == "TRINO_NUMBERS_NON_CONSTANT_ARGUMENT"
 
 
 def test_lowers_single_array_join_to_cross_join_unnest() -> None:
@@ -213,12 +215,14 @@ def test_lowers_single_array_join_to_cross_join_unnest() -> None:
 def test_rejects_multi_array_join_with_different_cardinality_semantics() -> None:
     context = _context_with_trino_table()
 
-    with pytest.raises(QueryError, match="single-array ARRAY JOIN"):
+    with pytest.raises(TrinoLoweringError) as error:
         prepare_and_print_ast(
             parse_select("SELECT first FROM users ARRAY JOIN [1] AS first, [2] AS second"),
             context,
             "trino",
         )
+
+    assert error.value.feature_code == "TRINO_ARRAY_JOIN_MULTIPLE_ARRAYS_UNSUPPORTED"
 
 
 def test_lowers_array_join_function_to_cross_join_unnest() -> None:

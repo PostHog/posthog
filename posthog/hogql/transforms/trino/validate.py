@@ -3,23 +3,13 @@ from typing import NoReturn
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
-from posthog.hogql.errors import QueryError
 from posthog.hogql.printer.trino_functions import (
     TRINO_FUNCTION_HANDLERS_LOWER,
     TRINO_FUNCTION_RENAMES_LOWER,
     TRINO_PASSTHROUGH_FUNCTIONS,
 )
+from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.visitor import TraversingVisitor
-
-
-class TrinoLoweringError(QueryError):
-    code_name = "hogql_trino_unsupported"
-
-    def __init__(self, feature_code: str, construct: str, node: ast.Expr | None = None):
-        super().__init__(f"[{feature_code}] {construct} is not supported by the Trino backend.", node=node)
-        self.feature_code = feature_code
-        self.construct = construct
-
 
 _SPECIAL_CALLS = frozenset(
     {

@@ -1,6 +1,5 @@
 from posthog.hogql import ast
-from posthog.hogql.errors import QueryError
-from posthog.hogql.transforms.trino.validate import TrinoLoweringError
+from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 
@@ -89,7 +88,9 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
         output_names = self._output_names(node)
         visible_select = node.select[:-1] if helper_name is not None else node.select
         if len(output_names) != len(visible_select):
-            raise QueryError("Query output columns cannot be named safely for Trino wrapper lowering.")
+            raise TrinoLoweringError(
+                "TRINO_WRAPPER_OUTPUT_NAME_UNSAFE", "wrapper query without stable output names", node
+            )
         node.select = [
             expr if isinstance(expr, ast.Alias) and expr.alias == name else ast.Alias(alias=name, expr=expr)
             for expr, name in zip(visible_select, output_names, strict=True)
@@ -127,7 +128,9 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
 
     def _output_names(self, node: ast.SelectQuery) -> list[str]:
         if not isinstance(node.type, ast.SelectQueryType):
-            raise QueryError("Trino wrapper lowering requires resolved query output types.")
+            raise TrinoLoweringError(
+                "TRINO_WRAPPER_OUTPUT_TYPE_UNRESOLVED", "wrapper query with unresolved output types", node
+            )
         return list(node.type.columns)
 
     def _outer_order_by(
@@ -142,7 +145,7 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
         outer: list[ast.OrderExpr] = []
         for order in order_by:
             if order.with_fill is not None:
-                raise QueryError("ORDER BY WITH FILL is not supported in Trino mode.")
+                raise TrinoLoweringError("TRINO_ORDER_BY_WITH_FILL_UNSUPPORTED", "ORDER BY WITH FILL", order.expr)
             if isinstance(order.expr, ast.PositionalRef):
                 expr: ast.Expr = ast.PositionalRef(index=order.expr.index)
             else:
@@ -173,7 +176,11 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
         class FieldQualifier(CloningVisitor):
             def visit_field(self, field: ast.Field) -> ast.Field:
                 if not field.chain or not isinstance(field.chain[-1], str) or field.chain[-1] not in output_names:
-                    raise QueryError("Wrapper predicates must reference projected output aliases in Trino mode.")
+                    raise TrinoLoweringError(
+                        "TRINO_WRAPPER_PREDICATE_NOT_PROJECTED",
+                        "wrapper predicate that does not reference a projected output alias",
+                        field,
+                    )
                 return ast.Field(chain=[source_alias, field.chain[-1]], start=field.start, end=field.end)
 
         return FieldQualifier(clear_types=False).visit(node)
@@ -182,9 +189,9 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
         if node is None and default is not None:
             return default
         if not isinstance(node, ast.Constant) or isinstance(node.value, bool) or not isinstance(node.value, int):
-            raise QueryError(f"{label} must be a constant integer in Trino mode.")
+            raise TrinoLoweringError("TRINO_LIMIT_BY_NON_CONSTANT_LIMIT", f"non-constant {label}", node)
         if node.value < 0:
-            raise QueryError(f"{label} must be non-negative in Trino mode.")
+            raise TrinoLoweringError("TRINO_LIMIT_BY_NEGATIVE_LIMIT", f"negative {label}", node)
         return node.value
 
 
