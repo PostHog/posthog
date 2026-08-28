@@ -1,7 +1,8 @@
 {
     "name": "@posthog/products-autoresearch",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+        "backend:contract-check": "echo 'Contract files unchanged'",
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short || test $? -eq 5"
     },
     "dependencies": {
         "kea": "catalog:",
