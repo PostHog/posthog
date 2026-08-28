@@ -1,5 +1,3 @@
-from typing import Any
-
 from django.conf import settings
 
 from products.workflows.backend.utils.email_sending_tiers import (
@@ -8,9 +6,10 @@ from products.workflows.backend.utils.email_sending_tiers import (
 )
 
 
-def hog_flow_sends_email(actions: Any) -> bool:
+def hog_flow_sends_email(actions: object) -> bool:
     """Whether a workflow's action list contains an email step. The email sending tiers exist to
-    protect the shared SES account, so only workflows that send email are subject to them."""
+    protect the shared SES account, so only workflows that send email are subject to them. Typed
+    `object` because the input is a JSONField whose shape the isinstance checks establish."""
     if not isinstance(actions, list):
         return False
     return any(isinstance(action, dict) and action.get("type") == "function_email" for action in actions)

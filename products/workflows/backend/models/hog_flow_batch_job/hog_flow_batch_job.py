@@ -55,6 +55,9 @@ def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
                 max_audience_size=get_hogflow_batch_trigger_limit(
                     instance.team.id,
                     # The dispatch runs the live config, so the live actions decide the channel.
+                    # Adding an email step after this write does not re-cap the queued batch; that
+                    # gap is bounded by the send-time buckets, which cap every email at execution
+                    # regardless of the audience size dispatched here.
                     sends_email=hog_flow_sends_email(instance.hog_flow.actions),
                 ),
                 # The audience snapshot the confirm check validated - the resolver dispatches from

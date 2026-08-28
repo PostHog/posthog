@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 
@@ -93,6 +94,21 @@ class TestTieredHogflowBatchTriggerLimit(BaseTest):
         # so an unparseable value leaves the team on the flat ceiling instead of the tier-0 cap.
         TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 0})
         assert get_hogflow_batch_trigger_limit(self.team.id) == 5000
+
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER="2020-01-01",
+    )
+    def test_a_database_error_during_resolution_fails_open(self) -> None:
+        # The creation-date lookup runs outside the first config query, so the fail-open guard must
+        # cover the whole resolution: a database blip on the send path returns the flat limit
+        # instead of raising.
+        TeamWorkflowsConfig.objects.filter(team=self.team).delete()
+        with patch(
+            "products.workflows.backend.utils.email_sending_tiers.Team.objects.filter",
+            side_effect=Exception("db down"),
+        ):
+            assert get_hogflow_batch_trigger_limit(self.team.id) == 5000
 
     @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
     def test_a_workflow_without_an_email_step_keeps_the_flat_limit(self) -> None:

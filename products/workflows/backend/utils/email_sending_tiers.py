@@ -141,12 +141,11 @@ def resolve_team_email_sending_tier(team_id: int) -> TeamEmailSendingTier:
     email worker. A config blip must not throttle a legitimate customer.
     """
     top_tier = max(max_email_sending_tier(), MIN_EMAIL_SENDING_TIER)
+    # The guard wraps the whole resolution, not just the first query: the allowlist and no-row
+    # branches run their own creation-date lookup, and a database blip there must fail open too
+    # rather than crash the send path.
     try:
-        row = (
-            TeamWorkflowsConfig.objects.filter(team_id=team_id)
-            .values("email_sending_tier", "email_sending_tier_pinned", "team__created_at")
-            .first()
-        )
+        return _resolve_team_email_sending_tier(team_id, top_tier)
     except Exception:
         logger.exception("workflows_email_tier_lookup_failed", team_id=team_id)
         return TeamEmailSendingTier(
@@ -155,6 +154,14 @@ def resolve_team_email_sending_tier(team_id: int) -> TeamEmailSendingTier:
             limits=get_email_sending_tier_limits(top_tier),
             enforced=False,
         )
+
+
+def _resolve_team_email_sending_tier(team_id: int, top_tier: int) -> TeamEmailSendingTier:
+    row = (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .values("email_sending_tier", "email_sending_tier_pinned", "team__created_at")
+        .first()
+    )
 
     if team_id in settings.HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS:
         # The pre-tier allowlist keeps working as a staff pin at the top tier.
