@@ -63,6 +63,14 @@ import type { ScoutTagOption } from '../utils/scoutTags'
 export type SignalScoutConfig = SignalScoutConfigApi
 type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
 
+function isRecentlySystemPaused(config: SignalScoutConfig, evaluatedAt: Date): boolean {
+    return Boolean(
+        config.status === 'paused_by_system' &&
+        config.status_changed_at &&
+        dayjs(config.status_changed_at).isAfter(dayjs(evaluatedAt).subtract(SCOUT_ROSTER_WINDOW_HOURS, 'hours'))
+    )
+}
+
 /**
  * One `Scout config changed` per field the request carried. A schedule switch patches both
  * `run_interval_minutes` and `run_cron_schedule` at once, and collapsing those into a single event
@@ -892,15 +900,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             ): { pausingSoon: number; recentlyPaused: number } => {
                 let pausingSoon = 0
                 let recentlyPaused = 0
-                const windowStart = dayjs(rosterEvaluatedAt).subtract(SCOUT_ROSTER_WINDOW_HOURS, 'hours')
+                const evaluatedAt = new Date(rosterEvaluatedAt)
                 for (const config of scoutConfigs ?? []) {
                     if (config.status === 'pending_pause' && config.pause_reason === 'ignored') {
                         pausingSoon += 1
-                    } else if (
-                        config.status === 'paused_by_system' &&
-                        config.status_changed_at &&
-                        dayjs(config.status_changed_at).isAfter(windowStart)
-                    ) {
+                    } else if (isRecentlySystemPaused(config, evaluatedAt)) {
                         recentlyPaused += 1
                     }
                 }
@@ -947,7 +951,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 const rollup = values.rollups.get(config.skill_name)
                 return scoutGroup(config, rollup, evaluatedAt) !== scoutGroup(config, rollup, now)
             })
-            if (groupChanged) {
+            const pauseRecencyChanged = (values.scoutConfigs ?? []).some(
+                (config) => isRecentlySystemPaused(config, evaluatedAt) !== isRecentlySystemPaused(config, now)
+            )
+            if (groupChanged || pauseRecencyChanged) {
                 actions.setRosterEvaluatedAt(now.valueOf())
             }
         },

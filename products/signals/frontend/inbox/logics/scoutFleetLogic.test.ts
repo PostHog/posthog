@@ -612,7 +612,7 @@ describe('scoutFleetLogic', () => {
             expect(second?.[1]).toBe(first?.[1])
         })
 
-        it('moves scouts out of cold start when an unchanged runs poll crosses the boundary', async () => {
+        it('advances time-sensitive roster states when an unchanged runs poll crosses a boundary', async () => {
             jest.useFakeTimers()
             try {
                 jest.setSystemTime(Date.UTC(2026, 7, 4))
@@ -624,12 +624,24 @@ describe('scoutFleetLogic', () => {
                 logic = scoutFleetLogic()
                 logic.mount()
                 await expectLogic(logic).toFinishAllListeners()
-                logic.actions.loadScoutConfigsSuccess([BASE_CONFIG])
+                logic.actions.loadScoutConfigsSuccess([
+                    BASE_CONFIG,
+                    {
+                        ...BASE_CONFIG,
+                        id: 'paused',
+                        skill_name: 'signals-scout-paused',
+                        enabled: false,
+                        status: 'paused_by_system',
+                        pause_reason: 'repeated_failures',
+                        status_changed_at: '2026-07-29T00:00:00Z',
+                    },
+                ])
                 logic.actions.loadScoutRuns()
                 await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
                 const firstRuns = logic.values.scoutRuns
 
                 expect(logic.values.rosterScouts[0].group).toBe('settling_in')
+                expect(logic.values.pauseAttentionCounts.recentlyPaused).toBe(1)
 
                 jest.setSystemTime(Date.UTC(2026, 7, 6))
                 logic.actions.loadScoutRuns()
@@ -637,6 +649,7 @@ describe('scoutFleetLogic', () => {
 
                 expect(logic.values.scoutRuns).toBe(firstRuns)
                 expect(logic.values.rosterScouts[0].group).toBe('watching')
+                expect(logic.values.pauseAttentionCounts.recentlyPaused).toBe(0)
             } finally {
                 jest.useRealTimers()
             }
