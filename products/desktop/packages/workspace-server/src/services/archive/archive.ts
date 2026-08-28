@@ -16,6 +16,7 @@ import {
 import { inject, injectable } from "inversify";
 import {
   ARCHIVE_REPOSITORY,
+  DATABASE_SERVICE,
   REPOSITORY_REPOSITORY,
   SUSPENSION_REPOSITORY,
   TASK_METADATA_REPOSITORY,
@@ -40,6 +41,7 @@ import type {
   WorkspaceRepository,
 } from "../../db/repositories/workspace-repository";
 import type { WorktreeRepository } from "../../db/repositories/worktree-repository";
+import type { DatabaseService } from "../../db/service";
 import {
   IMPORTED_SESSION_CLEANER,
   type ImportedSessionCleaner,
@@ -62,6 +64,8 @@ type RollbackFn = () => Promise<void>;
 @injectable()
 export class ArchiveService {
   constructor(
+    @inject(DATABASE_SERVICE)
+    private readonly databaseService: DatabaseService,
     @inject(ARCHIVE_SESSION_CANCELLER)
     private readonly sessionCanceller: SessionCanceller,
     @inject(PROCESS_TRACKING_SERVICE)
@@ -117,6 +121,14 @@ export class ArchiveService {
   }
 
   private async runArchive(input: ArchiveTaskInput): Promise<ArchivedTask> {
+    // The database closes during app teardown while requests are still served,
+    // so an archive can arrive after it is gone. Reading the closed database
+    // throws a raw "Database not initialized" error; surface readable copy the
+    // caller can show and retry instead.
+    if (!this.databaseService.isInitialized()) {
+      throw new Error("Couldn't archive the task. Try again in a moment.");
+    }
+
     this.log.info(`Archiving task ${input.taskId}`);
 
     const rollbacks: RollbackFn[] = [];
