@@ -21,7 +21,7 @@ export type StoredRepublishReason =
     | 'pass_deadline'
     | 'origin_map_full'
     | 'registrable_domain_map_full'
-export type RepublishReason = StoredRepublishReason | 'low_origin_diversity'
+export type RepublishReason = StoredRepublishReason
 
 export interface FetchCandidate {
     originalRef: string
@@ -35,7 +35,7 @@ export interface FetchCandidate {
     fetchCount: number
     republishCount: number
     lastRepublishReason: StoredRepublishReason | null
-    lowOriginDiversityDeferred?: boolean
+    sourcePartitions?: readonly number[]
 }
 
 export interface FrontierRecord {
@@ -51,7 +51,6 @@ export interface FrontierRecord {
             | 'fetchCount'
             | 'republishCount'
             | 'lastRepublishReason'
-            | 'lowOriginDiversityDeferred'
         >
     >
 }
@@ -241,7 +240,6 @@ function parseJob(
             fetchCount,
             republishCount,
             lastRepublishReason,
-            lowOriginDiversityDeferred: lowOriginDiversityDeferred === true ? true : undefined,
         },
     }
 }
@@ -258,7 +256,6 @@ export function serializeFrontierRecord(candidates: FetchCandidate[]): Buffer {
             fetchCount: candidate.fetchCount,
             republishCount: candidate.republishCount,
             lastRepublishReason: candidate.lastRepublishReason,
-            lowOriginDiversityDeferred: candidate.lowOriginDiversityDeferred === true ? true : undefined,
         })),
     }
     return Buffer.from(JSON.stringify(record))
