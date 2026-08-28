@@ -12,7 +12,6 @@ const meta: Meta<typeof ModelSwitchCacheDialog> = {
     contextTokens: 84_000,
     sessionCostUsd: 1.42,
     onConfirm: async () => {},
-    onCompact: async () => true,
     onCopyHandoffSummary: async () => {},
     onCancel: () => {},
   },
@@ -43,7 +42,6 @@ export const SwitchOnly: Story = {
   args: {
     contextTokens: undefined,
     sessionCostUsd: undefined,
-    onCompact: undefined,
     onCopyHandoffSummary: undefined,
   },
 };

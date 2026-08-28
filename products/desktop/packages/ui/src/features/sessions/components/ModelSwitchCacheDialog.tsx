@@ -24,12 +24,11 @@ interface ModelSwitchCacheDialogProps {
   contextTokens?: number;
   sessionCostUsd?: number;
   onConfirm: () => Promise<boolean>;
-  onCompact?: () => Promise<boolean>;
   onCopyHandoffSummary?: () => Promise<void>;
   onCancel: () => void;
 }
 
-type ActiveAction = "compact" | "copy_summary" | "switch" | null;
+type ActiveAction = "copy_summary" | "switch" | null;
 
 export function ModelSwitchCacheDialog({
   open,
@@ -39,7 +38,6 @@ export function ModelSwitchCacheDialog({
   contextTokens = 0,
   sessionCostUsd,
   onConfirm,
-  onCompact,
   onCopyHandoffSummary,
   onCancel,
 }: ModelSwitchCacheDialogProps): ReactElement {
@@ -76,17 +74,6 @@ export function ModelSwitchCacheDialog({
     setActiveAction("switch");
     try {
       if (await onConfirm()) rememberChoice();
-    } finally {
-      if (requestTokenRef.current === token) setActiveAction(null);
-    }
-  };
-
-  const handleCompact = async (): Promise<void> => {
-    if (!onCompact) return;
-    const token = requestTokenRef.current;
-    setActiveAction("compact");
-    try {
-      await onCompact();
     } finally {
       if (requestTokenRef.current === token) setActiveAction(null);
     }
@@ -179,29 +166,6 @@ export function ModelSwitchCacheDialog({
               </Button>
             </div>
           )}
-          {onCompact && (
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex min-w-0 flex-col">
-                <Text className="font-medium text-[12px] text-foreground">
-                  Compact this conversation
-                </Text>
-                <Text className="text-[12px] text-muted-foreground">
-                  If you want to switch, compact first to lower what the new
-                  model must process.
-                </Text>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                loading={activeAction === "compact"}
-                disabled={busy}
-                data-attr="model-switch-cache-dialog-compact"
-                onClick={handleCompact}
-              >
-                Compact
-              </Button>
-            </div>
-          )}
           <div className="flex flex-col gap-1 border-(--gray-4) border-t pt-3">
             <div className="flex items-center gap-2">
               <Checkbox
@@ -217,11 +181,11 @@ export function ModelSwitchCacheDialog({
                 htmlFor={checkboxId}
                 className="cursor-pointer text-[13px] text-muted-foreground"
               >
-                Do not show this ever again
+                Do not show this again
               </Label>
             </div>
             <Text className="text-[12px] text-muted-foreground">
-              You can always change your mind in Cost management settings.
+              You can turn this back on in Cost management settings.
             </Text>
           </div>
         </div>

@@ -339,25 +339,6 @@ export function SessionView({
     contextUsage?.used,
   ]);
 
-  const handleCompactConversation = useCallback(async (): Promise<boolean> => {
-    if (!pendingModelSwitch) return false;
-    const sent = await onSendPrompt("/compact");
-    track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION, {
-      task_id: taskId,
-      from_model: pendingModelSwitch.fromValue,
-      to_model: pendingModelSwitch.value,
-      context_tokens: contextUsage?.used,
-      action: "compact",
-      result: sent ? "succeeded" : "failed",
-    });
-    if (!sent) {
-      toast.error("Could not compact the conversation", {
-        description: "Try again, or switch without compacting.",
-      });
-    }
-    return sent;
-  }, [pendingModelSwitch, onSendPrompt, taskId, contextUsage?.used]);
-
   const handleConfigOptionChange = useCallback(
     (configId: string, value: string) => {
       if (!taskId) return;
@@ -983,11 +964,6 @@ export function SessionView({
             : undefined
         }
         onConfirm={confirmModelSwitch}
-        onCompact={
-          !isPromptPending && !isCompacting && !isEditingQueued
-            ? handleCompactConversation
-            : undefined
-        }
         onCopyHandoffSummary={
           canCopyHandoffSummary && !hasPendingSideQuestion
             ? handleCopyHandoffSummary

@@ -21,7 +21,7 @@ describe("ModelSwitchCacheDialog", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("Do not show this ever again"));
+    fireEvent.click(screen.getByText("Do not show this again"));
     fireEvent.click(screen.getByText("Cancel"));
 
     expect(onCancel).toHaveBeenCalledOnce();
