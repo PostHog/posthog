@@ -15707,14 +15707,6 @@ export namespace Schemas {
     }
 
     /**
-     * Multipart payload for uploading one image into the canvas's asset store.
-     */
-    export interface CanvasAssetUpload {
-      /** The image file (PNG, JPEG, GIF, WebP, AVIF, or SVG), at most 4 MB. The type is detected from the bytes. */
-      file: string;
-    }
-
-    /**
      * One structured validation/build diagnostic for a canvas source project.
      */
     export interface CanvasDiagnostic {
@@ -89964,6 +89956,11 @@ export namespace Schemas {
       Freeform: 'freeform',
       Grid: 'grid',
     } as const;
+
+    export type CanvasesAssetsCreateBody = {
+      /** The image file (PNG, JPEG, GIF, WebP, AVIF, or SVG), at most 4 MB. The type is detected from the bytes. */
+      file: Blob;
+    };
 
     export type CanvasesBuildsRetrieveParams = {
     /**

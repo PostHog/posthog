@@ -772,7 +772,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             404: OpenApiResponse(description="The task or attachment was not found in this project."),
         },
     )
-    @action(methods=["POST"], detail=True, url_path="assets/attach")
+    @action(methods=["POST"], detail=True, url_path="assets/attach", required_scopes=["canvas:write", "task:read"])
     def attach_asset(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Copy an image attached to a task conversation into the canvas's asset store.
 
@@ -783,12 +783,25 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         canvas = self.get_object()
         payload = CanvasAssetAttachSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        task_id = payload.validated_data.get("task_id") or self._sandbox_task_id(request)
-        if task_id is None:
-            return Response(
-                {"detail": "Pass task_id: this credential is not bound to a task.", "code": "invalid_input"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        body_task_id = payload.validated_data.get("task_id")
+        if self._is_sandbox_authenticated(request):
+            # A sandbox credential is bound to one task; the request body must not
+            # be able to widen that to another task the calling user can merely see.
+            task_id = self._sandbox_task_id(request)
+            if task_id is None:
+                return Response(
+                    {"detail": "This sandbox credential is not bound to a task.", "code": "invalid_input"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if body_task_id is not None and body_task_id != task_id:
+                raise NotFound("The task attachment was not found.")
+        else:
+            task_id = body_task_id
+            if task_id is None:
+                return Response(
+                    {"detail": "Pass task_id: this credential is not bound to a task.", "code": "invalid_input"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         user = self._request_user()
         max_asset_bytes = contract_limits()["maxAssetFileBytes"]
         try:

@@ -1107,7 +1107,7 @@
         "feature": "canvas",
         "summary": "Attach a conversation image to a canvas",
         "title": "Attach a conversation image to a canvas",
-        "required_scopes": ["canvas:write"],
+        "required_scopes": ["canvas:write", "task:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

@@ -1394,6 +1394,38 @@ class TestCanvasAssets(CanvasAPIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["sha256"] == hashlib.sha256(PIXEL_PNG).hexdigest()
 
+    def test_attach_rejects_a_different_task_named_by_a_sandbox(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            own_task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Own task",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            other_task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.user,
+                title="Other task",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        other_storage_path = f"tasks/artifacts/team_{self.team.id}/task_{other_task.id}/staged/abc123/pixel.png"
+        self.storage.write(other_storage_path, PIXEL_PNG, extras={"ContentType": "image/png"})
+
+        client = self._sandbox_client(own_task.id)
+        response = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/assets/attach/",
+            {"task_id": str(other_task.id), "storage_path": other_storage_path},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(own_task.id),
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
     def test_attach_by_file_name_falls_back_to_staged_uploads(self):
         canvas_id = self._create_canvas()
         with team_scope(self.team.id):

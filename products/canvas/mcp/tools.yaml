@@ -108,6 +108,7 @@ tools:
         enabled: true
         scopes:
             - canvas:write
+            - task:read
         annotations:
             readOnly: false
             destructive: false
