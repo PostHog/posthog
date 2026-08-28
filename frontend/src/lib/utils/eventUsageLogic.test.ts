@@ -6,12 +6,13 @@ import type {
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentTrendsQuery,
+    Node,
 } from '~/queries/schema/schema-general'
-import { BaseMathType } from '~/types'
+import { BaseMathType, BehavioralEventType, FilterLogicalOperator, PropertyFilterType } from '~/types'
 
-import { getEventPropertiesForMetric } from './eventUsageLogic'
+import { getEventPropertiesForMetric, sanitizeQuery } from './eventUsageLogic'
 
-describe('getEventPropertiesForMetric', () => {
+describe('eventUsageLogic', () => {
     describe('ExperimentMetric (new format)', () => {
         it('extracts funnel metric properties', () => {
             const metric: ExperimentFunnelMetric = {
@@ -207,6 +208,49 @@ describe('getEventPropertiesForMetric', () => {
 
             expect(result.funnel_steps_count).toBe(0)
             expect(result.property_filter_count).toBe(0)
+        })
+    })
+
+    describe('sanitizeQuery', () => {
+        it('counts behavioral filters across global and series filters', () => {
+            const query = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            properties: [
+                                {
+                                    type: PropertyFilterType.Behavioral,
+                                    key: 'signed up',
+                                    value: BehavioralEventType.PerformEvent,
+                                    event_type: 'events',
+                                },
+                            ],
+                        },
+                    ],
+                    properties: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.Behavioral,
+                                        key: 'completed onboarding',
+                                        value: BehavioralEventType.PerformEvent,
+                                        event_type: 'events',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            } as unknown as Node
+
+            expect(sanitizeQuery(query).behavioral_filter_count).toBe(2)
         })
     })
 
