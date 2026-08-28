@@ -5,9 +5,10 @@ import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSegmentedButton 
 
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { Label } from 'lib/ui/Label/Label'
-import { isLaunched } from 'scenes/experiments/experimentStatus'
 
 import { Experiment } from '~/types'
+
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 
 import { ManualCalculatorMetricType } from './calculations'
 import { runningTimeLogic } from './runningTimeLogic'

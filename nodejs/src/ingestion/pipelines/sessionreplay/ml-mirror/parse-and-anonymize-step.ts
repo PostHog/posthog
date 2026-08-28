@@ -10,17 +10,28 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 import { recordAnonymizeTimingSpans } from '~/ingestion/pipelines/sessionreplay/anonymize-timing-spans'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
+import {
+    hashImageBytes,
+    imageRef,
+    isImageRef,
+    urlRef,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
+import {
+    ParseMessageStepInput,
+    ParseMessageStepOutput,
+    getContentEncoding,
+    isGzipped,
+} from '~/ingestion/pipelines/sessionreplay/parse-message-step'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { hashImageBytes, imageRef, isImageRef, urlRef } from './ml-mirror-image-scrub/content-ref'
+import { MlMirrorMetrics } from './metrics'
 import {
     PSEUDONYM_IMAGE_CONTENT_KEY,
     PSEUDONYM_IMAGE_URL_GLOBAL_VALUE,
     PSEUDONYM_IMAGE_URL_KEY,
     PSEUDONYM_TEAM,
     pseudonymize,
-} from './ml-mirror/pseudonymize'
-import { ParseMessageStepInput, ParseMessageStepOutput, getContentEncoding, isGzipped } from './parse-message-step'
+} from './pseudonymize'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 
@@ -131,7 +142,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             // would drop — those messages fall back to the inline blur, loudly.
             if (!isImageRef(imageRef(pseudoTeam, hashImageBytes(contentKey, Buffer.alloc(0))))) {
                 logger.error('🖼️', 'ml_image_scrub_pseudo_team_shape_invalid', { teamId })
-                SessionRecordingIngesterMetrics.incrementMlImagePseudoTeamInvalid()
+                MlMirrorMetrics.incrementMlImagePseudoTeamInvalid()
                 return undefined
             }
             keys = {
@@ -172,10 +183,10 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
             logger.warn('🙈', 'anonymize_event_failed', { error: String(error) })
-            SessionRecordingIngesterMetrics.incrementMlAnonymizeFailed('rust')
+            MlMirrorMetrics.incrementMlAnonymizeFailed('rust')
             return drop('anonymize_failed')
         }
-        SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('rust', performance.now() - t0, result.route ?? '')
+        MlMirrorMetrics.observeMlAnonymizeDuration('rust', performance.now() - t0, result.route ?? '')
         recordAnonymizeTimingSpans(callStartEpochMs, result.timings, {
             route: result.route,
             failureReason: result.failed ? (result.reason ?? 'anonymize_failed') : null,
@@ -199,7 +210,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             }
             // anonymize_failed (or anything unclassified): fail closed.
             logger.warn('🙈', 'anonymize_event_failed', { error: result.error ?? 'rust anonymizer failed' })
-            SessionRecordingIngesterMetrics.incrementMlAnonymizeFailed('rust')
+            MlMirrorMetrics.incrementMlAnonymizeFailed('rust')
             return drop('anonymize_failed')
         }
 
@@ -209,7 +220,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         } catch (error) {
             // Fail closed: an uncaught throw here poisons the pipeline instead of dropping one message.
             logger.warn('🙈', 'anonymize_event_failed', { error: String(error) })
-            SessionRecordingIngesterMetrics.incrementMlAnonymizeFailed('rust')
+            MlMirrorMetrics.incrementMlAnonymizeFailed('rust')
             return drop('anonymize_failed')
         }
 
@@ -284,7 +295,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
 
 function recordImageSources(meta: AnonymizeMeta): void {
     for (const imageSource of meta.imageSources ?? []) {
-        SessionRecordingIngesterMetrics.incrementMlImageReferencesByProperty(
+        MlMirrorMetrics.incrementMlImageReferencesByProperty(
             imageSource.source,
             imageSource.property,
             imageSource.kind,
@@ -317,7 +328,7 @@ function unpackCollectedImages(
             bytes: packed.subarray(entry.offset, entry.offset + entry.len),
         })
     }
-    SessionRecordingIngesterMetrics.incrementMlImagesCollected('collected', images.length)
+    MlMirrorMetrics.incrementMlImagesCollected('collected', images.length)
     return images.length > 0 ? images : undefined
 }
 
@@ -342,13 +353,13 @@ function unpackCollectedUrls(pseudoTeam: string, meta: AnonymizeMeta): Collected
         domains.add(entry.domain)
     }
     for (const decline of meta.urlDeclines ?? []) {
-        SessionRecordingIngesterMetrics.incrementMlUrlsDeclined(decline.reason, decline.count)
+        MlMirrorMetrics.incrementMlUrlsDeclined(decline.reason, decline.count)
     }
-    SessionRecordingIngesterMetrics.observeMlUrlDomainsPerMessage(domains.size)
+    MlMirrorMetrics.observeMlUrlDomainsPerMessage(domains.size)
     if (urls.length === 0) {
         return undefined
     }
-    SessionRecordingIngesterMetrics.incrementMlUrlsCollected('collected', urls.length)
-    SessionRecordingIngesterMetrics.observeMlUrlsPerMessage(urls.length)
+    MlMirrorMetrics.incrementMlUrlsCollected('collected', urls.length)
+    MlMirrorMetrics.observeMlUrlsPerMessage(urls.length)
     return urls
 }

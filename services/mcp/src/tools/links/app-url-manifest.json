@@ -1344,6 +1344,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "replayVisionScannerOverview": {
+        "template": "/replay-vision/{id}/overview",
+        "params": ["id"],
+        "scope": "project"
+    },
     "replayVisionScannerSelfDriving": {
         "template": "/replay-vision/{id}/self-driving",
         "params": ["id"],
@@ -1691,6 +1696,11 @@
     },
     "webAnalytics": {
         "template": "/web",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsAgents": {
+        "template": "/web/agents",
         "params": [],
         "scope": "project"
     },

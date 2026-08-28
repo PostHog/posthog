@@ -11980,15 +11980,111 @@ export namespace Schemas {
       type: SnowflakeDestinationConfigType;
     }
 
-    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig | AwsS3DestinationConfig | S3CompatibleDestinationConfig | SnowflakeDestinationConfig;
+    /**
+     * * `varchar` - varchar
+     * * `super` - super
+     */
+    export type PropertiesDataTypeEnum = typeof PropertiesDataTypeEnum[keyof typeof PropertiesDataTypeEnum];
+
+
+    export const PropertiesDataTypeEnum = {
+      Varchar: 'varchar',
+      Super: 'super',
+    } as const;
+
+    /**
+     * * `INSERT` - INSERT
+     * * `COPY` - COPY
+     */
+    export type RedshiftExportModeEnum = typeof RedshiftExportModeEnum[keyof typeof RedshiftExportModeEnum];
+
+
+    export const RedshiftExportModeEnum = {
+      Insert: 'INSERT',
+      Copy: 'COPY',
+    } as const;
+
+    /**
+     * Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.
+     */
+    export type RedshiftCopyInputsAuthorization = number | string | {
+      aws_access_key_id: string;
+      aws_secret_access_key: string;
+    };
+
+    /**
+     * Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.
+     */
+    export type RedshiftCopyInputsBucketCredentials = number | {
+      aws_access_key_id: string;
+      aws_secret_access_key: string;
+    };
+
+    /**
+     * S3 staging configuration for a Redshift batch export running in COPY mode.
+     */
+    export interface RedshiftCopyInputs {
+      /** S3 bucket where files are staged before the Redshift COPY. */
+      s3_bucket: string;
+      /** AWS region of the staging S3 bucket. */
+      region_name: string;
+      /** Key prefix for staged files in the S3 bucket. */
+      s3_key_prefix: string;
+      /** Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration. */
+      authorization: RedshiftCopyInputsAuthorization;
+      /** Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration. */
+      bucket_credentials: RedshiftCopyInputsBucketCredentials;
+    }
+
+    export type RedshiftDestinationConfigType = typeof RedshiftDestinationConfigType[keyof typeof RedshiftDestinationConfigType];
+
+
+    export const RedshiftDestinationConfigType = {
+      Redshift: 'Redshift',
+    } as const;
+
+    /**
+     * Typed configuration for a Redshift batch-export destination.
+     *
+     * Connection credentials may live in a linked Integration (when one is provided) or inline in
+     * this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
+     * `products/batch_exports/backend/service.py`.
+     */
+    export interface RedshiftDestinationConfig {
+      /** Redshift database name to connect to. */
+      database: string;
+      /** Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves. */
+      host?: string;
+      /** Redshift schema name containing the destination table. */
+      schema?: string;
+      /** Redshift table name to write exported rows into. */
+      table_name?: string;
+      /** Port the Redshift server listens on. */
+      port?: number;
+      /** Data type used for JSON-like columns such as event properties.
+       *
+       * * `varchar` - varchar
+       * * `super` - super */
+      properties_data_type?: PropertiesDataTypeEnum;
+      /** How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.
+       *
+       * * `INSERT` - INSERT
+       * * `COPY` - COPY */
+      mode?: RedshiftExportModeEnum;
+      /** S3 staging configuration, required when mode is 'COPY'. */
+      copy_inputs?: RedshiftCopyInputs;
+      type: RedshiftDestinationConfigType;
+    }
+
+    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig | AwsS3DestinationConfig | S3CompatibleDestinationConfig | SnowflakeDestinationConfig | RedshiftDestinationConfig;
 
     /**
      * Serializer for an BatchExportDestination model.
      *
      * The `config` field is polymorphic and typed only for destinations that keep
      * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
-     * AwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a
-     * typed OpenAPI schema. Secret fields are stripped from `config` on read.
+     * AwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape
+     * but without a typed OpenAPI schema. Secret fields are stripped from `config` on read.
      */
     export interface BatchExportDestination {
       /** A choice of supported BatchExportDestination types.
@@ -12007,7 +12103,7 @@ export namespace Schemas {
        * * `NoOp` - Noop
        * * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
-      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**
          * The integration for this destination.
@@ -12015,7 +12111,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.
+         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake and Redshift (inline credentials remain supported); unused for other types.
          * @nullable
          */
       integration_id?: number | null;
@@ -13001,7 +13097,24 @@ export namespace Schemas {
       config: SnowflakeDestinationConfig;
     }
 
-    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest | AwsS3DestinationRequest | S3CompatibleDestinationRequest | SnowflakeDestinationRequest;
+    export type RedshiftDestinationRequestType = typeof RedshiftDestinationRequestType[keyof typeof RedshiftDestinationRequestType];
+
+
+    export const RedshiftDestinationRequestType = {
+      Redshift: 'Redshift',
+    } as const;
+
+    /**
+     * Request shape for creating or updating a Redshift batch-export destination.
+     */
+    export interface RedshiftDestinationRequest {
+      type: RedshiftDestinationRequestType;
+      /** ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
+      integration_id?: number;
+      config: RedshiftDestinationConfig;
+    }
+
+    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest | AwsS3DestinationRequest | S3CompatibleDestinationRequest | SnowflakeDestinationRequest | RedshiftDestinationRequest;
 
     /**
      * Request body for create/partial_update on BatchExportViewSet.
@@ -19869,6 +19982,7 @@ export namespace Schemas {
 
     /**
      * * `text` - text
+     * * `link` - link
      * * `number` - number
      * * `currency` - currency
      * * `percent` - percent
@@ -19882,6 +19996,7 @@ export namespace Schemas {
 
     export const CustomPropertyDisplayTypeEnum = {
       Text: 'text',
+      Link: 'link',
       Number: 'number',
       Currency: 'currency',
       Percent: 'percent',
@@ -20168,9 +20283,10 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
+      /** How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL.
        *
        * * `text` - text
+       * * `link` - link
        * * `number` - number
        * * `currency` - currency
        * * `percent` - percent
@@ -20304,7 +20420,7 @@ export namespace Schemas {
     export interface CustomPropertyValueWrite {
       /** UUID of the custom property definition whose value to set for this account. */
       definition: string;
-      /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties. */
+      /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, or text for text properties. */
       value: string | number | boolean;
     }
 
@@ -33330,7 +33446,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyGenericSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33342,7 +33458,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33370,7 +33486,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyExistsSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33382,7 +33498,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33398,7 +33514,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyDateSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33410,7 +33526,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33453,7 +33569,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertySemverSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33465,7 +33581,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33500,7 +33616,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyMultiContainsSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33512,7 +33628,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33560,7 +33676,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33606,7 +33722,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -34329,6 +34445,8 @@ export namespace Schemas {
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
+     * * `experiment_config_change` - Experiment Config Change
+     * * `metric_config_change` - Metric Config Change
      * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
@@ -34343,6 +34461,8 @@ export namespace Schemas {
       ColdRun: 'cold_run',
       StaleRefresh: 'stale_refresh',
       AutoRefresh: 'auto_refresh',
+      ExperimentConfigChange: 'experiment_config_change',
+      MetricConfigChange: 'metric_config_change',
       ConfigChange: 'config_change',
       ExperimentLaunch: 'experiment_launch',
       ExperimentStop: 'experiment_stop',
@@ -34428,6 +34548,8 @@ export namespace Schemas {
        * * `cold_run` - Cold Run
        * * `stale_refresh` - Stale Refresh
        * * `auto_refresh` - Auto Refresh
+       * * `experiment_config_change` - Experiment Config Change
+       * * `metric_config_change` - Metric Config Change
        * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
@@ -39016,6 +39138,11 @@ export namespace Schemas {
       readonly account: FeatureRequestAccount;
       /** Active account links visible to the caller, with account-specific evidence. */
       readonly account_links: readonly FeatureRequestAccountLink[];
+      /**
+         * Total evidence items recorded across visible account links.
+         * @minimum 0
+         */
+      readonly evidence_count: number;
       /** Product areas affected by this request. */
       readonly product_areas: readonly FeatureRequestProductArea[];
       /**
@@ -43789,6 +43916,8 @@ export namespace Schemas {
       email?: string | null;
       /** When the recording ends in ISO format. */
       end_time: string;
+      /** Number of captured rrweb events in the recording. Only present once metadata is loaded. */
+      event_count?: number | null;
       /** When the recording expires, in ISO format. */
       expiry_time?: string | null;
       /** External references to third party issues. */
@@ -43818,6 +43947,8 @@ export namespace Schemas {
       start_time: string;
       start_url?: string | null;
       summary?: string | null;
+      /** Total stored size of the recording's snapshot data in bytes. Only present once metadata is loaded. */
+      total_size?: number | null;
       /** Whether this recording has been viewed by you already. */
       viewed: boolean;
       /** user ids of other users who have viewed this recording */
@@ -49385,7 +49516,8 @@ export namespace Schemas {
       display_name?: string;
       /** @maxLength 2048 */
       url?: string;
-      description?: string;
+      /** Installation description, falling back to the linked template description. */
+      readonly description: string;
       auth_type?: MCPAuthTypeEnum;
       is_enabled?: boolean;
       readonly scope: MCPServerInstallationScopeEnum;
@@ -52321,6 +52453,106 @@ export namespace Schemas {
          * @nullable
          */
       github_login: string | null;
+    }
+
+    /**
+     * * `discussions_mentioned` - discussions_mentioned
+     * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+     * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+     * * `materialized_view_sync_failed` - materialized_view_sync_failed
+     * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+     * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+     * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+     * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+     * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+     * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled
+     */
+    export type SettingEnum = typeof SettingEnum[keyof typeof SettingEnum];
+
+
+    export const SettingEnum = {
+      DiscussionsMentioned: 'discussions_mentioned',
+      ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
+      ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
+      MaterializedViewSyncFailed: 'materialized_view_sync_failed',
+      MaterializedViewSyncFailedDaily: 'materialized_view_sync_failed_daily',
+      MaterializedViewSyncFailedImmediate: 'materialized_view_sync_failed_immediate',
+      OrganizationMemberJoinEmailDisabled: 'organization_member_join_email_disabled',
+      PipelineNotificationsDisabled: 'pipeline_notifications_disabled',
+      ProjectWeeklyDigestDisabled: 'project_weekly_digest_disabled',
+      WebAnalyticsWeeklyDigestProjectEnabled: 'web_analytics_weekly_digest_project_enabled',
+    } as const;
+
+    export interface OrganizationNotificationLock {
+      /** Notification setting this rule enforces.
+       *
+       * * `discussions_mentioned` - discussions_mentioned
+       * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+       * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+       * * `materialized_view_sync_failed` - materialized_view_sync_failed
+       * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+       * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+       * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+       * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+       * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+       * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled */
+      setting: SettingEnum;
+      /** What the setting applies to: a project ID or an organization ID. Empty for a setting that is a single switch. */
+      scope_id: string;
+      /** The value the organization enforces. */
+      locked_value: boolean;
+    }
+
+    export interface OrganizationNotificationLockChange {
+      /** Member this rule applies to. */
+      user_id: number;
+      /** Notification setting to lock or unlock.
+       *
+       * * `discussions_mentioned` - discussions_mentioned
+       * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+       * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+       * * `materialized_view_sync_failed` - materialized_view_sync_failed
+       * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+       * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+       * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+       * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+       * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+       * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled */
+      setting: SettingEnum;
+      /** Project ID for a setting that breaks down by project, organization ID for the member-join email, empty for a single switch. */
+      scope_id?: string;
+      /**
+         * Value to enforce, or null to remove the rule and give the member their own setting back.
+         * @nullable
+         */
+      locked_value: boolean | null;
+    }
+
+    export interface OrganizationNotificationLockBulkUpdate {
+      /**
+         * Only the entries you changed. Anything left out keeps whatever it had.
+         * @maxItems 2000
+         */
+      changes: OrganizationNotificationLockChange[];
+    }
+
+    export interface OrganizationNotificationMember {
+      /** Numeric ID of the member, used as the key when saving changes. */
+      user_id: number;
+      /** Stable public identifier of the member. */
+      uuid: string;
+      /** Member's first name, for display. */
+      first_name: string;
+      /** Member's last name, for display. */
+      last_name: string;
+      /** Member's email address, which is where these notifications go. */
+      email: string;
+      /** Member's organization membership level: 1 for member, 8 for admin, 15 for owner. */
+      organization_membership_level: number;
+      /** False when the member's membership level is above yours, which means you cannot change their settings. */
+      editable: boolean;
+      /** Rules in force for this member. */
+      locks: OrganizationNotificationLock[];
     }
 
     /**
@@ -55411,6 +55643,16 @@ export namespace Schemas {
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
       readonly matches_filters: boolean;
+      /**
+         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly total_size: number | null;
+      /**
+         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly event_count: number | null;
     }
 
     export interface PaginatedSessionRecordingList {
@@ -58034,6 +58276,8 @@ export namespace Schemas {
       readonly is_email_verified: boolean | null;
       /** Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is. */
       notification_settings?: UserNotificationSettings;
+      /** Notification settings an organization admin enforces on this user. The matching controls are read-only, and `notification_settings` still holds the user's own choice underneath. Read-only. */
+      readonly notification_locks: readonly OrganizationNotificationLock[];
       /**
          * Whether PostHog should anonymize events captured for this user when identified.
          * @nullable
@@ -59751,9 +59995,10 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.
+      /** How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL.
        *
        * * `text` - text
+       * * `link` - link
        * * `number` - number
        * * `currency` - currency
        * * `percent` - percent
@@ -64929,6 +65174,16 @@ export namespace Schemas {
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
       readonly matches_filters?: boolean;
+      /**
+         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly total_size?: number | null;
+      /**
+         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly event_count?: number | null;
     }
 
     /**
@@ -66786,6 +67041,8 @@ export namespace Schemas {
       readonly is_email_verified?: boolean | null;
       /** Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is. */
       notification_settings?: PatchedUserNotificationSettings;
+      /** Notification settings an organization admin enforces on this user. The matching controls are read-only, and `notification_settings` still holds the user's own choice underneath. Read-only. */
+      readonly notification_locks?: readonly OrganizationNotificationLock[];
       /**
          * Whether PostHog should anonymize events captured for this user when identified.
          * @nullable
@@ -72884,6 +73141,8 @@ export namespace Schemas {
        * * `cold_run` - Cold Run
        * * `stale_refresh` - Stale Refresh
        * * `auto_refresh` - Auto Refresh
+       * * `experiment_config_change` - Experiment Config Change
+       * * `metric_config_change` - Metric Config Change
        * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
@@ -72997,6 +73256,16 @@ export namespace Schemas {
       EveryRunInThisRepo: 'every_run_in_this_repo',
       RunsTouchingThisArea: 'runs_touching_this_area',
       OneOff: 'one_off',
+    } as const;
+
+    /**
+     * * `Redshift` - Redshift
+     */
+    export type RedshiftDestinationRequestTypeEnum = typeof RedshiftDestinationRequestTypeEnum[keyof typeof RedshiftDestinationRequestTypeEnum];
+
+
+    export const RedshiftDestinationRequestTypeEnum = {
+      Redshift: 'Redshift',
     } as const;
 
     export interface RelationshipReject {
@@ -75108,6 +75377,8 @@ export namespace Schemas {
       readonly description: string;
       /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
       readonly scout_origin: ScoutOriginEnum;
+      /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
+      readonly owners: readonly UserBasic[];
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
       readonly enabled: boolean;
       /** Lifecycle status. `active`: runs on its schedule. `pending_pause`: still running, but flagged by the system to pause soon unless something changes (any config edit clears it). `paused_by_system`: paused automatically, see `pause_reason`; set `enabled=true` to resume. `paused_by_user`: switched off by a person and never resumed automatically.
@@ -87188,6 +87459,23 @@ export namespace Schemas {
       groupBy?: _MetricGroupBy[];
     }
 
+    export interface _MetricErrorSpike {
+      /** When the error spike was detected, ISO 8601. */
+      detected_at: string;
+      /** Error Tracking issue that spiked. */
+      issue_id: string;
+      /**
+         * Issue name, if one is set.
+         * @nullable
+         */
+      issue_name: string | null;
+    }
+
+    export interface _MetricErrorSpikesResponse {
+      /** Error Tracking issue spikes detected in the window, newest first. Team-wide: not yet scoped to a specific metric's service. */
+      results: _MetricErrorSpike[];
+    }
+
     /**
      * Per-emission attributes (high-cardinality labels on the data point).
      */
@@ -92574,6 +92862,16 @@ export namespace Schemas {
      * * `priority` - Priority: low to high
      * * `title` - Title: A to Z
      * * `-title` - Title: Z to A
+     * * `account` - Accounts: A to Z
+     * * `-account` - Accounts: Z to A
+     * * `product_area` - Product areas: A to Z
+     * * `-product_area` - Product areas: Z to A
+     * * `status` - Status: A to Z
+     * * `-status` - Status: Z to A
+     * * `created_by` - Created by: A to Z
+     * * `-created_by` - Created by: Z to A
+     * * `evidence_count` - Evidence: low to high
+     * * `-evidence_count` - Evidence: high to low
      * @minLength 1
      */
     request_ordering?: string;
@@ -95637,6 +95935,17 @@ export namespace Schemas {
      * @maxLength 255
      */
     search?: string;
+    };
+
+    export type MetricsErrorSpikesRetrieveParams = {
+    /**
+     * Lower bound (inclusive) for the spike window. ISO 8601.
+     */
+    dateFrom: string;
+    /**
+     * Upper bound (exclusive) for the spike window. Defaults to now if omitted.
+     */
+    dateTo?: string;
     };
 
     export type MetricsValuesRetrieveParams = {
