@@ -408,7 +408,6 @@ describe("TaskCreationSaga", () => {
         additionalDirectories: ["/tmp/shared"],
         channelMode: true,
       },
-      projectTrustPath: "/tmp/scratch/task-123",
       prompt: "Draft a launch email",
       model: "claude-sonnet",
       thinkingLevel: "medium",
