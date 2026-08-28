@@ -1714,7 +1714,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Kill switch: build per access so query threads never share schema state. No timings
             # measure here because concurrent threads reach this path and HogQLTimings is not
             # thread-safe.
-            return Database.create_for(team=self.team, user=self.user, modifiers=self.modifiers)
+            return Database.create_for(
+                team=self.team, user=self.user, modifiers=self.modifiers, trigger="shared_kill_switch"
+            )
         if self._shared_database is None:
             # Concurrent query threads (funnels compare mode) can first-touch this property at the
             # same time. The lock makes the build run once, and keeps the measure on the single
@@ -1727,6 +1729,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             user=self.user,
                             modifiers=self.modifiers,
                             timings=self.timings,
+                            trigger="shared",
                         )
         return self._shared_database
 
@@ -3076,7 +3079,7 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         self._build_hogql_context_for_user(self.user)
 
     def _build_hogql_context_for_user(self, user: Optional[User]) -> None:
-        self.database = Database.create_for(team=self.team, user=user)
+        self.database = Database.create_for(team=self.team, user=user, trigger="runner_context")
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database, user=user)
 
     def _on_user_changed(self) -> None:
