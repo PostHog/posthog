@@ -1,4 +1,10 @@
-# LOGS role — managed logs/traces/metrics objects extracted from *-logs.hcl dumps.
+# LOGS role, all envs — the Kafka metrics ingest chain: kafka_metrics_avro + the MVs
+# into metrics1 (raw), metric_samples1/metric_series1, metric_attributes, and the
+# metrics_kafka_metrics lag bookkeeping. Declared in the local single-shard shape
+# migration 0309 creates; the cloud envs restore their /clickhouse/tables/logs/{shard}
+# ZK paths via patches in roles/logs/shared, and the prod codec deltas sit in
+# roles/logs/prod. The local codec deltas (value/count, matching prod) sit in
+# roles/logs/local.
 database "posthog" {
   table "kafka_metrics_avro" {
     column "uuid" {
@@ -218,7 +224,7 @@ database "posthog" {
       granularity = 1
     }
     engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/logs/{shard}/posthog.metric_attributes"
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metric_attributes"
       replica_name = "{replica}"
     }
   }
@@ -305,7 +311,7 @@ database "posthog" {
       type = "SimpleAggregateFunction(max, UInt64)"
     }
     engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/logs/{shard}/posthog.metrics_kafka_metrics"
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics_kafka_metrics"
       replica_name = "{replica}"
     }
   }
@@ -397,7 +403,7 @@ database "posthog" {
       alias = "mapApply((k, v) -> (left(k, -5), v), attributes_map_str)"
     }
     engine "distributed" {
-      cluster_name    = "logs"
+      cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
       remote_table    = "metrics1"
     }
@@ -541,8 +547,84 @@ SQL
 
     }
     engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/tables/logs/{shard}/posthog.metrics1"
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics1"
       replica_name = "{replica}"
+    }
+  }
+  materialized_view "kafka_metrics_avro_to_metric_samples" {
+    to_table = "posthog.metric_samples1"
+    query    = file("sql/kafka_metrics_avro_to_metric_samples.sql")
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "String"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "count" {
+      type = "UInt64"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+  }
+  materialized_view "kafka_metrics_avro_to_metric_series" {
+    to_table = "posthog.metric_series1"
+    query    = file("sql/kafka_metrics_avro_to_metric_series.sql")
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "String"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "metric_type" {
+      type = "String"
+    }
+    column "unit" {
+      type = "String"
+    }
+    column "aggregation_temporality" {
+      type = "String"
+    }
+    column "is_monotonic" {
+      type = "UInt8"
+    }
+    column "service_name" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(String, String)"
+    }
+    column "attributes" {
+      type = "Map(String, String)"
+    }
+    column "last_seen" {
+      type = "DateTime64(6)"
     }
   }
 }
