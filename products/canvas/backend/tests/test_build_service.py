@@ -437,6 +437,7 @@ class TestAssetSideLoading(BuildServiceBaseTest):
         assert build.status == CanvasBuild.STATUS_FAILED
         assert build.diagnostics[0]["code"] == "build_unavailable"
 
+
 class TestBuildDispatch(BuildServiceBaseTest):
     def test_flagged_in_team_dispatches_to_temporal_instead_of_celery(self) -> None:
         with (
