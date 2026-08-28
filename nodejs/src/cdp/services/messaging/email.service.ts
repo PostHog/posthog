@@ -229,12 +229,26 @@ export class EmailService {
         let trackingEnabled = true
 
         try {
-            // Team-level kill switch: staff suspend all workflow email for a team whose sender
-            // reputation endangers shared SES deliverability. Same choke-point placement as the
-            // suppression check below so no upstream route can bypass it. Test sends are blocked
-            // too — they hit SES and count against the tenant all the same.
-            if (await this.teamWorkflowsConfigService.isEmailSendingSuspended(invocation.teamId)) {
-                addLog('warn', 'Skipping send: email sending is suspended for this project')
+            // Team-level kill switches: staff suspend all workflow email for a team whose sender
+            // reputation endangers shared SES deliverability, and AWS pauses the team's SES tenant
+            // for the same underlying reason. Same choke-point placement as the suppression check
+            // below so no upstream route can bypass either. Test sends are blocked too — they hit
+            // SES and count against the tenant all the same. A paused tenant rejects every send, so
+            // gating here turns wasted invocations into one clear skip.
+            const suspensionCause = await this.teamWorkflowsConfigService.getEmailSendingSuspension(invocation.teamId)
+            if (suspensionCause) {
+                addLog(
+                    'warn',
+                    suspensionCause === 'staff'
+                        ? 'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.'
+                        : 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.'
+                )
+                logger.warn('Skipping email send for a suspended team', {
+                    teamId: invocation.teamId,
+                    cause: suspensionCause,
+                })
+                // One metric for both causes: from the project's side sending is off either way, so
+                // the cause belongs in the log lines above and not in a second metric name.
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,

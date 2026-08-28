@@ -29,6 +29,7 @@ import { LogRow } from 'products/logs/frontend/components/VirtualizedLogsList/Lo
 import { LogRowHeader } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowHeader'
 import { VirtualizedTableColumn } from 'products/logs/frontend/components/VirtualizedLogsList/types'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
+import { logsDropRulesSettingsUrl } from 'products/logs/frontend/logsDropRulesSettingsUrl'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
@@ -349,10 +350,16 @@ export function VirtualizedLogsList({
                     <h4 className="font-semibold m-0">No logs found</h4>
                     <p className="text-muted text-sm mt-1 mb-0 max-w-80">
                         Try adjusting your filters, expanding the time range, or checking that your app is sending logs.
+                        Drop rules can also remove logs before they are stored.
                     </p>
-                    <Link to="https://posthog.com/docs/logs/" target="_blank">
-                        View documentation
-                    </Link>
+                    <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+                        <Link to={logsDropRulesSettingsUrl()} data-attr="logs-empty-state-drop-rules">
+                            Check drop rules
+                        </Link>
+                        <Link to="https://posthog.com/docs/logs/" target="_blank">
+                            View documentation
+                        </Link>
+                    </div>
                 </div>
                 {onExpandTimeRange && (
                     <LemonButton type="secondary" size="small" onClick={onExpandTimeRange}>
