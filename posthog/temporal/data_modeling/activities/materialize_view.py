@@ -29,7 +29,10 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
-from posthog.temporal.common.clickhouse import get_client as get_clickhouse_client
+from posthog.temporal.common.clickhouse import (
+    ClickHouseError,
+    get_client as get_clickhouse_client,
+)
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.incremental_write import (
@@ -99,6 +102,30 @@ def _print_describe_variant(
 ) -> str:
     downgraded = _DowngradeGlobalIn().visit(prepared_query)
     return print_prepared_ast(downgraded, context=context, dialect="clickhouse", settings=settings, stack=[])
+
+
+def _print_untouched(
+    prepared_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, settings: HogQLGlobalSettings
+) -> str:
+    return print_prepared_ast(prepared_query, context=context, dialect="clickhouse", settings=settings, stack=[])
+
+
+async def _describe_columns(
+    printed: str, query_parameters: dict[str, typing.Any], query_settings: dict[str, str] | None
+) -> dict[str, str]:
+    async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
+        async with client.apost_query(
+            query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
+            query_parameters=query_parameters,
+            query_id=str(uuid.uuid4()),
+            settings=query_settings,
+        ) as ch_response:
+            table_describe_response = await ch_response.content.read()
+    columns: dict[str, str] = {}
+    for line in table_describe_response.decode("utf-8").splitlines():
+        column_name, ch_type = line.strip().split("\t")
+        columns[column_name] = ch_type
+    return columns
 
 
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
@@ -540,7 +567,6 @@ async def hogql_table(
 
     printed = await database_sync_to_async_pool(_print_describe_variant)(prepared_hogql_query, context, settings)
 
-    table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw"
     arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
         "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
         "Nullable(Nothing)": ("toNullableString", ()),
@@ -565,21 +591,23 @@ async def hogql_table(
         iter([call_tuple for uat, call_tuple in arrow_type_conversion.items() if uat.lower() in ch_type.lower()])
     )
 
+    try:
+        described_columns = await _describe_columns(printed, context.values, DESCRIBE_QUERY_SETTINGS)
+    except ClickHouseError as error:
+        # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an
+        # aggregate function. The untouched query is the one that runs, so it always describes.
+        await logger.awarning(
+            "DESCRIBE with local subqueries failed, retrying with the untouched query", error=str(error)
+        )
+        untouched = await database_sync_to_async_pool(_print_untouched)(prepared_hogql_query, context, settings)
+        described_columns = await _describe_columns(untouched, context.values, None)
+
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
-        async with client.apost_query(
-            query=table_describe_query,
-            query_parameters=context.values,
-            query_id=str(uuid.uuid4()),
-            settings=DESCRIBE_QUERY_SETTINGS,
-        ) as ch_response:
-            table_describe_response = await ch_response.content.read()
-            for line in table_describe_response.decode("utf-8").splitlines():
-                column_name, ch_type = line.strip().split("\t")
-                if _needs_conversion(ch_type):
-                    query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
-                else:
-                    query_typings.append((column_name, ch_type, None))
+    for column_name, ch_type in described_columns.items():
+        if _needs_conversion(ch_type):
+            query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
+        else:
+            query_typings.append((column_name, ch_type, None))
 
     has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
     if has_type_to_convert:

@@ -6424,10 +6424,10 @@ snapshots:
         hash: v1.k794b7964.7f17c5ac7c6862493f7c4d59e6e3c3146c42e3d7b08908ee1716d387c129ba64.lPsE9KrOSZee9wJq8zjqYnvk09numvEFWOn4mdCOgJE
     scenes-app-engineering-analytics-run-activity-chart--default--light:
         hash: v1.k794b7964.f63752ff3ebf3bbee3be4ddc83d1ff657d9cdd11ee71e7283c30ce5a1aefde72.yTb8kpRqcG51TbM2CqgRmC5YvgE7-6pV1Trc7y5wuto
-    scenes-app-engineering-analytics-test-health--flaky-test-leaderboard--dark:
-        hash: v1.k794b7964.08e498898aa4436459dfa3b9afcb743d9ef5bddef4b887544a7dd5ada869a319.SuwJaPoLme6T0CusTJ4qMfeL8ieOiczYKySe06STXhQ
-    scenes-app-engineering-analytics-test-health--flaky-test-leaderboard--light:
-        hash: v1.k794b7964.b241a075f9538da83fab55dfb1af54896ec9c6f43cfc3db4d374fcedef606777.0UlzoD6n70FR5PA_Lj8S8L4xtah1AqdGsy9VrKZQ5is
+    scenes-app-engineering-analytics-test-health--trunk-quarantine-debt--dark:
+        hash: v1.k794b7964.1bf2a96d4a8f8875fc554a67e7e7b28adc98b144607babe0ae8342de5a0f3edc.JM5CCK4syW_o4_XReB3Nn6NUpB0I643u2a05XZmoeck
+    scenes-app-engineering-analytics-test-health--trunk-quarantine-debt--light:
+        hash: v1.k794b7964.1f330c8921d0151e1a846cf3cdccd6cd8196fd012630780b3a20491cc5ff293f.oEUS4LgdANupAGuZ7t8vmArgxuzi4IBEIJIlWHFXOAw
     scenes-app-error-project-unavailable--access-revoked--dark:
         hash: v1.k794b7964.30ace8f015100159e1dedbed07ff9f0b0b770535870d5c98ea764b10ff1f7621.dTVw9qLa7D_e7ZNme4tVuPZov-0Gg1o84aiDl5zihF0
     scenes-app-error-project-unavailable--access-revoked--light:
