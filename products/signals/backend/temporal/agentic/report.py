@@ -484,6 +484,14 @@ async def _persist_agentic_report_artefacts(
             result.research_task_id, team_id, f"Research: {result.title}"
         )
 
+    # A reviewer who rewrote the selection mid-run rejected the run's repository outright, so no
+    # auto-start may run against it. `repository_autostart_eligible=False` alone does not stop this:
+    # it only blocks the reviewer-less fallback, so a report whose findings resolve a reviewer would
+    # still start a task against the rejected repository. Skip auto-start entirely; the reviewer's
+    # correction re-drives research (without auto-start) when new signals restore the report.
+    if superseded_by_reviewer:
+        return
+
     try:
         await maybe_autostart_implementation_task(
             team_id=team_id,
@@ -494,7 +502,7 @@ async def _persist_agentic_report_artefacts(
             actionability=result.effective_actionability(),
             priority=result.effective_priority(),
             reviewers_content=reviewers_content,
-            repository_autostart_eligible=repo_selection.autostart_eligible and not superseded_by_reviewer,
+            repository_autostart_eligible=repo_selection.autostart_eligible,
         )
     except Exception as error:
         posthoganalytics.capture_exception(error)

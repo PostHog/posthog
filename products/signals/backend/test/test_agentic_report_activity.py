@@ -471,8 +471,9 @@ async def test_run_agentic_report_activity_keeps_reviewer_selection_written_mid_
         )
     )()
     assert [json.loads(selection.content)["repository"] for selection in selections] == [None]
-    assert autostart.await_args is not None
-    assert autostart.await_args.kwargs["repository_autostart_eligible"] is False
+    # A reviewer superseded the selection mid-run, so no auto-start may run against the rejected
+    # repository — not even on the reviewer-resolved path, which never consults the eligibility flag.
+    autostart.assert_not_awaited()
 
 
 @pytest.mark.asyncio
