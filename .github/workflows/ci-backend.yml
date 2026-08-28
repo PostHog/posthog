@@ -3888,8 +3888,15 @@ jobs:
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict
-        # changes is skipped on no-ci drafts — no tests ran, nothing to verdict.
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result != 'skipped' }}
+        # The verdict scores the selection against the JUnit a run produced, so it needs
+        # a test job to have run. changes is skipped on no-ci drafts. Both matrices are
+        # skipped on a draft whose selection was untrusted, which defers to the ready run
+        # — there is no selection to score and no JUnit to score it against. The decision
+        # itself is still recorded, by capture-test-selection.
+        if: >-
+            !cancelled() && github.event_name == 'pull_request' &&
+            needs.changes.result != 'skipped' &&
+            (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped')
         runs-on: ubuntu-latest
         timeout-minutes: 10
         permissions:
@@ -4053,7 +4060,9 @@ jobs:
 
     report-test-timings:
         name: Report per-test traces
-        needs: [django_tests]
+        # django and turbo-tests are here for their results only; django_tests already
+        # waits for both, so this adds no wall time.
+        needs: [django_tests, django, turbo-tests]
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
@@ -4061,9 +4070,13 @@ jobs:
         # flake proof the test-health queue reads, and the shards a re-run re-executed upload under
         # attempt-suffixed artifact names so only they are emitted for the new attempt.
         # Master pushes and all in-repo PRs. Skip forks (no secrets access).
+        # Both matrices skipped means no JUnit was uploaded, so there are no traces to
+        # emit. This job sits on the tail of the run, so skipping it takes its whole
+        # duration off the wall of a draft that ran no tests.
         if: >-
             !cancelled() &&
             github.repository == 'PostHog/posthog' &&
+            (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped') &&
             (
             (github.event_name != 'pull_request' && github.ref == 'refs/heads/master') ||
             (github.event_name == 'pull_request' &&
