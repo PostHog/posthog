@@ -201,7 +201,7 @@ export function WidgetSection(): JSX.Element {
                                     <div className="w-40 shrink-0">
                                         <label className="font-medium">Ticket recovery text</label>
                                         <p className="text-xs text-muted-alt mb-2">
-                                            Only shown to visitors who aren't identified.
+                                            Only shown to visitors who aren't using identity verification.
                                         </p>
                                     </div>
                                     <div className="flex gap-2 flex-1">
