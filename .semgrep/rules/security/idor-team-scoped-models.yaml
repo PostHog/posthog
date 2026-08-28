@@ -59,11 +59,13 @@ rules:
                               |AccountChannelSummary
                               |AccountRelationship
                               |AccountRelationshipDefinition
+                              |AccountTrackRuleRun
                               |Action
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
                               |AgentIdentityLinkState
+                              |AgentPeerMessage
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -71,6 +73,7 @@ rules:
                               |AgentToolApprovalRequest
                               |AgentTransportBinding
                               |AgentUser
+                              |AIObservabilityChecklistItemState
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -87,6 +90,7 @@ rules:
                               |ButtonTile
                               |Canvas
                               |CanvasBuild
+                              |CanvasHomePreference
                               |CanvasSourceVersion
                               |CanvasState
                               |ChangeRequest
@@ -160,6 +164,7 @@ rules:
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
+                              |ErrorTrackingSeverityRule
                               |ErrorTrackingSpikeDetectionConfig
                               |ErrorTrackingSpikeEvent
                               |ErrorTrackingStackFrame
@@ -180,6 +185,7 @@ rules:
                               |FeatureFlag
                               |FeatureRequest
                               |FeatureRequestAccountLink
+                              |FeatureRequestEvidence
                               |FeatureRequestHistory
                               |FeatureRequestProductArea
                               |FeatureRequestProductAreaLink
@@ -330,6 +336,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
                               |TaskThreadMessage
@@ -358,6 +365,8 @@ rules:
                               |UserRepoPreference
                               |VisionAction
                               |VisionActionRun
+                              |VisionAlertConfiguration
+                              |VisionAlertMatch
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
@@ -425,11 +434,13 @@ rules:
                         |AccountChannelSummary
                         |AccountRelationship
                         |AccountRelationshipDefinition
+                        |AccountTrackRuleRun
                         |Action
                         |AgentApplication
                         |AgentArtifact
                         |AgentIdentityCredential
                         |AgentIdentityLinkState
+                        |AgentPeerMessage
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -437,6 +448,7 @@ rules:
                         |AgentToolApprovalRequest
                         |AgentTransportBinding
                         |AgentUser
+                        |AIObservabilityChecklistItemState
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -453,6 +465,7 @@ rules:
                         |ButtonTile
                         |Canvas
                         |CanvasBuild
+                        |CanvasHomePreference
                         |CanvasSourceVersion
                         |CanvasState
                         |ChangeRequest
@@ -526,6 +539,7 @@ rules:
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
+                        |ErrorTrackingSeverityRule
                         |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingSpikeEvent
                         |ErrorTrackingStackFrame
@@ -546,6 +560,7 @@ rules:
                         |FeatureFlag
                         |FeatureRequest
                         |FeatureRequestAccountLink
+                        |FeatureRequestEvidence
                         |FeatureRequestHistory
                         |FeatureRequestProductArea
                         |FeatureRequestProductAreaLink
@@ -690,6 +705,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskWorkflowDispatch
                         |TaskSession
                         |TaskThreadMessage
                         |TaskThreadMessageMention
@@ -717,6 +733,8 @@ rules:
                         |UserRepoPreference
                         |VisionAction
                         |VisionActionRun
+                        |VisionAlertConfiguration
+                        |VisionAlertMatch
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
@@ -816,8 +834,11 @@ rules:
                               |BillingAlertEvaluationClaim
                               |BillingAlertEvent
                               |CIMDVerificationToken
+                              |ContextLayerConfig
+                              |DesktopBetaTermsAcceptance
                               |IdentityProviderConfig
                               |LegalDocument
+                              |ManagedWarehouseSourceLifecycle
                               |OrganizationMembership
                               |OrganizationDomain
                               |OrganizationIntegration
@@ -887,8 +908,11 @@ rules:
                         |BillingAlertEvaluationClaim
                         |BillingAlertEvent
                         |CIMDVerificationToken
+                        |ContextLayerConfig
+                        |DesktopBetaTermsAcceptance
                         |IdentityProviderConfig
                         |LegalDocument
+                        |ManagedWarehouseSourceLifecycle
                         |OrganizationMembership
                         |OrganizationDomain
                         |OrganizationIntegration
@@ -989,6 +1013,7 @@ rules:
                           (?x)(
                               CommunitySkillVote
                               |DashboardPrivilege
+                              |GitHubInstallRequest
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
@@ -1045,6 +1070,7 @@ rules:
                     (?x)(
                         CommunitySkillVote
                         |DashboardPrivilege
+                        |GitHubInstallRequest
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
@@ -1140,6 +1166,7 @@ rules:
                               |PersistedFolder
                               |Reminder
                               |SessionRecordingViewed
+                              |UserFacetSettings
                               |UserHomeSettings
                               |UserProductList
                               |UserScenePersonalisation
@@ -1213,6 +1240,7 @@ rules:
                         |PersistedFolder
                         |Reminder
                         |SessionRecordingViewed
+                        |UserFacetSettings
                         |UserHomeSettings
                         |UserProductList
                         |UserScenePersonalisation

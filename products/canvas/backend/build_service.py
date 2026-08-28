@@ -33,6 +33,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.event_usage import groups
@@ -68,6 +69,10 @@ logger = structlog.get_logger(__name__)
 MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM = 20
 MAX_PINNED_BUILDS_PER_CANVAS = 10
 MAX_BUILD_ATTEMPTS = 3
+
+# Rollout gate: flagged-in teams dispatch builds to Temporal instead of the shared
+# long_running Celery queue. Evaluation failure keeps the Celery path.
+CANVAS_BUILDS_ON_TEMPORAL_FLAG = "canvas-builds-on-temporal"
 
 CANVAS_BUILD_OUTCOMES = Counter(
     "posthog_canvas_build_outcomes_total", "Canvas build terminal outcomes", ["outcome", "code"]
@@ -403,7 +408,37 @@ def _enqueue_build(build: CanvasBuild) -> None:
     from products.canvas.backend.tasks import process_canvas_build  # noqa: PLC0415 — avoids a task/service import cycle
 
     CanvasBuild.objects.unscoped().filter(id=build.id).update(enqueued_at=timezone.now())
+    if _dispatch_build_to_temporal(build):
+        return
     process_canvas_build.delay(build.team_id, str(build.id))
+
+
+def _dispatch_build_to_temporal(build: CanvasBuild) -> bool:
+    """Hand the build to Temporal when the team is flagged in; False falls back to Celery.
+
+    Any failure (flag evaluation or workflow start) falls back, so a Temporal or
+    flag-service outage degrades to the Celery path instead of dropping builds.
+    """
+    try:
+        if not posthoganalytics.feature_enabled(
+            CANVAS_BUILDS_ON_TEMPORAL_FLAG,
+            str(build.team.uuid),
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        ):
+            return False
+    except Exception:
+        logger.exception("canvas_build_temporal_flag_check_failed", build_id=str(build.id))
+        return False
+    # Deferred so the Temporal client stays off the web/Celery import path when the flag is off.
+    from products.canvas.backend.temporal.client import execute_canvas_build_workflow  # noqa: PLC0415
+
+    try:
+        execute_canvas_build_workflow(build.team_id, str(build.id))
+    except Exception:
+        logger.exception("canvas_build_temporal_dispatch_failed", build_id=str(build.id))
+        return False
+    return True
 
 
 def publish_source_project(
@@ -480,6 +515,7 @@ def publish_source_project(
             prompt=prompt or None,
             created_by=created_by,
             capabilities=project.get("capabilities") or {},
+            component_meta=project.get("component"),
         )
         build = _queue_build(version)
 
@@ -507,6 +543,68 @@ def publish_source_project(
     )
 
     return canvas, version, build, first_publish
+
+
+def publish_grid_layout(
+    canvas: Canvas,
+    *,
+    layout: dict[str, Any],
+    prompt: str | None,
+    has_expected_version: bool,
+    expected_version_id: str | None,
+    task_id: UUID | None,
+    created_by: User | None,
+    was_impersonated: bool = False,
+) -> tuple[Canvas, CanvasSourceVersion]:
+    """Publish a validated layout document as a grid canvas's new head version.
+
+    Same upload-then-commit versioning as file projects, but no build is
+    queued and no capacity is consumed: layout is data, so the new version is
+    live the moment the head advances. Raises CanvasVersionConflict or
+    ObjectStorageError.
+    """
+    # Lock-free fail-fast, mirroring the file-project publish: reject a stale
+    # publish before paying for the upload, so a doomed patch does not leave an
+    # orphaned, unreferenced source object behind. Conflicts are routine on this
+    # path (an agent filling a box and a user dragging widgets guard against each
+    # other), so this is the common case, not a rare race. The commit transaction
+    # re-checks authoritatively under the head lock in _claim_canvas_head.
+    if has_expected_version:
+        with team_scope(canvas.team_id):
+            current = Canvas.objects.for_team(canvas.team_id).only("current_source_version_id").get(pk=canvas.pk)
+            current_id = str(current.current_source_version_id) if current.current_source_version_id else None
+            expected = str(expected_version_id) if expected_version_id else None
+            if current_id != expected:
+                raise CanvasVersionConflict(current_id)
+    key, digest, size = upload_source_project(canvas.team_id, canvas.id, layout)
+    with transaction.atomic(), team_scope(canvas.team_id):
+        canvas = _claim_canvas_head(
+            canvas,
+            has_expected_version=has_expected_version,
+            expected_version_id=expected_version_id,
+            check_capacity=False,
+        )
+        version = CanvasSourceVersion.objects.create(
+            team_id=canvas.team_id,
+            canvas=canvas,
+            parent_version_id=canvas.current_source_version_id,
+            source_hash=digest,
+            source_object_key=key,
+            source_size=size,
+            task_id=task_id,
+            prompt=prompt or None,
+            created_by=created_by,
+        )
+        canvas.current_source_version = version
+        canvas.save(update_fields=["current_source_version", "updated_at"])
+    _log_canvas_activity(
+        canvas,
+        user=created_by,
+        was_impersonated=was_impersonated,
+        activity="published",
+        detail=Detail(name=canvas.name),
+    )
+    return canvas, version
 
 
 def publish_current_source_version(
@@ -626,6 +724,7 @@ def create_draft_version(
             prompt=prompt or None,
             created_by=created_by,
             capabilities=project.get("capabilities") or {},
+            component_meta=project.get("component"),
         )
         build = _queue_build(version)
 
@@ -795,7 +894,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
             CanvasBuild.objects.for_team(team_id)
             .select_for_update()
             .filter(id=build_id)
-            .select_related("source_version")
+            .select_related("source_version", "canvas")
             .first()
         )
         if build is None:
@@ -822,7 +921,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         )
         return
 
-    diagnostics = validate_source_project(project)
+    diagnostics = validate_source_project(project, kind=build.canvas.kind)
     if has_errors(diagnostics):
         _finish_failed(build, diagnostics)
         return
@@ -909,7 +1008,16 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         manifest=manifest,
         diagnostics=diagnostics,
     ):
-        object_storage.delete_objects(uploaded_keys)
+        # A lost race can mean another attempt of this SAME build finalized READY first
+        # (its lease lapsed mid-upload and a redelivery overtook it). The artifact prefix
+        # is deterministic per build id, so the winner's manifest references exactly these
+        # keys — deleting them would break the ready build. Only clean up when the build
+        # ended in a non-ready state (cancelled or superseded by a newer version).
+        current_status = (
+            CanvasBuild.objects.for_team(build.team_id).filter(id=build.id).values_list("status", flat=True).first()
+        )
+        if current_status != CanvasBuild.STATUS_READY:
+            object_storage.delete_objects(uploaded_keys)
         CANVAS_BUILD_OUTCOMES.labels(outcome="failed", code="superseded_during_build").inc()
         return
     CANVAS_BUILD_OUTCOMES.labels(outcome="ready", code="").inc()

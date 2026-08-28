@@ -64,8 +64,13 @@
                                             },
                                             "source": {
                                                 "default": "events",
-                                                "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
-                                                "enum": ["events", "person-updates", "data-warehouse-table"],
+                                                "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table\n* `data-warehouse-view` - data-warehouse-view",
+                                                "enum": [
+                                                    "events",
+                                                    "person-updates",
+                                                    "data-warehouse-table",
+                                                    "data-warehouse-view"
+                                                ],
                                                 "type": "string"
                                             },
                                             "transpiled": {}
@@ -112,6 +117,31 @@
         "description": {
             "description": "Optional description.",
             "type": "string"
+        },
+        "email_sending_rate_limit": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "count": {
+                            "description": "Maximum number of emails this workflow sends per period.",
+                            "maximum": 1000000,
+                            "minimum": 1,
+                            "type": "number"
+                        },
+                        "period": {
+                            "description": "Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.\n\n* `minute` - minute\n* `hour` - hour",
+                            "enum": ["minute", "hour"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["count", "period"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing."
         },
         "exit_condition": {
             "description": "exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').\n\n* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End",

@@ -95,6 +95,8 @@ def apply_ses_tenant_state(
         if previous_status == sending_status and previous_impact == impact:
             config.ses_tenant_state_synced_at = timezone.now()
             config.save(update_fields=["ses_tenant_state_synced_at"])
+            # Without this, a sync that found nothing and a sync that never ran look the same.
+            logger.info("SES tenant state unchanged", team_id=team_id, status=sending_status, impact=impact)
             return
 
         now = timezone.now()

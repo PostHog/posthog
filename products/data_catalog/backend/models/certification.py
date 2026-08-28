@@ -1,6 +1,6 @@
 from django.db import models
 
-from posthog.models.scoping.manager import TeamScopedManager
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from ..facade.enums import CertificationStatus
@@ -14,7 +14,7 @@ class TableCertification(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     API reads exclude the row rather than cascading.
     """
 
-    objects = TeamScopedManager()
+    objects = EnvironmentScopedManager()
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     created_by = models.ForeignKey(

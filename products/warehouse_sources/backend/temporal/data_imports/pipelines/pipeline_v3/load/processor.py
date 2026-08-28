@@ -898,7 +898,11 @@ def _process_message_reported(
 
         if existing_delta_table is not None:
             try:
-                pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
+                pa_table = evolve_pyarrow_schema(
+                    pa_table,
+                    existing_delta_table.schema(),
+                    merge_key_columns=[*(primary_keys or []), *(export_signal.partition_keys or [])],
+                )
             except SchemaColumnTypeChangedException as e:
                 # A safe numeric widening is mechanically recoverable: stamp reset_pipeline so the
                 # next scheduled sync resets and re-syncs the table, and reword the failure so
@@ -982,7 +986,6 @@ def _process_message_reported(
             file_count=len(delta_table.file_uris()),
         )
 
-        # Handle partial data loading for first-ever sync
         async_to_sync(_handle_partial_data_loading)(
             export_signal=export_signal,
             job=job,

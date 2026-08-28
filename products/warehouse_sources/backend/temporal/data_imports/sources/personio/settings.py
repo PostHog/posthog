@@ -54,6 +54,18 @@ PERSONIO_ENDPOINTS: dict[str, PersonioEndpointConfig] = {
         incremental_param="updated_at.gte",
         incremental_fields=list(_UPDATED_AT_INCREMENTAL_FIELDS),
     ),
+    # Salary bands and cost centers are dimension lookups: no updated_at/created_at field, so no
+    # server-side timestamp filter and no partition key — full refresh only.
+    "salary_bands": PersonioEndpointConfig(
+        name="salary_bands",
+        path="/v2/salary-bands",
+        scope="personio:salary-bands:read",
+    ),
+    "cost_centers": PersonioEndpointConfig(
+        name="cost_centers",
+        path="/v2/cost-centers",
+        scope="personio:cost-centers:read",
+    ),
 }
 
 ENDPOINTS = tuple(PERSONIO_ENDPOINTS.keys())

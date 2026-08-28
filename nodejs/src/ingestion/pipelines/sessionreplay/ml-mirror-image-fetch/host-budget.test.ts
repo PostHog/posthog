@@ -3,220 +3,245 @@ import { HostBudget, HostBudgetOptions } from './host-budget'
 const OPTIONS: HostBudgetOptions = {
     requestsPerSecond: 1,
     burst: 2,
-    maxConcurrent: 4,
+    maxConcurrent: 2,
     breakerFailures: 3,
     breakerCooldownMs: 60_000,
     breakerMaxCooldownMs: 600_000,
-    maxTrackedDomains: 3,
+    maxTrackedRegistrableDomains: 3,
+    maxTrackedOrigins: 3,
+    random: () => 1,
 }
+const DEADLINE_MS = 1_000_000
+const REGISTRABLE_DOMAIN = 'example.com'
+const ORIGIN = 'https://cdn.example.com'
 
 function budget(overrides: Partial<HostBudgetOptions> = {}): HostBudget {
     return new HostBudget({ ...OPTIONS, ...overrides })
 }
 
-const FAR_FUTURE = 10 ** 12
-
 describe('HostBudget', () => {
-    it('spends the burst at once and then paces at the configured rate', () => {
-        const host = budget()
+    it('does not reserve a token before a crawl-delay wait finishes', () => {
+        const host = budget({ burst: 5 })
+        host.setCrawlDelay(ORIGIN, 1_000, 1_000)
 
-        const grants = [0, 0, 0, 0].map(() => host.take('example.com', 1000, FAR_FUTURE))
-
-        expect(grants).toEqual([
-            { granted: true, waitMs: 0 },
-            { granted: true, waitMs: 0 },
-            { granted: true, waitMs: 1000 },
-            { granted: true, waitMs: 2000 },
-        ])
-    })
-
-    it('refuses rather than granting a slot that lands after the deadline', () => {
-        const host = budget()
-        host.take('example.com', 1000, FAR_FUTURE)
-        host.take('example.com', 1000, FAR_FUTURE)
-
-        // A grant here spends a token for a request the caller cannot send, and the next batch then
-        // waits that token out for nothing.
-        expect(host.take('example.com', 1000, 1500)).toEqual({ granted: false, reason: 'deadline' })
-        expect(host.take('example.com', 1000, FAR_FUTURE)).toEqual({ granted: true, waitMs: 1000 })
-    })
-
-    it('opens the breaker on consecutive failures and closes it when the cooldown passes', () => {
-        const host = budget()
-
-        for (let i = 0; i < OPTIONS.breakerFailures; i++) {
-            host.recordBackoff('example.com', 1000)
-        }
-
-        expect(host.take('example.com', 1000, FAR_FUTURE)).toEqual({ granted: false, reason: 'breaker_open' })
-        expect(host.blockedDomains(1000)).toBe(1)
-        expect(host.take('example.com', 1000 + OPTIONS.breakerCooldownMs + 1, FAR_FUTURE)).toMatchObject({
+        const first = host.take(REGISTRABLE_DOMAIN, ORIGIN, 1_000, DEADLINE_MS)
+        expect(first).toEqual({
             granted: true,
+            waitMs: 0,
+            waitScope: null,
+            halfOpenProbe: false,
+            reservedStartAtMs: 1_000,
+        })
+        host.markRequestStarted(
+            REGISTRABLE_DOMAIN,
+            ORIGIN,
+            1_000,
+            first.granted ? first.reservedStartAtMs : null,
+            'image'
+        )
+        expect(host.take(REGISTRABLE_DOMAIN, ORIGIN, 1_000, DEADLINE_MS)).toEqual({
+            granted: true,
+            waitMs: 1_000,
+            waitScope: 'origin_crawl_delay',
+            halfOpenProbe: false,
+            reservedStartAtMs: null,
+        })
+        expect(host.take(REGISTRABLE_DOMAIN, ORIGIN, 1_000, DEADLINE_MS)).toEqual({
+            granted: true,
+            waitMs: 1_000,
+            waitScope: 'origin_crawl_delay',
+            halfOpenProbe: false,
+            reservedStartAtMs: null,
         })
     })
 
-    it('doubles the cooldown for a domain that fails again after the breaker closed', () => {
+    it('uses the larger robots crawl delay', () => {
+        const host = budget({ burst: 5 })
+        host.setCrawlDelay(ORIGIN, 4_000, 1_000)
+
+        const first = host.take(REGISTRABLE_DOMAIN, ORIGIN, 1_000, DEADLINE_MS)
+        host.markRequestStarted(
+            REGISTRABLE_DOMAIN,
+            ORIGIN,
+            1_000,
+            first.granted ? first.reservedStartAtMs : null,
+            'image'
+        )
+
+        expect(host.take(REGISTRABLE_DOMAIN, ORIGIN, 1_000, DEADLINE_MS)).toMatchObject({ waitMs: 4_000 })
+    })
+
+    it('keeps crawl delay separate for sibling origins', () => {
+        const host = budget({ burst: 5 })
+        host.setCrawlDelay('https://a.example.com', 4_000, 1_000)
+
+        host.take(REGISTRABLE_DOMAIN, 'https://a.example.com', 1_000, DEADLINE_MS)
+
+        expect(host.take(REGISTRABLE_DOMAIN, 'https://b.example.com', 1_000, DEADLINE_MS)).toMatchObject({
+            granted: true,
+            waitMs: 0,
+        })
+    })
+
+    it('shares token capacity across sibling origins', () => {
+        const host = budget({ burst: 1 })
+
+        expect(host.take(REGISTRABLE_DOMAIN, 'https://a.example.com', 1_000, DEADLINE_MS)).toMatchObject({
+            granted: true,
+            waitMs: 0,
+        })
+        expect(host.take(REGISTRABLE_DOMAIN, 'https://b.example.com', 1_000, DEADLINE_MS)).toMatchObject({
+            granted: true,
+            waitMs: 1_000,
+        })
+    })
+
+    it('returns a token when a reserved request cannot run', () => {
+        const host = budget({ burst: 1 })
+        const grant = host.take(REGISTRABLE_DOMAIN, ORIGIN, 1_000, DEADLINE_MS)
+        expect(grant.granted).toBe(true)
+        host.returnGrant(REGISTRABLE_DOMAIN, ORIGIN, 1_000, grant.granted ? grant.reservedStartAtMs : null)
+
+        expect(host.take(REGISTRABLE_DOMAIN, ORIGIN, 1_000, DEADLINE_MS)).toMatchObject({ granted: true })
+    })
+
+    it('applies half-to-full jitter exponential backoff and Retry-After', () => {
         const host = budget()
-        const openBreaker = (atMs: number): void => {
-            for (let i = 0; i < OPTIONS.breakerFailures; i++) {
-                host.recordBackoff('example.com', atMs)
-            }
+
+        expect(host.recordTransientFailure(REGISTRABLE_DOMAIN, 1_000)).toBe(60_000)
+        expect(host.recordTransientFailure(REGISTRABLE_DOMAIN, 1_000, 180_000)).toBe(180_000)
+        expect(host.take(REGISTRABLE_DOMAIN, ORIGIN, 180_999, DEADLINE_MS)).toEqual({
+            granted: false,
+            reason: 'backoff',
+            waitMs: 1,
+        })
+    })
+
+    it('does not shorten a future block when a concurrent request succeeds', () => {
+        const host = budget()
+        host.recordTransientFailure(REGISTRABLE_DOMAIN, 1_000, 180_000)
+        host.recordCompletedResponse(REGISTRABLE_DOMAIN, 2_000)
+
+        expect(host.take(REGISTRABLE_DOMAIN, ORIGIN, 2_000, DEADLINE_MS)).toEqual({
+            granted: false,
+            reason: 'backoff',
+            waitMs: 179_000,
+        })
+    })
+
+    it('opens the breaker after three consecutive transient failures', () => {
+        const host = budget()
+        for (let failure = 0; failure < OPTIONS.breakerFailures; failure++) {
+            host.recordTransientFailure(REGISTRABLE_DOMAIN, 1_000)
         }
 
-        openBreaker(1000)
-        const reopenedAt = 1000 + OPTIONS.breakerCooldownMs + 1
-        openBreaker(reopenedAt)
-
-        // Still blocked one cooldown later, because the second cooldown is twice the first.
-        expect(host.take('example.com', reopenedAt + OPTIONS.breakerCooldownMs + 1, FAR_FUTURE)).toEqual({
+        expect(host.take(REGISTRABLE_DOMAIN, ORIGIN, 1_000, DEADLINE_MS)).toEqual({
             granted: false,
             reason: 'breaker_open',
+            waitMs: 240_000,
         })
+        expect(host.blockedRegistrableDomains(1_000)).toBe(1)
     })
 
-    it.each([
-        ['a period the site named', 30_000, 30_000],
-        ['a period longer than the cap', 24 * 60 * 60 * 1000, OPTIONS.breakerMaxCooldownMs],
-    ])('holds the domain for %s', (_name, retryAfterMs, expectedHoldMs) => {
+    it('applies a transient failure to sibling origins', () => {
         const host = budget()
+        host.recordTransientFailure(REGISTRABLE_DOMAIN, 1_000)
 
-        host.recordRetryAfter('example.com', 1000, retryAfterMs)
-
-        expect(host.take('example.com', 1000 + expectedHoldMs - 1, FAR_FUTURE)).toEqual({
+        expect(host.take(REGISTRABLE_DOMAIN, 'https://other.example.com', 1_000, DEADLINE_MS)).toMatchObject({
             granted: false,
-            reason: 'rate_limited',
+            reason: 'backoff',
         })
-        expect(host.take('example.com', 1000 + expectedHoldMs + 1, FAR_FUTURE)).toMatchObject({ granted: true })
     })
 
-    it('halves the rate on a backoff and never raises it above the configured one', () => {
-        const host = budget({ requestsPerSecond: 4, burst: 1 })
-
-        host.recordBackoff('example.com', 1000)
-        // The burst went with the halving, so even the first request waits. At 2 per second rather
-        // than 4, that wait is 500ms. Requirement 16.
-        expect(host.take('example.com', 1000, FAR_FUTURE)).toEqual({ granted: true, waitMs: 500 })
-        expect(host.take('example.com', 1000, FAR_FUTURE)).toEqual({ granted: true, waitMs: 1000 })
-
-        for (let i = 0; i < 20; i++) {
-            host.recordSuccess('example.com', 1000)
-        }
-        host.take('example.com', 20_000, FAR_FUTURE)
-        expect(host.take('example.com', 20_000, FAR_FUTURE)).toEqual({ granted: true, waitMs: 250 })
-    })
-
-    it('makes one failure reach the URLs already queued for the domain (requirement 16)', () => {
-        // Without this a site that just failed still receives the whole burst, and the cut reaches
-        // only the URLs behind them.
-        const host = budget({ requestsPerSecond: 1, burst: 5 })
-
-        expect(host.take('example.com', 1000, FAR_FUTURE)).toEqual({ granted: true, waitMs: 0 })
-        host.recordBackoff('example.com', 1000)
-
-        expect(host.take('example.com', 1000, FAR_FUTURE)).toMatchObject({ granted: true, waitMs: 2000 })
-    })
-
-    it('does not shorten a Retry-After hold when the breaker opens inside it', () => {
+    it('grants one half-open probe after the breaker cooldown', () => {
         const host = budget()
-        const anHourMs = 60 * 60 * 1000
-        host.recordRetryAfter('example.com', 1000, anHourMs)
-
-        for (let i = 0; i < OPTIONS.breakerFailures; i++) {
-            host.recordBackoff('example.com', 1000)
+        for (let failure = 0; failure < OPTIONS.breakerFailures; failure++) {
+            host.recordTransientFailure(REGISTRABLE_DOMAIN, 1_000)
         }
+        const afterCooldownMs = 1_000 + 240_000
 
-        // The breaker cooldown is one minute. A cooldown that replaces the hold sends us back to a
-        // site that asked for an hour, 59 minutes early.
-        expect(host.take('example.com', 1000 + OPTIONS.breakerCooldownMs + 1, FAR_FUTURE)).toEqual({
+        expect(host.take(REGISTRABLE_DOMAIN, ORIGIN, afterCooldownMs, DEADLINE_MS)).toEqual({
+            granted: true,
+            waitMs: 0,
+            waitScope: null,
+            halfOpenProbe: true,
+            reservedStartAtMs: afterCooldownMs,
+        })
+        expect(host.take(REGISTRABLE_DOMAIN, 'https://other.example.com', afterCooldownMs, DEADLINE_MS)).toEqual({
             granted: false,
-            reason: 'rate_limited',
+            reason: 'breaker_open',
+            waitMs: OPTIONS.breakerCooldownMs,
         })
     })
 
-    it('holds one domain to its connection limit however many callers ask', () => {
-        const host = budget({ maxConcurrent: 2 })
-
-        expect(host.acquireConnection('example.com', 1000)).toBe(true)
-        expect(host.acquireConnection('example.com', 1000)).toBe(true)
-        expect(host.acquireConnection('example.com', 1000)).toBe(false)
-
-        host.releaseConnection('example.com')
-
-        expect(host.acquireConnection('example.com', 1000)).toBe(true)
-    })
-
-    it('keeps a domain holding a connection out of the eviction scan', () => {
-        // An eviction drops the in-flight count, and the next caller then opens one more connection
-        // than the limit allows.
-        const host = budget({ maxTrackedDomains: 2, maxConcurrent: 1 })
-        host.acquireConnection('busy.com', 1000)
-        host.take('idle.com', 1000, FAR_FUTURE)
-
-        host.take('new.com', 1000, FAR_FUTURE)
-
-        expect(host.acquireConnection('busy.com', 1000)).toBe(false)
-    })
-
-    it('opens the breaker on a domain that fails more often than it succeeds', () => {
-        // Two failures for every success never make a run of failures, so a counter that cleared on
-        // success leaves a mostly broken domain in retry forever.
+    it('closes the breaker after the half-open probe gets a response', () => {
         const host = budget()
+        for (let failure = 0; failure < OPTIONS.breakerFailures; failure++) {
+            host.recordTransientFailure(REGISTRABLE_DOMAIN, 1_000)
+        }
+        const afterCooldownMs = 1_000 + 240_000
+        host.take(REGISTRABLE_DOMAIN, ORIGIN, afterCooldownMs, DEADLINE_MS)
+        host.recordCompletedResponse(REGISTRABLE_DOMAIN, afterCooldownMs)
 
-        for (let round = 0; round < 5; round++) {
-            host.recordBackoff('flapping.com', 1000)
-            host.recordBackoff('flapping.com', 1000)
-            host.recordSuccess('flapping.com', 1000)
+        expect(host.take(REGISTRABLE_DOMAIN, ORIGIN, afterCooldownMs, DEADLINE_MS)).toMatchObject({ granted: true })
+    })
+
+    it('limits concurrent connections across sibling origins', () => {
+        const host = budget()
+        const origins = ['https://a.example.com', 'https://b.example.com', 'https://c.example.com']
+        for (const origin of origins) {
+            host.take(REGISTRABLE_DOMAIN, origin, 1_000, DEADLINE_MS)
         }
 
-        expect(host.take('flapping.com', 1000, FAR_FUTURE)).toEqual({ granted: false, reason: 'breaker_open' })
+        expect(host.acquireConnection(REGISTRABLE_DOMAIN, origins[0])).toBe(true)
+        expect(host.acquireConnection(REGISTRABLE_DOMAIN, origins[1])).toBe(true)
+        expect(host.acquireConnection(REGISTRABLE_DOMAIN, origins[2])).toBe(false)
+        host.releaseConnection(REGISTRABLE_DOMAIN, origins[0])
+        expect(host.acquireConnection(REGISTRABLE_DOMAIN, origins[2])).toBe(true)
     })
 
-    it('keeps reporting an open breaker when a shorter rate-limit hold arrives inside it', () => {
-        const host = budget()
-        for (let i = 0; i < OPTIONS.breakerFailures; i++) {
-            host.recordBackoff('example.com', 1000)
-        }
+    it('does not evict an origin with a connection or scheduled request', () => {
+        const host = budget({ maxTrackedRegistrableDomains: 2, maxTrackedOrigins: 2, maxConcurrent: 1 })
+        host.take('busy.example', 'https://busy.example', 1_000, DEADLINE_MS)
+        host.acquireConnection('busy.example', 'https://busy.example')
+        host.requestScheduled('https://config.example', 1_000)
+        host.take('config.example', 'https://config.example', 1_000, DEADLINE_MS, true)
 
-        host.recordRetryAfter('example.com', 1000, 1_000)
-
-        // The shed outcome and the metric carry this reason. A rename by the shorter hold hides the
-        // breaker from the one number that exists to show it.
-        expect(host.take('example.com', 2000, FAR_FUTURE)).toEqual({ granted: false, reason: 'breaker_open' })
+        expect(host.take('new.example', 'https://new.example', 1_000, DEADLINE_MS)).toEqual({
+            granted: false,
+            reason: 'registrable_domain_map_full',
+            waitMs: 0,
+        })
+        expect(host.acquireConnection('busy.example', 'https://busy.example')).toBe(false)
     })
 
-    it('does not report a busy but unblocked domain as one whose hold it forgot', () => {
-        // The eviction scan skips a domain that is blocked or that has connections open. Only the
-        // first kind loses a hold, and the metric carries the name of that kind.
-        const host = budget({ maxTrackedDomains: 1, maxConcurrent: 1 })
-        host.acquireConnection('busy.com', 1000)
+    it('evicts an idle full-budget origin', () => {
+        const host = budget({ maxTrackedRegistrableDomains: 1, maxTrackedOrigins: 1 })
+        const grant = host.take('idle.example', 'https://idle.example', 1_000, DEADLINE_MS)
+        expect(grant.granted).toBe(true)
+        host.returnGrant('idle.example', 'https://idle.example', 1_000, grant.granted ? grant.reservedStartAtMs : null)
 
-        host.take('new.com', 1000, FAR_FUTURE)
-
-        expect(host.evictedWhileBlocked).toBe(0)
+        expect(host.take('new.example', 'https://new.example', 1_000, DEADLINE_MS)).toMatchObject({ granted: true })
+        expect(host.trackedRegistrableDomains).toBe(1)
+        expect(host.trackedOrigins).toBe(1)
     })
 
-    it('never evicts a domain holding connections, so its slots are not leaked', () => {
-        // A slot is released by domain name. A lost entry leaks every slot it held, and the domain
-        // can then hold more than its limit for the rest of the pod's life.
-        const host = budget({ maxTrackedDomains: 2, maxConcurrent: 1 })
-        expect(host.acquireConnection('busy.com', 1000)).toBe(true)
+    it('returns a crawl wait that extends beyond the pass deadline', () => {
+        const host = budget({ burst: 5 })
+        host.setCrawlDelay(ORIGIN, 600_000, 1_000)
+        const first = host.take(REGISTRABLE_DOMAIN, ORIGIN, 1_000, DEADLINE_MS)
+        host.markRequestStarted(
+            REGISTRABLE_DOMAIN,
+            ORIGIN,
+            1_000,
+            first.granted ? first.reservedStartAtMs : null,
+            'image'
+        )
 
-        host.take('a.com', 1000, FAR_FUTURE)
-        host.take('b.com', 1000, FAR_FUTURE)
-
-        // Its entry survived the eviction, so it is still at its limit. A dropped entry would come
-        // back with no connections counted and let this domain hold a second one.
-        expect(host.acquireConnection('busy.com', 1000)).toBe(false)
-    })
-
-    it('evicts an idle domain in preference to one it is still holding back', () => {
-        const host = budget({ maxTrackedDomains: 2 })
-        host.recordRetryAfter('blocked.com', 1000, 60_000)
-        host.take('idle.com', 1000, FAR_FUTURE)
-
-        host.take('new.com', 1000, FAR_FUTURE)
-
-        expect(host.trackedDomains).toBe(2)
-        expect(host.take('blocked.com', 1000, FAR_FUTURE)).toEqual({ granted: false, reason: 'rate_limited' })
+        expect(host.take(REGISTRABLE_DOMAIN, ORIGIN, 1_000, 20_000)).toEqual({
+            granted: false,
+            reason: 'deadline',
+            waitMs: 600_000,
+        })
     })
 })

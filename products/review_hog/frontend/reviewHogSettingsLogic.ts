@@ -5,6 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import type { SkillPickerGroup } from 'lib/components/SkillPicker/SkillPicker'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -43,6 +44,8 @@ import {
     ReviewHogReviewsListScope,
     ReviewTriggerRequestRunModeEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
+import { llmSkillsList, llmSkillsNameDuplicateCreate } from 'products/skills/frontend/generated/api'
+import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.schemas'
 
 export type ReviewSkillKind = 'perspective' | 'blind_spots' | 'validator' | 'resolution'
 
@@ -100,48 +103,112 @@ export interface ViewedSkill {
     skillName: string
 }
 
+// Mirrors the backend naming contract (skill_loader.py): the name prefix is a review skill's whole
+// identity, so an adopted copy must be created under its kind's prefix to be discovered by runs.
+export const REVIEW_SKILL_PREFIX_BY_KIND: Record<ReviewSkillKind, string> = {
+    perspective: 'review-hog-perspective-',
+    blind_spots: 'review-hog-blind-spots-',
+    validator: 'review-hog-validation-',
+    resolution: 'review-hog-resolution-',
+}
+
+export const REVIEW_SKILL_KIND_LABELS: Record<ReviewSkillKind, string> = {
+    perspective: 'perspective',
+    blind_spots: 'blind-spot check',
+    validator: 'validation criteria',
+    resolution: 'resolution criteria',
+}
+
+// Group headings for the adopt picker: teammates' ready-made skills of the kind first (invisible in
+// the cards above, since customs are author-only there), then the rest of the team's skill store.
+const ADOPT_TEAMMATE_GROUP_LABELS: Record<ReviewSkillKind, string> = {
+    perspective: 'Perspectives from your teammates',
+    blind_spots: 'Blind-spot checks from your teammates',
+    validator: 'Validation criteria from your teammates',
+    resolution: 'Resolution criteria from your teammates',
+}
+
+/** Mirrors the skills API name limit: the whole adopted name (prefix + slug) must fit. */
+export const SKILL_NAME_MAX_LENGTH = 64
+
+// Page size for loading the skill store; the loader follows the pagination to the end, so this
+// only bounds how many requests a large store takes, never which skills the picker offers.
+const ADOPTABLE_SKILLS_PAGE_SIZE = 300
+
+/** The existing skill an adoption copies from. */
+export interface AdoptSource {
+    name: string
+    description: string
+}
+
+/** Prefill slug for an adopted copy: the source name minus any review-hog kind prefix, cut to fit. */
+export function defaultAdoptSlug(sourceName: string, kind: ReviewSkillKind): string {
+    const knownPrefix = Object.values(REVIEW_SKILL_PREFIX_BY_KIND).find((prefix) => sourceName.startsWith(prefix))
+    const bare = knownPrefix ? sourceName.slice(knownPrefix.length) : sourceName
+    const maxSlugLength = SKILL_NAME_MAX_LENGTH - REVIEW_SKILL_PREFIX_BY_KIND[kind].length
+    return bare.slice(0, maxSlugLength).replace(/-+$/, '')
+}
+
+/** Client-side mirror of the skills API name rules, so the confirm step can reject inline. */
+export function validateAdoptSlug(slug: string, kind: ReviewSkillKind, takenNames: Set<string>): string | null {
+    if (!slug) {
+        return 'Enter a name for the copy'
+    }
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) {
+        return 'Use lowercase letters, numbers, and single hyphens between words'
+    }
+    const fullName = REVIEW_SKILL_PREFIX_BY_KIND[kind] + slug
+    if (fullName.length > SKILL_NAME_MAX_LENGTH) {
+        return `The full name must be ${SKILL_NAME_MAX_LENGTH} characters or fewer`
+    }
+    if (takenNames.has(fullName)) {
+        return 'A skill with this name already exists'
+    }
+    return null
+}
+
 // Thin scout-style kickoff pointers (mirrors SCOUT_AUTHOR_PROMPT): the actual authoring guide —
 // pipeline context, naming contract, per-kind body shape, activation steps — lives in the
 // `review-hog-authoring` team skill (canonical source: products/review_hog/skills/), synced per
 // team like the perspectives. Keep knowledge there, not here.
 const SKILL_AUTHOR_TASKS: Record<ReviewSkillKind, { title: string; prompt: string }> = {
     perspective: {
-        title: 'Create a ReviewHog perspective',
-        prompt: `I'd like to create a custom ReviewHog review perspective for this PostHog project.
+        title: 'Create a PostHog Review perspective',
+        prompt: `I'd like to create a custom review perspective for PostHog Review in this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its review-perspective path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its review-perspective path.
 
 Ground yourself per that skill first, then ask me what my perspective should focus on and offer a few concrete directions the current set doesn't already cover. Once I pick, author the skill end to end and tell me how to switch it on.
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: list the team's review-hog-perspective-* skills and read a canonical one to learn the shape before authoring.`,
     },
     blind_spots: {
-        title: 'Create a ReviewHog blind-spot check',
-        prompt: `I'd like to create a custom ReviewHog blind-spot check for this PostHog project.
+        title: 'Create a PostHog Review blind-spot check',
+        prompt: `I'd like to create a custom PostHog Review blind-spot check for this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its blind-spot-check path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its blind-spot-check path.
 
 Ground yourself per that skill first, then ask me what my sweep should emphasize and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-blind-spots-general skill to learn the shape before authoring.`,
     },
     validator: {
-        title: 'Create ReviewHog validation criteria',
-        prompt: `I'd like to create custom ReviewHog validation criteria for this PostHog project.
+        title: 'Create PostHog Review validation criteria',
+        prompt: `I'd like to create custom PostHog Review validation criteria for this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its validation-criteria path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its validation-criteria path.
 
-Ground yourself per that skill first, then ask me how my bar should differ — stricter, more lenient, or weighted toward specific concerns — and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
+Ground yourself per that skill first, then ask me how my bar should differ (stricter, more lenient, or weighted toward specific concerns) and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-validation-criteria skill to learn the shape before authoring.`,
     },
     resolution: {
-        title: 'Create ReviewHog resolution criteria',
-        prompt: `I'd like to create custom ReviewHog resolution criteria for this PostHog project.
+        title: 'Create PostHog Review resolution criteria',
+        prompt: `I'd like to create custom PostHog Review resolution criteria for this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its resolution-criteria path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its resolution-criteria path.
 
-Ground yourself per that skill first, then ask me how my bar for implementing review-thread asks should differ — more conservative, more eager, or weighted toward specific kinds of fixes — and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
+Ground yourself per that skill first, then ask me how my bar for implementing review-thread asks should differ (more conservative, more eager, or weighted toward specific kinds of fixes) and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-resolution-criteria skill to learn the shape before authoring.`,
     },
@@ -151,8 +218,26 @@ function currentProjectId(): string {
     return String(teamLogic.values.currentTeamId)
 }
 
+/** "https://github.com/Org/Repo/pull/123/files" → "org/repo/123"; null when not a PR URL. */
+function parsePrPath(url: string): string | null {
+    const match = url
+        .trim()
+        .toLowerCase()
+        .match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/)
+    return match ? `${match[1]}/${match[2]}/${match[3]}` : null
+}
+
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface reviewHogSettingsLogicValues {
+    adoptNewSkillName: string
+    adoptSkillGroups: SkillPickerGroup[]
+    adoptSkillKind: ReviewSkillKind | null
+    adoptSlug: string
+    adoptSlugError: string | null
+    adoptSource: AdoptSource | null
+    adoptableSkills: LLMSkillListApi[] | null
+    adoptableSkillsLoading: boolean
+    adoptingSkill: boolean
     awaitingTriggeredReview: boolean
     blindSpots: ReviewBlindSpotsConfigApi[] | null
     blindSpotsLoading: boolean
@@ -187,6 +272,7 @@ export interface reviewHogSettingsLogicValues {
     settingsLoading: boolean
     skillDrawerOpen: boolean
     triggerPrUrl: string
+    triggerUrlResolving: boolean
     triggeringReview: boolean
     validators: ReviewValidatorConfigApi[] | null
     validatorsLoading: boolean
@@ -198,8 +284,17 @@ export interface reviewHogSettingsLogicActions {
     applyDefaultReviewsScope: (scope: ReviewHogReviewsListScope) => {
         scope: ReviewHogReviewsListScope
     }
+    backToAdoptSearch: () => {
+        value: true
+    }
     blockSingleActiveDeactivation: (kindLabel: string) => {
         kindLabel: string
+    }
+    chooseAdoptSource: (source: AdoptSource) => {
+        source: AdoptSource
+    }
+    closeAdoptSkillModal: () => {
+        value: true
     }
     closePipelineDetail: () => {
         value: true
@@ -209,6 +304,21 @@ export interface reviewHogSettingsLogicActions {
     }
     closeSkillDrawer: () => {
         value: true
+    }
+    loadAdoptableSkills: (_?: any) => any
+    loadAdoptableSkillsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAdoptableSkillsSuccess: (
+        adoptableSkills: LLMSkillListApi[],
+        payload?: any
+    ) => {
+        adoptableSkills: LLMSkillListApi[]
+        payload?: any
     }
     loadAll: () => {
         value: true
@@ -336,6 +446,9 @@ export interface reviewHogSettingsLogicActions {
     markInitialLoadFailed: () => {
         value: true
     }
+    openAdoptSkillModal: (kind: ReviewSkillKind) => {
+        kind: ReviewSkillKind
+    }
     openPipelineDetail: () => {
         value: true
     }
@@ -360,6 +473,9 @@ export interface reviewHogSettingsLogicActions {
     }
     selectValidator: (skillName: string) => {
         skillName: string
+    }
+    setAdoptSlug: (slug: string) => {
+        slug: string
     }
     setReviewDrawerTab: (tab: ReviewDrawerTab) => {
         tab: ReviewDrawerTab
@@ -393,6 +509,15 @@ export interface reviewHogSettingsLogicActions {
         value: true
     }
     stopTriggeredReviewWatch: () => {
+        value: true
+    }
+    submitAdoptSkill: () => {
+        value: true
+    }
+    submitAdoptSkillFinished: () => {
+        value: true
+    }
+    submitAdoptSkillStarted: () => {
         value: true
     }
     submitTriggerReview: (runMode?: ReviewTriggerRequestRunModeEnumApi) => {
@@ -437,12 +562,31 @@ export interface reviewHogSettingsLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface reviewHogSettingsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        adoptSkillGroups: (
+            adoptableSkills: LLMSkillListApi[] | null,
+            adoptSkillKind: ReviewSkillKind | null,
+            perspectives: ReviewPerspectiveConfigApi[] | null,
+            blindSpots: ReviewBlindSpotsConfigApi[] | null,
+            validators: ReviewValidatorConfigApi[] | null,
+            resolutionSkills: ReviewResolutionConfigApi[] | null
+        ) => SkillPickerGroup[]
+        adoptNewSkillName: (adoptSkillKind: ReviewSkillKind | null, adoptSlug: string) => string
+        adoptSlugError: (
+            adoptSlug: string,
+            adoptSkillKind: ReviewSkillKind | null,
+            adoptableSkills: LLMSkillListApi[] | null,
+            perspectives: ReviewPerspectiveConfigApi[] | null,
+            blindSpots: ReviewBlindSpotsConfigApi[] | null,
+            validators: ReviewValidatorConfigApi[] | null,
+            resolutionSkills: ReviewResolutionConfigApi[] | null
+        ) => string | null
         recentReviews: (recentReviewsPage: ReviewRecentReviewsPageApi | null) => ReviewRecentReviewApi[] | null
         moreReviewsAvailable: (recentReviewsPage: ReviewRecentReviewsPageApi | null, reviewsLimit: number) => boolean
         reviewFindingsSplit: (
             reviewDetail: ReviewDetailApi | null,
             settings: ReviewUserSettingsApi | null
         ) => ReviewFindingsSplit | null
+        triggerUrlResolving: (triggerPrUrl: string, recentReviews: ReviewRecentReviewApi[] | null) => boolean
         perspectiveScoreboard: (reviewDetail: ReviewDetailApi | null) => PerspectiveScore[] | null
     }
 }
@@ -496,6 +640,17 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         applyDefaultReviewsScope: (scope: ReviewHogReviewsListScope) => ({ scope }),
         startSkillAuthorTask: (kind: ReviewSkillKind) => ({ kind }),
         startSkillAuthorTaskFinished: true,
+        // "Use an existing skill": pick a team skill, copy it under the kind's prefix, switch it on.
+        openAdoptSkillModal: (kind: ReviewSkillKind) => ({ kind }),
+        closeAdoptSkillModal: true,
+        chooseAdoptSource: (source: AdoptSource) => ({ source }),
+        backToAdoptSearch: true,
+        setAdoptSlug: (slug: string) => ({ slug }),
+        submitAdoptSkill: true,
+        // Flipped by the listener (not the submit action itself) so a repeat dispatch mid-flight is
+        // dropped before it POSTs, mirroring the trigger flow's guard.
+        submitAdoptSkillStarted: true,
+        submitAdoptSkillFinished: true,
         setTriggerPrUrl: (prUrl: string) => ({ prUrl }),
         // Starts a run on the pasted PR URL: a review (which resolves comments per the user's
         // setting), a review without resolving, or a resolve-only run — the split button's variants.
@@ -550,6 +705,32 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             null as ReviewResolutionConfigApi[] | null,
             {
                 loadResolutionSkills: async () => await reviewHogResolutionList(currentProjectId()),
+            },
+        ],
+        // Every live team skill, for the adopt picker. Fetched fresh on each modal open so a skill
+        // created since the last open (e.g. by an authoring task) is offered. The picker's search,
+        // grouping, and name-collision checks all assume the complete store, so the loader follows
+        // the pagination to the end instead of trusting one page to cover it.
+        adoptableSkills: [
+            null as LLMSkillListApi[] | null,
+            {
+                loadAdoptableSkills: async (_ = null, breakpoint) => {
+                    const skills: LLMSkillListApi[] = []
+                    let hasMore = true
+                    while (hasMore) {
+                        // `offset: skills.length` adapts to the page size the server actually
+                        // returned, so a server-side clamp below the requested limit skips nothing.
+                        const response = await llmSkillsList(currentProjectId(), {
+                            limit: ADOPTABLE_SKILLS_PAGE_SIZE,
+                            offset: skills.length,
+                        })
+                        breakpoint()
+                        skills.push(...response.results)
+                        // An empty page stops the loop too, so a buggy `next` can never spin it forever.
+                        hasMore = Boolean(response.next) && response.results.length > 0
+                    }
+                    return skills
+                },
             },
         ],
         recentReviewsPage: [
@@ -783,6 +964,39 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 startSkillAuthorTaskFinished: () => null,
             },
         ],
+        // Which kind the adopt modal is open for; null means closed.
+        adoptSkillKind: [
+            null as ReviewSkillKind | null,
+            {
+                openAdoptSkillModal: (_, { kind }) => kind,
+                closeAdoptSkillModal: () => null,
+            },
+        ],
+        // The picked source skill; non-null switches the modal from the picker to the confirm step.
+        adoptSource: [
+            null as AdoptSource | null,
+            {
+                chooseAdoptSource: (_, { source }) => source,
+                backToAdoptSearch: () => null,
+                openAdoptSkillModal: () => null,
+                closeAdoptSkillModal: () => null,
+            },
+        ],
+        adoptSlug: [
+            '',
+            {
+                setAdoptSlug: (_, { slug }) => slug,
+                openAdoptSkillModal: () => '',
+                backToAdoptSearch: () => '',
+            },
+        ],
+        adoptingSkill: [
+            false,
+            {
+                submitAdoptSkillStarted: () => true,
+                submitAdoptSkillFinished: () => false,
+            },
+        ],
         triggerPrUrl: [
             '',
             {
@@ -808,6 +1022,97 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
     }),
 
     selectors({
+        // The adopt picker's two groups: teammates' ready-made skills of the kind (store rows with
+        // the kind's prefix that aren't already cards above, i.e. not canonicals or own customs),
+        // then every other team skill. Cross-kind review-hog skills land in the second group on
+        // purpose: adopting, say, a validation bar as resolution criteria is legitimate reuse.
+        adoptSkillGroups: [
+            (s) => [
+                s.adoptableSkills,
+                s.adoptSkillKind,
+                s.perspectives,
+                s.blindSpots,
+                s.validators,
+                s.resolutionSkills,
+            ],
+            (
+                adoptableSkills: LLMSkillListApi[] | null,
+                adoptSkillKind: ReviewSkillKind | null,
+                perspectives: ReviewPerspectiveConfigApi[] | null,
+                blindSpots: ReviewBlindSpotsConfigApi[] | null,
+                validators: ReviewValidatorConfigApi[] | null,
+                resolutionSkills: ReviewResolutionConfigApi[] | null
+            ): SkillPickerGroup[] => {
+                if (!adoptSkillKind || !adoptableSkills) {
+                    return []
+                }
+                const prefix = REVIEW_SKILL_PREFIX_BY_KIND[adoptSkillKind]
+                const cardsByKind: Record<ReviewSkillKind, { skill_name: string }[] | null> = {
+                    perspective: perspectives,
+                    blind_spots: blindSpots,
+                    validator: validators,
+                    resolution: resolutionSkills,
+                }
+                const cardNames = new Set((cardsByKind[adoptSkillKind] ?? []).map((card) => card.skill_name))
+                const toPickerSkill = (skill: LLMSkillListApi): { name: string; description: string } => ({
+                    name: skill.name,
+                    description: skill.description,
+                })
+                return [
+                    {
+                        key: 'teammates',
+                        label: ADOPT_TEAMMATE_GROUP_LABELS[adoptSkillKind],
+                        skills: adoptableSkills
+                            .filter((skill) => skill.name.startsWith(prefix) && !cardNames.has(skill.name))
+                            .map(toPickerSkill),
+                    },
+                    {
+                        key: 'store',
+                        label: 'All team skills',
+                        skills: adoptableSkills.filter((skill) => !skill.name.startsWith(prefix)).map(toPickerSkill),
+                    },
+                ]
+            },
+        ],
+        adoptNewSkillName: [
+            (s) => [s.adoptSkillKind, s.adoptSlug],
+            (adoptSkillKind: ReviewSkillKind | null, adoptSlug: string): string =>
+                adoptSkillKind ? REVIEW_SKILL_PREFIX_BY_KIND[adoptSkillKind] + adoptSlug : '',
+        ],
+        adoptSlugError: [
+            (s) => [
+                s.adoptSlug,
+                s.adoptSkillKind,
+                s.adoptableSkills,
+                s.perspectives,
+                s.blindSpots,
+                s.validators,
+                s.resolutionSkills,
+            ],
+            (
+                adoptSlug: string,
+                adoptSkillKind: ReviewSkillKind | null,
+                adoptableSkills: LLMSkillListApi[] | null,
+                perspectives: ReviewPerspectiveConfigApi[] | null,
+                blindSpots: ReviewBlindSpotsConfigApi[] | null,
+                validators: ReviewValidatorConfigApi[] | null,
+                resolutionSkills: ReviewResolutionConfigApi[] | null
+            ): string | null => {
+                if (!adoptSkillKind) {
+                    return null
+                }
+                // Best-effort collision set: the store page plus the user's own cards. The server
+                // still rejects anything this misses.
+                const takenNames = new Set<string>([
+                    ...(adoptableSkills?.map((skill) => skill.name) ?? []),
+                    ...(perspectives?.map((card) => card.skill_name) ?? []),
+                    ...(blindSpots?.map((card) => card.skill_name) ?? []),
+                    ...(validators?.map((card) => card.skill_name) ?? []),
+                    ...(resolutionSkills?.map((card) => card.skill_name) ?? []),
+                ])
+                return validateAdoptSlug(adoptSlug, adoptSkillKind, takenNames)
+            },
+        ],
         recentReviews: [
             (s) => [s.recentReviewsPage],
             (recentReviewsPage: ReviewRecentReviewsPageApi | null): ReviewRecentReviewApi[] | null =>
@@ -843,6 +1148,22 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                         (f) => REVIEW_PRIORITY_RANK[f.effective_priority] < thresholdRank
                     ),
                 }
+            },
+        ],
+        // Mirrors the server-side busy-guard for PRs the list already shows, so the trigger button
+        // explains the refusal up front instead of surfacing it as a submit error.
+        triggerUrlResolving: [
+            (s) => [s.triggerPrUrl, s.recentReviews],
+            (triggerPrUrl: string, recentReviews: ReviewRecentReviewApi[] | null): boolean => {
+                const target = parsePrPath(triggerPrUrl)
+                return (
+                    !!target &&
+                    (recentReviews ?? []).some(
+                        (review) =>
+                            review.resolution?.resolution_status === 'resolving' &&
+                            parsePrPath(review.github_url) === target
+                    )
+                )
             },
         ],
         perspectiveScoreboard: [
@@ -1032,6 +1353,64 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         },
         blockSingleActiveDeactivation: ({ kindLabel }) => {
             lemonToast.info(`One ${kindLabel} always runs — switch by selecting another one`)
+        },
+        openAdoptSkillModal: () => {
+            actions.loadAdoptableSkills()
+        },
+        loadAdoptableSkillsFailure: () => {
+            // Without this the picker would render its "no skills yet" empty state over a fetch
+            // error. Closing keeps the states honest; reopening retries the load.
+            lemonToast.error("Couldn't load your team's skills. Open the picker again to retry.")
+            actions.closeAdoptSkillModal()
+        },
+        chooseAdoptSource: ({ source }) => {
+            if (values.adoptSkillKind) {
+                actions.setAdoptSlug(defaultAdoptSlug(source.name, values.adoptSkillKind))
+            }
+        },
+        submitAdoptSkill: async () => {
+            const kind = values.adoptSkillKind
+            const source = values.adoptSource
+            if (!kind || !source || values.adoptingSkill || values.adoptSlugError) {
+                return
+            }
+            const newName = values.adoptNewSkillName
+            actions.submitAdoptSkillStarted()
+            try {
+                await llmSkillsNameDuplicateCreate(currentProjectId(), source.name, { new_name: newName })
+            } catch (error: any) {
+                // Kept open so a name conflict can be fixed in place; the server's detail names it.
+                lemonToast.error(error?.data?.detail || error?.detail || error?.message || "Couldn't copy the skill")
+                actions.submitAdoptSkillFinished()
+                return
+            }
+            try {
+                if (kind === 'perspective') {
+                    await reviewHogPerspectivesPartialUpdate(currentProjectId(), newName, { enabled: true })
+                } else if (kind === 'blind_spots') {
+                    await reviewHogBlindSpotsPartialUpdate(currentProjectId(), newName, { active: true })
+                } else if (kind === 'validator') {
+                    await reviewHogValidatorsPartialUpdate(currentProjectId(), newName, { active: true })
+                } else {
+                    await reviewHogResolutionPartialUpdate(currentProjectId(), newName, { active: true })
+                }
+                lemonToast.success('Skill copied. It now runs on your PR reviews.')
+            } catch {
+                // The copy exists even though switching it on failed: close to its new card and let
+                // the user flip it on there.
+                lemonToast.error("Copied the skill, but couldn't switch it on. Turn it on from its card.")
+            }
+            if (kind === 'perspective') {
+                actions.loadPerspectives()
+            } else if (kind === 'blind_spots') {
+                actions.loadBlindSpots()
+            } else if (kind === 'validator') {
+                actions.loadValidators()
+            } else {
+                actions.loadResolutionSkills()
+            }
+            actions.submitAdoptSkillFinished()
+            actions.closeAdoptSkillModal()
         },
         openReviewDetail: ({ review }) => {
             actions.loadReviewDetail(review.id)

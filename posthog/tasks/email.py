@@ -39,10 +39,10 @@ from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.scoping import with_team_scope
 from posthog.models.utils import UUIDT
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
@@ -557,6 +557,40 @@ def send_email_verification(
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
+def send_email_verification_code(user_id: int, code: str, target_email: str | None = None) -> None:
+    """Send the 6-digit email-verification code.
+
+    `target_email` pins the recipient to the address the code authorizes, which is the staged
+    address for email changes. Signup sends leave it None."""
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"email-verification-code-{user.uuid}-{timezone.now().timestamp()}",
+        subject="Verify your email address",
+        template_name="email_verification_code",
+        template_context={
+            # Code first so inbox previews and push notifications always show it, even truncated.
+            "preheader": f"{code} is your code.",
+            "code": code,
+            "expiration_minutes": CODE_TTL_SECONDS // 60,
+            # Only email changes set target_email, so it selects the flow. Templates use the
+            # action to pick the footer line.
+            "action": "email_change" if target_email is not None else "signup",
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_user_recipient(user, email_override=target_email)
+    message.send(send_async=False)
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(user.distinct_id),
+            event="verification code sent",
+            groups={"organization": str(user.current_organization.id)},  # type: ignore
+        )
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_code_based_verification(user_id: int, code: str) -> None:
     """Send the 6-digit login verification code."""
     user: User = User.objects.get(pk=user_id)
@@ -677,7 +711,9 @@ def send_email_sending_suspended(team_id: int, reason: str, suspended_at: str) -
         return
     message = EmailMessage(
         campaign_key=f"email_sending_suspended_{team_id}_{suspended_at}",
-        subject=f"[Action required] Email sending has been suspended for project '{team}'",
+        # No urgency prefix in the subject. A bracketed "[Action required]" got these filtered to
+        # junk in production, while the plainer re-enabled email reached the same address.
+        subject=f"Email sending has been suspended for project '{team}'",
         template_name="email_sending_suspended",
         template_context={
             "team": team,
@@ -707,8 +743,9 @@ def send_email_sending_reputation_finding(
     if not memberships_to_email:
         return
     high_impact = impact == "HIGH"
+    # Kept free of an urgency prefix for the same deliverability reason as the suspension email.
     subject = (
-        f"[Action required] Email sending for project '{team}' is at risk of being paused"
+        f"Email sending for project '{team}' is at risk of being paused"
         if high_impact
         else f"Reputation warning for email sending in project '{team}'"
     )
@@ -766,6 +803,10 @@ def send_batch_export_run_failure(
         "batch_export__team", "batch_export_on_demand__team"
     ).get(id=batch_export_run_id)
     batch_export = batch_export_run.parent
+    # On-demand exports do not have a page for this email to link to.
+    if not isinstance(batch_export, BatchExport):
+        return
+
     team: Team = batch_export.team
 
     pipeline_id = f"batch_export:{batch_export.id}"
@@ -780,11 +821,7 @@ def send_batch_export_run_failure(
 
     campaign_key: str = f"batch_export_run_email_batch_export_{batch_export.id}_last_updated_at_{last_updated_at_date}"
 
-    subject = (
-        f"PostHog: {batch_export.name} batch export run failure"
-        if isinstance(batch_export, BatchExport)
-        else "PostHog: batch export on demand run failure"
-    )
+    subject = f"PostHog: {batch_export.name} batch export run failure"
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=subject,
@@ -793,7 +830,7 @@ def send_batch_export_run_failure(
             "time": batch_export_run.last_updated_at.strftime("%I:%M%p %Z on %B %d"),
             "team": team,
             "id": batch_export.id,
-            "name": batch_export.name if isinstance(batch_export, BatchExport) else "",
+            "name": batch_export.name,
         },
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)

@@ -10,17 +10,25 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, TypeVar, overload
-from uuid import UUID
 
 from django.db import IntegrityError
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
 
-from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
+from ..logic.review_trigger import derive_review_trigger
+from ..models import DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 from . import contracts
-from .enums import TERMINAL_STATUSES, ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewVerdict
+from .enums import (
+    TERMINAL_STATUSES,
+    ChannelResolutionSource,
+    DigestRunStatus,
+    ReviewMode,
+    ReviewRunStatus,
+    ReviewTrigger,
+    ReviewVerdict,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -98,27 +106,14 @@ def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
     )
 
 
-def _digest_channel_to_dto(obj: DigestChannel) -> contracts.DigestChannelDTO:
-    return contracts.DigestChannelDTO(
-        id=obj.id,
-        team_id=obj.team_id,
-        audience_key=obj.audience_key,
-        slack_integration_id=obj.slack_integration_id,
-        slack_channel_id=obj.slack_channel_id,
-        slack_channel_name=obj.slack_channel_name,
-        enabled=obj.enabled,
-        resolution_source=ChannelResolutionSource(obj.resolution_source),
-        last_digest_at=obj.last_digest_at,
-        created_at=obj.created_at,
-        updated_at=obj.updated_at,
-    )
-
-
 def _digest_run_to_dto(obj: DigestRun) -> contracts.DigestRunDTO:
     return contracts.DigestRunDTO(
         id=obj.id,
         team_id=obj.team_id,
-        digest_channel_id=obj.digest_channel_id,
+        audience_key=obj.audience_key,
+        slack_channel_id=obj.slack_channel_id,
+        slack_channel_name=obj.slack_channel_name,
+        resolution_source=ChannelResolutionSource(obj.resolution_source),
         status=DigestRunStatus(obj.status),
         pr_count=obj.pr_count,
         summary=obj.summary,
@@ -127,6 +122,41 @@ def _digest_run_to_dto(obj: DigestRun) -> contracts.DigestRunDTO:
         created_at=obj.created_at,
         posted_at=obj.posted_at,
     )
+
+
+# A run dispatched from the inbox records its provenance on `output`. Both writers in tasks.py
+# either omit the key or write a populated dict, so testing for the key and testing for truthiness
+# agree — which is what lets the filter below stay in step with the derivation above it.
+_SELF_DRIVING = Q(output__has_key="inbox_review")
+
+# Preserves the caller's queryset type, so a team-scoped queryset stays team-scoped through the filter.
+_RunQS = TypeVar("_RunQS", bound=QuerySet)
+
+
+def _derive_trigger(obj: ReviewRun) -> ReviewTrigger:
+    """Why stamphog looked at this PR. The rule itself lives in logic/review_trigger.py, because
+    the reviewer invocation has to answer the same question before a run exists to read."""
+    return derive_review_trigger(
+        has_inbox_review=bool((obj.output or {}).get("inbox_review")),
+        review_mode=obj.pull_request.repo_config.review_mode,
+    )
+
+
+def _filter_by_trigger(qs: _RunQS, trigger: str) -> _RunQS:
+    """Narrow to one trigger, mirroring _derive_trigger in SQL.
+
+    The trigger is not a column, so the precedence has to be spelled out twice. Keep the two in
+    step: a run that reads as self-driving in the list must be reachable by that filter, or the
+    filter quietly hides rows the caller just saw. An unrecognized value narrows to nothing rather
+    than falling through to the unfiltered list.
+    """
+    if trigger == ReviewTrigger.SELF_DRIVING:
+        return qs.filter(_SELF_DRIVING)
+    if trigger == ReviewTrigger.LABEL:
+        return qs.exclude(_SELF_DRIVING).filter(pull_request__repo_config__review_mode=ReviewMode.LABEL)
+    if trigger == ReviewTrigger.ALL:
+        return qs.exclude(_SELF_DRIVING).filter(pull_request__repo_config__review_mode=ReviewMode.ALL)
+    return qs.none()
 
 
 def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
@@ -141,10 +171,16 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
         head_sha=obj.head_sha,
         status=ReviewRunStatus(obj.status),
         verdict=ReviewVerdict(obj.verdict),
+        trigger=_derive_trigger(obj),
+        title=obj.pull_request.title,
+        author_login=obj.pull_request.author_login,
         delivery_id=obj.delivery_id,
         gate_result=obj.gate_result,
         output=obj.output,
         error=obj.error,
+        posted_review_id=obj.posted_review_id,
+        verdict_posted_at=obj.verdict_posted_at,
+        approval_dismissed_at=obj.approval_dismissed_at,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
         completed_at=obj.completed_at,
@@ -197,11 +233,6 @@ def create_review_run(
         delivery_id=delivery_id,
     )
     return _review_run_to_dto(obj)
-
-
-def get_digest_channel(team_id: int, digest_channel_id: str) -> contracts.DigestChannelDTO | None:
-    obj = DigestChannel.objects.for_team(team_id).filter(id=digest_channel_id).first()
-    return _digest_channel_to_dto(obj) if obj is not None else None
 
 
 def get_digest_run(team_id: int, digest_run_id: str) -> contracts.DigestRunDTO | None:
@@ -311,6 +342,7 @@ def list_review_runs(
     repository: str | None = None,
     pr_number: int | None = None,
     status: str | None = None,
+    trigger: str | None = None,
 ) -> LazyDTOList[contracts.ReviewRunDTO]:
     qs = ReviewRun.objects.for_team(team_id).select_related("pull_request__repo_config").order_by("-created_at")
     if repository:
@@ -319,6 +351,8 @@ def list_review_runs(
         qs = qs.filter(pull_request__pr_number=pr_number)
     if status:
         qs = qs.filter(status=status)
+    if trigger:
+        qs = _filter_by_trigger(qs, trigger)
     return LazyDTOList(qs, _review_run_to_dto)
 
 
@@ -336,55 +370,11 @@ def list_pull_requests(
     return LazyDTOList(qs, _pull_request_to_dto)
 
 
-# --- Digest channels ---
-
-
-def list_digest_channels(team_id: int) -> LazyDTOList[contracts.DigestChannelDTO]:
-    qs = DigestChannel.objects.for_team(team_id).order_by("audience_key")
-    return LazyDTOList(qs, _digest_channel_to_dto)
-
-
-def create_digest_channel(team_id: int, **fields: object) -> contracts.DigestChannelDTO:
-    # team_id is injected rather than supplied, so the unique (team, audience_key) constraint can't
-    # be pre-validated by the caller — catch it here so a duplicate audience is a domain error
-    # rather than a 500.
-    try:
-        obj = DigestChannel.objects.for_team(team_id).create(team_id=team_id, **fields)
-    except IntegrityError:
-        raise contracts.DuplicateAudienceError(str(fields.get("audience_key", "")))
-    return _digest_channel_to_dto(obj)
-
-
-def update_digest_channel(team_id: int, channel_id: str, **fields: object) -> contracts.DigestChannelDTO:
-    # audience_key is the bucket this channel is bound to. Editing it re-points the channel at a
-    # different audience — and can effectively re-open an audience a human opted out of, since the
-    # disabled tombstone row keying off the old audience_key would no longer match.
-    fields.pop("audience_key", None)
-    obj = DigestChannel.objects.for_team(team_id).get(id=channel_id)
-    for name, value in fields.items():
-        setattr(obj, name, value)
-    obj.save()
-    return _digest_channel_to_dto(obj)
-
-
-def disable_digest_channel(team_id: int, channel_id: str) -> None:
-    """Soft-disable rather than removing the row.
-
-    The (team_id, audience_key) row is the tombstone that stops auto_provision_channel from
-    recreating and re-posting a digest someone opted out of (see logic/channel_resolution.py —
-    auto-provisioning skips any existing row, disabled included). A hard delete would let the next
-    daily beat resurrect the channel and re-send the digest.
-    """
-    obj = DigestChannel.objects.for_team(team_id).get(id=channel_id)
-    obj.enabled = False
-    obj.save(update_fields=["enabled", "updated_at"])
-
-
 # --- Digest runs ---
 
 
-def list_digest_runs(team_id: int, *, digest_channel_id: UUID | None = None) -> LazyDTOList[contracts.DigestRunDTO]:
+def list_digest_runs(team_id: int, *, slack_channel_id: str | None = None) -> LazyDTOList[contracts.DigestRunDTO]:
     qs = DigestRun.objects.for_team(team_id).order_by("-created_at")
-    if digest_channel_id is not None:
-        qs = qs.filter(digest_channel_id=digest_channel_id)
+    if slack_channel_id is not None:
+        qs = qs.filter(slack_channel_id=slack_channel_id)
     return LazyDTOList(qs, _digest_run_to_dto)

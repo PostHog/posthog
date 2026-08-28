@@ -190,6 +190,31 @@ class TestActivityLogModel(BaseTest):
             error.exception.args[0],
         )
 
+    def test_deferred_write_failure_does_not_escape_committed_transaction(self) -> None:
+        # A write deferred to transaction.on_commit runs after the transaction commits, so a
+        # failure there must not surface as a request error for data that already persisted.
+        with patch("posthog.models.activity_logging.activity_log.logger") as mock_logger:
+            with self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
+                with patch.object(ActivityLog.objects, "create", side_effect=IntegrityError("write timed out")):
+                    try:
+                        with self.captureOnCommitCallbacks(execute=True):
+                            log_activity(
+                                organization_id=self.organization.id,
+                                team_id=self.team.id,
+                                user=self.user,
+                                was_impersonated=False,
+                                item_id="12345",
+                                scope="FeatureFlag",
+                                activity="updated",
+                                detail=Detail(changes=[Change(type="FeatureFlag", field="active", action="created")]),
+                            )
+                    except Exception as e:
+                        raise pytest.fail(f"Deferred write failure should not escape: {e}")
+
+            warning = mock_logger.warn.call_args
+            self.assertEqual(warning.args[0], "activity_log.failed_to_write_to_activity_log")
+            self.assertIsInstance(warning.kwargs["exception"], IntegrityError)
+
     def test_does_not_throw_if_cannot_log_activity(self) -> None:
         # Assert on the module logger directly instead of assertLogs: the root logger sits at
         # ERROR under test settings, so whether the warning reaches a root handler depends on

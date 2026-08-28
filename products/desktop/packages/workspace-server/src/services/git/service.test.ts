@@ -21,6 +21,26 @@ describe("GitService", () => {
     execGhMock.mockReset();
   });
 
+  it("returns lifecycle and creator details for a pull request", async () => {
+    const details = {
+      state: "open",
+      merged: false,
+      draft: false,
+      headRefName: "posthog/status-chip",
+      title: "Show pull request status in sessions",
+      author: "octocat",
+    };
+    execGhMock.mockResolvedValueOnce(
+      ghResult({ stdout: JSON.stringify(details) }),
+    );
+
+    await expect(
+      new GitService().getPrDetailsByUrl(
+        "https://github.com/PostHog/posthog/pull/23985",
+      ),
+    ).resolves.toEqual(details);
+  });
+
   it("returns no changed files when the remote branch does not exist yet", async () => {
     execGhMock
       .mockResolvedValueOnce(ghResult({ stdout: "main\n" }))
