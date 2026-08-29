@@ -35,7 +35,7 @@ jobs:
               (github.event.action == 'labeled' && github.event.label.name == 'build-installer') ||
               (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'build-installer'))
             )
-        runs-on: macos-26
+        runs-on: depot-macos-26
         timeout-minutes: 45
         permissions:
             id-token: write

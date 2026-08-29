@@ -130,7 +130,7 @@ jobs:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
         if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
-        runs-on: macos-latest
+        runs-on: depot-macos-26
         timeout-minutes: 45
         permissions:
             contents: read

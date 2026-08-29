@@ -50,12 +50,9 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                include:
-                    - arch: arm64
-                      runner: macos-26
-                    - arch: x64
-                      runner: macos-26-intel
-        runs-on: ${{ matrix.runner }}
+                arch: [arm64, x64]
+        # Depot macOS runners are Apple silicon only; the x64 build cross-compiles here.
+        runs-on: depot-macos-26
         timeout-minutes: 90
         defaults:
             run:

@@ -19,12 +19,9 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                include:
-                    - arch: arm64
-                      runner: macos-26
-                    - arch: x64
-                      runner: macos-26-intel
-        runs-on: ${{ matrix.runner }}
+                arch: [arm64, x64]
+        # Depot macOS runners are Apple silicon only; the x64 build cross-compiles here.
+        runs-on: depot-macos-26
         timeout-minutes: 60
         permissions:
             id-token: write
@@ -147,6 +144,10 @@ jobs:
 
             - name: Install Playwright
               run: pnpm --filter code exec playwright install
+
+            - name: Install Rosetta for the x64 smoke test
+              if: matrix.arch == 'x64'
+              run: pgrep -xq oahd || sudo softwareupdate --install-rosetta --agree-to-license
 
             - name: Smoke test packaged app
               env:
