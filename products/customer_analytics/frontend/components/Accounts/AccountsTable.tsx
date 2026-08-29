@@ -382,6 +382,13 @@ function CustomPropertyCell({
     if (definition.display_type === 'boolean') {
         return value === 'true' || value === '1' ? <IconCheck /> : <IconX className="text-muted" />
     }
+    if (definition.display_type === 'link') {
+        return (
+            <Link to={value} target="_blank" targetBlankIcon={false}>
+                {value}
+            </Link>
+        )
+    }
     if (definition.display_type === 'select') {
         const option = definition.options?.find((candidate) => candidate.label === value)
         return (

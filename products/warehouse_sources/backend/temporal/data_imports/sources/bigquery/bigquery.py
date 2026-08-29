@@ -1197,9 +1197,14 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             # project than the service account (the `dataset_project` option), the client's default
             # project and the job's billing project diverge, and BigQuery can't resolve an unqualified
             # `dataset.INFORMATION_SCHEMA.*` — it rejects the job with "ProjectId must be non-empty".
+            # The backtick-quoted identifier must close after the dataset, not after `INFORMATION_SCHEMA.COLUMNS`
+            # — quoting the whole path as one identifier (like a regular `project.dataset.table` reference)
+            # stops BigQuery from resolving the trailing segments as the INFORMATION_SCHEMA view, which
+            # raises the same "ProjectId must be non-empty" error this qualification was meant to fix.
             project = _resolve_query_project(config)
+            qualified_dataset = f"{project}.{_resolve_dataset_id(config)}"
             query = conn.query(
-                f"SELECT table_name, column_name, data_type, is_nullable FROM `{project}.{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
+                f"SELECT table_name, column_name, data_type, is_nullable FROM `{qualified_dataset}`.INFORMATION_SCHEMA.COLUMNS ORDER BY table_name ASC",
                 project=project,
             )
             rows = query.result()

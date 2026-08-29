@@ -5,7 +5,6 @@ import {
   countActiveTaskCells,
   getCanvasCellId,
   getCellCount,
-  getCellSessionId,
   getExpandedLayout,
   getExpansionCellIndex,
   getGridDimensions,
@@ -231,12 +230,6 @@ describe("terminal cells", () => {
   ])("isTerminalCell($value) -> $expected", ({ value, expected }) => {
     expect(isTerminalCell(value)).toBe(expected);
     expect(getTerminalCellId(value)).toBeNull();
-  });
-});
-
-describe("getCellSessionId", () => {
-  it("formats the cell session id", () => {
-    expect(getCellSessionId(2)).toBe("cc-cell-2");
   });
 });
 

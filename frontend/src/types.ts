@@ -39,6 +39,7 @@ import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
+import type { OrganizationNotificationLockApi } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     CoreEvent,
@@ -365,6 +366,8 @@ export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisi
 export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
+    /** Settings an organization admin enforces, which the member cannot change back. */
+    notification_locks?: OrganizationNotificationLockApi[]
     active_realtime_notification_types?: readonly string[]
     requires_credential_review?: boolean
     events_column_config: ColumnConfig
@@ -593,6 +596,7 @@ export interface OrganizationType extends OrganizationBasicType {
     members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
     members_can_see_org_members?: boolean
+    read_only_mcp_access?: boolean
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
@@ -2140,6 +2144,10 @@ export interface SessionRecordingType {
     external_references?: SessionRecordingExternalReference[]
     /** False when the recording was included in list results via a direct link despite not matching the filters. */
     matches_filters?: boolean
+    /** Total stored size of the recording's snapshot data in bytes. Only present once metadata is loaded. */
+    total_size?: number | null
+    /** Number of captured rrweb events in the recording. Only present once metadata is loaded. */
+    event_count?: number | null
 }
 
 export interface SessionRecordingUpdateType {
@@ -3078,6 +3086,7 @@ export enum ChartDisplayType {
     BoldNumber = 'BoldNumber',
     Metric = 'Metric',
     ActionsPie = 'ActionsPie',
+    ActionsDonut = 'ActionsDonut',
     ActionsBarValue = 'ActionsBarValue',
     ActionsTable = 'ActionsTable',
     WorldMap = 'WorldMap',
@@ -4615,6 +4624,22 @@ export type ScheduledChangePayload =
           }
       }
 
+// Keep in sync with products/approvals/backend/models.py ChangeRequestState
+export enum ScheduledChangeRequestState {
+    Pending = 'pending',
+    Approved = 'approved',
+    Applied = 'applied',
+    Rejected = 'rejected',
+    Expired = 'expired',
+    Failed = 'failed',
+}
+
+/** Summary of the approval change request gating a scheduled change. */
+export interface ScheduledChangeRequestSummary {
+    id: string
+    state: ScheduledChangeRequestState
+}
+
 export interface ScheduledChangeType {
     id: number
     team_id: number
@@ -4631,6 +4656,8 @@ export interface ScheduledChangeType {
     cron_expression: string | null
     last_executed_at: string | null
     end_date: string | null
+    /** Null when the change is not gated on approval. */
+    change_request: ScheduledChangeRequestSummary | null
 }
 
 export interface PrevalidatedInvite {
@@ -5901,6 +5928,7 @@ export const API_SCOPE_OBJECTS = [
     'user',
     'user_interview',
     'vision_action',
+    'vision_alert',
     'visual_review',
     'warehouse_objects',
     'warehouse_table',
@@ -6621,6 +6649,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      */
     enabled_columns?: string[] | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    /** Exact source identifiers are available for sources that project columns upstream. */
+    source_column_metadata_available?: boolean
     /**
      * Predicates ANDed onto the source query so only matching rows sync.
      * `null` means "sync all rows". Applied on the next sync — not retroactive.
@@ -6641,6 +6671,7 @@ export interface ExternalDataSchemaSourceSummary {
     access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean
+    requires_exact_column_metadata?: boolean
     user_access_level: AccessControlLevel | null
     /** The source's effective vendor API version — what schemas without an override sync on */
     api_version?: string | null
@@ -6939,6 +6970,7 @@ export type RawBatchExportRun = {
         | 'ContinuedAsNew'
         | 'Failed'
         | 'FailedRetryable'
+        | 'FailedBilling'
         | 'Terminated'
         | 'TimedOut'
         | 'Running'
@@ -6961,6 +6993,7 @@ export type BatchExportRun = {
         | 'ContinuedAsNew'
         | 'Failed'
         | 'FailedRetryable'
+        | 'FailedBilling'
         | 'Terminated'
         | 'TimedOut'
         | 'Running'

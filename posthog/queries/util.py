@@ -14,16 +14,6 @@ from posthog.schema_enums import PersonsOnEventsMode
 class PersonPropertiesMode(Enum):
     USING_SUBQUERY = auto()
     USING_PERSON_PROPERTIES_COLUMN = auto()
-    # Used for generating query on Person table
-    DIRECT = auto()
-    """Get person property from the persons table, selecting the latest version of the person."""
-    DIRECT_ON_PERSONS = auto()
-    """
-    Get person property from the persons table WITHOUT aggregation by version. Not fully accurate, as old versions
-    of the person will be matched, but useful for prefiltering on whether _any_ version of the person has ever matched.
-    That's a good way of eliminating most persons early on in the query pipeline, which can greatly reduce the overall
-    memory usage of a query (as aggregation by version happens in-memory).
-    """
     DIRECT_ON_EVENTS = auto()
     """
     Get person property from the events table (persons-on-events v1 - no person ID overrides),

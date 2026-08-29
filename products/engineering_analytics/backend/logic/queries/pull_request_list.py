@@ -28,6 +28,19 @@ _LIMIT = 1000
 # Sparkline cap: enough to read a PR's CI history at a glance without bloating a 1000-row page.
 _PUSH_HISTORY_LIMIT = 20
 
+
+def _visible_prs_where(prefix: str, author: str | None) -> str:
+    """The list's row predicate, buildable against the ``pr`` alias (outer WHERE) or
+    unqualified curated PR columns (the runs-rollup scope) — one definition so the
+    rollup scope can never drift narrower than the rows it must serve."""
+    author_clause = f"AND {prefix}author_handle = {{author}}" if author else ""
+    return f"""(
+            {prefix}state = 'open'
+            OR {prefix}merged_at >= {{date_from}}
+            OR {prefix}closed_at >= {{date_from}}
+        ) {author_clause}"""
+
+
 _SELECT = f"""
     SELECT
         pr.number, pr.title, pr.repo_owner, pr.repo_name,
@@ -48,11 +61,7 @@ _SELECT = f"""
     LEFT JOIN runs_by_pr AS rp
         ON rp.repo_owner = pr.repo_owner AND rp.repo_name = pr.repo_name AND rp.pr_number = pr.number
     __READY_JOIN__
-    WHERE (
-            pr.state = 'open'
-            OR pr.merged_at >= {{date_from}}
-            OR pr.closed_at >= {{date_from}}
-        ) __AUTHOR__
+    WHERE __VISIBLE_PRS__
     ORDER BY pr.created_at DESC
     LIMIT {_LIMIT + 1}
 """
@@ -133,18 +142,17 @@ def query_pull_request_list(
     *, curated: CuratedGitHubSource, date_from: datetime, author: str | None = None
 ) -> PullRequestList:
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
-    author_clause = ""
     if author:
-        author_clause = "AND pr.author_handle = {author}"
         placeholders["author"] = ast.Constant(value=author)
+
     ready = curated.ready_to_merge_sql()
     select = (
         _SELECT.replace("__READY_TO_MERGE__", f"{ready.expr} AS ready_to_merge_seconds")
         .replace("__READY_JOIN__", ready.join)
-        .replace("__AUTHOR__", author_clause)
+        .replace("__VISIBLE_PRS__", _visible_prs_where("pr.", author))
     )
     response = curated.run(
-        curated.pr_list_rollup_query(select),
+        curated.pr_list_rollup_query(select, pr_scope_where=_visible_prs_where("", author)),
         query_type="engineering_analytics.pull_request_list",
         placeholders=placeholders,
     )

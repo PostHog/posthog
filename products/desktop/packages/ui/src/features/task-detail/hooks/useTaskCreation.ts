@@ -1,3 +1,4 @@
+import { getIsOnline } from "@posthog/core/connectivity/connectivityStore";
 import { partitionLocalMcpServersForRun } from "@posthog/core/local-mcp/localMcpImport";
 import {
   getErrorTitle,
@@ -15,6 +16,7 @@ import {
   type Adapter,
   type AgentRuntime,
   ANALYTICS_EVENTS,
+  type CodexModelAccess,
   PROJECT_BLUEBIRD_FLAG,
   type TaskCreationInput,
   type WorkspaceMode,
@@ -27,6 +29,10 @@ import {
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import {
+  effectiveCodexModelAccess,
+  useCodexSubscription,
+} from "@posthog/ui/features/settings/useCodexSubscription";
 import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
@@ -67,7 +73,6 @@ import { useTourStore } from "../../tour/tourStore";
 import { createFirstTaskTour } from "../../tour/tours/createFirstTaskTour";
 import { useExistingWorktreeConfirmStore } from "../stores/existingWorktreeConfirmStore";
 import { useRemoteBranchConfirmStore } from "../stores/remoteBranchConfirmStore";
-import { restoreTaskInputTab } from "../taskInputTab";
 
 const log = logger.scope("task-creation");
 
@@ -135,6 +140,7 @@ async function trackTaskCreated(
   input: TaskCreationInput,
   selectedDirectory: string,
   hostClient: HostTrpcClient,
+  codexModelAccess?: CodexModelAccess,
 ): Promise<void> {
   try {
     const workspaceMode = input.workspaceMode ?? "local";
@@ -175,6 +181,7 @@ async function trackTaskCreated(
       uses_worktree_link: usesWorktreeLink,
       uses_worktree_include: usesWorktreeInclude,
       adapter: input.adapter,
+      codex_model_access: codexModelAccess,
     });
   } catch (error) {
     log.warn("Failed to track Task created event", { error });
@@ -216,6 +223,7 @@ export function useTaskCreation({
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [isExitingComposer, setIsExitingComposer] = useState(false);
   const hostClient = useHostTRPCClient();
+  const codexSubscription = useCodexSubscription();
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const defaultAdditionalDirectoriesQuery = useQuery(
@@ -361,6 +369,12 @@ export function useTaskCreation({
               id: a.id,
               label: a.label,
             })),
+            // The serialized content restores file chips and attachments on
+            // recovery, so an interrupted prompt comes back whole, not as bare
+            // text.
+            contentXml: serializedContent,
+            // Reopen recovery in the space the prompt was submitted in.
+            channelId: channelId ?? undefined,
           });
           // Fade the composer out before the chat fades in, so the phases
           // hand over instead of cutting.
@@ -395,6 +409,15 @@ export function useTaskCreation({
             localMcpServers,
             adapter,
           );
+          const codexModelAccess =
+            runtime !== "pi" && adapter === "codex"
+              ? effectiveCodexModelAccess({
+                  flagEnabled: codexSubscription.flagEnabled,
+                  subscriptionOn: codexSubscription.subscriptionOn,
+                  loggedIn: codexSubscription.loggedIn,
+                  workspaceMode,
+                })
+              : undefined;
           const input = prepareTaskInput(serializedContent, filePaths, {
             // Repo-optional surfaces may still supply an explicit task folder or
             // repository selection; otherwise creation falls back to scratch.
@@ -409,6 +432,7 @@ export function useTaskCreation({
             reuseExistingWorktree,
             executionMode,
             adapter,
+            codexModelAccess,
             runtime,
             model,
             reasoningLevel,
@@ -541,7 +565,12 @@ export function useTaskCreation({
             if (allowNoRepo && channelId) {
               useTaskRepositoryDraftStore.getState().clearDraft(channelId);
             }
-            void trackTaskCreated(input, selectedDirectory, hostClient);
+            void trackTaskCreated(
+              input,
+              selectedDirectory,
+              hostClient,
+              input.codexModelAccess,
+            );
             // Repo-less channel tasks create no workspace row (the agent runs in
             // a scratch dir surfaced as a synthetic workspace), so the normal
             // workspace.create invalidation never fires. Refresh the workspace
@@ -571,11 +600,32 @@ export function useTaskCreation({
               });
             }
             if (pendingTaskKey) {
-              pendingTaskPromptStoreApi.clear(pendingTaskKey);
+              // Never drop the prompt on failure. Keep the record and flag it
+              // interrupted so the pending view offers to recover or discard it,
+              // instead of navigating back to a composer that may not have it.
+              const interruptedKey = createdTaskId ?? pendingTaskKey;
+              // Read connectivity live, not the value captured at submit: the
+              // submit guard forced isOnline true then, so a connection dropped
+              // during setup only shows in the store now.
+              pendingTaskPromptStoreApi.markInterrupted(
+                interruptedKey,
+                getIsOnline() ? "failed" : "offline",
+              );
+              // If onTaskReady already navigated the origin tab to
+              // /tasks/$taskId (the worktree path notifies ready before later
+              // steps), a rolled-back task leaves it on a dead detail view.
+              // Return it to the pending route for the moved record so the
+              // Recover/Discard actions actually show.
               if (createdTaskId) {
-                pendingTaskPromptStoreApi.clear(createdTaskId);
+                navigateBrowserTab(
+                  originTabId,
+                  {
+                    href: `/tasks/pending/${interruptedKey}`,
+                    title: "New task",
+                  },
+                  () => navigateToTaskPending(interruptedKey),
+                );
               }
-              restoreTaskInputTab(originTabId, channelContextId ?? channelId);
             }
           }
           return result.success;
@@ -586,11 +636,24 @@ export function useTaskCreation({
           toastError("Failed to create task", error);
           log.error("Unexpected error during task creation", { error });
           if (pendingTaskKey) {
-            pendingTaskPromptStoreApi.clear(pendingTaskKey);
+            // Keep the prompt recoverable from the pending view.
+            const interruptedKey = createdTaskId ?? pendingTaskKey;
+            // Live connectivity, not the submit-time value, so a drop during
+            // setup is classified as offline (see the failed-result branch).
+            pendingTaskPromptStoreApi.markInterrupted(
+              interruptedKey,
+              getIsOnline() ? "failed" : "offline",
+            );
+            // A throw after onTaskReady leaves the origin tab on the
+            // rolled-back task's detail view; return it to the pending route so
+            // recovery stays reachable.
             if (createdTaskId) {
-              pendingTaskPromptStoreApi.clear(createdTaskId);
+              navigateBrowserTab(
+                originTabId,
+                { href: `/tasks/pending/${interruptedKey}`, title: "New task" },
+                () => navigateToTaskPending(interruptedKey),
+              );
             }
-            restoreTaskInputTab(originTabId, channelContextId ?? channelId);
           }
           return false;
         }
@@ -642,6 +705,9 @@ export function useTaskCreation({
       queryClient,
       taskService,
       tasks,
+      codexSubscription.flagEnabled,
+      codexSubscription.loggedIn,
+      codexSubscription.subscriptionOn,
     ],
   );
 

@@ -275,6 +275,16 @@
     margin: 0 auto;
 }
 
+// Takes the canvas's own column, then steps in by the offset the blocks leave for their hover
+// controls, so anything pinned above the canvas lines up with the blocks below it at any width.
+.MarkdownNotebook__canvas-header {
+    width: 100%;
+    max-width: var(--markdown-notebook-canvas-max-width);
+    padding-right: var(--markdown-notebook-gutter-reserve);
+    padding-left: calc(var(--markdown-notebook-gutter-reserve) + var(--markdown-notebook-content-offset));
+    margin: 0 auto;
+}
+
 .MarkdownNotebook--edit .MarkdownNotebook__canvas {
     padding-bottom: 18rem;
 }
@@ -2112,7 +2122,8 @@ button.MarkdownNotebook__component-title:focus-visible {
 
 /* With comment threads present and enough room, the canvas reserves a right gutter wide
    enough for the whole thread column, pushing the text content left. */
-.MarkdownNotebook--comments-margin .MarkdownNotebook__canvas {
+.MarkdownNotebook--comments-margin .MarkdownNotebook__canvas,
+.MarkdownNotebook--comments-margin .MarkdownNotebook__canvas-header {
     max-width: calc(
         var(--markdown-notebook-canvas-max-width) + var(--markdown-notebook-comment-gutter) +
             var(--markdown-notebook-gutter-reserve)

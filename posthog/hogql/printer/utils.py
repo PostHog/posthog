@@ -163,14 +163,16 @@ def prepare_ast_for_printing(
         # load_property_metadata) — keeping it behind the call is what lets the printer package import
         # without django.setup().
         from products.access_control.backend.property_access_control import (  # noqa: PLC0415
-            get_restricted_properties_for_team,
+            get_restricted_properties_with_group_type_index_for_team,
         )
 
         with context.timings.measure("load_restricted_properties"):
             if context.team is not None and context.team.pk == context.team_id:
-                context.restricted_properties = get_restricted_properties_for_team(user=context.user, team=context.team)
+                context.restricted_properties = get_restricted_properties_with_group_type_index_for_team(
+                    user=context.user, team=context.team
+                )
             else:
-                context.restricted_properties = get_restricted_properties_for_team(
+                context.restricted_properties = get_restricted_properties_with_group_type_index_for_team(
                     user=context.user, team_id=context.team_id
                 )
 
