@@ -54,7 +54,7 @@ import {
     SyncFrequencyLabelMap,
     SyncTypeLabelMap,
     allowedSyncFrequencies,
-    reenableForcesFullResync,
+    reenableMayForceFullResync,
 } from 'products/data_warehouse/frontend/utils'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
@@ -545,8 +545,8 @@ function ManagedSchemaTable({
                     key: 'should_sync',
                     sorter: (a, b) => Number(a.should_sync) - Number(b.should_sync),
                     render: function RenderShouldSync(_, schema) {
-                        const disableEffect = reenableForcesFullResync(schema.sync_type)
-                            ? 'Turning this off pauses syncs. Your synced data stays in PostHog. Turning it back on starts a full resync, which re-imports every row from the source.'
+                        const disableEffect = reenableMayForceFullResync(schema.sync_type)
+                            ? 'Turning this off pauses syncs. Your synced data stays in PostHog. Turning it back on may run a full resync that re-imports data from the source.'
                             : 'Turning this off pauses syncs. Your synced data stays in PostHog until you turn it back on.'
                         return (
                             <SchemaEditorAction schema={schema}>

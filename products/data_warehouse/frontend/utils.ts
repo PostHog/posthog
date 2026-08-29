@@ -184,11 +184,14 @@ export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval, string> = 
 // Sync frequencies ordered shortest→longest. Object key order above is the single source of truth.
 export const SYNC_FREQUENCY_ORDER = Object.keys(SyncFrequencyLabelMap) as DataWarehouseSyncInterval[]
 
-// These sync types cannot resume from where they stopped. Re-enabling one starts a full resync,
-// which re-imports every row from the source. CDC loses its replication slot, webhook stops
-// consuming changes, and xmin loses its transaction-id boundary.
-export const reenableForcesFullResync = (syncType: ExternalDataSourceSyncSchema['sync_type']): boolean =>
-    syncType === 'cdc' || syncType === 'webhook' || syncType === 'xmin'
+// CDC and webhook syncs may need a full resync when re-enabled, but not always. The backend decides
+// from state the frontend can't see: a PostHog-managed-publication CDC schema re-snapshots while a
+// self-managed one resumes; a webhook schema refills the off-window gap only after it finished its
+// first sync, and a webhook-only table resumes over the existing table without re-importing. So
+// callers phrase this as "may". xmin is excluded: a paused xmin schema keeps its transaction-id
+// cursor in sync_type_config and resumes incrementally on re-enable, with no resync.
+export const reenableMayForceFullResync = (syncType: ExternalDataSourceSyncSchema['sync_type']): boolean =>
+    syncType === 'cdc' || syncType === 'webhook'
 
 // Every sync type floors at 5 minutes. Rows written before the floor may still carry '1min'
 // (the label maps above keep rendering it), but it is never offered or accepted again. This is
