@@ -70,6 +70,7 @@ import {
   type IAuthSideEffects,
 } from "@posthog/ui/features/auth/identifiers";
 import { authKeys } from "@posthog/ui/features/auth/useCurrentUser";
+import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import {
   FEATURE_FLAGS,
   type FeatureFlags,
@@ -93,6 +94,7 @@ import {
   NOTIFICATION_SETTINGS_PROVIDER,
   SPEECH_NOTIFY_SETTINGS,
 } from "@posthog/ui/features/notifications/identifiers";
+import { resolveActiveNotificationTarget } from "@posthog/ui/features/notifications/routeNotification";
 import { OnboardingGithubConnectClient } from "@posthog/ui/features/onboarding/githubConnectClientImpl";
 import {
   AGENT_PROMPT_SENDER,
@@ -322,32 +324,22 @@ container
 
 container.bind<IActiveView>(ACTIVE_VIEW_PROVIDER).toConstantValue({
   hasFocus: () => document.hasFocus(),
-  // Read the active leaf route directly: AppView collapses the channel routes
-  // and drops channelId/dashboardId, which we need to identify a canvas target.
   getActiveTarget: (): NotificationTarget | undefined => {
     const matches = getCurrentMatches();
     const last = matches[matches.length - 1];
-    if (!last) return undefined;
-    const params = last.params as Record<string, string | undefined>;
-    // `fullPath`, not `routeId`: the space routes sit under the pathless
-    // `_shell` layout, which routeId spells out and the URL pattern doesn't.
-    switch (last.fullPath) {
-      case "/tasks/$taskId":
-      case "/spaces/$channelId/tasks/$taskId":
-        return params.taskId
-          ? { kind: "task", taskId: params.taskId }
-          : undefined;
-      case "/spaces/$channelId/dashboards/$dashboardId":
-        return params.channelId && params.dashboardId
-          ? {
-              kind: "canvas",
-              channelId: params.channelId,
-              dashboardId: params.dashboardId,
-            }
-          : undefined;
-      default:
-        return undefined;
-    }
+    const params = last?.params as
+      | Record<string, string | undefined>
+      | undefined;
+    const threadPanel = useThreadPanelStore.getState();
+    const openThreadTaskId = params?.channelId
+      ? threadPanel.openByChannel[params.channelId]
+      : undefined;
+
+    return resolveActiveNotificationTarget(
+      last ? { fullPath: last.fullPath, params: params ?? {} } : undefined,
+      openThreadTaskId,
+      threadPanel.collapsed,
+    );
   },
 });
 

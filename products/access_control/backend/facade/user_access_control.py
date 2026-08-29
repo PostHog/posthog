@@ -559,6 +559,7 @@ class UserAccessControl:
         """
         Adds the 3 main filter options to the query
         """
+        filters = self._db_filters(filters)
         return (
             Q(  # Access controls applying to this team
                 **filters, organization_member=None, role=None
@@ -576,6 +577,18 @@ class UserAccessControl:
                 **filters, organization_member=None, role__in=self._user_role_ids
             )
         )
+
+    @staticmethod
+    def _db_filters(filters: dict[str, Any]) -> dict[str, Any]:
+        """Replace `team__organization_id` with `team_id__in` (the org's teams) for the DB query.
+        The org id is a posthog_team column, so as a join predicate it forces a scan over every
+        org's rows. A team_id predicate uses the index on ee_accesscontrol."""
+        organization_id = filters.get("team__organization_id")
+        if organization_id is None:
+            return filters
+        db_filters = {k: v for k, v in filters.items() if k != "team__organization_id"}
+        db_filters["team_id__in"] = Team.objects.filter(organization_id=organization_id).values("id")
+        return db_filters
 
     def _can_serve_from_preload(self, filters: dict) -> bool:
         """The preloaded set is `WHERE team_id = self._team.id` (+ the OR-3 precedence), so it

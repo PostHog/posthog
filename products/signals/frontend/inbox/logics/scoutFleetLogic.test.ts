@@ -187,6 +187,7 @@ describe('scoutFleetLogic', () => {
     })
 
     it('lists the whole roster A→Z and tags each row with its lifecycle group', () => {
+        logic.actions.setRosterEvaluatedAt(new Date('2026-08-28T12:00:00Z').valueOf())
         logic.actions.loadScoutConfigsSuccess([
             { ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' },
             { ...BASE_CONFIG, id: 'busy', skill_name: 'signals-scout-busy' },
@@ -204,6 +205,30 @@ describe('scoutFleetLogic', () => {
                 enabled: false,
                 status: 'paused_by_system',
                 pause_reason: 'repeated_failures',
+                status_changed_at: '2026-08-27T12:00:00Z',
+            },
+            {
+                ...BASE_CONFIG,
+                id: 'stale-pause',
+                skill_name: 'signals-scout-stale-pause',
+                enabled: false,
+                status: 'paused_by_system',
+                pause_reason: 'no_output',
+                status_changed_at: '2026-08-20T12:00:00Z',
+            },
+            {
+                ...BASE_CONFIG,
+                id: 'warned',
+                skill_name: 'signals-scout-warned',
+                status: 'pending_pause',
+                pause_reason: 'ignored',
+            },
+            {
+                ...BASE_CONFIG,
+                id: 'quiet-warning',
+                skill_name: 'signals-scout-quiet-warning',
+                status: 'pending_pause',
+                pause_reason: 'no_output',
             },
         ])
         // `busy` filed a report in the window, which is what separates Working from Watching.
@@ -215,7 +240,12 @@ describe('scoutFleetLogic', () => {
             ['busy', 'working'],
             ['off', 'off'],
             ['quiet', 'watching'],
+            ['quiet-warning', 'needs_you'],
+            ['stale-pause', 'needs_you'],
+            ['warned', 'needs_you'],
         ])
+        // The stats tell a warning apart from a recent pause; human and stale pauses are neither.
+        expect(logic.values.pauseAttentionCounts).toEqual({ pausingSoon: 1, recentlyPaused: 1 })
     })
 
     it('keeps configs unresolved until the current team is available', async () => {
@@ -582,7 +612,7 @@ describe('scoutFleetLogic', () => {
             expect(second?.[1]).toBe(first?.[1])
         })
 
-        it('moves scouts out of cold start when an unchanged runs poll crosses the boundary', async () => {
+        it('advances time-sensitive roster states when an unchanged runs poll crosses a boundary', async () => {
             jest.useFakeTimers()
             try {
                 jest.setSystemTime(Date.UTC(2026, 7, 4))
@@ -594,12 +624,24 @@ describe('scoutFleetLogic', () => {
                 logic = scoutFleetLogic()
                 logic.mount()
                 await expectLogic(logic).toFinishAllListeners()
-                logic.actions.loadScoutConfigsSuccess([BASE_CONFIG])
+                logic.actions.loadScoutConfigsSuccess([
+                    BASE_CONFIG,
+                    {
+                        ...BASE_CONFIG,
+                        id: 'paused',
+                        skill_name: 'signals-scout-paused',
+                        enabled: false,
+                        status: 'paused_by_system',
+                        pause_reason: 'repeated_failures',
+                        status_changed_at: '2026-07-29T00:00:00Z',
+                    },
+                ])
                 logic.actions.loadScoutRuns()
                 await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
                 const firstRuns = logic.values.scoutRuns
 
                 expect(logic.values.rosterScouts[0].group).toBe('settling_in')
+                expect(logic.values.pauseAttentionCounts.recentlyPaused).toBe(1)
 
                 jest.setSystemTime(Date.UTC(2026, 7, 6))
                 logic.actions.loadScoutRuns()
@@ -607,6 +649,7 @@ describe('scoutFleetLogic', () => {
 
                 expect(logic.values.scoutRuns).toBe(firstRuns)
                 expect(logic.values.rosterScouts[0].group).toBe('watching')
+                expect(logic.values.pauseAttentionCounts.recentlyPaused).toBe(0)
             } finally {
                 jest.useRealTimers()
             }
