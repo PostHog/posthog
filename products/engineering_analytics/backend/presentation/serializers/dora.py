@@ -142,6 +142,17 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "help_text": "Previous-window twin of median_merge_to_deploy_seconds.",
                 "allow_null": True,
             },
+            "median_open_to_deploy_seconds": {
+                "help_text": "Median seconds from a PR's open to the first successful deployment "
+                "containing it — the full open-to-deploy lead time over the same deployed-PR "
+                "population as median_merge_to_deploy_seconds. Null when nothing deployed in the "
+                "window.",
+                "allow_null": True,
+            },
+            "median_open_to_deploy_seconds_prev": {
+                "help_text": "Previous-window twin of median_open_to_deploy_seconds.",
+                "allow_null": True,
+            },
             "deployed_pr_count": {
                 "help_text": "PRs first deployed in the window — the population behind the merge-to-deploy "
                 "median and box plot."
