@@ -52,13 +52,14 @@ test('getSegmentDuration still applies the segment exclude rules under an allowl
 // Sizing to the shared flat wall target: every shard carries
 // (target - overhead) of work, so walls land near the target in every lane.
 test('calculateShards sizes shards to the flat wall target', () => {
-    // 105 min of work, 5 min overhead: each shard gets 7 min of tests,
-    // walls land at the 12 min target.
-    assert.equal(calculateShards(6300, 300, 1), 15)
+    // 105 min of work, 5 min overhead: each shard gets up to 6 min of tests,
+    // so 18 shards keep every wall at or below the 11 min target.
+    assert.equal(calculateShards(6300, 300, 1), 18)
 })
 
 test('calculateShards rounds up, so the target is a ceiling, not an average', () => {
-    assert.equal(calculateShards(6301, 300, 1), 16)
+    const budget = TARGET_WALL_SECONDS - 300
+    assert.equal(calculateShards(budget * 17 + 1, 300, 1), 18)
 })
 
 test('calculateShards keeps the floor and ceiling', () => {
@@ -175,15 +176,16 @@ test('a heavy test between light ones splits the light run', () => {
 })
 
 test('a product that fits one shard is packed, not split by its own margin', () => {
-    // 300s of work sits under the (target - overhead) budget, so the margin must
+    const budget = TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
+    const duration = budget / 10
+    // Work at the (target - overhead) budget still fits, so the margin must
     // not be what pushes it over into a two-way split.
     const union = {}
     for (let i = 0; i < 10; i++) {
-        union[`products/mid_one/backend/test_${i}.py::test_${i}`] = 30
+        union[`products/mid_one/backend/test_${i}.py::test_${i}`] = duration
     }
 
-    assert.ok(300 <= TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS)
-    assert.equal(productSplitShards({ work: 300, heavyCount: 0, lightWork: 300, maxLight: 30, testCount: 10 }), 1)
+    assert.equal(productSplitShards({ work: budget, heavyCount: 0, lightWork: budget, maxLight: duration, testCount: 10 }), 1)
 
     const matrix = buildMatrix(['mid-one'], union, true)
 
@@ -194,11 +196,11 @@ test('a product that fits one shard is packed, not split by its own margin', () 
 test("a split product's last shard absorbs a small product without leaking split flags", () => {
     const union = {}
     for (let i = 0; i < 11; i++) {
-        union[`products/big_one/backend/test_${i}.py::test_${i}`] = 30
+        union[`products/big_one/backend/test_${i}.py::test_${i}`] = 24
     }
     union['products/small_one/backend/test_s.py::test_s'] = 40
 
-    assert.equal(productSplitShards({ work: 330, heavyCount: 0, lightWork: 330, maxLight: 30, testCount: 11 }), 2)
+    assert.equal(productSplitShards({ work: 264, heavyCount: 0, lightWork: 264, maxLight: 24, testCount: 11 }), 2)
 
     const matrix = buildMatrix(['big-one', 'small-one'], union, true)
 
