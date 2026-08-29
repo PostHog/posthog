@@ -221,7 +221,15 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                 className="flex flex-col gap-4 rounded border bg-surface-primary p-4"
                 data-attr="engineering-analytics-dora-grouped-charts"
             >
-                <div className="flex justify-end">
+                <div className="flex items-center justify-end gap-2">
+                    <LemonSwitch
+                        size="small"
+                        bordered
+                        label="Exclude outliers"
+                        checked={excludeOutliers}
+                        onChange={setExcludeOutliers}
+                        data-attr="engineering-analytics-dora-exclude-outliers"
+                    />
                     <LemonSelect
                         size="small"
                         value={granularity}
@@ -239,16 +247,6 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                     id="merge-to-deploy"
                     title="Lead time distributions"
                     note={`Box per bucket: whisker ${excludeOutliers ? 'p5 to p95' : 'min to max'}, box p25 to p75, line at the median, dot at the mean. Buckets key on deploy time.`}
-                    right={
-                        <LemonSwitch
-                            size="small"
-                            bordered
-                            label="Exclude outliers"
-                            checked={excludeOutliers}
-                            onChange={setExcludeOutliers}
-                            data-attr="engineering-analytics-dora-exclude-outliers"
-                        />
-                    }
                     busy={doraLoading && !!dora}
                 >
                     {firstLoad ? (
