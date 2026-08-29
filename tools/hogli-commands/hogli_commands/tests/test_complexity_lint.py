@@ -38,12 +38,14 @@ class TestComplexityLint:
     @patch("hogli_commands.complexity_lint._python_findings", return_value=[])
     def test_only_scoped_files_are_checked(self, mock_findings: MagicMock) -> None:
         # Explicit paths outside posthog/ee/products (or deleted ones) must not reach ruff.
+        # manage.py exists but sits outside PYTHON_SCOPE, so it exercises the scope filter
+        # rather than the earlier is_file() check.
         result = runner.invoke(
             cli,
             [
                 "lint:complexity",
                 "posthog/tasks/usage_report.py",
-                "nodejs/src/main.py",
+                "manage.py",
                 "posthog/deleted_file_does_not_exist.py",
             ],
         )
