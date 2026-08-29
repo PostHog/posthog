@@ -152,6 +152,53 @@ class TypeformResponsesPaginator(BasePaginator):
             request.params["before"] = self._cursor
 
 
+def _parse_error_description(response: Response) -> str:
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            description = payload.get("description")
+            if isinstance(description, str) and description:
+                return description
+    except Exception:
+        pass
+    return response.text
+
+
+def _probe_typeform_endpoint(
+    url: str, headers: dict[str, str], params: dict[str, Any], label: str, scope: str
+) -> tuple[Response | None, str | None]:
+    try:
+        response = make_tracked_session().get(url, headers=headers, params=params, timeout=10)
+    except RequestException as exc:
+        return None, f"/{label} request failed: {exc}"
+
+    if response.status_code == 401:
+        return response, "Invalid Typeform personal access token"
+    if response.status_code == 403:
+        return response, f"Typeform token is missing required scope for {label} endpoint: {scope}"
+    if response.status_code != 200:
+        return response, f"/{label} endpoint failed: {_parse_error_description(response)}"
+    return response, None
+
+
+def _validate_responses_access(base_url: str, headers: dict[str, str], forms_response: Response) -> str | None:
+    forms_items = forms_response.json().get("items", [])
+
+    # With no forms we cannot probe /responses. This does not block validation.
+    if not forms_items:
+        return None
+
+    first_form = forms_items[0]
+    form_id = first_form.get("id") if isinstance(first_form, dict) else None
+    if not isinstance(form_id, str) or not form_id:
+        return "Typeform returned an invalid form id while validating responses access."
+
+    _, error = _probe_typeform_endpoint(
+        f"{base_url}/forms/{form_id}/responses", headers, {"page_size": 1}, "responses", "responses:read"
+    )
+    return error
+
+
 def validate_credentials(
     auth_token: str, api_base_url: str | None = None, schema_name: str | None = None
 ) -> tuple[bool, str | None]:
@@ -163,64 +210,16 @@ def validate_credentials(
     headers = _auth_headers(auth_token)
     errors: list[str] = []
 
-    skip_responses_validation = False
-    if schema_name == "forms":
-        skip_responses_validation = True
+    forms_response, forms_error = _probe_typeform_endpoint(
+        f"{base_url}/forms", headers, {"page_size": 1, "page": 1}, "forms", "forms:read"
+    )
+    if forms_error:
+        errors.append(forms_error)
 
-    def _parse_error_description(response: Response) -> str:
-        try:
-            payload = response.json()
-            if isinstance(payload, dict):
-                description = payload.get("description")
-                if isinstance(description, str) and description:
-                    return description
-        except Exception:
-            pass
-        return response.text
-
-    forms_response: Response | None = None
-    try:
-        forms_response = make_tracked_session().get(
-            f"{base_url}/forms",
-            headers=headers,
-            params={"page_size": 1, "page": 1},
-            timeout=10,
-        )
-        if forms_response.status_code == 401:
-            errors.append("Invalid Typeform personal access token")
-        elif forms_response.status_code == 403:
-            errors.append("Typeform token is missing required scope for forms endpoint: forms:read")
-        elif forms_response.status_code != 200:
-            errors.append(f"/forms endpoint failed: {_parse_error_description(forms_response)}")
-
-    except RequestException as exc:
-        errors.append(f"/forms request failed: {exc}")
-
-    if not skip_responses_validation and forms_response and forms_response.status_code == 200:
-        forms_items = forms_response.json().get("items", [])
-
-        # If there are no forms, we cannot probe /responses. This should not block validation.
-        if forms_items:
-            first_form = forms_items[0]
-            form_id = first_form.get("id") if isinstance(first_form, dict) else None
-            if not isinstance(form_id, str) or not form_id:
-                errors.append("Typeform returned an invalid form id while validating responses access.")
-            else:
-                try:
-                    responses_response = make_tracked_session().get(
-                        f"{base_url}/forms/{form_id}/responses",
-                        headers=headers,
-                        params={"page_size": 1},
-                        timeout=10,
-                    )
-                    if responses_response.status_code == 401:
-                        errors.append("Invalid Typeform personal access token")
-                    elif responses_response.status_code == 403:
-                        errors.append("Typeform token is missing required scope for responses endpoint: responses:read")
-                    elif responses_response.status_code != 200:
-                        errors.append(f"/responses endpoint failed: {_parse_error_description(responses_response)}")
-                except RequestException as exc:
-                    errors.append(f"/responses request failed: {exc}")
+    if schema_name != "forms" and forms_response is not None and forms_response.status_code == 200:
+        responses_error = _validate_responses_access(base_url, headers, forms_response)
+        if responses_error:
+            errors.append(responses_error)
 
     if errors:
         return False, "; ".join(errors)
