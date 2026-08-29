@@ -9300,6 +9300,43 @@ describe("SessionService", () => {
       );
     });
 
+    it("does not restart an explicitly cancelled run from a stale approval card", async () => {
+      const service = getSessionService();
+      const permissions = new Map([
+        [
+          "tool-1",
+          {
+            taskRunId: "run-123",
+            receivedAt: Date.now(),
+            toolCall: {
+              toolCallId: "tool-1",
+              kind: "execute",
+              title: "Run npm test",
+            },
+            options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+          },
+        ],
+      ]);
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({
+          isCloud: true,
+          cloudStatus: "cancelled",
+          stopRequested: true,
+          cloudBranch: "feature/cloud-run",
+          pendingPermissions: permissions as AgentSession["pendingPermissions"],
+        }),
+      );
+      mockTerminalCloudRun();
+
+      await service.respondToPermission("task-123", "tool-1", "allow");
+
+      // The user stopped the run; approving a card still on screen must not
+      // provision a fresh sandbox and undo the cancel.
+      expect(mockAuthenticatedClient.runTaskInCloud).not.toHaveBeenCalled();
+      expect(mockTrpcCloudTask.sendCommand.mutate).not.toHaveBeenCalled();
+      expect(mockTrpcAgent.respondToPermission.mutate).not.toHaveBeenCalled();
+    });
+
     it("persists a durable resolved marker when answering a question on a terminal cloud run", async () => {
       const service = getSessionService();
       surfaceCloudQuestion(service);

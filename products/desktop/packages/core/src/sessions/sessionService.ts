@@ -5596,20 +5596,26 @@ export class SessionService {
       customInput,
       answers,
     );
+    // A user who stopped the run must not restart it by clicking a permission
+    // card still on screen. An explicit cancel is final, so retire the card via
+    // the resolved marker below but never provision a fresh sandbox.
+    const runCancelled =
+      cloudStatus === "cancelled" || session.stopRequested === true;
+    const resumePrompt = runCancelled ? null : answerPrompt;
     const selectedOption = permission?.options.find(
       (o) => o.optionId === optionId,
     );
     this.d.track(ANALYTICS_EVENTS.PERMISSION_RESPONSE_AFTER_TERMINAL, {
       task_id: session.taskId,
-      outcome: answerPrompt ? "resumed" : "dropped",
+      outcome: resumePrompt ? "resumed" : "dropped",
       option_id: optionId,
       option_kind: selectedOption?.kind ?? "unknown",
       has_custom_input: !!customInput,
     });
-    if (answerPrompt) {
+    if (resumePrompt) {
       await this.sendCloudPrompt(
         { ...session, cloudStatus: cloudStatus ?? session.cloudStatus },
-        answerPrompt,
+        resumePrompt,
       );
       this.d.log.info("Permission answer resumed terminal cloud run", {
         taskId: session.taskId,
@@ -5621,6 +5627,7 @@ export class SessionService {
         taskId: session.taskId,
         toolCallId,
         optionId,
+        cancelled: runCancelled,
       });
     }
     await this.persistCloudPermissionResolution(
