@@ -142,8 +142,7 @@ export const doraLogic = kea<doraLogicType>([
                         source_id: values.sourceId ?? undefined,
                         repo: values.scopeRepo ?? undefined,
                     })
-                    // Guard against an older request's response landing after a newer one's,
-                    // which would otherwise overwrite `dora` with stale data.
+                    // breakpoint() throws if a newer loadDora call has started, discarding this stale response.
                     breakpoint()
                     return response
                 },
