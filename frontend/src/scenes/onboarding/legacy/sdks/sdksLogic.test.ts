@@ -4,7 +4,9 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
+import { SDKTag } from '~/types'
 
+import { ALL_SDKS } from './allSDKs'
 import {
     ErrorTrackingSDKDocsLinkOverrides,
     ErrorTrackingSDKInstructions,
@@ -48,5 +50,37 @@ describe('sdksLogic', () => {
         }
 
         expect(logic.values.selectedSDK?.docsLink).toBe('https://posthog.com/docs/libraries/convex')
+    })
+
+    describe('filteredSDKs', () => {
+        const keysFor = (): string[] => logic.values.filteredSDKs.map((sdk) => sdk.key)
+
+        beforeEach(() => {
+            logic.actions.setSDKs(ALL_SDKS)
+        })
+
+        it('matches on the SDK name', () => {
+            logic.actions.setSearchTerm('python')
+            expect(keysFor()).toContain('python')
+        })
+
+        it('matches on a search alias that the name does not contain', () => {
+            logic.actions.setSearchTerm('iphone')
+            expect(keysFor()).toEqual(['ios'])
+        })
+
+        it('empties the grid when the tag and the search term exclude each other', () => {
+            logic.actions.setSelectedTag(SDKTag.MOBILE)
+            logic.actions.setSearchTerm('python')
+            expect(logic.values.filteredSDKs).toHaveLength(0)
+        })
+
+        it('restores the full list once the search and tag are cleared', () => {
+            logic.actions.setSelectedTag(SDKTag.MOBILE)
+            logic.actions.setSearchTerm('python')
+            logic.actions.setSearchTerm('')
+            logic.actions.setSelectedTag(null)
+            expect(logic.values.filteredSDKs).toHaveLength(ALL_SDKS.length)
+        })
     })
 })

@@ -7,6 +7,8 @@ export interface FeedbackSurveyButtonProps {
     surveyId: string
     properties?: Properties
     'data-attr'?: string
+    /** Button copy. Defaults to "Feedback". */
+    label?: string
 }
 
 /**
@@ -18,6 +20,7 @@ export function FeedbackSurveyButton({
     surveyId,
     properties,
     'data-attr': dataAttr,
+    label = 'Feedback',
 }: FeedbackSurveyButtonProps): JSX.Element {
     const [surveysLoaded, setSurveysLoaded] = useState(false)
 
@@ -48,7 +51,7 @@ export function FeedbackSurveyButton({
                 })
             }
         >
-            Feedback
+            {label}
         </LemonButton>
     )
 }
