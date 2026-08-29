@@ -391,6 +391,15 @@ export interface PermissionCancelledProperties {
   tool_name?: string;
 }
 
+export interface PermissionResponseAfterTerminalProperties {
+  task_id: string;
+  /** "resumed" when the answer was carried onto a resume run, "dropped" when nothing could be carried. */
+  outcome: "resumed" | "dropped";
+  option_id?: string;
+  option_kind?: string;
+  has_custom_input?: boolean;
+}
+
 // Session config events
 export interface SessionConfigChangedProperties {
   task_id: string;
@@ -1488,6 +1497,7 @@ export const ANALYTICS_EVENTS = {
   // Permission events
   PERMISSION_RESPONDED: "Permission responded",
   PERMISSION_CANCELLED: "Permission cancelled",
+  PERMISSION_RESPONSE_AFTER_TERMINAL: "Permission response after terminal run",
 
   // Session config events
   SESSION_CONFIG_CHANGED: "Session config changed",
@@ -1690,6 +1700,7 @@ export type EventPropertyMap = {
   // Permission events
   [ANALYTICS_EVENTS.PERMISSION_RESPONDED]: PermissionRespondedProperties;
   [ANALYTICS_EVENTS.PERMISSION_CANCELLED]: PermissionCancelledProperties;
+  [ANALYTICS_EVENTS.PERMISSION_RESPONSE_AFTER_TERMINAL]: PermissionResponseAfterTerminalProperties;
 
   // Session config events
   [ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED]: SessionConfigChangedProperties;

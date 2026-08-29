@@ -202,18 +202,40 @@ describe("formatPermissionAnswerPrompt", () => {
     expect(prompt).toBe("BSD, actually");
   });
 
-  it.each([
-    ["plain approval", "allow", undefined],
-    ["plain rejection with feedback", "reject", "not like this"],
-  ])(
-    "returns null for %s so no resume run is spun",
-    (_caseName, optionId, customInput) => {
-      const approval = makePermission([
-        { optionId: "allow", kind: "allow_once" },
-      ]);
-      expect(
-        formatPermissionAnswerPrompt(approval, optionId, customInput),
-      ).toBeNull();
-    },
-  );
+  const approval = makePermission([{ optionId: "allow", kind: "allow_once" }]);
+  const rejection = makePermission([{ optionId: "deny", kind: "reject_once" }]);
+
+  it("carries a plain approval forward so the user's yes is not lost", () => {
+    expect(formatPermissionAnswerPrompt(approval, "allow")).toBe(
+      "I approve the requested action. Please continue.",
+    );
+  });
+
+  it("appends approval feedback when the user typed some", () => {
+    expect(
+      formatPermissionAnswerPrompt(approval, "allow", "but skip the tests"),
+    ).toBe("I approve the requested action. but skip the tests");
+  });
+
+  it("quotes the tool title when the request carries one", () => {
+    const titled = {
+      taskRunId: "run-1",
+      receivedAt: 0,
+      toolCall: { title: "Run npm test" },
+      options: [{ optionId: "allow", kind: "allow_once" }],
+    } as unknown as PermissionRequest;
+    expect(formatPermissionAnswerPrompt(titled, "allow")).toBe(
+      'I approve "Run npm test". Please continue.',
+    );
+  });
+
+  it("carries rejection feedback forward as an instruction", () => {
+    expect(
+      formatPermissionAnswerPrompt(rejection, "deny", "not like this"),
+    ).toBe("I decline the requested action. not like this");
+  });
+
+  it("drops a bare rejection since the ended run already means no", () => {
+    expect(formatPermissionAnswerPrompt(rejection, "deny")).toBeNull();
+  });
 });

@@ -5596,6 +5596,16 @@ export class SessionService {
       customInput,
       answers,
     );
+    const selectedOption = permission?.options.find(
+      (o) => o.optionId === optionId,
+    );
+    this.d.track(ANALYTICS_EVENTS.PERMISSION_RESPONSE_AFTER_TERMINAL, {
+      task_id: session.taskId,
+      outcome: answerPrompt ? "resumed" : "dropped",
+      option_id: optionId,
+      option_kind: selectedOption?.kind ?? "unknown",
+      has_custom_input: !!customInput,
+    });
     if (answerPrompt) {
       await this.sendCloudPrompt(
         { ...session, cloudStatus: cloudStatus ?? session.cloudStatus },
@@ -5750,12 +5760,24 @@ export class SessionService {
       if (session.isCloud && cloudRequestId) {
         this.cloudPermissionRequestIds.delete(toolCallId);
         try {
-          await this.sendCloudCommand(session, "permission_response", {
-            requestId: cloudRequestId,
-            optionId,
-            customInput,
-            answers,
-          });
+          const result = await this.sendCloudCommand(
+            session,
+            "permission_response",
+            {
+              requestId: cloudRequestId,
+              optionId,
+              customInput,
+              answers,
+            },
+          );
+          // A rejected command comes back as `{ success: false }` rather than
+          // throwing. Without this the failure reads as a delivered response,
+          // so throw to route it through the terminal-run recovery below.
+          if (!result.success) {
+            throw new Error(
+              result.error ?? "Cloud permission response was not accepted",
+            );
+          }
         } catch (error) {
           const latestCloudStatus = await this.refreshCloudRunStatus(session);
           if (isTerminalStatus(latestCloudStatus)) {

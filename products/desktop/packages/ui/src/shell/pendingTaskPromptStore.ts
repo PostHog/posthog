@@ -42,6 +42,7 @@ interface PendingTaskPromptStore {
   move: (fromKey: string, toKey: string) => void;
   clearHandoff: (key: string) => void;
   markInterrupted: (key: string, reason: PendingPromptInterruptReason) => void;
+  markAllInterrupted: (reason: PendingPromptInterruptReason) => void;
   clear: (key: string) => void;
 }
 
@@ -97,6 +98,20 @@ export const usePendingTaskPromptStore = create<PendingTaskPromptStore>()(
             },
           };
         }),
+      markAllInterrupted: (reason) =>
+        set((state) => {
+          let changed = false;
+          const byKey: Record<string, PendingTaskPrompt> = {};
+          for (const [key, entry] of Object.entries(state.byKey)) {
+            if (entry.interruptReason) {
+              byKey[key] = entry;
+              continue;
+            }
+            byKey[key] = { ...entry, interruptReason: reason };
+            changed = true;
+          }
+          return changed ? { byKey } : state;
+        }),
       clear: (key) =>
         set((state) => {
           if (!(key in state.byKey)) {
@@ -136,6 +151,8 @@ export const pendingTaskPromptStoreApi = {
     usePendingTaskPromptStore.getState().clearHandoff(key),
   markInterrupted: (key: string, reason: PendingPromptInterruptReason) =>
     usePendingTaskPromptStore.getState().markInterrupted(key, reason),
+  markAllInterrupted: (reason: PendingPromptInterruptReason) =>
+    usePendingTaskPromptStore.getState().markAllInterrupted(reason),
   clear: (key: string) => usePendingTaskPromptStore.getState().clear(key),
   getAllNewestFirst: (): RecoverablePendingPrompt[] =>
     listPendingPromptsNewestFirst(usePendingTaskPromptStore.getState().byKey),

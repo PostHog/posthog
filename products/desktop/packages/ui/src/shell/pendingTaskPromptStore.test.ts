@@ -62,6 +62,20 @@ describe("pendingTaskPromptStore", () => {
     expect(pendingTaskPromptStoreApi.get("gone")).toBeUndefined();
   });
 
+  it("flags every unflagged record on a boot sweep without overwriting an existing reason", () => {
+    pendingTaskPromptStoreApi.set("k1", { promptText: "a", attachments: [] });
+    pendingTaskPromptStoreApi.set("k2", { promptText: "b", attachments: [] });
+    pendingTaskPromptStoreApi.markInterrupted("k2", "offline");
+
+    pendingTaskPromptStoreApi.markAllInterrupted("failed");
+
+    // An app kill mid-setup leaves k1 unflagged; the sweep makes its pending
+    // route recoverable instead of a permanent spinner.
+    expect(pendingTaskPromptStoreApi.get("k1")?.interruptReason).toBe("failed");
+    // A record already flagged by a live failure keeps its more precise reason.
+    expect(pendingTaskPromptStoreApi.get("k2")?.interruptReason).toBe("offline");
+  });
+
   it("returns every surviving entry newest-first for recovery", () => {
     pendingTaskPromptStoreApi.set("old", {
       promptText: "old",

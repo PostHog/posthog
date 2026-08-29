@@ -172,13 +172,14 @@ export function isQuestionPermission(
 }
 
 /**
- * Builds the follow-up prompt that carries a question's selected answer into a
- * resumed run. Once a cloud run has terminalized, its sandbox and the pending
+ * Builds the follow-up prompt that carries a selected answer into a resumed
+ * run. Once a cloud run has terminalized, its sandbox and the pending
  * permission promise inside it are gone, so a permission_response command has
  * nothing left to resolve. The answer travels as a fresh user message on a
  * resume run instead.
- * Returns null when there is nothing meaningful to carry forward (a plain
- * approval), so callers can drop the response rather than spin a pointless run.
+ * Returns null only when there is nothing to carry forward — a bare rejection,
+ * whose "no" already matches the run being over — so callers drop the response
+ * rather than spin a pointless run.
  */
 export function formatPermissionAnswerPrompt(
   permission: PermissionRequest | undefined,
@@ -195,7 +196,7 @@ export function formatPermissionAnswerPrompt(
 
   if (selectedAnswers.length === 0) {
     if (!isQuestionPermission(permission)) {
-      return null;
+      return formatPlainDecisionPrompt(permission, optionId, customInput);
     }
     // A question answered without an answers map: free text, or a bare option pick.
     const answerText =
@@ -221,4 +222,32 @@ export function formatPermissionAnswerPrompt(
   return selectedAnswers
     .map((answer, index) => `${index + 1}. ${answer}`)
     .join("\n");
+}
+
+/**
+ * Builds the resume message for an ordinary allow/deny whose sandbox is gone.
+ * A plain approval must still reach the agent, or the user's deliberate "yes"
+ * is lost with no signal. A bare rejection needs no resume run — the run
+ * already ended, so the action never ran — but typed feedback is an
+ * instruction the agent can act on, so it travels forward either way.
+ */
+function formatPlainDecisionPrompt(
+  permission: PermissionRequest | undefined,
+  optionId: string,
+  customInput?: string,
+): string | null {
+  const option = permission?.options.find((o) => o.optionId === optionId);
+  const feedback = customInput?.trim();
+  const title = permission?.toolCall?.title?.trim();
+  const target = title ? `"${title}"` : "the requested action";
+
+  if (option && isPermissionApproval(option)) {
+    return feedback
+      ? `I approve ${target}. ${feedback}`
+      : `I approve ${target}. Please continue.`;
+  }
+  if (feedback) {
+    return `I decline ${target}. ${feedback}`;
+  }
+  return null;
 }

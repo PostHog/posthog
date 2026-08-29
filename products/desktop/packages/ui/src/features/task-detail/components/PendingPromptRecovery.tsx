@@ -20,6 +20,12 @@ export function PendingPromptRecovery(): null {
 
 async function recoverNewestPendingPrompt(): Promise<void> {
   await pendingTaskPromptStoreApi.whenHydrated();
+  // Any record surviving to boot is from a prior session whose setup never
+  // delivered the prompt. An app kill mid-setup skips the in-flight failure
+  // branches, so flag every unflagged record now — else its pending route
+  // shows a spinner forever with no way to recover or discard it.
+  pendingTaskPromptStoreApi.markAllInterrupted("failed");
+
   const orphans = pendingTaskPromptStoreApi.getAllNewestFirst();
   const [newest] = orphans;
   if (!newest) {

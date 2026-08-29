@@ -9257,7 +9257,7 @@ describe("SessionService", () => {
       );
     });
 
-    it("drops a plain approval on a terminal cloud run instead of resuming", async () => {
+    it("carries a plain approval forward onto a terminal cloud run", async () => {
       const service = getSessionService();
       const permissions = new Map([
         [
@@ -9265,7 +9265,11 @@ describe("SessionService", () => {
           {
             taskRunId: "run-123",
             receivedAt: Date.now(),
-            toolCall: { toolCallId: "tool-1", kind: "execute" },
+            toolCall: {
+              toolCallId: "tool-1",
+              kind: "execute",
+              title: "Run npm test",
+            },
             options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
           },
         ],
@@ -9274,6 +9278,7 @@ describe("SessionService", () => {
         createMockSession({
           isCloud: true,
           cloudStatus: "completed",
+          cloudBranch: "feature/cloud-run",
           pendingPermissions: permissions as AgentSession["pendingPermissions"],
         }),
       );
@@ -9281,10 +9286,18 @@ describe("SessionService", () => {
 
       await service.respondToPermission("task-123", "tool-1", "allow");
 
-      expect(mockSessionStoreSetters.setPendingPermissions).toHaveBeenCalled();
+      // The dead run's permission promise can't be resolved, but the user's
+      // "yes" must not vanish: it rides a resume run as a user message.
       expect(mockTrpcCloudTask.sendCommand.mutate).not.toHaveBeenCalled();
       expect(mockTrpcAgent.respondToPermission.mutate).not.toHaveBeenCalled();
-      expect(mockAuthenticatedClient.runTaskInCloud).not.toHaveBeenCalled();
+      expect(mockAuthenticatedClient.runTaskInCloud).toHaveBeenCalledWith(
+        "task-123",
+        "feature/cloud-run",
+        expect.objectContaining({
+          resumeFromRunId: "run-123",
+          pendingUserMessage: 'I approve "Run npm test". Please continue.',
+        }),
+      );
     });
 
     it("persists a durable resolved marker when answering a question on a terminal cloud run", async () => {
