@@ -52,7 +52,7 @@ describe('SDKGrid', () => {
         const props = renderGrid({ searchTerm: 'zzz', selectedTag: SDKTag.MOBILE, filteredSDKs: [] })
 
         expect(screen.getByText('No SDKs match your search')).not.toBeNull()
-        fireEvent.click(screen.getByRole('button', { name: 'Show all SDKs' }))
+        fireEvent.click(document.querySelector('[data-attr="onboarding-show-all-sdks"]') as Element)
         expect(props.onSearchChange).toHaveBeenCalledWith('')
         expect(props.onTagChange).toHaveBeenCalledWith(null)
     })

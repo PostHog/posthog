@@ -83,7 +83,12 @@ export function SDKGrid({
                             us know what you need.
                         </span>
                         <div className="flex flex-row flex-wrap gap-2">
-                            <LemonButton type="secondary" size="small" onClick={clearFilters}>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={clearFilters}
+                                data-attr="onboarding-show-all-sdks"
+                            >
                                 Show all SDKs
                             </LemonButton>
                             <FeedbackSurveyButton
