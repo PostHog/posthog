@@ -21,6 +21,7 @@ from optimize_test_durations import (
     run_average_files,
     run_merge_files,
     scale_products_to_junit,
+    scale_shards_to_junit,
     scope_products_to_junit,
     shard_clock_coverage,
     shard_map_clock_ratios,
@@ -453,6 +454,29 @@ def test_scale_products_to_junit_matches_sums_to_measured_work(tmp_path: Path) -
     assert scaled["products/big_one/backend/test_a.py::TestA::test_b"] == pytest.approx(200.0)
     assert scaled["posthog/test/test_x.py::test_x"] == 5.0
     assert scaled["products/.junit-scaled"] == 1.0
+
+
+def test_scale_shards_to_junit_matches_sums_to_measured_work() -> None:
+    shards = [
+        JUnitShard(
+            name="junit-results-backend-core-1",
+            call_times={"posthog/test_a.py::test_a": 10.0, "posthog/test_b.py::test_b": 20.0},
+            total_seconds=60.0,
+        )
+    ]
+    durations = {
+        "posthog/test_a.py::test_a": 10.0,
+        "posthog/test_b.py::test_b": 20.0,
+        "posthog/test_c.py::test_c": 5.0,
+    }
+
+    scaled = scale_shards_to_junit(durations, shards)
+
+    assert scaled == {
+        "posthog/test_a.py::test_a": 20.0,
+        "posthog/test_b.py::test_b": 40.0,
+        "posthog/test_c.py::test_c": 5.0,
+    }
 
 
 def test_main_writes_sub_ten_millisecond_durations_as_recorded(tmp_path: Path, monkeypatch) -> None:

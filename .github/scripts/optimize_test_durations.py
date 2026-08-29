@@ -113,7 +113,7 @@ _JUNIT_ARTIFACT_PREFIX = {
 }
 
 
-@dataclass
+@dataclass(frozen=True)
 class JUnitShard:
     """JUnit call-time data from a single CI shard.
 
@@ -126,6 +126,7 @@ class JUnitShard:
 
     name: str
     call_times: dict[str, float]
+    total_seconds: float = 0.0
     # An XML of this shard (any attempt) did not parse, so call_times is incomplete.
     unreadable: bool = False
 
@@ -168,28 +169,34 @@ class JUnitShard:
                     continue
 
             call_times: dict[str, float] = {}
+            total_seconds = 0.0
             found_xml = False
             unreadable = False
             for _attempt_n, shard_dir in sorted(attempts):
                 attempt_times: dict[str, float] = {}
+                attempt_total = 0.0
                 for xml_file in sorted(shard_dir.glob("*.xml")):
                     found_xml = True
-                    parsed = cls._parse_call_times(xml_file)
+                    parsed = cls._parse_junit(xml_file)
                     if parsed is None:
                         unreadable = True
                         continue
-                    for test_id, call_time in parsed.items():
+                    parsed_times, parsed_total = parsed
+                    attempt_total += parsed_total
+                    for test_id, call_time in parsed_times.items():
                         attempt_times[test_id] = max(attempt_times.get(test_id, 0.0), call_time)
                 call_times.update(attempt_times)
+                if attempt_total > 0:
+                    total_seconds = attempt_total
             if not found_xml:
                 continue
-            shards.append(cls(name=base, call_times=call_times, unreadable=unreadable))
+            shards.append(cls(name=base, call_times=call_times, total_seconds=total_seconds, unreadable=unreadable))
 
         return shards
 
     @staticmethod
-    def _parse_call_times(xml_path: Path) -> dict[str, float] | None:
-        """Extract {pytest_id: call_time} for every parseable testcase, None when the XML does not parse."""
+    def _parse_junit(xml_path: Path) -> tuple[dict[str, float], float] | None:
+        """Extract per-test call times and the measured suite total from JUnit XML."""
         try:
             tree = ET.parse(xml_path)
         except ParseError as e:
@@ -207,7 +214,13 @@ class JUnitShard:
                 continue
             # Keep the largest if a test id appears more than once (parametrize).
             call_times[pytest_id] = max(call_times.get(pytest_id, 0.0), value)
-        return call_times
+        total_seconds = 0.0
+        for suite in tree.getroot().iter("testsuite"):
+            try:
+                total_seconds += float(suite.get("time") or 0.0)
+            except ValueError:
+                continue
+        return call_times, total_seconds
 
 
 @dataclass
@@ -601,7 +614,7 @@ def product_junit_work(junit_dir: Path) -> dict[str, float]:
 
     Product jobs run without junit_duration_report=call, so testcase times include
     fixture setup and teardown and track real runner work. Raw sum on purpose:
-    JUnitShard._parse_call_times collapses repeated pytest ids (parametrize) to
+    JUnitShard._parse_junit collapses repeated pytest ids (parametrize) to
     their max, which under-counts a total. Keys are product module dir names.
     """
     work: dict[str, float] = defaultdict(float)
@@ -645,6 +658,21 @@ def scope_products_to_junit(durations: dict[str, float], ran: set[str], products
         for test_id, duration in durations.items()
         if test_id in ran or product_module(test_id) in skipped_modules
     }
+
+
+def scale_shards_to_junit(durations: dict[str, float], junit_shards: list[JUnitShard]) -> dict[str, float]:
+    """Scale each shard's entries so their sum includes measured setup and teardown."""
+    scaled = dict(durations)
+    for shard in junit_shards:
+        keys = [test_id for test_id in shard.call_times if test_id in scaled]
+        current = sum(scaled[test_id] for test_id in keys)
+        if current <= 0 or shard.total_seconds <= 0:
+            continue
+        factor = shard.total_seconds / current
+        for test_id in keys:
+            scaled[test_id] *= factor
+        logger.info("  Scaled %s by %.2fx to measured total %.1f min", shard.name, factor, shard.total_seconds / 60)
+    return scaled
 
 
 def scale_products_to_junit(durations: dict[str, float], junit_dir: Path) -> dict[str, float]:
@@ -913,6 +941,9 @@ def main():
             len(durations),
             before_count - len(durations),
         )
+
+    if args.segment == "Core" and junit_shards and shard_sets_match(shards, junit_shards):
+        durations = scale_shards_to_junit(durations, junit_shards)
 
     if args.segment == "Products" and junit_shards:
         if shard_sets_match(shards, junit_shards):
