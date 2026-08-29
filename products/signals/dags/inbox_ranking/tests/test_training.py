@@ -1,6 +1,5 @@
 import math
 import datetime
-import contextlib
 
 import pytest
 
@@ -34,7 +33,9 @@ from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, di
 from products.signals.dags.inbox_ranking.training.promotion import AUC_TOLERANCE, PromotionDecision, decide_promotion
 from products.signals.dags.inbox_ranking.training.telemetry import (
     DISTINCT_ID,
+    LOCAL_DISTINCT_ID,
     HeadExampleCounts,
+    TrainingEvent,
     candidate_events,
     capture_training_events,
     examples_events,
@@ -297,12 +298,48 @@ def test_train_head_returns_none_without_both_classes():
     assert train_head(examples, head, holdout_days=7) is None
 
 
-class _RecordingCapture:
+class _FakeClient:
     def __init__(self):
         self.calls: list[dict] = []
+        self.shutdowns = 0
 
-    def __call__(self, **kwargs):
+    def capture(self, **kwargs):
         self.calls.append(kwargs)
+
+    def shutdown(self):
+        self.shutdowns += 1
+
+
+def _patch_capture(monkeypatch, *, cloud: bool, debug: bool) -> _FakeClient:
+    client = _FakeClient()
+    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.telemetry.get_client", lambda region: client)
+    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.telemetry.is_cloud", lambda: cloud)
+    monkeypatch.setattr(settings, "DEBUG", debug)
+    monkeypatch.setattr(settings, "CLOUD_DEPLOYMENT", "US" if cloud else None)
+    return client
+
+
+@pytest.mark.parametrize(
+    "cloud,debug,expected_distinct_id,expected_environment",
+    [
+        (True, False, DISTINCT_ID, "US"),
+        (False, True, LOCAL_DISTINCT_ID, "local"),  # a laptop run lands on the dashboard, marked
+        (False, False, None, None),  # a self-hosted instance never reports into PostHog's project
+    ],
+)
+def test_training_events_capture_gate_and_local_marking(
+    monkeypatch, cloud, debug, expected_distinct_id, expected_environment
+):
+    client = _patch_capture(monkeypatch, cloud=cloud, debug=debug)
+    events = [TrainingEvent(event="inbox_ranking_examples_built", properties={"head": "open"})]
+    capture_training_events(dagster.build_asset_context(), "2026-08-25", events)
+    if expected_distinct_id is None:
+        assert client.calls == []
+        return
+    assert client.shutdowns == 1
+    (call,) = client.calls
+    assert call["distinct_id"] == expected_distinct_id
+    assert call["properties"]["environment"] == expected_environment
 
 
 def test_training_events_carry_the_dashboard_contract(monkeypatch):
@@ -338,17 +375,11 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             champion_aucs={"open": 0.6},
         ),
     ]
-    recorder = _RecordingCapture()
-
-    @contextlib.contextmanager
-    def fake_scoped_capture():
-        yield recorder
-
-    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.telemetry.ph_scoped_capture", fake_scoped_capture)
+    client = _patch_capture(monkeypatch, cloud=True, debug=False)
     capture_training_events(dagster.build_asset_context(), "2026-08-25", events)
 
     by_event: dict[str, list[dict]] = {}
-    for call in recorder.calls:
+    for call in client.calls:
         by_event.setdefault(call["event"], []).append(call)
         assert call["distinct_id"] == DISTINCT_ID
         assert call["timestamp"] == datetime.datetime(2026, 8, 25, 12, tzinfo=datetime.UTC)

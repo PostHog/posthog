@@ -7,7 +7,6 @@ day. Per-head stability is then a trends insight with a `head` breakdown, and a 
 readability is an insight alert. Delivery is best-effort and never fails an asset.
 """
 
-import logging
 import datetime
 from collections.abc import Mapping
 from typing import Any
@@ -15,16 +14,18 @@ from typing import Any
 import dagster
 
 from posthog import settings
+from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
-from posthog.ph_client import ph_scoped_capture
+from posthog.ph_client import get_client
 
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
 from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision
 
-logger = logging.getLogger(__name__)
-
-# Not a person: one fixed id for the whole dag, and no person profile is created for it.
+# Not a person: one fixed id for the whole dag, and no person profile is created for it. Local dev
+# runs get their own id so they never blend into the prod series.
 DISTINCT_ID = "inbox_ranking_training"
+LOCAL_DISTINCT_ID = "inbox_ranking_training_local"
+LOCAL_ENVIRONMENT = "local"
 CANDIDATE_TRAINED_EVENT = "inbox_ranking_candidate_trained"
 EXAMPLES_BUILT_EVENT = "inbox_ranking_examples_built"
 PROMOTION_DECIDED_EVENT = "inbox_ranking_promotion_decided"
@@ -123,25 +124,40 @@ def event_timestamp(partition_key: str) -> datetime.datetime:
     return start + datetime.timedelta(hours=12)
 
 
+def capture_allowed() -> bool:
+    """Cloud, or a developer's DEBUG stack. A self-hosted instance running this dag must not
+    report into PostHog's own project, which is the gate `ph_client.ScopedCapture` applies; local
+    dev runs are let through on purpose so laptop experiments land on the same dashboard."""
+    return is_cloud() or bool(settings.DEBUG)
+
+
 def capture_training_events(
     context: dagster.AssetExecutionContext, partition_key: str, events: list[TrainingEvent]
 ) -> None:
     """Best-effort: a failed capture is logged, never raised, so telemetry cannot fail a training
-    run. Off Cloud the client captures nothing (see `ph_client.ScopedCapture`)."""
+    run. Local runs are marked twice, by `environment` and by their own distinct id, so a chart
+    that forgets to filter still shows them as a separate series."""
+    if not capture_allowed():
+        return
+    environment = settings.CLOUD_DEPLOYMENT or LOCAL_ENVIRONMENT
+    distinct_id = DISTINCT_ID if environment != LOCAL_ENVIRONMENT else LOCAL_DISTINCT_ID
     timestamp = event_timestamp(partition_key)
-    base = {
-        "$process_person_profile": False,
-        "partition": partition_key,
-        "environment": settings.CLOUD_DEPLOYMENT or "local",
-    }
+    base = {"$process_person_profile": False, "partition": partition_key, "environment": environment}
+    # A fresh client per call, flushed on shutdown, for the same reason `ph_scoped_capture` builds
+    # one: the step process exits right after the asset, before a shared client's background
+    # thread would deliver.
+    client = get_client("US")
+    if client is None:
+        return
     try:
-        with ph_scoped_capture() as capture:
-            for event in events:
-                capture(
-                    distinct_id=DISTINCT_ID,
-                    event=event.event,
-                    properties={**base, **event.properties},
-                    timestamp=timestamp,
-                )
+        for event in events:
+            client.capture(
+                distinct_id=distinct_id,
+                event=event.event,
+                properties={**base, **event.properties},
+                timestamp=timestamp,
+            )
     except Exception:
         context.log.warning(f"training telemetry capture failed for dt={partition_key}", exc_info=True)
+    finally:
+        client.shutdown()
