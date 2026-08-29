@@ -412,12 +412,29 @@ export function useTaskCreation({
             localMcpServers,
             adapter,
           );
+          // Refetch the subscription status before routing a task, so a stale or
+          // pending login result does not silently select the wrong billing
+          // source (F-3451, F-3535, F-3553).
+          if (
+            runtime !== "pi" &&
+            adapter === "claude" &&
+            claudeSubscription.flagEnabled
+          ) {
+            await claudeSubscription.refetchStatus();
+          }
+          if (
+            runtime !== "pi" &&
+            adapter === "codex" &&
+            codexSubscription.flagEnabled
+          ) {
+            await codexSubscription.refetchStatus();
+          }
           const codexModelAccess =
             runtime !== "pi" && adapter === "codex"
               ? effectiveModelAccess({
                   flagEnabled: codexSubscription.flagEnabled,
                   subscriptionOn: codexSubscription.subscriptionOn,
-                  loggedIn: codexSubscription.loggedIn,
+                  loginState: codexSubscription.loginState,
                   workspaceMode,
                 })
               : undefined;
@@ -426,7 +443,7 @@ export function useTaskCreation({
               ? effectiveModelAccess({
                   flagEnabled: claudeSubscription.flagEnabled,
                   subscriptionOn: claudeSubscription.subscriptionOn,
-                  loggedIn: claudeSubscription.loggedIn,
+                  loginState: claudeSubscription.loginState,
                   workspaceMode,
                 })
               : undefined;
@@ -720,11 +737,13 @@ export function useTaskCreation({
       taskService,
       tasks,
       codexSubscription.flagEnabled,
-      codexSubscription.loggedIn,
+      codexSubscription.loginState,
       codexSubscription.subscriptionOn,
       claudeSubscription.flagEnabled,
-      claudeSubscription.loggedIn,
+      claudeSubscription.loginState,
       claudeSubscription.subscriptionOn,
+      claudeSubscription.refetchStatus,
+      codexSubscription.refetchStatus,
     ],
   );
 

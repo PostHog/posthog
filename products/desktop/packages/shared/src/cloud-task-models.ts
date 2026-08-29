@@ -167,6 +167,26 @@ export function isAnthropicModel(model: GatewayModel): boolean {
   return model.id.startsWith("claude-") || model.id.startsWith("anthropic/");
 }
 
+// Model-id check for paths that have no GatewayModel object, such as a saved
+// preference replayed on reconnect. A first-party Claude subscription can
+// only run Anthropic models; gateway-routed third-party ids (Cloudflare,
+// Modal, Baseten/Deepseek, GLM) are not valid against the user plan.
+export function isAnthropicModelId(modelId: string): boolean {
+  if (modelId.startsWith("claude-") || modelId.startsWith("anthropic/")) {
+    return true;
+  }
+  if (
+    isCloudflareModelId(modelId) ||
+    isModalModelId(modelId) ||
+    isDeepseekModelId(modelId) ||
+    isGlmModelId(modelId) ||
+    isBasetenModel({ id: modelId } as GatewayModel)
+  ) {
+    return false;
+  }
+  return false;
+}
+
 export function isOpenAIModel(model: GatewayModel): boolean {
   if (model.owned_by) {
     return model.owned_by === "openai";

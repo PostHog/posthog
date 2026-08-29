@@ -108,6 +108,7 @@ export {
   getCloudTaskGatewayUrl,
   getProviderName,
   isAnthropicModel,
+  isAnthropicModelId,
   isBasetenModel,
   isBlockedModelId,
   isCloudflareModel,

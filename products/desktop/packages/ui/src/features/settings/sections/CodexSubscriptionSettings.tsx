@@ -28,9 +28,11 @@ export function CodexSubscriptionSettings(): ReactElement | null {
     ...statusQuery,
     enabled: subscription.flagEnabled,
     refetchInterval: (query) =>
-      awaitingLogin && query.state.data?.loggedIn !== true ? 2000 : false,
+      awaitingLogin && query.state.data?.loginState !== "logged-in"
+        ? 2000
+        : false,
   });
-  const loggedIn = status?.loggedIn === true;
+  const loggedIn = status?.loginState === "logged-in";
 
   useEffect(() => {
     if (!awaitingLogin || !loggedIn) return;

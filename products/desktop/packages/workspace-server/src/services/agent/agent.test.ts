@@ -325,8 +325,41 @@ describe("AgentService", () => {
         "/mock/appPath/.vite/build/claude-cli/claude",
       );
       expect(terminal.command).toContain(expected);
-      expect(terminal.unsetEnv).toContain("CLAUDE_CONFIG_DIR");
+      // Machine auth pins the child to the user's ~/.claude instead of
+      // unsetting the app config dir (F-3545).
+      expect(terminal.additionalEnv.CLAUDE_CONFIG_DIR).toMatch(
+        /[\\/]\.claude$/,
+      );
       expect(terminal.unsetEnv).toContain("ANTHROPIC_API_KEY");
+    });
+
+    it("stops active subscription sessions when logout starts", async () => {
+      const sessions = (
+        service as unknown as { sessions: Map<string, unknown> }
+      ).sessions;
+      const cleanedUp: string[] = [];
+      vi.spyOn(
+        service as unknown as { cleanupSession: (id: string) => Promise<void> },
+        "cleanupSession",
+      ).mockImplementation((taskRunId: string) => {
+        cleanedUp.push(taskRunId);
+        return Promise.resolve();
+      });
+      sessions.set("run-sub-1", {
+        config: { claudeModelAccess: "own-subscription" },
+      });
+      sessions.set("run-gw-1", {
+        config: { claudeModelAccess: "posthog-gateway" },
+      });
+
+      service.getClaudeAuthTerminal("logout");
+      // prepareClaudeAccountChange runs async; let it flush.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Only the subscription session is cleaned up; the gateway session is
+      // left alone (F-3530).
+      expect(cleanedUp).toEqual(["run-sub-1"]);
     });
   });
 

@@ -1858,7 +1858,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...rerootedModelOptions(session.modelId, rest.fallbackModel),
+        ...rerootedModelOptions(
+          session.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
@@ -2082,7 +2086,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController,
         // `rest.model` is the creation-time value; the user may have
         // switched models since, so answer on the live session model.
-        ...rerootedModelOptions(this.session.modelId, rest.fallbackModel),
+        ...rerootedModelOptions(
+          this.session.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const oneShot = query({
@@ -2192,7 +2200,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         abortController: newAbortController,
         // `rest.model` is the creation-time value; the user may have switched
         // models since, so re-root the new Query on the live session model.
-        ...rerootedModelOptions(prev.modelId, rest.fallbackModel),
+        ...rerootedModelOptions(
+          prev.modelId,
+          rest.fallbackModel,
+          !!this.options?.machineAuth,
+        ),
       };
 
       const newInput = new Pushable<SDKUserMessage>();
@@ -2583,7 +2595,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const input = new Pushable<SDKUserMessage>();
 
-    const settingsManager = new SettingsManager(cwd);
+    const settingsManager = new SettingsManager(
+      cwd,
+      !!this.options?.machineAuth,
+    );
     await settingsManager.initialize();
 
     // The session's explicit pick outranks the shared claude settings file:
