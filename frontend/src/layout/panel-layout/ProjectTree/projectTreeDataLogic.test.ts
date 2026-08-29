@@ -178,9 +178,9 @@ describe('projectTreeDataLogic', () => {
         expect(error).toHaveBeenCalledWith('Error moving item: Error: nope')
     })
 
-    it('builds viableItems without crashing when a moved path holds both a folder and a file', () => {
-        // A folder entry and a file entry can share one path. The folder branch deletes the path's map
-        // entry, so the file branch must not read length off the entry that is already gone.
+    it('moves only the targeted entry when a path holds both a folder and a file', () => {
+        // A folder entry and a file entry can share one path. Moving the file must relocate only the file
+        // and leave the folder at its source path — reading the shared map entry must not crash either.
         jest.spyOn(api.fileSystem, 'move').mockResolvedValue({} as any)
         logic.actions.createSavedItem({ id: 'folder-1', type: 'folder', path: 'Marketing/Docs' } as any)
         logic.actions.createSavedItem({ id: 'file-1', type: 'dashboard', path: 'Marketing/Docs', ref: '1' } as any)
@@ -195,7 +195,12 @@ describe('projectTreeDataLogic', () => {
             'test'
         )
 
-        expect(() => logic.values.viableItems).not.toThrow()
+        const items = logic.values.viableItems
+        const movedFile = items.find((i) => i.id === 'file-1')
+        const folder = items.find((i) => i.id === 'folder-1')
+        // The file moves to the new path optimistically; the unrelated folder stays where it was.
+        expect(movedFile?.path).toEqual('Product/Docs')
+        expect(folder?.path).toEqual('Marketing/Docs')
     })
 
     it('deleteSavedItem does not crash when the parent folder is not loaded (lazy store)', () => {
