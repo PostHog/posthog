@@ -74,6 +74,8 @@ def _build_search_body(
             body[param] = _format_incremental_value(db_incremental_field_last_value)
     # An epoch floor matches every story; a real created_at cursor above overrides it.
     body.setdefault("created_at_start", STORY_SEARCH_EPOCH_START)
+    # StorySlim omits the description unless asked; the canonical schema advertises the column.
+    body["includes_description"] = True
     return body
 
 

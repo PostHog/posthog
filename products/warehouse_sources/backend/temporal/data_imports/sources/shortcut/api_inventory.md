@@ -50,6 +50,9 @@ user's chosen incremental field to the matching `*_start` filter.
 `created_at_start` floor — an epoch floor (`1970-01-01T00:00:00Z`) on full refresh and the first incremental
 run, or the real cursor when the user picks `created_at` incremental.
 
+**`StorySlim` omits `description` unless asked.** The field is optional in the response schema, so every request
+sets `includes_description: true` to get the `description` column the canonical schema advertises.
+
 **The endpoint caps each response and offers no pagination.** The paginated search variant (`GET
 /search/stories`) documents that only the first 1000 matches are retrievable; the old POST endpoint behaves
 the same way. We page past the cap by advancing `created_at_start` to the newest `created_at` in a full

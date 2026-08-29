@@ -90,20 +90,36 @@ class TestFormatIncrementalValue:
 class TestBuildSearchBody:
     def test_full_refresh_sends_created_at_floor(self) -> None:
         # An empty body returns zero stories, so full refresh must still carry the epoch floor.
+        # includes_description asks the endpoint for the description column the schema advertises.
         body = _build_search_body(SHORTCUT_ENDPOINTS["stories"], False, None, None)
-        assert body == {"created_at_start": STORY_SEARCH_EPOCH_START}
+        assert body == {"created_at_start": STORY_SEARCH_EPOCH_START, "includes_description": True}
 
     def test_first_incremental_run_sends_created_at_floor(self) -> None:
         body = _build_search_body(SHORTCUT_ENDPOINTS["stories"], True, None, "updated_at")
-        assert body == {"created_at_start": STORY_SEARCH_EPOCH_START}
+        assert body == {"created_at_start": STORY_SEARCH_EPOCH_START, "includes_description": True}
 
     @pytest.mark.parametrize(
         "incremental_field, expected",
         [
             # A created_at cursor overrides the epoch floor; an updated_at cursor rides alongside it.
-            ("created_at", {"created_at_start": "2026-01-02T03:04:05Z"}),
-            ("updated_at", {"updated_at_start": "2026-01-02T03:04:05Z", "created_at_start": STORY_SEARCH_EPOCH_START}),
-            (None, {"updated_at_start": "2026-01-02T03:04:05Z", "created_at_start": STORY_SEARCH_EPOCH_START}),
+            # Every story search asks for the description via includes_description.
+            ("created_at", {"created_at_start": "2026-01-02T03:04:05Z", "includes_description": True}),
+            (
+                "updated_at",
+                {
+                    "updated_at_start": "2026-01-02T03:04:05Z",
+                    "created_at_start": STORY_SEARCH_EPOCH_START,
+                    "includes_description": True,
+                },
+            ),
+            (
+                None,
+                {
+                    "updated_at_start": "2026-01-02T03:04:05Z",
+                    "created_at_start": STORY_SEARCH_EPOCH_START,
+                    "includes_description": True,
+                },
+            ),
         ],
     )
     def test_maps_field_to_server_side_filter(self, incremental_field: str | None, expected: dict) -> None:
@@ -173,6 +189,7 @@ class TestRequests:
         assert snaps[0]["json"] == {
             "updated_at_start": "2026-01-02T03:04:05Z",
             "created_at_start": STORY_SEARCH_EPOCH_START,
+            "includes_description": True,
         }
         assert snaps[0]["params"] == {}
 
@@ -185,7 +202,7 @@ class TestRequests:
 
         assert snaps[0]["method"] == "POST"
         # The outgoing body is never empty — an empty body returns zero stories.
-        assert snaps[0]["json"] == {"created_at_start": STORY_SEARCH_EPOCH_START}
+        assert snaps[0]["json"] == {"created_at_start": STORY_SEARCH_EPOCH_START, "includes_description": True}
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_list_yields_nothing(self, MockSession) -> None:
