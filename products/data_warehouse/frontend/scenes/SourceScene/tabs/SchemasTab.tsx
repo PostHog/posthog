@@ -54,6 +54,7 @@ import {
     SyncFrequencyLabelMap,
     SyncTypeLabelMap,
     allowedSyncFrequencies,
+    reenableForcesFullResync,
 } from 'products/data_warehouse/frontend/utils'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
@@ -544,65 +545,70 @@ function ManagedSchemaTable({
                     key: 'should_sync',
                     sorter: (a, b) => Number(a.should_sync) - Number(b.should_sync),
                     render: function RenderShouldSync(_, schema) {
+                        const disableEffect = reenableForcesFullResync(schema.sync_type)
+                            ? 'Turning this off pauses syncs. Your synced data stays in PostHog. Turning it back on starts a full resync, which re-imports every row from the source.'
+                            : 'Turning this off pauses syncs. Your synced data stays in PostHog until you turn it back on.'
                         return (
                             <SchemaEditorAction schema={schema}>
-                                <LemonSwitch
-                                    checked={schema.should_sync}
-                                    onChange={(active) => {
-                                        if (active && !schema.sync_type) {
-                                            // No sync method saved yet — send the user to set one up
-                                            // before the schema can be enabled.
-                                            router.actions.push(
-                                                urls.dataWarehouseSourceSchema(
-                                                    prefixedSourceId,
-                                                    schema.id,
-                                                    'configuration',
-                                                    'sync-method'
+                                <Tooltip title={disableEffect}>
+                                    <LemonSwitch
+                                        checked={schema.should_sync}
+                                        onChange={(active) => {
+                                            if (active && !schema.sync_type) {
+                                                // No sync method saved yet — send the user to set one up
+                                                // before the schema can be enabled.
+                                                router.actions.push(
+                                                    urls.dataWarehouseSourceSchema(
+                                                        prefixedSourceId,
+                                                        schema.id,
+                                                        'configuration',
+                                                        'sync-method'
+                                                    )
                                                 )
-                                            )
-                                            return
-                                        }
-                                        if (!active && schema.sync_type === 'cdc') {
-                                            LemonDialog.open({
-                                                title: 'Disable CDC table?',
-                                                content: (
-                                                    <div className="text-sm text-secondary space-y-2">
-                                                        <p>
-                                                            Disabling{' '}
-                                                            <strong>{schema.table?.name ?? schema.name}</strong> will
-                                                            remove it from the replication publication. Changes made
-                                                            while disabled will be permanently lost.
-                                                        </p>
-                                                        <p>
-                                                            Re-enabling this table will require a{' '}
-                                                            <strong>full resync</strong> to ensure data consistency.
-                                                        </p>
-                                                    </div>
-                                                ),
-                                                primaryButton: {
-                                                    children: 'Disable',
-                                                    status: 'danger',
-                                                    onClick: () => updateSchema({ ...schema, should_sync: false }),
-                                                },
-                                                secondaryButton: { children: 'Cancel', type: 'tertiary' },
-                                            })
-                                        } else if (!active && schema.sync_type === 'webhook') {
-                                            LemonDialog.open({
-                                                title: 'Disable webhook sync?',
-                                                description:
-                                                    'Turning off this table will stop the webhook from consuming any more data. When you re-enable it, a full refresh sync will need to be completed to ensure no data is missing.',
-                                                primaryButton: {
-                                                    children: 'Disable',
-                                                    status: 'danger',
-                                                    onClick: () => updateSchema({ ...schema, should_sync: false }),
-                                                },
-                                                secondaryButton: { children: 'Cancel' },
-                                            })
-                                        } else {
-                                            updateSchema({ ...schema, should_sync: active })
-                                        }
-                                    }}
-                                />
+                                                return
+                                            }
+                                            if (!active && schema.sync_type === 'cdc') {
+                                                LemonDialog.open({
+                                                    title: 'Disable CDC table?',
+                                                    content: (
+                                                        <div className="text-sm text-secondary space-y-2">
+                                                            <p>
+                                                                Disabling{' '}
+                                                                <strong>{schema.table?.name ?? schema.name}</strong>{' '}
+                                                                will remove it from the replication publication. Changes
+                                                                made while disabled will be permanently lost.
+                                                            </p>
+                                                            <p>
+                                                                Re-enabling this table will require a{' '}
+                                                                <strong>full resync</strong> to ensure data consistency.
+                                                            </p>
+                                                        </div>
+                                                    ),
+                                                    primaryButton: {
+                                                        children: 'Disable',
+                                                        status: 'danger',
+                                                        onClick: () => updateSchema({ ...schema, should_sync: false }),
+                                                    },
+                                                    secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                                })
+                                            } else if (!active && schema.sync_type === 'webhook') {
+                                                LemonDialog.open({
+                                                    title: 'Disable webhook sync?',
+                                                    description:
+                                                        'Turning off this table will stop the webhook from consuming any more data. When you re-enable it, a full refresh sync will need to be completed to ensure no data is missing.',
+                                                    primaryButton: {
+                                                        children: 'Disable',
+                                                        status: 'danger',
+                                                        onClick: () => updateSchema({ ...schema, should_sync: false }),
+                                                    },
+                                                    secondaryButton: { children: 'Cancel' },
+                                                })
+                                            } else {
+                                                updateSchema({ ...schema, should_sync: active })
+                                            }
+                                        }}
+                                    />
+                                </Tooltip>
                             </SchemaEditorAction>
                         )
                     },

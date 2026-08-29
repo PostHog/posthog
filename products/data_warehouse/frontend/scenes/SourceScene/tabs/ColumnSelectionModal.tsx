@@ -161,6 +161,10 @@ export function ColumnSelectionPicker({
 
     return (
         <div className="flex flex-col gap-2">
+            <span className="text-xs text-muted">
+                Unchecking a column hides it from queries. It does not delete data already synced, and you can re-enable
+                it any time.
+            </span>
             <LemonInput type="search" placeholder="Filter columns" size="small" value={filter} onChange={setFilter} />
             <div className="max-h-96 overflow-y-auto border rounded">
                 {available.length === 0 && (
@@ -236,7 +240,7 @@ export function ColumnSelectionModal({ isOpen, schema, onClose, onSave }: Column
         <LemonModal
             isOpen={isOpen}
             onClose={onClose}
-            title={`Select columns to sync — ${schema?.name ?? ''}`}
+            title={schema?.name ? `Select columns to sync for ${schema.name}` : 'Select columns to sync'}
             description="Primary-key and incremental columns are always synced and cannot be unchecked."
         >
             <div className="min-w-[420px]">

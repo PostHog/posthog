@@ -184,6 +184,12 @@ export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval, string> = 
 // Sync frequencies ordered shortest→longest. Object key order above is the single source of truth.
 export const SYNC_FREQUENCY_ORDER = Object.keys(SyncFrequencyLabelMap) as DataWarehouseSyncInterval[]
 
+// These sync types cannot resume from where they stopped. Re-enabling one starts a full resync,
+// which re-imports every row from the source. CDC loses its replication slot, webhook stops
+// consuming changes, and xmin loses its transaction-id boundary.
+export const reenableForcesFullResync = (syncType: ExternalDataSourceSyncSchema['sync_type']): boolean =>
+    syncType === 'cdc' || syncType === 'webhook' || syncType === 'xmin'
+
 // Every sync type floors at 5 minutes. Rows written before the floor may still carry '1min'
 // (the label maps above keep rendering it), but it is never offered or accepted again. This is
 // the one place the floor lives — the schedule picker, bulk edits, and the clamp all derive
