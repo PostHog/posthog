@@ -39,18 +39,24 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
             actions.startExport(triggerExportProps)
         }
 
-        // Creating an export requires editor access to the export resource.
+        // Creating an export requires editor access to the export resource. It is applied per format
+        // rather than to the whole menu, because a format produced in the browser creates no export
+        // asset: it rasterizes what the person is already looking at, which they can screenshot anyway.
         const accessControlDisabledReason = getAccessControlDisabledReason(
             AccessControlResourceType.Export,
             AccessControlLevel.Editor
         )
+        const hasBrowserRenderedFormat = items.some((item) => !!item.onClick)
 
         return (
             <LemonButtonWithDropdown
                 ref={ref}
                 data-attr="export-button"
                 {...buttonProps}
-                disabledReason={buttonProps.disabledReason ?? accessControlDisabledReason ?? undefined}
+                disabledReason={
+                    buttonProps.disabledReason ??
+                    (hasBrowserRenderedFormat ? undefined : (accessControlDisabledReason ?? undefined))
+                }
                 dropdown={{
                     actionable: true,
                     placement: 'right-start',
@@ -70,6 +76,9 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
                                 // A browser-rendered format rasterizes what the person already sees, so it reports
                                 // no server export target.
                                 const rendersInBrowser = !!onClick
+                                const itemDisabledReason =
+                                    disabledReason ??
+                                    (rendersInBrowser ? undefined : (accessControlDisabledReason ?? undefined))
 
                                 let target: string
                                 let exportBody: string = ''
@@ -90,7 +99,7 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
                                     <LemonButton
                                         key={i}
                                         fullWidth
-                                        disabledReason={disabledReason}
+                                        disabledReason={itemDisabledReason}
                                         onClick={() => (onClick ? onClick() : void onExportClick(triggerExportProps))}
                                         data-attr={`export-button-${exportFormatExtension}`}
                                         data-ph-capture-attribute-export-target={rendersInBrowser ? null : target}
