@@ -22,6 +22,11 @@ interface ColumnSelectionPickerProps {
     hideActions?: boolean
     /** Fires on every edit, so a parent can drive saving with its own button. */
     onChange?: (enabledColumns: string[] | null) => void
+    /** Synced schemas store column data, so unchecking stops future syncs and a full refresh can
+     *  drop stored values. Pass false for direct-query sources, where unchecking only reprojects
+     *  the live view and deletes nothing. Defaults to the synced copy so a new caller can't
+     *  silently show the lighter, false-for-synced assurance. */
+    syncMode?: boolean
 }
 
 interface ColumnSelectionModalProps {
@@ -145,6 +150,7 @@ export function ColumnSelectionPicker({
     onCancel,
     hideActions,
     onChange,
+    syncMode = true,
 }: ColumnSelectionPickerProps): JSX.Element {
     const {
         filter,
@@ -162,8 +168,9 @@ export function ColumnSelectionPicker({
     return (
         <div className="flex flex-col gap-2">
             <span className="text-xs text-muted">
-                Unchecking a column hides it from queries. It does not delete data already synced, and you can re-enable
-                it any time.
+                {syncMode
+                    ? 'Unchecking a column stops it from syncing and hides it from queries. Data already synced stays, though a full refresh drops the unchecked column. Re-enable it any time to resume syncing, then run a resync to restore its past values.'
+                    : 'Unchecking a column hides it from queries. It does not change the source data, and you can re-enable it any time.'}
             </span>
             <LemonInput type="search" placeholder="Filter columns" size="small" value={filter} onChange={setFilter} />
             <div className="max-h-96 overflow-y-auto border rounded">
@@ -244,7 +251,7 @@ export function ColumnSelectionModal({ isOpen, schema, onClose, onSave }: Column
             description="Primary-key and incremental columns are always synced and cannot be unchecked."
         >
             <div className="min-w-[420px]">
-                <ColumnSelectionPicker schema={schema} onSave={onSave} onCancel={onClose} />
+                <ColumnSelectionPicker schema={schema} onSave={onSave} onCancel={onClose} syncMode={false} />
             </div>
         </LemonModal>
     )
