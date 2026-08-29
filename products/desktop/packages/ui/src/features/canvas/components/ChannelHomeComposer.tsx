@@ -155,9 +155,6 @@ export const ChannelHomeComposer = forwardRef<
   const [selectedCloudEnvId, setSelectedCloudEnvId] = useState<string | null>(
     null,
   );
-  const [selectedCustomImageId, setSelectedCustomImageId] = useState<
-    string | null
-  >(null);
   const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
   const repositoryDraft = useTaskRepositoryDraftStore(
     (s) => s.drafts[channelId],
@@ -258,10 +255,6 @@ export const ChannelHomeComposer = forwardRef<
     sandboxEnvironmentId:
       workspaceMode === "cloud" && selectedCloudEnvId
         ? selectedCloudEnvId
-        : undefined,
-    customImageId:
-      workspaceMode === "cloud" && selectedCustomImageId
-        ? selectedCustomImageId
         : undefined,
     editorIsEmpty,
     adapter,
@@ -398,8 +391,6 @@ export const ChannelHomeComposer = forwardRef<
           overrideModes={["local", "cloud"]}
           selectedCloudEnvironmentId={selectedCloudEnvId}
           onCloudEnvironmentChange={setSelectedCloudEnvId}
-          selectedCustomImageId={selectedCustomImageId}
-          onCustomImageChange={setSelectedCustomImageId}
           size="1"
           disabled={isBusy}
         />
