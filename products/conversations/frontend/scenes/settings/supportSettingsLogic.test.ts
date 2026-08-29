@@ -216,6 +216,25 @@ describe('supportSettingsLogic', () => {
         })
     })
 
+    describe('widget draft preservation on save', () => {
+        it('clears the saved draft but keeps unsaved sibling drafts', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setGreetingInputValue('new greeting')
+            logic.actions.setPlaceholderTextValue('unsaved placeholder')
+
+            // A save persists the greeting; the server echoes it back on success.
+            logic.actions.updateCurrentTeamSuccess({
+                conversations_settings: { widget_greeting_text: 'new greeting' },
+            } as unknown as TeamType)
+
+            expect(logic.values.greetingInputValue).toBeNull()
+            expect(logic.values.placeholderTextValue).toBe('unsaved placeholder')
+        })
+    })
+
     describe('teamsChannelPairs selector', () => {
         it('reads the teams_channels list when present', async () => {
             initKeaTests(true, {

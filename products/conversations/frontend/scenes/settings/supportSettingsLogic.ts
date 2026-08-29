@@ -1643,13 +1643,33 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             }
         },
         updateCurrentTeamSuccess: ({ payload }) => {
-            actions.setGreetingInputValue(null)
-            actions.setIdentificationFormTitleValue(null)
-            actions.setIdentificationFormDescriptionValue(null)
-            actions.setPlaceholderTextValue(null)
-            actions.setSlackTicketEmojiValue(null)
-            actions.setSlackBotIconUrlValue(null)
-            actions.setSlackBotDisplayNameValue(null)
+            // Clear only the drafts that this save persisted, so unsaved edits to
+            // sibling widget fields survive when a neighboring field is saved.
+            const saved = values.currentTeam?.conversations_settings
+            const isPersisted = (draft: string | null, storedValue: string | null | undefined): boolean =>
+                draft !== null && (storedValue === draft || storedValue === draft.trim())
+
+            if (isPersisted(values.greetingInputValue, saved?.widget_greeting_text)) {
+                actions.setGreetingInputValue(null)
+            }
+            if (isPersisted(values.identificationFormTitleValue, saved?.widget_identification_form_title)) {
+                actions.setIdentificationFormTitleValue(null)
+            }
+            if (isPersisted(values.identificationFormDescriptionValue, saved?.widget_identification_form_description)) {
+                actions.setIdentificationFormDescriptionValue(null)
+            }
+            if (isPersisted(values.placeholderTextValue, saved?.widget_placeholder_text)) {
+                actions.setPlaceholderTextValue(null)
+            }
+            if (isPersisted(values.slackTicketEmojiValue, saved?.slack_ticket_emoji)) {
+                actions.setSlackTicketEmojiValue(null)
+            }
+            if (isPersisted(values.slackBotIconUrlValue, saved?.slack_bot_icon_url)) {
+                actions.setSlackBotIconUrlValue(null)
+            }
+            if (isPersisted(values.slackBotDisplayNameValue, saved?.slack_bot_display_name)) {
+                actions.setSlackBotDisplayNameValue(null)
+            }
             if (payload?.conversations_enabled) {
                 const storedSource = sessionStorage.getItem('support_activation_source')
                 const source = storedSource ? JSON.parse(storedSource) : { source: 'support_settings' }
