@@ -923,8 +923,7 @@ def _fetch_report(
                         f"status=400, apple_error={text!r}"
                     )
                     raise AppStoreConnectReportError(
-                        f"{APP_STORE_CONNECT_UNKNOWN_VENDOR_NUMBER_ERROR} "
-                        f"({_apple_error_suffix(apple_error, 400)})"
+                        f"{APP_STORE_CONNECT_UNKNOWN_VENDOR_NUMBER_ERROR} ({_apple_error_suffix(apple_error, 400)})"
                     )
             elif not any(marker in text for marker in _EMPTY_REPORT_400_MARKERS):
                 logger.error(

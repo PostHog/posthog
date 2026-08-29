@@ -88,9 +88,11 @@ class AppStoreConnectEndpointConfig:
     # Apple 404s a SALES report request for a date with no data. Subscription-family report types
     # (SUBSCRIPTION, SUBSCRIPTION_EVENT) instead 400 with a misleading "Invalid vendor number
     # specified" error for that same condition — a longstanding, publicly reported Apple API quirk,
-    # not an actual credentials problem. A tolerated 400 is not swallowed blindly: `_fetch_report`
-    # reads the body and tolerates only a recognized no-data marker, so a genuinely malformed
-    # request (wrong version or sub type) still fails loudly instead of reading as a quiet account.
+    # usually not an actual credentials problem. A tolerated 400 is not swallowed blindly:
+    # `_fetch_report` reads the body, so a genuinely malformed request (wrong version or sub type)
+    # still fails loudly instead of reading as a quiet account. Apple words that same 400 for a
+    # vendor number it doesn't know, so a sales-report check separates the two before the misleading
+    # wording is tolerated across the whole lookback.
     missing_report_status_codes: tuple[int, ...] = (404,)
 
 
