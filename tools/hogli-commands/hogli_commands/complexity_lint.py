@@ -116,24 +116,34 @@ def cmd_lint_complexity(files: tuple[str, ...], against: str | None) -> None:
     ts_files = [f for f in present if matches_globs(f, TYPESCRIPT_SCOPE)]
 
     findings: list[Finding] = []
+    checked = 0
+    degraded = False
     if python_files:
         if shutil.which("ruff") is None:
-            click.echo("complexity: ruff not found — skipping Python files", err=True)
+            # Printed to stdout too: a soft preflight check treats non-empty stdout as
+            # "warning", so a degraded run surfaces instead of reading as a clean pass.
+            click.echo("complexity: ruff not found — skipping Python files")
+            degraded = True
         else:
             findings += _python_findings(python_files)
+            checked += len(python_files)
 
     if ts_files:
         # typescript is a @posthog/frontend dependency; without an install the
         # script cannot resolve it, so skip like preflight's node-needing checks.
         if not (REPO_ROOT / "frontend" / "node_modules").exists():
-            click.echo("complexity: no node_modules — skipping TypeScript files", err=True)
+            click.echo("complexity: no node_modules — skipping TypeScript files")
+            degraded = True
         else:
             findings += _ts_findings(ts_files)
+            checked += len(ts_files)
 
     for finding in findings:
         _report(finding)
     warnings = sum(f.severity == "warning" for f in findings)
     errors = sum(f.severity == "error" for f in findings)
-    checked = len(python_files) + len(ts_files)
-    click.echo(f"complexity: {checked} file(s) checked — {warnings} warning(s), {errors} error(s)", err=True)
+    summary = f"complexity: {checked} file(s) checked — {warnings} warning(s), {errors} error(s)"
+    if degraded:
+        summary += " (incomplete: some files were skipped, see above)"
+    click.echo(summary, err=True)
     raise SystemExit(1 if errors else 0)

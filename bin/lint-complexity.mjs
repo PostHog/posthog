@@ -78,6 +78,9 @@ function functionName(node) {
     if (parent && ts.isPropertyAssignment(parent) && ts.isIdentifier(parent.name)) {
         return parent.name.text
     }
+    if (parent && ts.isPropertyDeclaration(parent) && ts.isIdentifier(parent.name)) {
+        return parent.name.text
+    }
     if (node.kind === ts.SyntaxKind.Constructor) {
         return 'constructor'
     }
