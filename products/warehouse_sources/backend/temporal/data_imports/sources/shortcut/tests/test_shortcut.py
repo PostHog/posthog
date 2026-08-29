@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from requests import Response
+from requests import Request, Response
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.settings import (
@@ -14,6 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut import (
     SHORTCUT_BASE_URL,
+    STORY_SEARCH_EPOCH_START,
+    StoriesSearchPaginator,
     _build_search_body,
     _format_incremental_value,
     shortcut_source,
@@ -86,30 +88,32 @@ class TestFormatIncrementalValue:
 
 
 class TestBuildSearchBody:
-    def test_no_incremental_returns_empty_body(self) -> None:
+    def test_full_refresh_sends_created_at_floor(self) -> None:
+        # An empty body returns zero stories, so full refresh must still carry the epoch floor.
         body = _build_search_body(SHORTCUT_ENDPOINTS["stories"], False, None, None)
-        assert body == {}
+        assert body == {"created_at_start": STORY_SEARCH_EPOCH_START}
 
-    def test_incremental_without_last_value_returns_empty_body(self) -> None:
+    def test_first_incremental_run_sends_created_at_floor(self) -> None:
         body = _build_search_body(SHORTCUT_ENDPOINTS["stories"], True, None, "updated_at")
-        assert body == {}
+        assert body == {"created_at_start": STORY_SEARCH_EPOCH_START}
 
     @pytest.mark.parametrize(
-        "incremental_field, expected_param",
+        "incremental_field, expected",
         [
-            ("updated_at", "updated_at_start"),
-            ("created_at", "created_at_start"),
-            (None, "updated_at_start"),
+            # A created_at cursor overrides the epoch floor; an updated_at cursor rides alongside it.
+            ("created_at", {"created_at_start": "2026-01-02T03:04:05Z"}),
+            ("updated_at", {"updated_at_start": "2026-01-02T03:04:05Z", "created_at_start": STORY_SEARCH_EPOCH_START}),
+            (None, {"updated_at_start": "2026-01-02T03:04:05Z", "created_at_start": STORY_SEARCH_EPOCH_START}),
         ],
     )
-    def test_maps_field_to_server_side_filter(self, incremental_field: str | None, expected_param: str) -> None:
+    def test_maps_field_to_server_side_filter(self, incremental_field: str | None, expected: dict) -> None:
         body = _build_search_body(
             SHORTCUT_ENDPOINTS["stories"], True, datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), incremental_field
         )
-        assert body == {expected_param: "2026-01-02T03:04:05Z"}
+        assert body == expected
 
-    def test_full_refresh_endpoint_has_no_filter_params(self) -> None:
-        # Flat list endpoints expose no incremental params, so even with a cursor we send nothing.
+    def test_non_search_endpoint_has_no_body(self) -> None:
+        # GET list endpoints carry no request body at all.
         body = _build_search_body(SHORTCUT_ENDPOINTS["members"], True, datetime(2026, 1, 1, tzinfo=UTC), "updated_at")
         assert body == {}
 
@@ -166,18 +170,22 @@ class TestRequests:
         assert snaps[0]["method"] == "POST"
         assert snaps[0]["url"] == f"{SHORTCUT_BASE_URL}/stories/search"
         # The server-side timestamp filter rides in the POST body, not the query string.
-        assert snaps[0]["json"] == {"updated_at_start": "2026-01-02T03:04:05Z"}
+        assert snaps[0]["json"] == {
+            "updated_at_start": "2026-01-02T03:04:05Z",
+            "created_at_start": STORY_SEARCH_EPOCH_START,
+        }
         assert snaps[0]["params"] == {}
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stories_full_refresh_sends_empty_body(self, MockSession) -> None:
+    def test_stories_full_refresh_sends_non_empty_body(self, MockSession) -> None:
         session = MockSession.return_value
         snaps = _wire(session, [_response([{"id": 10}])])
 
         _rows(shortcut_source("token", "stories", 1, "j"))
 
         assert snaps[0]["method"] == "POST"
-        assert snaps[0]["json"] == {}
+        # The outgoing body is never empty — an empty body returns zero stories.
+        assert snaps[0]["json"] == {"created_at_start": STORY_SEARCH_EPOCH_START}
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_list_yields_nothing(self, MockSession) -> None:
@@ -195,6 +203,40 @@ class TestRequests:
         # rather than syncing the stray object as a single row.
         with pytest.raises(ValueError, match="list response body"):
             _rows(shortcut_source("token", "epics", 1, "j"))
+
+
+class TestStoriesSearchPaginator:
+    def _page(self, paginator: StoriesSearchPaginator, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        paginator.update_state(_response(rows), rows)
+        request = Request(method="POST", url="x", json={"created_at_start": "seed"})
+        paginator.update_request(request)
+        return request.json
+
+    def test_under_cap_page_stops(self) -> None:
+        paginator = StoriesSearchPaginator(cap=2)
+        self._page(paginator, [{"id": 1, "created_at": "2026-01-01T00:00:00Z"}])
+        assert paginator.has_next_page is False
+
+    def test_full_page_advances_floor_to_newest_created_at(self) -> None:
+        paginator = StoriesSearchPaginator(cap=2)
+        body = self._page(
+            paginator,
+            [
+                {"id": 1, "created_at": "2026-01-01T00:00:00Z"},
+                {"id": 2, "created_at": "2026-01-05T00:00:00Z"},
+            ],
+        )
+        assert paginator.has_next_page is True
+        assert body["created_at_start"] == "2026-01-05T00:00:00Z"
+
+    def test_full_page_of_one_timestamp_stops_instead_of_looping(self) -> None:
+        # A full page whose rows all share one created_at can't advance the floor — stop rather than loop.
+        paginator = StoriesSearchPaginator(cap=2)
+        shared = [{"id": 1, "created_at": "2026-01-01T00:00:00Z"}, {"id": 2, "created_at": "2026-01-01T00:00:00Z"}]
+        self._page(paginator, shared)
+        assert paginator.has_next_page is True
+        self._page(paginator, shared)
+        assert paginator.has_next_page is False
 
 
 class TestRetryAndErrorClassification:

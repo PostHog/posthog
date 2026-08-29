@@ -40,17 +40,25 @@ key) and `updated_at`.
 
 There is **no top-level `GET /stories`** list endpoint. Stories are fetched via **`POST /stories/search`**
 ("Query Stories"), which accepts structured server-side filters including `created_at_start` /
-`updated_at_start` and returns a **plain JSON array of `StorySlim`** (no pagination wrapper, no documented
-result cap). We map the user's chosen incremental field to the matching `*_start` filter.
+`updated_at_start` and returns a **plain JSON array of `StorySlim`** (no pagination wrapper). We map the
+user's chosen incremental field to the matching `*_start` filter.
 
 - Incremental field options: `updated_at` (default) and `created_at`.
 - Partition key: `created_at`.
 
-**Revisit with a live token:** confirm that (a) `updated_at_start` actually filters server-side rather than
-being silently ignored, and (b) the accepted date format (we send RFC 3339 `...Z`). If the filter is
-ignored, the sync still produces correct data (merge dedupes on `id`) but every run refetches all stories.
-For very large workspaces, a future improvement is to window `POST /stories/search` by `created_at` ranges,
-since the endpoint exposes no pagination.
+**An empty body returns zero stories.** The request must carry at least one filter, so every request sets a
+`created_at_start` floor — an epoch floor (`1970-01-01T00:00:00Z`) on full refresh and the first incremental
+run, or the real cursor when the user picks `created_at` incremental.
+
+**The endpoint caps each response and offers no pagination.** The paginated search variant (`GET
+/search/stories`) documents that only the first 1000 matches are retrievable; the old POST endpoint behaves
+the same way. We page past the cap by advancing `created_at_start` to the newest `created_at` in a full
+response and refetching, relying on the endpoint returning stories in `created_at` order. Merge dedup on `id`
+drops the boundary stories re-read at the floor.
+
+**Revisit with a live token:** confirm that (a) `updated_at_start` filters server-side rather than being
+silently ignored, (b) the accepted date format (we send RFC 3339 `...Z`), and (c) the exact result cap and
+whether responses are ordered by `created_at`.
 
 ## Webhooks (deferred)
 
