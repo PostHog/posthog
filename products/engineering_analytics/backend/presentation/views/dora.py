@@ -19,10 +19,10 @@ from products.engineering_analytics.backend.presentation.views._base import (
 
 _ENVIRONMENT = OpenApiParameter(
     name="environment",
-    type={"type": "array", "items": {"type": "string"}},
+    type=OpenApiTypes.STR,
+    many=True,
     location=OpenApiParameter.QUERY,
     required=False,
-    explode=True,
     description="Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit "
     "to scope to the busiest environment GitHub marks production, falling back to the busiest persistent "
     "(non-transient) environment when none are marked production.",

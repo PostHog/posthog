@@ -1,6 +1,6 @@
 """Orchestration for the DORA deploy-metrics read."""
 
-from typing import cast
+from typing import cast, get_args
 
 from products.engineering_analytics.backend.facade.contracts import DoraOverview
 from products.engineering_analytics.backend.logic._shared import _DEFAULT_WINDOW, _parse_window
@@ -8,7 +8,7 @@ from products.engineering_analytics.backend.logic.queries._buckets import Granul
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.dora import query_dora_overview
 
-_GRANULARITIES: tuple[Granularity, ...] = ("hour", "day", "week")
+_GRANULARITIES: tuple[Granularity, ...] = get_args(Granularity)
 
 
 def build_dora_overview(

@@ -46,7 +46,7 @@ export interface doraLogicValues {
     dora: DoraOverviewApi | null
     doraFailed: boolean
     doraLoading: boolean
-    environmentOptions: string[]
+    environmentOptions: { key: string; label: string }[]
     environments: string[]
     environmentScopeLabel: string
     excludeOutliers: boolean
@@ -101,7 +101,7 @@ export interface doraLogicMeta {
         frequencyCounts: (dora: DoraOverviewApi | null) => number[]
         frequencyIsoLabels: (dora: DoraOverviewApi | null) => string[]
         environmentScopeLabel: (dora: DoraOverviewApi | null, environments: string[]) => string
-        environmentOptions: (dora: DoraOverviewApi | null, environments: string[]) => string[]
+        environmentOptions: (dora: DoraOverviewApi | null, environments: string[]) => { key: string; label: string }[]
         githubTeamOptions: (dora: DoraOverviewApi | null) => DoraScopeOption[]
     }
 }
@@ -239,9 +239,9 @@ export const doraLogic = kea<doraLogicType>([
         // can only be offered while the selection is empty; picked names stay selectable options.
         environmentOptions: [
             (s) => [s.dora, s.environments],
-            (dora: DoraOverviewApi | null, environments: string[]): string[] => {
+            (dora: DoraOverviewApi | null, environments: string[]): { key: string; label: string }[] => {
                 const names = new Set([...(dora?.environments ?? []), ...environments])
-                return [...names]
+                return [...names].map((name) => ({ key: name, label: name }))
             },
         ],
         githubTeamOptions: [

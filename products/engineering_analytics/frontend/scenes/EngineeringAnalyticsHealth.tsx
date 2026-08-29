@@ -104,7 +104,7 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                             mode="multiple"
                             value={environments}
                             onChange={setEnvironments}
-                            options={environmentOptions.map((name) => ({ key: name, label: name }))}
+                            options={environmentOptions}
                             placeholder={`Default environment (${environmentScopeLabel})`}
                             allowCustomValues={false}
                         />

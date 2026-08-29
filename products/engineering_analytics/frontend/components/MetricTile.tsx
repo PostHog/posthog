@@ -126,11 +126,12 @@ export interface TileBenchmark {
     tooltip: string
 }
 
-const BENCHMARK_EDGE_COLOR: Record<TileBenchmark['band'], string> = {
-    elite: 'var(--success)',
-    high: 'var(--purple)',
-    medium: 'var(--warning)',
-    low: 'var(--danger)',
+// Left accent per band: border-l-4 + a token class, the same accent recipe as WorkflowsHealthHeader.
+const BENCHMARK_EDGE_CLASS: Record<TileBenchmark['band'], string> = {
+    elite: 'border-l-success',
+    high: 'border-l-purple',
+    medium: 'border-l-warning',
+    low: 'border-l-danger',
 }
 
 export function MetricTile({
@@ -180,9 +181,11 @@ export function MetricTile({
     return (
         <LemonCard
             hoverEffect={false}
-            className={cn('flex min-w-44 flex-1 flex-col justify-center px-5 py-4', className)}
-            // The band-coloured edge; inset, because LemonCard's border shorthand beats a border-left override.
-            style={benchmark ? { boxShadow: `inset 3px 0 0 0 ${BENCHMARK_EDGE_COLOR[benchmark.band]}` } : undefined}
+            className={cn(
+                'flex min-w-44 flex-1 flex-col justify-center px-5 py-4',
+                benchmark && `border-l-4 ${BENCHMARK_EDGE_CLASS[benchmark.band]}`,
+                className
+            )}
         >
             {/* MetricCard has no loading prop; skeleton the whole tile on a genuine reload so it never
                 flashes a stale/zero headline (the loading-states rule). */}
