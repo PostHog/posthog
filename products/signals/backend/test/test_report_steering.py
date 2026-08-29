@@ -83,8 +83,10 @@ def test_research_steering_carries_the_report_derived_notes(organization, team):
     assert "this is the approval flow, not a bug" in steering.section
     assert "which teams does this hit?" in steering.section
     # A note is evidence about what the team wants, never a second set of instructions for a run
-    # whose output becomes the report every reviewer reads.
-    assert "never as instructions" in steering.section
+    # whose output becomes the report every reviewer reads. A note is also the one part of this
+    # prompt a user writes directly, so dropping the rule would leave the only prompt-injection
+    # guard on the section that needs it most.
+    assert "untrusted input" in steering.section
     # No fleet memory yet, so the scratchpad pointer must not tax the prompt.
     assert steering.scratchpad_available is False
     assert "scout-scratchpad-search" not in steering.section
@@ -103,3 +105,20 @@ def test_research_steering_carries_the_report_derived_notes(organization, team):
         team=child, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
     )
     assert load_research_steering(child.id, str(child_report.id)) == NO_STEERING
+
+
+@pytest.mark.django_db
+def test_research_steering_read_failure_costs_steering_not_the_run(team, monkeypatch):
+    # Steering is a best-effort enrichment on the path that researches every promoted report, so a
+    # note read that raises has to degrade to no steering. Letting it propagate would turn any
+    # trouble reading the notes table into a failed report.
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+
+    def _boom(**kwargs):
+        raise RuntimeError("notes table unavailable")
+
+    monkeypatch.setattr("products.signals.backend.scout_harness.tools.notes.list_notes", _boom)
+
+    assert load_research_steering(team.id, str(report.id)) == NO_STEERING

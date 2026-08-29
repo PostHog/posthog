@@ -385,11 +385,17 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
 
         assert result.title == "Onboarding funnel completion tracking may be regressing"
 
-        # The findings cite no commits, so no reviewers artefact is written; the run must say why.
-        assert [call.kwargs["event"] for call in mock_capture.call_args_list] == [
-            "signals_suggested_reviewers_unresolved"
+        # Scoped to the reviewer events on purpose: patching `capture` on one module patches the
+        # shared `posthoganalytics` module, so every other event this activity fires lands in the
+        # same mock. This test owns the reviewer contract only.
+        reviewer_calls = [
+            call.kwargs
+            for call in mock_capture.call_args_list
+            if call.kwargs["event"].startswith("signals_suggested_reviewers")
         ]
-        unresolved_props = mock_capture.call_args.kwargs["properties"]
+        # The findings cite no commits, so no reviewers artefact is written; the run must say why.
+        assert [call["event"] for call in reviewer_calls] == ["signals_suggested_reviewers_unresolved"]
+        unresolved_props = reviewer_calls[0]["properties"]
         assert unresolved_props["report_id"] == str(report.id)
         assert unresolved_props["outcome"] == "no_commit_hashes"
         assert unresolved_props["finding_count"] == 2
@@ -540,7 +546,13 @@ async def test_run_agentic_report_activity_keeps_quiet_when_reviewers_are_retain
             )
         )
 
-    assert mock_capture.call_args_list == []
+    # Reviewer events only: the shared `posthoganalytics` module means this mock also catches the
+    # other events the activity fires, and this test is about the reviewer contract.
+    assert [
+        call.kwargs["event"]
+        for call in mock_capture.call_args_list
+        if call.kwargs["event"].startswith("signals_suggested_reviewers")
+    ] == []
 
 
 @pytest.mark.asyncio
