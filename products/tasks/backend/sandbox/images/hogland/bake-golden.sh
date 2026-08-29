@@ -222,14 +222,6 @@ if [[ "$setup_rc" -ne 0 ]]; then
 fi
 log "setup-golden.sh completed in the box"
 
-# Diagnostic (temporary): record hogpanion's state at snapshot time. The dev
-# smoke finds hogpanion.service with no MainPID in the restored golden; this
-# shows whether the daemon is already down HERE (setup left it dead) or only
-# after resume. Best-effort over SSH; never fail the bake.
-log "hogpanion state at snapshot time (diagnostic)"
-"${ssh_base[@]}" "echo '--- hogpanion @ snapshot time ---'; sudo systemctl show hogpanion.service -p MainPID -p ActiveState -p SubState; sudo systemctl status hogpanion.service --no-pager 2>&1 | head -8; echo '--- hogpanion journal (tail) ---'; sudo journalctl -u hogpanion.service --no-pager 2>&1 | tail -40" \
-    || log "hogpanion snapshot-time diagnostic failed (non-fatal)"
-
 # Snapshot the seed box, then point the candidate alias at the new snapshot id.
 # `box snapshot` pauses the box and persists it to S3, emitting the record JSON.
 log "snapshotting seed box $SEED_BOX_ID"
