@@ -183,6 +183,20 @@ jobs:
               run: |
                   npm run schema:build:python && git diff --exit-code
 
+            # Complexity 11-15 annotates a warning, >15 fails; scoped to the PR's own
+            # diff because the pre-existing violation backlog keeps C901 off repo-wide.
+            # HEAD is the PR merge commit, so a two-dot diff against the base sha is
+            # exactly the PR's changes — content merged in from master sits on both sides.
+            - name: Check cyclomatic complexity of changed files
+              if: github.event_name == 'pull_request'
+              shell: bash
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: |
+                  git fetch --no-tags --filter=blob:none --depth=1 origin "$BASE_SHA"
+                  git diff --name-only --diff-filter=d -z "$BASE_SHA" HEAD -- 'posthog/*.py' 'ee/*.py' 'products/*.py' \
+                      | xargs -0 -r ./bin/hogli lint:complexity
+
             - parallel:
                   - name: Check for syntax errors, import sort, and code style violations
                     shell: bash

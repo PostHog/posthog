@@ -373,6 +373,20 @@ jobs:
             - name: Lint with Oxlint
               run: pnpm exec oxlint --quiet
 
+            # Oxlint has no cyclomatic complexity rule; complexity 11-15 annotates a
+            # warning, >15 fails. Scoped to the PR's own diff — no repo-wide baseline.
+            # HEAD is the PR merge commit, so a two-dot diff against the base sha is
+            # exactly the PR's changes — content merged in from master sits on both sides.
+            - name: Check cyclomatic complexity of changed files
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: |
+                  git fetch --no-tags --filter=blob:none --depth=1 origin "$BASE_SHA"
+                  git diff --name-only --diff-filter=d -z "$BASE_SHA" HEAD \
+                      -- 'frontend/*.ts' 'frontend/*.tsx' 'ee/*.ts' 'ee/*.tsx' 'products/*.ts' 'products/*.tsx' \
+                      | xargs -0 -r node bin/lint-complexity.mjs
+
             - name: Check markdown formatting with oxfmt
               run: pnpm exec oxfmt --check "**/*.{md,mdx}"
 
