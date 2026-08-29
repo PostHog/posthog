@@ -6,6 +6,7 @@ import { RefObject, useEffect, useRef, useState } from 'react'
 import { IconCheckbox, IconChevronRight, IconEllipsis, IconFolderPlus, IconPlusSmall, IconStar } from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
+import { navPanelProductPushLogic } from 'lib/components/NavPanelAdvertisement/navPanelProductPushLogic'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
@@ -145,6 +146,7 @@ export function ProjectTree({
 
     const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
+    const { activeCampaign } = useValues(navPanelProductPushLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
@@ -450,6 +452,12 @@ export function ProjectTree({
                     root === 'custom-products://'
                 ) {
                     const key = item.record?.sceneKey
+                    // A product push campaign is the org's one live recommendation, so the tag
+                    // marks the row whose product matches it.
+                    const isRecommended =
+                        root === 'custom-products://' &&
+                        !!activeCampaign?.product_path &&
+                        item.record?.path === activeCampaign.product_path
 
                     return (
                         <>
@@ -457,6 +465,13 @@ export function ProjectTree({
                                 <>
                                     <p className="mb-1 font-semibold">{item.displayName}</p>
                                 </>
+                            )}
+                            {isRecommended && (
+                                <p className="mb-1">
+                                    <LemonTag type="success" size="small">
+                                        Recommended
+                                    </LemonTag>
+                                </p>
                             )}
                             {sceneConfigurations[key]?.description || item.name}
 
