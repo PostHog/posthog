@@ -7,7 +7,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, productSplitShards, PRODUCT_JOB_OVERHEAD_SECONDS, DJANGO_TARGET_WALL_SECONDS, PRODUCT_TARGET_WALL_SECONDS } = require('./turbo-discover.js')
+const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, productSplitShards, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
 
 // A path that exists in every checkout, so the existence check is deterministic.
 const LIVE_FILE = '.github/scripts/turbo-discover.js'
@@ -58,7 +58,7 @@ test('calculateShards sizes Django shards to their wall target', () => {
 })
 
 test('calculateShards rounds up, so the target is a ceiling, not an average', () => {
-    const budget = DJANGO_TARGET_WALL_SECONDS - 300
+    const budget = TARGET_WALL_SECONDS - 300
     assert.equal(calculateShards(budget * 17 + 1, 300, 1), 18)
 })
 
@@ -70,7 +70,7 @@ test('calculateShards keeps the floor and ceiling', () => {
 test('calculateShards floors the work budget at half the overhead', () => {
     // Overhead above the target makes it unreachable; the work budget floors at
     // half the overhead instead of going negative.
-    assert.equal(calculateShards(6000, DJANGO_TARGET_WALL_SECONDS + 100, 1), Math.ceil(6000 / ((DJANGO_TARGET_WALL_SECONDS + 100) / 2)))
+    assert.equal(calculateShards(6000, TARGET_WALL_SECONDS + 100, 1), Math.ceil(6000 / ((TARGET_WALL_SECONDS + 100) / 2)))
 })
 
 // Product sizing: with the junit-scaled marker the union's product sums are
@@ -123,7 +123,7 @@ test('a single-invocation entry keeps the pre-legs keys for unrebased branches',
 })
 
 test('productSplitShards sizes the worst chunk, not the mean', () => {
-    const budget = PRODUCT_TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
+    const budget = TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
     const evenly = { work: 1000, heavyCount: 0, lightWork: 1000, maxLight: 10, testCount: 100 }
     const coarse = { work: 1000, heavyCount: 0, lightWork: 1000, maxLight: 150, testCount: 100 }
 
@@ -135,7 +135,7 @@ test('productSplitShards sizes the worst chunk, not the mean', () => {
 })
 
 test('tests above half the budget each hold a shard of their own', () => {
-    const budget = PRODUCT_TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
+    const budget = TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
     const heavy = Math.ceil(budget * 0.8)
 
     // Ten tests this size cannot pair, so no count below ten holds the budget,
@@ -159,7 +159,7 @@ test('the count never exceeds the tests there are to place', () => {
 })
 
 test('a product holding one test is never split', () => {
-    const budget = PRODUCT_TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
+    const budget = TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
 
     // One test over the budget still gets one job: a second would collect nothing,
     // and no split shortens the first.
@@ -176,7 +176,7 @@ test('a heavy test between light ones splits the light run', () => {
 })
 
 test('a product that fits one shard is packed, not split by its own margin', () => {
-    const budget = PRODUCT_TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
+    const budget = TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
     const duration = budget / 10
     // Work at the (target - overhead) budget still fits, so the margin must
     // not be what pushes it over into a two-way split.
@@ -196,11 +196,11 @@ test('a product that fits one shard is packed, not split by its own margin', () 
 test("a split product's last shard absorbs a small product without leaking split flags", () => {
     const union = {}
     for (let i = 0; i < 11; i++) {
-        union[`products/big_one/backend/test_${i}.py::test_${i}`] = 19
+        union[`products/big_one/backend/test_${i}.py::test_${i}`] = 24
     }
-    union['products/small_one/backend/test_s.py::test_s'] = 10
+    union['products/small_one/backend/test_s.py::test_s'] = 40
 
-    assert.equal(productSplitShards({ work: 209, heavyCount: 0, lightWork: 209, maxLight: 19, testCount: 11 }), 2)
+    assert.equal(productSplitShards({ work: 264, heavyCount: 0, lightWork: 264, maxLight: 24, testCount: 11 }), 2)
 
     const matrix = buildMatrix(['big-one', 'small-one'], union, true)
 
