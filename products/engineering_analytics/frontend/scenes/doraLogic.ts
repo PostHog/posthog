@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
+import { intervals } from 'lib/components/IntervalFilter/intervals'
 
 import type { BoxPlotBucket } from '../components/LeadTimeBoxPlot'
 import { engineeringAnalyticsDora } from '../generated/api'
@@ -92,6 +93,9 @@ export interface doraLogicActions {
     setGranularity: (granularity: DoraGranularity | null) => {
         granularity: DoraGranularity | null
     }
+    resetGranularity: () => {
+        value: true
+    }
     toggleLeadTimeStages: () => {
         value: true
     }
@@ -136,6 +140,7 @@ export const doraLogic = kea<doraLogicType>([
         setExcludeOutliers: (excludeOutliers: boolean) => ({ excludeOutliers }),
         setGithubTeam: (githubTeam: string | null) => ({ githubTeam }),
         setGranularity: (granularity: DoraGranularity | null) => ({ granularity }),
+        resetGranularity: true,
         toggleLeadTimeStages: true,
     }),
 
@@ -187,6 +192,7 @@ export const doraLogic = kea<doraLogicType>([
             null as DoraGranularity | null,
             {
                 setGranularity: (_, { granularity }) => granularity,
+                resetGranularity: () => null,
             },
         ],
         showAllLeadTimeStages: [
@@ -268,11 +274,30 @@ export const doraLogic = kea<doraLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values, cache }) => ({
         setEnvironments: () => actions.loadDora(),
         setGithubTeam: () => actions.loadDora(),
-        setGranularity: () => actions.loadDora(),
-        [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => actions.loadDora(),
+        // Grouping and the date range co-adjust, sharing insights' interval mechanism: picking a
+        // grouping snaps the range to one that fits it (the shared intervals map, e.g. hour ->
+        // today), and a range change hands grouping back to the backend's automatic fit — so an
+        // hour grouping can never span a year's worth of buckets.
+        setGranularity: ({ granularity }) => {
+            const newDateFrom = granularity ? intervals[granularity].newDateFrom : undefined
+            if (newDateFrom) {
+                cache.snappingRangeToGranularity = true
+                engineeringAnalyticsFiltersLogic.actions.setDateRange(newDateFrom, null)
+                return // the setDateRange listener below reloads
+            }
+            actions.loadDora()
+        },
+        [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
+            if (cache.snappingRangeToGranularity) {
+                cache.snappingRangeToGranularity = false
+            } else if (values.granularity !== null) {
+                actions.resetGranularity()
+            }
+            actions.loadDora()
+        },
         [engineeringAnalyticsLogic.actionTypes.setSourceId]: () => actions.loadDora(),
         [engineeringAnalyticsLogic.actionTypes.refresh]: () => actions.loadDora(),
     })),
