@@ -384,6 +384,35 @@ describe('RoutingPersonsStore', () => {
             })
         })
 
+        it('a shadow verb that outruns its ceiling is abandoned, not waited out', async () => {
+            // The shadow leg is awaited, so an unbounded one spends the
+            // consumer's poll budget and costs the group its membership.
+            jest.useFakeTimers()
+            try {
+                const stores = makeStores()
+                stores.pg.fetchForUpdate.mockResolvedValue(person(1, '7'))
+                stores.personhogMock.fetchForUpdate.mockReturnValue(new Promise(() => {}))
+                const store = makeStore(stores, 'shadow')
+
+                const pending = store.fetchForUpdate(1, 'a', 0)
+                let settled = false
+                void pending.then(() => (settled = true))
+                await Promise.resolve()
+                expect(settled).toBe(false)
+
+                jest.advanceTimersByTime(60_000)
+                const result = await pending
+
+                expect(result?.id).toBe('7')
+                expect(personhogStoreShadowErrorsCounter.labels).toHaveBeenCalledWith({
+                    verb: 'fetchForUpdate',
+                    error: 'ShadowVerbTimeoutError',
+                })
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('a shadow flush failure is swallowed', async () => {
             const stores = makeStores()
             stores.personhogMock.flush.mockRejectedValue(new Error('leader down'))

@@ -499,6 +499,20 @@ describe('PersonhogPersonsStore', () => {
             expect(opIds[1]).toBe(opIds[0])
         })
 
+        it('floors a pre-epoch created_at, which the saga refuses', async () => {
+            // The Postgres backend stores the raw value, so the floor lives
+            // here rather than in the shared request both backends read.
+            repository.mergePersons = jest.fn().mockResolvedValue({
+                survivor: { ...person, id: '7' },
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
+            })
+            const bound = store.forBatch(0)
+
+            await bound.mergePersons({ ...mergeRequest(), createdAtMs: -86_400_000 })
+
+            expect((repository.mergePersons as jest.Mock).mock.calls[0][0].createdAtMs).toBe(0)
+        })
+
         it('a conflict gets the full salted retry budget before surfacing as the claim error', async () => {
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor: null,

@@ -1216,7 +1216,11 @@ export class PersonhogPersonsStore implements PersonsStore {
                         // determineMergeMode holds it to the same contract at
                         // startup.
                         moveLimit: moveLimitFor(request.mergeMode, this.options.syncMergeMoveLimit),
-                        createdAtMs: request.createdAtMs,
+                        // The saga refuses a negative created_at, and events
+                        // stamped before 1970 exist, so the floor is applied
+                        // where that constraint lives rather than in the
+                        // shared request the Postgres backend also reads.
+                        createdAtMs: Math.max(0, request.createdAtMs),
                         // The raw event uuid, which the op id only carries as a
                         // one-way uuidv5 derivation. The saga stamps it on a
                         // person it births, matching what the Postgres backend
@@ -1570,7 +1574,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // read this write has already superseded, so the batch gives up its
         // view and the next read rebuilds it from the leader.
         const personKey = directKey
-        if (!read.moved(`${person.team_id}:${_distinctId}`)) {
+        if (!read.moved(`${person.team_id}:${_distinctId}`, personKey)) {
             // The edge is recorded with the install so the baseline is
             // referenced by this batch and released with it; an unreferenced
             // baseline would outlive every batch, since eviction only runs

@@ -106,6 +106,22 @@ function differingKeys(left: Properties, right: Properties): string[] {
 }
 
 /**
+ * How long one shadow verb may run before the batch stops waiting on it.
+ * Above the personhog merge deadline so a first attempt is never cut
+ * short, and far enough under the consumer's poll interval that one
+ * degraded verb cannot cost the group its membership.
+ */
+const SHADOW_VERB_TIMEOUT_MS = 60_000
+
+/** Raised when a shadow verb outruns its ceiling and the batch abandons it. */
+class ShadowVerbTimeoutError extends Error {
+    constructor(verb: string) {
+        super(`personhog shadow ${verb} exceeded ${SHADOW_VERB_TIMEOUT_MS}ms and was abandoned`)
+        this.name = 'ShadowVerbTimeoutError'
+    }
+}
+
+/**
  * A bounded metric label for a shadow failure. Every gRPC fault arrives as
  * the same ConnectError class, so those are labelled by status code and
  * everything else by its class name.
@@ -143,10 +159,30 @@ export class RoutingPersonsStore implements PersonsStore {
     /**
      * Run the personhog side of a shadowed verb: sequential, awaited, and
      * never allowed to fail the batch.
+     *
+     * Because it is awaited, its wall clock is charged to the consumer's
+     * poll budget, and a degraded personhog side can outrun that budget on
+     * its own: a merge alone may spend its conflict retries times its
+     * transport attempts times the merge deadline. Losing the group over a
+     * shadow stall would let shadow decide the authoritative batch's fate,
+     * so a verb that outruns the ceiling is abandoned and counted as lost
+     * fidelity. The ceiling is per verb, so a batch of slow verbs can still
+     * accumulate; it bounds the single pathological call, not the batch.
      */
     private async shadowed(verb: string, run: () => Promise<unknown>): Promise<void> {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const running = run()
+        // The abandoned leg keeps running against the personhog side; its
+        // settlement is swallowed here so a rejection arriving after the
+        // ceiling cannot surface as an unhandled one.
+        void running.catch(() => {})
         try {
-            await run()
+            await Promise.race([
+                running,
+                new Promise<never>((_resolve, reject) => {
+                    timer = setTimeout(() => reject(new ShadowVerbTimeoutError(verb)), SHADOW_VERB_TIMEOUT_MS)
+                }),
+            ])
         } catch (error) {
             // Labelled by class as well as verb: a fence timeout, a size
             // rejection, and the identity service being unreachable are the
@@ -154,6 +190,8 @@ export class RoutingPersonsStore implements PersonsStore {
             // number for all of them cannot.
             personhogStoreShadowErrorsCounter.labels({ verb, error: errorClass(error) }).inc()
             logger.warn('personhog shadow verb failed', { verb, error: String(error) })
+        } finally {
+            clearTimeout(timer)
         }
     }
 
