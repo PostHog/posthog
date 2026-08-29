@@ -93,12 +93,21 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
 
         self.assertEqual(discover_site("https://example.com")["name"], expected)
 
+    @parameterized.expand(
+        [
+            ("www_variant", "https://www.example.com/sitemap.xml", True),
+            ("subdomain", "https://docs.example.com/sitemap.xml", True),
+            ("unrelated_site", "https://cdn.other-site.example/sitemap.xml", False),
+        ]
+    )
     @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
-    def test_records_the_url_a_sitemap_redirect_resolves_to(self, fetch_public_url: MagicMock) -> None:
+    def test_records_a_sitemap_redirect_only_when_it_stays_on_the_site(
+        self, _name: str, redirect_target: str, stays_on_site: bool, fetch_public_url: MagicMock
+    ) -> None:
         def response_for(url: str, **kwargs: object) -> FetchedPublicUrl:
             if url == "https://example.com/sitemap.xml":
-                return _response(status=301, location="https://www.example.com/sitemap.xml")
-            if url == "https://www.example.com/sitemap.xml":
+                return _response(status=301, location=redirect_target)
+            if url == redirect_target:
                 return _response(body=b"<urlset />")
             return _response(status=404)
 
@@ -106,8 +115,10 @@ class TestContentAutopilotSiteDiscovery(SimpleTestCase):
 
         result = discover_site("https://example.com")
 
-        self.assertTrue(result["sitemap_detected"])
-        self.assertEqual(result["source_urls"], ["https://www.example.com/sitemap.xml"])
+        self.assertEqual(result["sitemap_detected"], stays_on_site)
+        self.assertEqual(
+            result["source_urls"], [redirect_target] if stays_on_site else ["https://example.com/sitemap.xml"]
+        )
 
     @patch("products.web_analytics.backend.content_autopilot.site_discovery.fetch_public_url")
     def test_caps_the_requests_one_discovery_sends(self, fetch_public_url: MagicMock) -> None:

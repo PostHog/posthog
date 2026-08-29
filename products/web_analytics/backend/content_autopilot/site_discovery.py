@@ -116,6 +116,26 @@ def has_same_public_origin(first_url: str, second_url: str) -> bool:
     return key is not None and key == _origin_key(second_url)
 
 
+def _public_host(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+        scheme = parsed.scheme.lower()
+        hostname = (parsed.hostname or "").lower().removesuffix(".")
+    except ValueError:
+        return ""
+    if scheme not in _DEFAULT_PORTS or not hostname or parsed.username or parsed.password:
+        return ""
+    return hostname
+
+
+def has_same_public_site(first_url: str, second_url: str) -> bool:
+    first = _public_host(first_url).removeprefix("www.")
+    second = _public_host(second_url).removeprefix("www.")
+    if not first or not second:
+        return False
+    return first == second or first.endswith(f".{second}") or second.endswith(f".{first}")
+
+
 def _fetch_text(url: str, *, deadline: float, budget: _RequestBudget) -> _FetchedText:
     current_url = strip_userinfo(url)
     for _ in range(_MAX_REDIRECTS + 1):
@@ -137,7 +157,10 @@ def _fetch_text(url: str, *, deadline: float, budget: _RequestBudget) -> _Fetche
             location = response.headers.get("location")
             if not location:
                 raise PublicUrlFetchError("read", "The site returned an invalid redirect.")
-            current_url = strip_userinfo(urljoin(current_url, location))
+            target = strip_userinfo(urljoin(current_url, location))
+            if not has_same_public_site(target, url):
+                raise PublicUrlFetchError("blocked", "The site redirected away from its own domain.")
+            current_url = target
             continue
         if response.status_code < 200 or response.status_code >= 300:
             raise PublicUrlFetchError("read", "The site response could not be used.")
