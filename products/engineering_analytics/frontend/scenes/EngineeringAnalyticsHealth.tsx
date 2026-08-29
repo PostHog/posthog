@@ -141,12 +141,7 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                     )}
                 </div>
             )}
-            <Section
-                id="dora-metrics"
-                title="DORA metrics"
-                note="Each chip is the DORA report band the window lands in; hover it for the ladder."
-                busy={doraLoading && !!dora}
-            >
+            <Section id="dora-metrics" title="DORA metrics" busy={doraLoading && !!dora}>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <MetricTile
                         label="Deployment frequency"

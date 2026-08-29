@@ -128,7 +128,7 @@ export interface TileBenchmark {
 
 const BENCHMARK_TAG_TYPE: Record<TileBenchmark['band'], LemonTagType> = {
     elite: 'success',
-    high: 'primary',
+    high: 'completion',
     medium: 'warning',
     low: 'danger',
 }
