@@ -9,7 +9,7 @@ the Temporal retry honors the reset.
 import contextlib
 
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
-from posthog.models.integration import _is_safe_github_repo_path
+from posthog.models.integration.github import _is_safe_github_repo_path
 
 _GITHUB_API = "https://api.github.com"
 # A connected repo's failed job can print an arbitrarily large log; cap the bytes we pull into memory

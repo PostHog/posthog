@@ -318,6 +318,59 @@ describe("activity events", () => {
         artifactType: "",
         version: 1,
         runId: null,
+        referenceType: null,
+        objectKind: null,
+      },
+    });
+  });
+
+  it.each([
+    "plan",
+    "context",
+    "reference",
+    "artifact",
+    "tree_snapshot",
+    "user_attachment",
+    "skill_bundle",
+  ])(
+    "drops non-output %s artifacts from historical timelines",
+    (artifactType) => {
+      expect(
+        parseActivityEvent({
+          event: "artifact_created",
+          payload: {
+            artifact_id: "internal-1",
+            name: "checkpoint.index",
+            artifact_type: artifactType,
+          },
+        }),
+      ).toBeNull();
+    },
+  );
+
+  it("keeps PostHog reference artifacts in the timeline", () => {
+    expect(
+      parseActivityEvent({
+        event: "artifact_created",
+        payload: {
+          artifact_id: "phref-1",
+          name: "Checkout funnel",
+          artifact_type: "reference",
+          reference_type: "posthog_object",
+          object_kind: "insight",
+          run_id: "run-1",
+        },
+      }),
+    ).toEqual({
+      kind: "artifact_created",
+      payload: {
+        artifactId: "phref-1",
+        name: "Checkout funnel",
+        artifactType: "reference",
+        version: 1,
+        runId: "run-1",
+        referenceType: "posthog_object",
+        objectKind: "insight",
       },
     });
   });

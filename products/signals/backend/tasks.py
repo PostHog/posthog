@@ -34,8 +34,11 @@ from products.signals.backend.report_generation.repo_activity import (
 )
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
+    DELIVERABLE_REPORT_STATUSES,
     ScoutSlackOutputType,
     ScoutSlackPermanentDeliveryError,
+    clear_latest_scout_report_delivery,
+    mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
     post_scout_report_to_slack,
     slack_api_error_code,
@@ -70,7 +73,6 @@ _OUT_OF_PERIOD_SYNC_ERROR = "billing: refund period no longer creditable at sync
 _SCOUT_SLACK_MAX_RETRIES = 5
 _SCOUT_SLACK_RETRY_BASE_SECONDS = 60
 _SCOUT_SLACK_RETRY_MAX_SECONDS = 3600
-_SCOUT_SLACK_DELIVERABLE_REPORT_STATUSES = frozenset((SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT))
 
 
 @shared_task(
@@ -119,6 +121,8 @@ def deliver_scout_slack_output(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    edit_note: str | None = None,
+    thread_reports: bool = False,
 ) -> None:
     context = {
         "team_id": team_id,
@@ -148,7 +152,7 @@ def deliver_scout_slack_output(
             if report is None or run is None:
                 logger.warning("signals_scout.slack_delivery_output_missing", **context)
                 return
-            if report.status not in _SCOUT_SLACK_DELIVERABLE_REPORT_STATUSES:
+            if report.status not in DELIVERABLE_REPORT_STATUSES:
                 logger.info(
                     "signals_scout.slack_delivery_report_not_surfaced",
                     **context,
@@ -161,6 +165,8 @@ def deliver_scout_slack_output(
                 delivery_id=delivery_id,
                 integration_id=integration_id,
                 channel=channel,
+                edit_note=edit_note,
+                thread_reports=thread_reports,
             )
         else:
             logger.warning("signals_scout.slack_delivery_output_type_invalid", **context)
@@ -212,9 +218,26 @@ def enqueue_scout_slack_delivery(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    edit_note: str | None = None,
+    thread_reports: bool = False,
 ) -> None:
     """Publish after commit, capturing broker failures without affecting the completed emit."""
+    # Only a full report delivery supersedes an earlier one: a note-only update leaves the
+    # report message to the delivery that is still building it.
+    supersedes = output_type == "report" and edit_note is None
     try:
+        # Claim before publishing: an earlier delivery of the same report reads this marker to decide
+        # whether to yield, and between the two calls it would see no claim and post the report that
+        # this delivery is about to post again.
+        if supersedes:
+            mark_latest_scout_report_delivery(output_id, delivery_id, integration_id, channel)
+        # Each optional arg rides as a kwarg only when set, so a delivery without one keeps the
+        # payload shape workers running the previous task signature still accept.
+        extra_kwargs: dict[str, str | bool] = {}
+        if edit_note is not None:
+            extra_kwargs["edit_note"] = edit_note
+        if thread_reports:
+            extra_kwargs["thread_reports"] = True
         deliver_scout_slack_output.delay(
             team_id,
             output_type,
@@ -223,8 +246,13 @@ def enqueue_scout_slack_delivery(
             delivery_id,
             integration_id,
             channel,
+            **extra_kwargs,
         )
     except Exception as exc:
+        # The claim now names a delivery that will never run, and would silence every later delivery
+        # of this report until it expired, so give it up before reporting the failure.
+        if supersedes:
+            clear_latest_scout_report_delivery(output_id, delivery_id, integration_id, channel)
         capture_exception(
             exc,
             {
@@ -513,7 +541,7 @@ def pause_inactive_signal_scouts() -> None:
     """Daily sweep: warn, then auto-pause scouts nothing comes of.
 
     Runs here rather than on the coordinator's 30-minute tick — that tick is deliberately
-    short-lived and bounded, and inactivity doesn't change by the half hour. See
+    bounded, and inactivity doesn't change by the half hour. See
     `scout_harness/inactivity.py` for what counts as productive.
     """
     outcome = sweep_inactive_scouts()

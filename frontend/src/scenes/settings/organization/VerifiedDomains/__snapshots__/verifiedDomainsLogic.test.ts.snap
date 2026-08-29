@@ -4,7 +4,9 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
 {
   "addModalShown": false,
   "configureIdJagModalId": null,
+  "configureIdJagModalLoading": false,
   "configureSAMLModalId": null,
+  "configureSAMLModalLoading": false,
   "configureSCIMModalId": null,
   "currentOrganizationId": "ABCD",
   "domainBeingVerified": null,
@@ -23,6 +25,16 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "id_jag_issuer_url": undefined,
     "id_jag_jwks_url": undefined,
   },
+  "identityProviderConfigs": [
+    {
+      "config_scope": null,
+      "id": "config_will_be_deleted",
+      "organization_domain_ids": [
+        "id_will_be_deleted",
+      ],
+    },
+  ],
+  "identityProviderConfigsLoading": false,
   "isIdJagConfigSubmitting": false,
   "isIdJagConfigValid": true,
   "isSAMLAvailable": false,
@@ -31,6 +43,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   "isSamlConfigSubmitting": false,
   "isSamlConfigValid": true,
   "isXAAAuthenticationAvailable": false,
+  "ownVerifiedDomain": null,
   "samlConfig": {},
   "samlConfigAllErrors": {
     "saml_acs_url": undefined,

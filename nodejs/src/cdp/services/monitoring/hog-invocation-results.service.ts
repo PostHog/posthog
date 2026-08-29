@@ -40,11 +40,14 @@ export type HogInvocationResultsServiceOutput = HogInvocationResultsOutput | Cdp
  * Lifecycle row produced to ClickHouse via Kafka. Mirrors the columns on the
  * hog_invocation_results_data table. Two such rows are produced per
  * invocation: one when execution starts (`status='running'`) and one when it
- * finishes (`status='succeeded' | 'failed'`). On a rerun, the cycle repeats
- * with the same `invocation_id`, `is_retry=1`, and `attempts` bumped — the
- * ReplacingMergeTree on `(team_id, function_kind, function_id, invocation_id)`
- * keyed by `version` collapses prior versions at merge time.
+ * finishes (`status='succeeded' | 'failed' | 'canceled'`). On a rerun, the
+ * cycle repeats with the same `invocation_id`, `is_retry=1`, and `attempts`
+ * bumped — the ReplacingMergeTree on
+ * `(team_id, function_kind, function_id, invocation_id)` keyed by `version`
+ * collapses prior versions at merge time.
  */
+export type HogInvocationResultStatus = 'running' | 'succeeded' | 'failed' | 'canceled'
+
 export interface HogInvocationResultRow {
     team_id: number
     // `*_rerun` kinds tag the wrapper row that drives a re-run, so the
@@ -54,7 +57,7 @@ export interface HogInvocationResultRow {
     function_id: string
     invocation_id: string
     parent_run_id: string
-    status: 'running' | 'succeeded' | 'failed'
+    status: HogInvocationResultStatus
     attempts: number
     is_retry: 0 | 1
     scheduled_at: string // ISO microsecond DateTime64
@@ -322,7 +325,7 @@ export class HogInvocationResultsService {
      */
     queueLifecycleRow(
         invocation: CyclotronJobInvocation,
-        status: 'running' | 'succeeded' | 'failed',
+        status: HogInvocationResultStatus,
         opts: {
             error?: unknown
             errorKind?: string
@@ -342,7 +345,7 @@ export class HogInvocationResultsService {
 
     private buildLifecycleRow(
         invocation: CyclotronJobInvocation,
-        status: 'running' | 'succeeded' | 'failed',
+        status: HogInvocationResultStatus,
         opts: {
             error?: unknown
             errorKind?: string
@@ -559,7 +562,11 @@ export class HogInvocationResultsService {
                 continue
             }
 
-            const status: 'succeeded' | 'failed' = result.error ? 'failed' : 'succeeded'
+            const status: HogInvocationResultStatus = result.error
+                ? 'failed'
+                : result.canceled
+                  ? 'canceled'
+                  : 'succeeded'
             this.queueLifecycleRow(result.invocation, status, { error: result.error })
         }
     }

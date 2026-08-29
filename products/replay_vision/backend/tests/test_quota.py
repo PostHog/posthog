@@ -44,7 +44,7 @@ class _VisionQuotaTestCase(APIBaseTest):
             name="quota-test-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _make_observation(
@@ -113,11 +113,11 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
     @parameterized.expand(
         [
             (ObservationStatus.SUCCEEDED, ScannerModel.GEMINI_3_5_FLASH_LITE, 2),
-            (ObservationStatus.SUCCEEDED, ScannerModel.GEMINI_3_6_FLASH, 15),
+            (ObservationStatus.SUCCEEDED, ScannerModel.GEMINI_3_7_FLASH, 15),
             (ObservationStatus.PENDING, ScannerModel.GEMINI_3_5_FLASH_LITE, 2),
-            (ObservationStatus.RUNNING, ScannerModel.GEMINI_3_6_FLASH, 15),
-            (ObservationStatus.FAILED, ScannerModel.GEMINI_3_6_FLASH, 0),
-            (ObservationStatus.INELIGIBLE, ScannerModel.GEMINI_3_6_FLASH, 0),
+            (ObservationStatus.RUNNING, ScannerModel.GEMINI_3_7_FLASH, 15),
+            (ObservationStatus.FAILED, ScannerModel.GEMINI_3_7_FLASH, 0),
+            (ObservationStatus.INELIGIBLE, ScannerModel.GEMINI_3_7_FLASH, 0),
         ]
     )
     def test_credits_priced_by_model_for_succeeded_and_in_flight(
@@ -172,7 +172,7 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
             name="other-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         other_obs = ReplayObservation.objects.create(
             scanner=other_scanner,
@@ -259,7 +259,7 @@ class TestComputeScannerBudget(_VisionQuotaTestCase):
             name="other-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             credit_limit=1_000_000,
         )
 
@@ -558,7 +558,7 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
             name="unspent-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
         result = compute_scanner_budgets(self.organization.id, [self.scanner.id, unspent.id])
@@ -571,7 +571,7 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
             name="capped-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             credit_limit=300,
         )
         ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=None)
@@ -587,7 +587,7 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
             name="other-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         ReplayScanner.objects.filter(pk=other_scanner.pk).update(credit_limit=1000)
         # One of each spend source, so dropping the org filter from any single query fails this.
@@ -752,7 +752,7 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         name: str,
         enabled: bool = True,
         estimate: int | None = None,
-        model: ScannerModel = ScannerModel.GEMINI_3_6_FLASH,
+        model: ScannerModel = ScannerModel.GEMINI_3_7_FLASH,
     ) -> None:
         scanner = ReplayScanner.objects.create(
             team=team,
@@ -881,3 +881,16 @@ class TestObserveQuotaEnforcement(_VisionQuotaTestCase):
             assert "observations running" in resp.json()["detail"]
             # Blocked before any workflow start.
             mock_sync_connect.assert_not_called()
+
+
+class TestBillingPeriodValidation(SimpleTestCase):
+    START = datetime(2026, 7, 1, tzinfo=UTC)
+
+    def test_accepts_ordered_bounds(self) -> None:
+        period = BillingPeriod(start=self.START, end=self.START + timedelta(days=31))
+        assert period.end - period.start == timedelta(days=31)
+
+    @parameterized.expand([("empty", timedelta(0)), ("reversed", timedelta(seconds=-1))])
+    def test_rejects_empty_or_reversed_window(self, _name: str, delta: timedelta) -> None:
+        with self.assertRaisesRegex(ValueError, "start"):
+            BillingPeriod(start=self.START, end=self.START + delta)

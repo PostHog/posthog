@@ -125,6 +125,7 @@ export interface accessControlsLogicValues {
     defaults: AccessControlDefaultsResponse | null
     defaultsLoading: boolean
     filteredMembers: AccessControlMemberEntry[]
+    filteredResourceKeySet: Set<APIScopeObject>
     filteredRoles: AccessControlRoleEntry[]
     filters: AccessControlFilters
     loading: boolean
@@ -397,6 +398,7 @@ export interface accessControlsLogicActions {
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
+            | 'billing'
             | 'business_knowledge'
             | 'canvas'
             | 'clickhouse_test_cluster_perf'
@@ -489,6 +491,7 @@ export interface accessControlsLogicActions {
             | 'user'
             | 'user_interview'
             | 'vision_action'
+            | 'vision_alert'
             | 'visual_review'
             | 'warehouse_objects'
             | 'warehouse_table'
@@ -565,6 +568,7 @@ export interface accessControlsLogicMeta {
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
@@ -657,6 +661,7 @@ export interface accessControlsLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -685,6 +690,7 @@ export interface accessControlsLogicMeta {
                 label: string
             }[]
         ) => Set<APIScopeObject>
+        filteredResourceKeySet: (filters: AccessControlFilters) => Set<APIScopeObject>
         ruleOptions: (
             availableProjectLevels: AccessControlLevel[],
             availableResourceLevels: AccessControlLevel[]
@@ -709,6 +715,7 @@ export interface accessControlsLogicMeta {
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
@@ -801,6 +808,7 @@ export interface accessControlsLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -826,6 +834,7 @@ export interface accessControlsLogicMeta {
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
@@ -918,6 +927,7 @@ export interface accessControlsLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -1236,6 +1246,10 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 }[]
             ): Set<APIScopeObject> => new Set(resourceKeys.map((r) => r.key)),
         ],
+        filteredResourceKeySet: [
+            (s) => [s.filters],
+            (filters: AccessControlFilters): Set<APIScopeObject> => new Set(filters.resourceKeys),
+        ],
 
         ruleOptions: [
             (s) => [s.availableProjectLevels, s.availableResourceLevels],
@@ -1369,7 +1383,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     project: {
                         access_level: values.defaults.project_access_level,
                         effective_access_level: values.defaults.project_access_level,
-                        inherited_access_level: null,
+                        inherited_access: null,
                     },
                     resources: Object.fromEntries(
                         Object.entries(values.defaults.resource_access_levels).map(([k, v]) => [
@@ -1377,7 +1391,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                             {
                                 access_level: v.access_level,
                                 effective_access_level: v.access_level,
-                                inherited_access_level: null,
+                                inherited_access: null,
                             },
                         ])
                     ),
@@ -1404,7 +1418,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             // Process project
             const currentProjectEffective = entryData.project.effective_access_level
             const currentProjectSaved = entryData.project.access_level
-            const projectInherited = entryData.project.inherited_access_level
+            const projectInherited = entryData.project.inherited_access?.access_level ?? null
 
             if (projectLevel !== currentProjectEffective) {
                 // User changed the level - determine what to save
@@ -1427,7 +1441,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 const newLevel = resourceLevels[resourceKey] ?? null
                 const currentEffective = resourceEntry?.effective_access_level ?? null
                 const currentSaved = resourceEntry?.access_level ?? null
-                const inherited = resourceEntry?.inherited_access_level ?? null
+                const inherited = resourceEntry?.inherited_access?.access_level ?? null
 
                 if (newLevel !== currentEffective) {
                     // If new level equals inherited (or both null), save null (clear override)

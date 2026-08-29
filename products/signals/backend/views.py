@@ -2,6 +2,7 @@ import json
 import uuid
 from collections.abc import Callable, Sequence
 from datetime import UTC, timedelta
+from functools import partial
 from typing import Any, cast
 
 from django.conf import settings
@@ -67,7 +68,9 @@ from posthog.user_permissions import UserPermissions
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
 from products.signals.backend.artefact_schemas import (
     NON_WRITABLE_ARTEFACT_TYPES,
+    SIGNALS_PRODUCT,
     ArtefactContentValidationError,
+    ChannelAssignment,
     Dismissal,
     SuggestedReviewers,
     SummaryChange,
@@ -92,6 +95,7 @@ from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
+    pr_bearing_task_run_filter,
 )
 from products.signals.backend.models import (
     ArtefactAttribution,
@@ -113,6 +117,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     normalized_github_logins_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
 )
+from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     PullRequestChecksResponseSerializer,
@@ -353,8 +358,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if instance.enabled and not was_enabled:
-            if instance.source_type != SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
-                self._trigger_data_import_sync(instance)
+            self._trigger_data_import_sync(instance)
 
     # Maps source_product to ExternalDataSourceType value for data import sources
     _DATA_IMPORT_SOURCE_TYPE_MAP: dict[str, str] = {
@@ -782,6 +786,14 @@ class SignalReportViewSet(
             qs = queryset.filter(team=self.team)
             qs = self._exclude_deleted_signal_reports(qs)
             return self._apply_signal_report_status_filter(qs)
+        if self.action in {"retrieve", "signals"}:
+            qs = self._scope_signal_report_queryset(queryset)
+            qs = self._exclude_deleted_signal_reports(qs)
+            qs = self._apply_signal_report_status_filter(qs)
+            qs = self._annotate_latest_actionability_value(qs)
+            qs = self._prefetch_signal_report_priority_artefacts(qs)
+            qs = self._annotate_is_suggested_reviewer(qs)
+            return annotate_first_billable_pr_run_at(qs)
         qs = queryset
         qs = self._scope_signal_report_queryset(qs)
         qs = self._exclude_deleted_signal_reports(qs)
@@ -792,6 +804,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_scout_filter(qs)
         qs = self._apply_signal_report_scout_prefix_filter(qs)
         qs = self._apply_signal_report_implementation_pr_filter(qs)
+        qs = self._apply_signal_report_channel_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
         qs = self._annotate_latest_actionability_value(qs)
@@ -817,12 +830,29 @@ class SignalReportViewSet(
             .values("count"),
             output_field=IntegerField(),
         )
+        channel_id_subquery = Subquery(
+            SignalReportArtefact.objects.filter(
+                report_id=OuterRef("id"),
+                type=SignalReportArtefact.ArtefactType.CHANNEL_ASSIGNMENT,
+            )
+            .annotate(
+                live_channel_id=Case(
+                    When(channel__deleted=False, then=F("channel_id")),
+                    default=Value(None),
+                    output_field=models.UUIDField(),
+                )
+            )
+            .order_by("-created_at")
+            .values("live_channel_id")[:1],
+            output_field=models.UUIDField(),
+        )
         # select_related("refund"): the serializer renders the reverse OneToOne inline.
         return (
             queryset.filter(team=self.team)
             .select_related("refund")
             .annotate(
                 artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
+                channel_id=channel_id_subquery,
             )
         )
 
@@ -1000,7 +1030,9 @@ class SignalReportViewSet(
         # `pr_url` and maps them to reports via the indexed `task_id` columns — instead of a correlated
         # `Exists` over `tasks.TaskRun` evaluated once per candidate report (which made the inbox
         # PR-tab count scan the whole `ready` set per PR'd run).
-        return SignalReport.reports_for_task_ids_filter(tasks_facade.task_ids_with_pr_url_subquery(self.team.id))
+        return SignalReport.reports_for_task_ids_filter(
+            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter())
+        )
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
         # `has_implementation_pr=true|false` filters reports by whether a shipped
@@ -1022,6 +1054,18 @@ class SignalReportViewSet(
             )
         pr_filter = self._implementation_pr_report_filter()
         return queryset.filter(pr_filter) if wants_pr else queryset.exclude(pr_filter)
+
+    def _apply_signal_report_channel_filter(self, queryset):
+        # `channel_id=<uuid>` narrows to reports assigned to one space. Absent or empty
+        # leaves the list unchanged (the general view lists every report); a non-UUID is a 400.
+        raw = self.request.query_params.get("channel_id")
+        if raw is None or not raw.strip():
+            return queryset
+        try:
+            channel_id = uuid.UUID(raw.strip())
+        except (ValueError, AttributeError):
+            raise serializers.ValidationError({"channel_id": f"Invalid value: {raw!r}. Expected a UUID."})
+        return queryset.filter(channel_id=channel_id)
 
     def _apply_signal_report_suggested_reviewer_filter(self, queryset):
         suggested_reviewer_filter = self.request.query_params.get("suggested_reviewers")
@@ -1242,14 +1286,16 @@ class SignalReportViewSet(
     def _annotate_implementation_pr_url(self, queryset):
         # Latest TaskRun output->pr_url across the tasks associated with each report, unified over
         # the task_run artefact log + legacy SignalReportTask rows (see associated_task_runs_filter).
-        # Only implementation runs carry a pr_url, so the non-empty-pr_url filter inside the facade
-        # subquery makes "any associated task" resolve to the implementation PR.
+        # The non-empty-pr_url filter inside the facade subquery is what narrows "any associated
+        # task" to the one that opened the report's PR.
         latest_impl_pr_url = tasks_facade.latest_task_run_pr_url_subquery(
             SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
+            pr_bearing_task_run_filter(),
         )
         # Resolved over the same run, so the merge flag always describes the PR URL alongside it.
         latest_impl_pr_merged = tasks_facade.latest_task_run_pr_merged_subquery(
             SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
+            pr_bearing_task_run_filter(),
         )
         return queryset.annotate(
             implementation_pr_url=latest_impl_pr_url,
@@ -1258,9 +1304,10 @@ class SignalReportViewSet(
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
-        if self.action == "viewed":
-            # The lightweight viewed queryset skips the annotations the default ordering sorts
-            # by, and a by-ID lookup has nothing to order anyway.
+        if self.action != "list":
+            # A by-ID lookup has nothing to order. More importantly, keeping list ordering here
+            # forces every detail request to compute status/priority/reviewer annotations that
+            # cannot affect which primary-key row is returned.
             return queryset
         return self._apply_signal_report_ordering(queryset)
 
@@ -1374,6 +1421,13 @@ class SignalReportViewSet(
             edit_artefacts.append(SummaryChange(old_summary=report.summary, new_summary=data["summary"]))
             report.summary = data["summary"]
             update_fields.append("summary")
+            # The suggested questions were written against the prose this edit replaces, so they go
+            # down with it — the same rule the research pipeline applies when it rewrites a summary.
+            # Leaving them would offer questions about a report that no longer says what they ask
+            # about, and this field is read-only here, so nothing could take them back down.
+            if report.suggested_prompts:
+                report.suggested_prompts = []
+                update_fields.append("suggested_prompts")
 
         if update_fields:
             # `updated_at` is auto_now, but `update_fields` saves only the listed columns, so add it
@@ -1428,6 +1482,16 @@ class SignalReportViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="Case-insensitive substring match against report title and summary.",
+            ),
+            OpenApiParameter(
+                name="channel_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Narrow to reports assigned to one space (channel). Absent or empty means all "
+                    "reports regardless of assignment."
+                ),
             ),
             OpenApiParameter(
                 name="source_product",
@@ -2298,6 +2362,7 @@ class SignalReportViewSet(
             },
             team=self.team,
             organization=self.organization,
+            request=request,
         )
 
         return self._refund_response(refund)
@@ -3073,6 +3138,16 @@ def append_suggested_reviewers(
             content=SuggestedReviewers.model_validate(new_content),
             attribution=attribution,
         )
+        # on_commit so a rolled-back edit emits nothing, matching every other reviewer write path.
+        transaction.on_commit(
+            partial(
+                capture_suggested_reviewers_resolved,
+                team_id=team.id,
+                report_id=str(report_id),
+                github_logins=[entry["github_login"] for entry in new_content],
+                source="user_edit",
+            )
+        )
 
         # Human reviewer corrections are a routing signal (scouts query them via the
         # activity log to learn who owns an area), so log them — but only genuine
@@ -3161,7 +3236,7 @@ class SignalReportArtefactViewSet(
       artefact (latest-wins, so the new row becomes current) with bespoke reviewer enrichment,
       merging commits/names forward from the current reviewers. Other types return 400.
     - POST / PATCH / DELETE manage artefacts of *any* type — no type is writer-restricted.
-      Log entries accumulate; status types (judgments, repo selection, suggested reviewers)
+      Log entries accumulate; status types (judgments, repo selection, suggested reviewers, channel assignments)
       are latest-wins, so appending a new version supersedes the previous one as the report's
       canonical status. Content is validated against the type's schema. Team scoping is
       enforced by `safely_get_queryset`, so an artefact id from another team / a deleted
@@ -3189,6 +3264,12 @@ class SignalReportArtefactViewSet(
         except (ValueError, TypeError):
             raise NotFound()
         return report_id
+
+    def _validate_channel_assignment(self, assignment: ChannelAssignment, request: Request) -> None:
+        if assignment.channel_id is not None and not tasks_facade.channel_exists(
+            self.team.id, assignment.channel_id, request.user.id
+        ):
+            raise serializers.ValidationError({"content": {"channel_id": "Unknown or inaccessible channel."}})
 
     def safely_get_queryset(self, queryset):
         # Mirror SignalReportViewSet: a deleted parent report is unreachable, so
@@ -3320,7 +3401,7 @@ class SignalReportArtefactViewSet(
             "Append an artefact to a report (see artefact_type for the writable types). Everything "
             "is append-only: log entries (code reference, commit, task run, note) accumulate, while "
             "status types (safety / actionability / priority judgments, repo selection, suggested "
-            "reviewers) are latest-wins — appending a new version supersedes the previous one as the "
+            "reviewers, channel assignments) are latest-wins — appending a new version supersedes the previous one as the "
             "report's canonical status. Content is validated against the type's schema."
         ),
         operation_id="signals_report_artefacts_create",
@@ -3375,6 +3456,24 @@ class SignalReportArtefactViewSet(
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             content = {**content, "task_id": str(task_id)}
+            asserted_product = content.get("product")
+            if isinstance(asserted_product, str) and asserted_product.strip() == SIGNALS_PRODUCT:
+                # `signals` is the built-in pipeline's own namespace, and it is what the
+                # per-report task cap counts. A client that could assert it would be able to fill
+                # another report's discussion allowance with associations to arbitrary tasks of
+                # its own, permanently — the log is append-only. Server-side writers reach
+                # `append_task_run_artefact` in-process and never come through here; custom agents
+                # carry their own identifier pair. Mirrors the tasks write serializer, which
+                # rejects the pipeline's reserved relationship labels for the same reason.
+                #
+                # Compared on the stripped value because `identifier_part_must_be_routing_safe`
+                # strips before storing, so an unstripped comparison would let `" signals "` land
+                # in the reserved namespace. The regex it then applies rejects every other
+                # variation, so whitespace is the only normalization the two sides must agree on.
+                return Response(
+                    {"error": f"content.product '{SIGNALS_PRODUCT}' is reserved for server-created runs."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             content.setdefault("product", "tasks")
             content.setdefault("type", "agent_run")
             existing = (
@@ -3399,13 +3498,67 @@ class SignalReportArtefactViewSet(
                 {"error": f"content does not match the '{artefact_type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if isinstance(parsed_content, ChannelAssignment):
+            self._validate_channel_assignment(parsed_content, request)
         artefact = SignalReportArtefact.append(
             team_id=self.team.id,
             report_id=report_id,
             content=parsed_content,
             attribution=attribution,
         )
+        if isinstance(parsed_content, SuggestedReviewers):
+            # on_commit so a rolled-back write emits nothing, matching every other reviewer write path.
+            transaction.on_commit(
+                partial(
+                    capture_suggested_reviewers_resolved,
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    github_logins=[entry.github_login for entry in parsed_content.root],
+                    source="api",
+                )
+            )
         return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
+
+    def _capture_canonical_reviewer_state(self, report_id: str) -> None:
+        """Re-emit reviewer telemetry from the latest surviving `suggested_reviewers` row.
+
+        Deleting or editing a reviewers artefact changes the report's canonical reviewer set
+        without going through an append path, so the "latest event per report" read would
+        otherwise keep describing the removed row. An empty login list is a valid state (the
+        deletion removed the only row).
+
+        Fully best-effort: this runs in a non-robust on_commit callback after the mutation
+        committed, so an exception here would turn an already-successful request into a 500."""
+        try:
+            latest = (
+                SignalReportArtefact.objects.filter(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                )
+                .order_by("-created_at")
+                .first()
+            )
+            logins: list[str] = []
+            if latest is not None:
+                try:
+                    parsed = json.loads(latest.content)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    parsed = []
+                if isinstance(parsed, list):
+                    logins = [
+                        str(entry.get("github_login"))
+                        for entry in parsed
+                        if isinstance(entry, dict) and entry.get("github_login")
+                    ]
+            capture_suggested_reviewers_resolved(
+                team_id=self.team.id,
+                report_id=report_id,
+                github_logins=logins,
+                source="api",
+            )
+        except Exception:
+            logger.exception("failed to re-emit canonical reviewer state", report_id=report_id)
 
     @validated_request(
         request_serializer=SignalReportArtefactLogUpdateSerializer,
@@ -3434,30 +3587,51 @@ class SignalReportArtefactViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
+            parsed_content = parse_artefact_content(artefact.type, request.validated_data["content"])
+            if isinstance(parsed_content, ChannelAssignment):
+                self._validate_channel_assignment(parsed_content, request)
             artefact.update_content(request.validated_data["content"])
         except ArtefactContentValidationError as e:
             return Response(
                 {"error": f"content does not match the '{artefact.type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+            # Editing a reviewers row can change the report's canonical reviewer set in place.
+            transaction.on_commit(partial(self._capture_canonical_reviewer_state, str(artefact.report_id)))
         return Response(self._write_response_data(artefact))
 
     @extend_schema(
         responses={
             204: OpenApiResponse(description="Artefact deleted."),
+            400: OpenApiResponse(description="Artefact type cannot be deleted through the API."),
             404: OpenApiResponse(description="Artefact not found for this report / project."),
         },
         summary="Delete an artefact",
         description=(
             "Delete an artefact, addressed by id. Deleting the latest row of a status type reverts "
-            "the report's canonical status to the previous version (latest-wins over what remains)."
+            "the report's canonical status to the previous version (latest-wins over what remains). "
+            "`task_run` artefacts are an append-only work log and cannot be deleted."
         ),
         parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_destroy",
     )
     def destroy(self, request, *args, **kwargs) -> Response:
         artefact = cast(SignalReportArtefact, self.get_object())
+        if artefact.type == SignalReportArtefact.ArtefactType.TASK_RUN:
+            # The work log is also what the per-report task cap counts; a deletable log would let
+            # a client at the cap free its own slots.
+            return Response(
+                {"error": "task_run artefacts are an append-only work log and cannot be deleted."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        was_reviewers = artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        report_id = str(artefact.report_id)
         artefact.delete()
+        if was_reviewers:
+            # Deleting the latest reviewers row reverts the canonical set to the previous row (or
+            # none) — re-emit so the latest event per report tracks the surviving state.
+            transaction.on_commit(partial(self._capture_canonical_reviewer_state, report_id))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(

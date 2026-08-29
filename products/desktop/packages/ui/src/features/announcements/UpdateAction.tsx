@@ -13,7 +13,8 @@ import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
-const MANUAL_DOWNLOAD_URL = "https://github.com/PostHog/code/releases/latest";
+const MANUAL_DOWNLOAD_URL =
+  "https://github.com/PostHog/posthog/releases?q=desktop";
 
 /**
  * The announcement-side entry into the existing update flow: kicks a check,

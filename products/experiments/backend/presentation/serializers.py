@@ -29,8 +29,8 @@ from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.team.team import Team
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
@@ -1944,9 +1944,11 @@ class ExperimentWatchCardSerializer(serializers.Serializer):
     )
     recording_count = serializers.IntegerField(
         help_text=(
-            f"How many recordings the card carries, at most {MAX_CARD_RECORDINGS}. Every card is backed by "
-            "recordings that actually exist: a finding whose sessions were never recorded is dropped rather "
-            "than promised."
+            f"How many recordings the card carries, at most max_card_recordings ({MAX_CARD_RECORDINGS}). Every "
+            "card is backed by recordings that actually exist: a finding whose sessions were never recorded is "
+            "dropped rather than promised. A count sitting on the ceiling means at least that many, so say 'at "
+            "least' and never compare two such counts: how often the event happened is the experiment's results, "
+            "and this only counts what replay kept."
         )
     )
     session_ids = serializers.ListField(
@@ -2075,6 +2077,18 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
         help_text=(
             "How many exposed people a variant needs before it can be compared at all. Below it a variant's "
             "cards would be noise whatever the evidence bar allows."
+        )
+    )
+    max_card_recordings = serializers.IntegerField(
+        help_text=(
+            "The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, "
+            "so report it as 'at least this many' rather than as a count."
+        )
+    )
+    dropped_duplicate_cards = serializers.IntegerField(
+        help_text=(
+            "How many cards were removed because their recordings were already another card's on the same "
+            "shelf. Nothing was lost: the recordings are all reachable through the cards that stayed."
         )
     )
     too_early = serializers.BooleanField(

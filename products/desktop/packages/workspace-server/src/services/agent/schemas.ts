@@ -2,6 +2,7 @@ import type {
   RequestPermissionRequest,
   PermissionOption as SdkPermissionOption,
 } from "@agentclientprotocol/sdk";
+import { BEDROCK_GATEWAY_VARIANTS } from "@posthog/shared";
 import { effortLevelSchema } from "@posthog/shared/domain-types";
 import { z } from "zod";
 import { USER_AGENT_INSTRUCTIONS_MAX_LENGTH } from "../os/schemas";
@@ -41,6 +42,11 @@ export const sessionConfigSchema = z.object({
 
 export type SessionConfig = z.infer<typeof sessionConfigSchema>;
 
+export const codexModelAccessSchema = z.enum([
+  "posthog-gateway",
+  "own-subscription",
+]);
+
 // Sized for personalization synced from an AGENTS.md/CLAUDE.md file, which
 // can be far larger than the 2000-char hand-typed settings field. Kept equal
 // to OsService's truncation length (USER_AGENT_INSTRUCTIONS_MAX_LENGTH) or a
@@ -63,6 +69,7 @@ export const startSessionInput = z.object({
   autoProgress: z.boolean().optional(),
   runMode: z.enum(["local", "cloud"]).optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
+  codexModelAccess: codexModelAccessSchema.optional(),
   additionalDirectories: z.array(z.string()).optional(),
   customInstructions: customInstructionsField,
   /**
@@ -101,6 +108,12 @@ export const startSessionInput = z.object({
    * narration off, so headless runs never load the tool.
    */
   spokenNarration: z.boolean().optional(),
+  /**
+   * Matched variant of the `bedrock-llm-gateway` flag. `test` serves this
+   * session from Bedrock via the gateway; `control` keeps Anthropic. Absent
+   * (headless runs, unresolved flags) leaves the gateway on its default.
+   */
+  bedrockGatewayVariant: z.enum(BEDROCK_GATEWAY_VARIANTS).optional(),
 });
 
 export type StartSessionInput = z.infer<typeof startSessionInput>;
@@ -171,6 +184,10 @@ export const sessionResponseSchema = z.object({
   // running turn; "interrupt-resend" (legacy) or absent means the host must
   // cancel + resend instead. Drives the host's steer-vs-resend decision.
   steering: z.string().optional(),
+  // The adapter's negotiated side-question capability from initialize
+  // (`_meta.posthog.sideQuestion`): true means the adapter can answer a
+  // one-shot "/btw" question forked off the live transcript.
+  sideQuestion: z.boolean().optional(),
 });
 
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
@@ -201,6 +218,20 @@ export const promptOutput = z.object({
 
 export type PromptOutput = z.infer<typeof promptOutput>;
 
+// Side question ("/btw") input/output
+export const sideQuestionInput = z.object({
+  sessionId: z.string(),
+  question: z.string().min(1),
+});
+
+export type SideQuestionInput = z.infer<typeof sideQuestionInput>;
+
+export const sideQuestionOutput = z.object({
+  answer: z.string(),
+});
+
+export type SideQuestionOutput = z.infer<typeof sideQuestionOutput>;
+
 // Cancel session input
 export const cancelSessionInput = z.object({
   sessionId: z.string(),
@@ -229,6 +260,7 @@ export const reconnectSessionInput = z.object({
   logUrl: z.string().optional(),
   sessionId: z.string().optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
+  codexModelAccess: codexModelAccessSchema.optional(),
   /** Additional directories Claude can access beyond cwd (for worktree support) */
   additionalDirectories: z.array(z.string()).optional(),
   permissionMode: z.string().optional(),
@@ -242,6 +274,8 @@ export const reconnectSessionInput = z.object({
   rtkEnabled: z.boolean().optional(),
   /** See startSessionInput.spokenNarration. */
   spokenNarration: z.boolean().optional(),
+  /** See startSessionInput.bedrockGatewayVariant. */
+  bedrockGatewayVariant: z.enum(BEDROCK_GATEWAY_VARIANTS).optional(),
 });
 
 export type ReconnectSessionInput = z.infer<typeof reconnectSessionInput>;
@@ -253,6 +287,18 @@ export const rtkStatusOutput = z.object({
 });
 
 export type RtkStatus = z.infer<typeof rtkStatusOutput>;
+
+export const codexSubscriptionStatusOutput = z.object({
+  appLoggedIn: z.boolean(),
+});
+
+export type CodexSubscriptionStatus = z.infer<
+  typeof codexSubscriptionStatusOutput
+>;
+
+export const codexSubscriptionLoginOutput = z.object({
+  authUrl: z.string(),
+});
 
 // Set config option input (for Codex reasoning level, etc.)
 export const setConfigOptionInput = z.object({

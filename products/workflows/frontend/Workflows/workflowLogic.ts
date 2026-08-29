@@ -112,6 +112,11 @@ export const NEW_WORKFLOW: HogFlow = {
 // data-warehouse-table triggers. Module-scoped to avoid reallocating on every selector recompute.
 export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'random_cohort_branch'])
 
+// Trigger types whose runs have no person attached: a synced warehouse row, a materialized view
+// row, and a Slack poster are all things no PostHog person is attached to. Keep in sync with the
+// backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
+export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'slack-message'])
+
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
         try {
@@ -165,9 +170,22 @@ const WORKFLOW_CONTENT_FIELDS = [
     'trigger_masking',
     'conversion',
     'exit_condition',
+    'email_sending_rate_limit',
     'abort_action',
     'variables',
 ] as const
+
+// The fields the editor writes through the form. Edits that land while a save is in flight are
+// re-applied from these after the response rebaselines the form, so the round-trip can't drop them.
+const WORKFLOW_EDITABLE_FIELDS = [...WORKFLOW_CONTENT_FIELDS, 'name', 'description'] as const
+
+function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
+    const result: Record<string, unknown> = {}
+    for (const field of WORKFLOW_EDITABLE_FIELDS) {
+        result[field] = workflow[field]
+    }
+    return result as Partial<HogFlow>
+}
 
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
     const result: Record<string, unknown> = { ...workflow }
@@ -182,6 +200,7 @@ export interface workflowLogicValues {
     currentProjectId: number | null // projectLogic
     user: UserType | null // userLogic
     actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
+    autoSaveBlockedByValidation: boolean
     autoSaveEnabled: boolean
     currentSchedule: HogFlowSchedule | null
     deferredResourceEdited: ResourceEditedEvent | null
@@ -226,6 +245,7 @@ export interface workflowLogicValues {
     workflow: HogFlow
     workflowAllErrors: Record<string, any>
     workflowChanged: boolean
+    workflowEditVersion: number
     workflowErrors: DeepPartialMap<HogFlow, ValidationErrorType>
     workflowHasActionErrors: boolean
     workflowHasErrors: boolean
@@ -344,7 +364,19 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
-                                delay_duration: string
+                                delay_duration?: string | undefined
+                                delay_until?:
+                                    | {
+                                          bytecode?: any
+                                          bytecode_error?: string | undefined
+                                          expression: string
+                                          fallback_timezone?: string | null | undefined
+                                          offset?: string | undefined
+                                          timezone?: string | null | undefined
+                                          use_person_timezone?: boolean | undefined
+                                      }
+                                    | undefined
+                                max_delay_duration?: string | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -480,6 +512,9 @@ export interface workflowLogicActions {
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
                                                 }[]
                                               | undefined
                                           name: string
@@ -730,9 +765,23 @@ export interface workflowLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      key_property?: string | undefined
+                                      table_name: string
+                                      type: 'data-warehouse-view'
                                   }
                                 | {
                                       inputs: Record<
@@ -943,6 +992,13 @@ export interface workflowLogicActions {
                       to: string
                       type: 'branch' | 'continue'
                   }[]
+                  email_sending_rate_limit?:
+                      | {
+                            count: number
+                            period: 'hour' | 'minute'
+                        }
+                      | null
+                      | undefined
                   exit_condition:
                       | 'exit_on_conversion'
                       | 'exit_on_trigger_not_matched'
@@ -982,9 +1038,23 @@ export interface workflowLogicActions {
                             filters: {
                                 properties?: any[] | undefined
                             }
+                            type: 'slack-message'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
                             key_property?: string | undefined
                             table_name: string
                             type: 'data-warehouse-table'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            key_property?: string | undefined
+                            table_name: string
+                            type: 'data-warehouse-view'
                         }
                       | {
                             inputs: Record<
@@ -1081,6 +1151,9 @@ export interface workflowLogicActions {
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
                         }[]
                       | null
                       | undefined
@@ -1138,7 +1211,19 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
-                                delay_duration: string
+                                delay_duration?: string | undefined
+                                delay_until?:
+                                    | {
+                                          bytecode?: any
+                                          bytecode_error?: string | undefined
+                                          expression: string
+                                          fallback_timezone?: string | null | undefined
+                                          offset?: string | undefined
+                                          timezone?: string | null | undefined
+                                          use_person_timezone?: boolean | undefined
+                                      }
+                                    | undefined
+                                max_delay_duration?: string | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1274,6 +1359,9 @@ export interface workflowLogicActions {
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1524,9 +1612,23 @@ export interface workflowLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      key_property?: string | undefined
+                                      table_name: string
+                                      type: 'data-warehouse-view'
                                   }
                                 | {
                                       inputs: Record<
@@ -1737,6 +1839,13 @@ export interface workflowLogicActions {
                       to: string
                       type: 'branch' | 'continue'
                   }[]
+                  email_sending_rate_limit?:
+                      | {
+                            count: number
+                            period: 'hour' | 'minute'
+                        }
+                      | null
+                      | undefined
                   exit_condition:
                       | 'exit_on_conversion'
                       | 'exit_on_trigger_not_matched'
@@ -1776,9 +1885,23 @@ export interface workflowLogicActions {
                             filters: {
                                 properties?: any[] | undefined
                             }
+                            type: 'slack-message'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
                             key_property?: string | undefined
                             table_name: string
                             type: 'data-warehouse-table'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            key_property?: string | undefined
+                            table_name: string
+                            type: 'data-warehouse-view'
                         }
                       | {
                             inputs: Record<
@@ -1875,6 +1998,9 @@ export interface workflowLogicActions {
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
                         }[]
                       | null
                       | undefined
@@ -1899,9 +2025,6 @@ export interface workflowLogicActions {
                       name?: string | undefined
                       percentage: number
                   }[]
-              }
-            | {
-                  delay_duration: string
               }
             | {
                   reason?: string | undefined
@@ -1940,6 +2063,12 @@ export interface workflowLogicActions {
                   type: 'event'
               }
             | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
+              }
+            | {
                   condition: {
                       filters?:
                           | {
@@ -1965,6 +2094,21 @@ export interface workflowLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  delay_duration?: string | undefined
+                  delay_until?:
+                      | {
+                            bytecode?: any
+                            bytecode_error?: string | undefined
+                            expression: string
+                            fallback_timezone?: string | null | undefined
+                            offset?: string | undefined
+                            timezone?: string | null | undefined
+                            use_person_timezone?: boolean | undefined
+                        }
+                      | undefined
+                  max_delay_duration?: string | undefined
               }
             | {
                   inputs: Record<
@@ -2033,6 +2177,9 @@ export interface workflowLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string
@@ -2048,6 +2195,14 @@ export interface workflowLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -2247,9 +2402,6 @@ export interface workflowLogicActions {
                   }[]
               }
             | {
-                  delay_duration: string
-              }
-            | {
                   reason?: string | undefined
               }
             | {
@@ -2286,6 +2438,12 @@ export interface workflowLogicActions {
                   type: 'event'
               }
             | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
+              }
+            | {
                   condition: {
                       filters?:
                           | {
@@ -2311,6 +2469,21 @@ export interface workflowLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  delay_duration?: string | undefined
+                  delay_until?:
+                      | {
+                            bytecode?: any
+                            bytecode_error?: string | undefined
+                            expression: string
+                            fallback_timezone?: string | null | undefined
+                            offset?: string | undefined
+                            timezone?: string | null | undefined
+                            use_person_timezone?: boolean | undefined
+                        }
+                      | undefined
+                  max_delay_duration?: string | undefined
               }
             | {
                   inputs: Record<
@@ -2379,6 +2552,9 @@ export interface workflowLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string
@@ -2394,6 +2570,14 @@ export interface workflowLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -2616,6 +2800,7 @@ export interface workflowLogicMeta {
             workflow: HogFlow,
             actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
         ) => boolean
+        autoSaveBlockedByValidation: (workflow: HogFlow) => boolean
         triggerAction: (workflow: HogFlow) => TriggerAction | null
         isRowScopedTrigger: (
             triggerAction:
@@ -2647,9 +2832,23 @@ export interface workflowLogicMeta {
                                 filters: {
                                     properties?: any[] | undefined
                                 }
+                                type: 'slack-message'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
                                 key_property?: string | undefined
                                 table_name: string
                                 type: 'data-warehouse-table'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-view'
                             }
                           | {
                                 inputs: Record<
@@ -2908,10 +3107,20 @@ export const workflowLogic = kea<workflowLogicType>([
                         })
                     } catch (error) {
                         if (error instanceof ApiError && error.status === 409) {
-                            // A newer version exists (SSE event likely missed) — surface the reconcile banner,
-                            // which carries the actionable Reload / Keep mine choice. No toast: it would just
-                            // duplicate the banner (the global kea handler already skips 409).
-                            actions.setExternallyEdited(true)
+                            if (values.isAutoSave && values.pendingSchedule === false) {
+                                // An auto-save losing the race is not a decision point: the user never
+                                // asked to overwrite anything, so reconcile to the newer copy silently.
+                                // A pending schedule change is the exception: only a manual save
+                                // persists it, and the reload would wipe it, so that gets the banner.
+                                actions.setSyncingExternalEdit(true)
+                                actions.loadWorkflow()
+                            } else {
+                                // A newer version exists (SSE event likely missed): surface the reconcile
+                                // banner, which carries the actionable Reload / Keep mine choice. No toast,
+                                // as it would just duplicate the banner (the global kea handler already
+                                // skips 409).
+                                actions.setExternallyEdited(true)
+                            }
                         }
                         throw error
                     }
@@ -3054,6 +3263,15 @@ export const workflowLogic = kea<workflowLogicType>([
                 setAutoSaveEnabled: (_, { enabled }) => enabled,
             },
         ],
+        // Bumped on every form write. A save records the version it captured, so its response can
+        // tell whether the user kept editing while the request was in flight.
+        workflowEditVersion: [
+            0,
+            {
+                setWorkflowValue: (state) => state + 1,
+                setWorkflowValues: (state) => state + 1,
+            },
+        ],
         // Gates when per-field step messages become visible: the action ids that were present at
         // the last save/enable attempt. Every step is validated the whole time (so the node badge
         // and enable-gate work), but a step only shows its messages once the user has tried to
@@ -3067,7 +3285,8 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
         // Set when another channel (another UI tab, MCP, or the API) saved this workflow while we had
-        // unsaved local edits. Surfaces a non-destructive "reload / keep mine" banner. Cleared whenever
+        // unsaved local edits that auto-save can't flush (toggled off, validation errors, or a pending
+        // schedule change). Surfaces a non-destructive "reload / keep mine" banner. Cleared whenever
         // we reload or save, since both reconcile us with the server copy.
         externallyEdited: [
             false as boolean,
@@ -3220,11 +3439,12 @@ export const workflowLogic = kea<workflowLogicType>([
                 scheduleStartsAt: string | null,
                 saveAttemptedActionIds: string[] | null
             ): Record<string, HogFlowActionValidationResult | null> => {
-                // Warehouse-triggered workflows are person-less ("row-scoped"). Person-dependent
-                // step types make no sense without a person, so we block them at save time.
+                // Warehouse- and Slack-triggered workflows are person-less ("row-scoped").
+                // Person-dependent step types make no sense without a person, so we block them at
+                // save time.
                 const triggerAction = workflow.actions.find((a) => a.type === 'trigger')
                 const isRowScopedTrigger =
-                    triggerAction?.type === 'trigger' && triggerAction.config?.type === 'data-warehouse-table'
+                    triggerAction?.type === 'trigger' && ROW_SCOPED_TRIGGER_TYPES.has(triggerAction.config?.type)
 
                 return workflow.actions.reduce(
                     (acc, action) => {
@@ -3273,7 +3493,8 @@ export const workflowLogic = kea<workflowLogicType>([
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
                                 from: !emailValue?.from?.integrationId
                                     ? 'Choose an email sender, or connect a new one'
-                                    : undefined,
+                                    : (getTemplatingError(emailValue?.from?.email, emailTemplating) ??
+                                      getTemplatingError(emailValue?.from?.name, emailTemplating)),
                                 to: !emailValue?.to?.email
                                     ? 'Add a recipient'
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
@@ -3393,6 +3614,13 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
 
+        // Only a missing name blocks auto-save; the payload itself is unsaveable without one.
+        // Action validation errors don't block: on an active workflow content stages into the
+        // draft, which is safe to hold incomplete steps (enable and publish revalidate before
+        // anything deploys, and agents stage incomplete drafts through the same API). Pausing on
+        // them would strand a user's edits unsaved exactly while they iterate.
+        autoSaveBlockedByValidation: [(s) => [s.workflow], (workflow: HogFlow): boolean => !workflow.name],
+
         triggerAction: [
             (s) => [s.workflow],
             (workflow: HogFlow): TriggerAction | null => {
@@ -3405,7 +3633,8 @@ export const workflowLogic = kea<workflowLogicType>([
         // for the authoritative enforcement).
         isRowScopedTrigger: [
             (s) => [s.triggerAction],
-            (triggerAction: TriggerAction | null): boolean => triggerAction?.config?.type === 'data-warehouse-table',
+            (triggerAction: TriggerAction | null): boolean =>
+                ROW_SCOPED_TRIGGER_TYPES.has(triggerAction?.config?.type ?? ''),
         ],
 
         workflowSanitized: [
@@ -3420,7 +3649,7 @@ export const workflowLogic = kea<workflowLogicType>([
             (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.draft,
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         setScheduleStartsAtFromPicker: ({ pickerDate }) => {
             if (!pickerDate) {
                 actions.setScheduleStartsAt(null)
@@ -3479,12 +3708,18 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!loadedUpdatedAt || !dayjs(event.updated_at).isAfter(dayjs(loadedUpdatedAt))) {
                 return
             }
-            if (values.hasUnsavedChanges) {
-                // Don't clobber the user's in-progress edits — let them choose (banner).
+            // Server wins while auto-save can flush the local buffer: unsaved edits are then at most
+            // a few seconds old, so reconcile silently instead of interrupting with a conflict
+            // banner. When auto-save can't flush (toggled off, no name to save under, or a pending
+            // schedule change, which only a manual save persists), the buffer can hold real work,
+            // so the banner lets the user choose.
+            const autoSaveCanFlush =
+                values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
+            if (values.hasUnsavedChanges && !autoSaveCanFlush) {
                 actions.setExternallyEdited(true)
             } else {
-                // Clean slate: catch up to the external edit. Flag the sync first so the editor shows a
-                // brief working/disabled overlay and re-enables once the fresh copy loads (like auto-save).
+                // Flag the sync first so the editor shows a brief working/disabled overlay and
+                // re-enables once the fresh copy loads (like auto-save).
                 actions.setSyncingExternalEdit(true)
                 actions.loadWorkflow()
             }
@@ -3608,6 +3843,9 @@ export const workflowLogic = kea<workflowLogicType>([
         loadWorkflowFailure: () => {
             actions.replayDeferredResourceEdited()
         },
+        saveWorkflow: () => {
+            cache.saveEditVersion = values.workflowEditVersion
+        },
         saveWorkflowFailure: () => {
             actions.replayDeferredResourceEdited()
         },
@@ -3718,8 +3956,18 @@ export const workflowLogic = kea<workflowLogicType>([
 
             // A staged save's response carries the live config plus the new draft blob: rebaseline the
             // form on the merged view, or the reset would wipe the just-saved edits off the canvas.
+            const editedDuringSave =
+                cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion
+            const editsDuringSave = editedDuringSave ? pickWorkflowEdits(values.workflow) : null
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.markAutoSave(false)
+            if (editsDuringSave) {
+                // The response only reflects the payload that was sent. Anything typed while it was
+                // in flight (the live email editor writes on every pause) must survive the reset and
+                // stay dirty, or it vanishes from the form and the canvas reloads the stale version.
+                actions.setWorkflowValues(editsDuringSave)
+                actions.autoSaveWorkflow()
+            }
             actions.replayDeferredResourceEdited()
         },
         discardChanges: () => {
@@ -3807,7 +4055,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 props.id === 'new' ||
                 !!props.editTemplateId ||
                 !values.workflowChanged ||
-                values.workflowHasErrors
+                values.autoSaveBlockedByValidation
 
             if (shouldSkip) {
                 actions.clearAutoSavePending()

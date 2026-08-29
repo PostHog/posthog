@@ -281,9 +281,30 @@ def _integration_suggestion(integration: IntegrationDiagnostic) -> Suggestion | 
     status = integration.overall_status
     source_type = integration.source_type
     ds = integration.data_source
-    volume = integration.attribution.events_unmatched_likely_yours_last_7d if integration.attribution else 0
+    attribution = integration.attribution
+    # Both counters: `events_only` is set when either one is non-zero, so reading just the
+    # likely-yours side reports "0 events" as the reason to connect a platform whose
+    # utm_source matched exactly. They never overlap — a utm_source either matches an alias
+    # or is only fuzzy-suggested — so the sum is every event carrying this platform's source.
+    volume = (
+        attribution.events_matched_last_7d + attribution.events_unmatched_likely_yours_last_7d if attribution else 0
+    )
 
     if status == "events_only":
+        # `utm_source` alone doesn't mean paid — `google` also covers gmail links and
+        # `linkedin` organic posts, so this fired "connect an ad account you don't
+        # have" at error severity. Suppressed only on positive evidence: most of the
+        # traffic carries a medium and none of it is paid. An untagged event is absence
+        # of evidence, not evidence of organic, so a tagged minority doesn't get to
+        # speak for it — a team that tags its posts but not its ad links still gets asked.
+        attr = integration.attribution
+        if (
+            attr is not None
+            and attr.events_matched_paid_last_7d == 0
+            and attr.events_matched_tagged_medium_last_7d * 2 > attr.events_matched_last_7d
+        ):
+            return None
+
         # Traffic arrives but no spend data, so cost, ROAS and CAC are all unavailable.
         return Suggestion(
             id=f"connect_source:{key}",

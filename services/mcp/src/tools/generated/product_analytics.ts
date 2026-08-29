@@ -17,7 +17,14 @@ import {
     InsightsTrendingRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
-import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    omitResponseFields,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AssistantInsightVizNode = z.object({
@@ -70,10 +77,15 @@ const AssistantDataVisualizationAxisFormatting = z.object({
     style: z
         .enum(['none', 'number', 'short', 'percent'])
         .describe(
-            'Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.'
+            'Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.'
         )
         .optional(),
-    suffix: z.string().describe('Text appended to each value (e.g. `%` or ` ms`).').optional(),
+    suffix: z
+        .string()
+        .describe(
+            'Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.'
+        )
+        .optional(),
 })
 
 const AssistantDataVisualizationAxisSettings = z.object({
@@ -105,7 +117,7 @@ const AssistantDataVisualizationChartSettings = z.object({
         .string()
         .nullable()
         .describe(
-            'Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable.'
+            'Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.'
         )
         .optional(),
     showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),
@@ -123,7 +135,7 @@ const AssistantDataVisualizationChartSettings = z.object({
         .describe('Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.')
         .optional(),
     xAxis: AssistantDataVisualizationAxis.describe(
-        'Column used as the X axis. Typically a time bucket or categorical column.'
+        'Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too.'
     ).optional(),
     xAxisLabel: z.string().describe('Label rendered under the X axis.').optional(),
     yAxis: z
@@ -141,6 +153,7 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'ActionsStackedBar',
     'ActionsAreaGraph',
     'TwoDimensionalHeatmap',
+    'ScatterPlot',
 ])
 
 const AssistantDataVisualizationTableSettings = z.object({
@@ -157,7 +170,7 @@ const AssistantDataVisualizationNode = z.object({
         'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
     ).optional(),
     display: AssistantDataVisualizationDisplayType.describe(
-        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`.'
+        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Otherwise → `ActionsTable`.'
     ).optional(),
     kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
     source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
@@ -335,7 +348,7 @@ const InsightUpdateSchema = z.preprocess(
         })
 )
 
-const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithPostHogUrl<Schemas.Insight>> => ({
+const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithAgentNote<WithPostHogUrl<Schemas.Insight>>> => ({
     name: 'insight-update',
     schema: InsightUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof InsightUpdateSchema>) => {
@@ -373,7 +386,10 @@ const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithPostHogUrl<Sc
             'hogql',
             'types',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`),
+            "If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when the dashboard id you just added was not already on the insight before this call. Offer at most once per dashboard in a conversation, however many insights you attach to it. First call subscriptions-list with `dashboard` set to that dashboard's id, and do not offer a second subscription when it returns one. Say nothing when this update left `dashboards` alone or only removed the insight from a dashboard. Describe it the way a person would recognize it, for example a weekly email every Monday morning with these charts attached, or the same thing posted to a Slack channel. To create it, use subscriptions-create. It needs `dashboard` set to the dashboard's id, `dashboard_export_insights` listing up to 10 charts, `target_type` of `email` or `slack`, and `target_value`, `frequency`, `interval` and `start_date`. For a Slack delivery, also set `integration_id`. Find the connected Slack workspace with integrations-list (filter kind=slack) and the channel for `target_value` with integrations-channels-retrieve. Ask the user for the recipients and the cadence rather than choosing them, since this creates a recurring outbound delivery. If either subscriptions-create or subscriptions-list is not available to you in this session, say nothing about subscriptions. If the user already declined a subscription earlier in this conversation, do not offer again."
+        )
     },
 })
 

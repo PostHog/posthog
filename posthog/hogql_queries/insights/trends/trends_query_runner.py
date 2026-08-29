@@ -375,7 +375,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     def _calculate(self):
         queries = self.to_queries()
-        response_hogql = get_response_hogql(queries, team=self.team, timings=self.timings, modifiers=self.modifiers)
+
+        response_hogql = get_response_hogql(
+            queries, team=self.team, timings=self.timings, modifiers=self.modifiers, database=self.shared_database
+        )
 
         res_matrix: list[list[Any] | Any | None] = [None] * len(queries)
         timings_matrix: list[list[QueryTiming] | None] = [None] * (2 + len(queries))
@@ -403,6 +406,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     timings=timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
+                    context=self.build_hogql_context(),
                 )
 
                 timings_matrix[index + 1] = response.timings

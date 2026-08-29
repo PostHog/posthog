@@ -121,17 +121,17 @@ export function InfoStat({ label, value, hint, emphasis }: InfoStatProps) {
       ? "text-(--red-11)"
       : emphasis === "amber"
         ? "text-(--amber-11)"
-        : "text-(--gray-12)";
+        : "text-foreground";
   return (
     <Flex direction="column" gap="0">
-      <Text size="1" className="text-(--gray-9) uppercase tracking-wide">
+      <Text size="1" className="text-muted-foreground uppercase tracking-wide">
         {label}
       </Text>
       <Text size="2" className={`font-mono ${valueColor}`}>
         {value}
       </Text>
       {hint && (
-        <Text size="1" className="text-(--gray-9)">
+        <Text size="1" className="text-muted-foreground">
           {hint}
         </Text>
       )}
@@ -202,7 +202,7 @@ export function CardSparkline({
           stroke="currentColor"
           strokeWidth="1"
           strokeDasharray="2 2"
-          className="text-(--gray-9)"
+          className="text-muted-foreground"
         />
       )}
     </svg>
@@ -223,14 +223,14 @@ export function ProcessTable({ processes, sortBy }: ProcessTableProps) {
       <Text size="1" weight="medium" color="gray" className="px-1">
         Processes
       </Text>
-      <div className="overflow-hidden rounded-md border border-(--gray-5) bg-(--gray-1)">
-        <div className="grid grid-cols-[1fr_70px_90px_70px] gap-x-3 border-(--gray-5) border-b bg-(--gray-2) px-3 py-1.5 font-mono text-(--gray-10) text-[10px] uppercase tracking-wide">
+      <div className="overflow-hidden rounded-md border border-border bg-background">
+        <div className="grid grid-cols-[1fr_70px_90px_70px] gap-x-3 border-border border-b bg-chrome px-3 py-1.5 font-mono text-[10px] text-muted-foreground uppercase tracking-wide">
           <span>Process</span>
           <span>PID</span>
           <span>Memory</span>
           <span className="text-right">CPU</span>
         </div>
-        <div className="divide-y divide-(--gray-4)">
+        <div className="divide-y divide-border">
           {ranked.map((p) => (
             <ProcessRow key={`${p.pid}-${p.type}`} {...p} />
           ))}
@@ -243,13 +243,13 @@ export function ProcessTable({ processes, sortBy }: ProcessTableProps) {
 function ProcessRow({ pid, type, name, cpuPercent, memoryMb }: ProcessSample) {
   return (
     <div className="grid grid-cols-[1fr_70px_90px_70px] items-center gap-x-3 px-3 py-1 font-mono text-[11px]">
-      <Text size="1" className="truncate text-(--gray-12)">
+      <Text size="1" className="truncate text-foreground">
         {name ? `${type}: ${name}` : type}
       </Text>
       <Text size="1" color="gray" className="font-mono">
         {pid}
       </Text>
-      <Text size="1" className="font-mono text-(--gray-11)">
+      <Text size="1" className="font-mono text-muted-foreground">
         {memoryMb.toFixed(0)} MB
       </Text>
       <Text
@@ -289,7 +289,7 @@ export function ProfilingTip({ topic }: ProfilingTipProps) {
             className="rounded bg-(--amber-1) px-2 py-1.5 text-[11px] leading-snug"
           >
             <div className="font-medium text-(--amber-12)">{tip.label}</div>
-            <div className="text-(--gray-11)">{tip.detail}</div>
+            <div className="text-muted-foreground">{tip.detail}</div>
           </div>
         ))}
       </div>

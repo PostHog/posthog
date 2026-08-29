@@ -38,10 +38,6 @@ from posthog.constants import (
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.retention.retention_base_query_fixed import RetentionFixedIntervalBaseQueryBuilder
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
-from posthog.hogql_queries.insights.retention.test.retention_base_query_variant import (
-    RETENTION_BASE_QUERY_VARIANT_PATCH_PATH,
-    RetentionBaseQueryVariantComparisonMixin,
-)
 from posthog.hogql_queries.insights.retention.test.utils import pad, pluck
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.group.util import create_group
@@ -85,7 +81,7 @@ def _create_events(team, user_and_timestamps, event="$pageview"):
         i += 1
 
 
-class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixin, APIBaseTest):
+class TestRetention(ClickhouseTestMixin, APIBaseTest):
     def teardown_method(self, method) -> None:
         if getattr(self, "cleanUpDataWarehouse", None):
             self.cleanUpDataWarehouse()
@@ -107,53 +103,44 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
 
-        def calculate(query_for_variant):
-            runner = RetentionQueryRunner(team=self.team, query=query_for_variant)
-            return runner.calculate().model_dump()["results"]
-
-        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
+        runner = RetentionQueryRunner(team=self.team, query=query)
+        return runner.calculate().model_dump()["results"]
 
     def run_actors_query(self, interval, query, select=None, search=None, breakdown=None):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
 
-        def calculate(query_for_variant):
-            runner = ActorsQueryRunner(
-                team=self.team,
-                query={
-                    "search": search,
-                    "select": ["person", "appearances", *(select or [])],
-                    "orderBy": ["length(appearances) DESC", "actor_id"],
-                    "source": {
-                        "kind": "InsightActorsQuery",
-                        "interval": interval,
-                        "source": query_for_variant,
-                        "breakdown": breakdown,
-                    },
+        runner = ActorsQueryRunner(
+            team=self.team,
+            query={
+                "search": search,
+                "select": ["person", "appearances", *(select or [])],
+                "orderBy": ["length(appearances) DESC", "actor_id"],
+                "source": {
+                    "kind": "InsightActorsQuery",
+                    "interval": interval,
+                    "source": query,
+                    "breakdown": breakdown,
                 },
-            )
-            return runner.calculate().model_dump()["results"]
-
-        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
+            },
+        )
+        return runner.calculate().model_dump()["results"]
 
     def run_events_query(self, interval, query, person_id=None):
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
 
-        def calculate(query_for_variant):
-            runner = RetentionQueryRunner(team=self.team, query=query_for_variant)
-            events_query = runner.to_events_query(interval=interval, person_id=person_id)
-            response = execute_hogql_query(
-                query_type="RetentionEventsQuery",
-                query=events_query,
-                team=self.team,
-            )
-            # to_events_query orders by timestamp only, so rows with equal timestamps can
-            # come back in either order; sort fully so the variant comparison doesn't flake
-            return sorted(response.results)
-
-        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
+        runner = RetentionQueryRunner(team=self.team, query=query)
+        events_query = runner.to_events_query(interval=interval, person_id=person_id)
+        response = execute_hogql_query(
+            query_type="RetentionEventsQuery",
+            query=events_query,
+            team=self.team,
+        )
+        # to_events_query orders by timestamp only, so rows with equal timestamps can
+        # come back in either order; sort fully so assertions are deterministic
+        return sorted(response.results)
 
     def test_retention_default(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -1002,8 +989,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
     ):
         # Recurring retention with a higher occurrence threshold: all four people cohort on day 0 (signed_up), then
         # return a different number of times on day 1. Only those at or above the threshold count for interval 1, so
-        # the interval-1 cell shrinks as the threshold rises (3 -> 2 -> 1). The variant comparison harness asserts the
-        # data-warehouse variant matches the legacy path for each threshold.
+        # the interval-1 cell shrinks as the threshold rises (3 -> 2 -> 1).
         for distinct_id in ["personA", "personB", "personC", "personD"]:
             _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
 
@@ -3664,8 +3650,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             ),
         )
 
-    def test_dwh_variant_events_only_is_single_events_scan(self):
-        # Events-only series read the same `events` source on both arms, so the variant must
+    def test_events_only_is_single_events_scan(self):
+        # Events-only series read the same `events` source on both arms, so the builder must
         # collapse to one FROM events scan rather than a two-arm UNION ALL.
         query = RetentionQuery(
             dateRange={"date_to": _date(10, hour=6)},
@@ -3673,17 +3659,15 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
         runner = RetentionQueryRunner(team=self.team, query=query)
 
-        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
-            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+        base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
 
         assert base_query.select_from is not None
         self.assertNotIsInstance(base_query.select_from.table, ast.SelectSetQuery)
         assert isinstance(base_query.select_from.table, ast.Field)
         self.assertEqual(base_query.select_from.table.chain, ["events"])
 
-    def test_dwh_variant_events_only_sampling_lands_on_single_scan(self):
-        # No UNION wrapper to push into: sampling must land directly on the single FROM events scan,
-        # exactly as the legacy path samples it.
+    def test_events_only_sampling_lands_on_single_scan(self):
+        # No UNION wrapper to push into: sampling must land directly on the single FROM events scan.
         query = RetentionQuery(
             dateRange={"date_to": _date(10, hour=6)},
             samplingFactor=0.5,
@@ -3691,8 +3675,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
         runner = RetentionQueryRunner(team=self.team, query=query)
 
-        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
-            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+        base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
 
         assert base_query.select_from is not None
         assert isinstance(base_query.select_from.table, ast.Field)
@@ -3701,9 +3684,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         assert isinstance(sample, ast.SampleExpr)
         self.assertEqual(sample.sample_value.left.value, 0.5)
 
-    def test_dwh_variant_multi_source_stays_union(self):
+    def test_multi_source_stays_union(self):
         # Two different data-warehouse tables are genuinely separate sources and cannot collapse to a
-        # single scan, so the variant must keep the two-pass UNION ALL.
+        # single scan, so the builder must keep the two-pass UNION ALL.
         def dwh_entity(table: str, ts: str) -> dict:
             return {
                 "id": table,
@@ -3724,13 +3707,12 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
         runner = RetentionQueryRunner(team=self.team, query=query)
 
-        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
-            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+        base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
 
         assert base_query.select_from is not None
         self.assertIsInstance(base_query.select_from.table, ast.SelectSetQuery)
 
-    def test_dwh_variant_pushes_sampling_into_event_subqueries(self):
+    def test_multi_source_pushes_sampling_into_event_subqueries(self):
         # Multi-source (events start, data-warehouse return) keeps the two-pass UNION ALL. SAMPLE on the
         # wrapper never reaches the inner scans, so it must be pushed into the events arm — and only that
         # arm, since the data-warehouse table is skipped by apply_sampling.
@@ -3752,8 +3734,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
         runner = RetentionQueryRunner(team=self.team, query=query)
 
-        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
-            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+        base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
 
         assert base_query.select_from is not None
         union = base_query.select_from.table
@@ -3814,7 +3795,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             return any(TestRetention._has_timestamp_bound(child) for child in expr.exprs)
         return False
 
-    def test_dwh_variant_property_aggregation_arms_scan_only_their_own_entity(self):
+    def test_property_aggregation_arms_scan_only_their_own_entity(self):
         # Each events arm of the UNION must narrow its WHERE to its own entity. With the combined
         # filter on both arms, a SUM/AVG retention insight scans the whole filtered event set twice,
         # which doubles the read bytes and adds enough GROUP BY state to OOM on large teams.
@@ -3830,8 +3811,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
         runner = RetentionQueryRunner(team=self.team, query=query)
 
-        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
-            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+        base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
 
         assert base_query.select_from is not None
         union = base_query.select_from.table
@@ -3843,7 +3823,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         ]
         self.assertEqual(arm_name_filters, [[["purchase"]], [["$pageview"]]])
 
-    def test_dwh_variant_first_time_breakdown_single_scan_bounds_return_side_to_window(self):
+    def test_first_time_breakdown_single_scan_bounds_return_side_to_window(self):
         # Breakdowns read event properties in the outer query, so they can't ride the tag-arm
         # two-arm scan and stay on the single scan. Its WHERE must still split per role (start
         # entity unbounded for the cohorting anchor, return entity bounded to the query window);
@@ -3861,8 +3841,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
         runner = RetentionQueryRunner(team=self.team, query=query)
 
-        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
-            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+        base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
 
         assert base_query.select_from is not None
         assert isinstance(base_query.select_from.table, ast.Field)
@@ -3877,7 +3856,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         self.assertEqual(self._where_event_name_filters(return_branch), [["$pageview"]])
         self.assertTrue(self._has_timestamp_bound(return_branch))
 
-    def _create_sampling_parity_fixtures(self):
+    def _create_sampling_fixtures(self):
         for i in range(20):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"])
         _create_events(
@@ -3886,11 +3865,10 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
     @parameterized.expand([("factor_0_1", 0.1), ("factor_0_5", 0.5), ("factor_1_0", 1.0)])
-    def test_sampling_parity_recurring(self, _name: str, sampling_factor: float):
-        # run_query asserts the legacy and DWH-variant paths return identical results. Deterministic
-        # SAMPLE BY cityHash64(distinct_id) makes the single-scan legacy query and the two-arm variant
-        # union sample the same rows, so parity must hold at every factor.
-        self._create_sampling_parity_fixtures()
+    def test_sampling_recurring_executes(self, _name: str, sampling_factor: float):
+        # Runs the sampled recurring single-scan shape on ClickHouse at each factor; the structural
+        # SAMPLE-placement assertions above can't catch sampled SQL that fails to execute.
+        self._create_sampling_fixtures()
 
         result = self.run_query(
             query={
@@ -3902,11 +3880,10 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         self.assertEqual(len(result), 11)
 
     @parameterized.expand([("factor_0_1", 0.1), ("factor_0_5", 0.5), ("factor_1_0", 1.0)])
-    def test_sampling_parity_first_time(self, _name: str, sampling_factor: float):
-        # First-time retention anchors on minIf over the sampled stream; the variant computes it in a
-        # separate union arm from the legacy single scan, so this exercises a different aggregation than
-        # the recurring case. run_query asserts the two paths stay identical under sampling.
-        self._create_sampling_parity_fixtures()
+    def test_sampling_first_time_executes(self, _name: str, sampling_factor: float):
+        # First-time retention anchors on minIf over the sampled stream, a different aggregation
+        # than the recurring case, so it gets its own execution check.
+        self._create_sampling_fixtures()
 
         result = self.run_query(
             query={
@@ -4064,11 +4041,10 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             ),
         )
 
-    def test_dwh_variant_breakdown_event_property_per_value_parity(self):
-        # Tracer bullet: the variant must mirror the legacy per-value cohort semantics
-        # for event-property breakdowns. person1 starts "clothing" then returns with a
-        # mismatched "electronics" purchase, which must not retain within the clothing
-        # bucket — identically on both the legacy and the DWH-variant paths.
+    def test_breakdown_event_property_per_value_cohort_semantics(self):
+        # Per-value cohort semantics for event-property breakdowns: person1 starts "clothing" then
+        # returns with a mismatched "electronics" purchase, which must not retain within the
+        # clothing bucket.
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
 
@@ -4109,10 +4085,10 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         clothing = pluck([c for c in result if c.get("breakdown_value") == "clothing"], "values", "count")
         self.assertEqual(clothing[0][:3], [1, 1, 0])
 
-    def test_dwh_variant_breakdown_first_ever_parity(self):
+    def test_breakdown_first_ever_buckets_by_first_event_value(self):
         # First-ever buckets each actor by the breakdown value on their absolute-first
         # start event (argMinIf). old_user's first app_opened predates the flag, so they
-        # belong only to the empty bucket — never the later "control" one — on both paths.
+        # belong only to the empty bucket, never the later "control" one.
         _create_person(team_id=self.team.pk, distinct_ids=["old_user"])
         _create_person(team_id=self.team.pk, distinct_ids=["new_user"])
 
@@ -4139,10 +4115,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # old_user anchors on their flag-less first event, so "control" never appears.
         self.assertNotIn("control", {c.get("breakdown_value") for c in result})
 
-    def test_dwh_variant_breakdown_cohort_union_of_unions_parity(self):
+    def test_breakdown_cohort_union_of_unions(self):
         # Cohort breakdown composes as a UNION ALL of per-cohort base queries. Each per-cohort base
-        # query is events-only, so under the variant it collapses to a single events scan (not a
-        # nested UNION). Both paths must agree on the result.
+        # query is events-only, so it collapses to a single events scan (not a nested UNION).
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
         cohort1 = Cohort.objects.create(
@@ -6237,48 +6212,33 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         self.assertIn("properties", sql)
 
 
-class TestClickhouseRetentionGroupAggregation(
-    RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixin, APIBaseTest
-):
-    retention_base_query_variant_comparison_excluded_tests = {
-        # Asserts sync_execute was called exactly once, but the comparison runs the query once per
-        # variant, so the call count can never match. The test checks the max_execution_time setting
-        # on the emitted SQL rather than query results, so it proves nothing about variant parity.
-        "test_limit_is_context_aware",
-    }
-
+class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
     def run_query(self, query, *, limit_context: Optional[LimitContext] = None):
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
 
-        def calculate(query_for_variant):
-            runner = RetentionQueryRunner(team=self.team, query=query_for_variant, limit_context=limit_context)
-            return runner.calculate().model_dump()["results"]
-
-        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
+        runner = RetentionQueryRunner(team=self.team, query=query, limit_context=limit_context)
+        return runner.calculate().model_dump()["results"]
 
     def run_actors_query(self, interval, query, select=None, actor="person", breakdown=None):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
 
-        def calculate(query_for_variant):
-            runner = ActorsQueryRunner(
-                team=self.team,
-                query={
-                    "select": [actor, "appearances", *(select or [])],
-                    "orderBy": ["length(appearances) DESC", "actor_id"],
-                    "source": {
-                        "kind": "InsightActorsQuery",
-                        "interval": interval,
-                        "source": query_for_variant,
-                        "breakdown": breakdown,
-                    },
+        runner = ActorsQueryRunner(
+            team=self.team,
+            query={
+                "select": [actor, "appearances", *(select or [])],
+                "orderBy": ["length(appearances) DESC", "actor_id"],
+                "source": {
+                    "kind": "InsightActorsQuery",
+                    "interval": interval,
+                    "source": query,
+                    "breakdown": breakdown,
                 },
-            )
-            return runner.calculate().model_dump()["results"]
-
-        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
+            },
+        )
+        return runner.calculate().model_dump()["results"]
 
     def _create_groups_and_events(self):
         create_group_type_mapping_without_created_at(
@@ -7001,6 +6961,7 @@ class TestClickhouseRetentionGroupAggregation(
         self.assertEqual(result[0][0]["id"], person2.uuid)
         self.assertEqual(result[0][1], [0, 2])
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_retention_breakdown_person_property_is_stable(self):
         # This test reproduces the bug where a person's breakdown value splits between
         # empty string and actual value, causing major countries to drop from top breakdown list
@@ -7084,6 +7045,7 @@ class TestClickhouseRetentionGroupAggregation(
                     "Taiwan cohort should have 2 people, not split due to property timing",
                 )
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_retention_breakdown_uses_most_recent_property_value(self):
         # This test validates that when a user's breakdown property changes over time,
         # they are counted using their most recent property value for ranking purposes.
@@ -8492,17 +8454,14 @@ class TestClickhouseRetentionGroupAggregation(
 
 
 class TestRetentionFirstTimeTwoArmScan(APIBaseTest):
-    # The two-arm scan is shared machinery: both the legacy path and the DWH variant must produce
-    # it for the gated first-time shapes, so every structural assertion runs against both paths.
+    # Structural assertions on the two-arm scan the builder emits for the gated first-time shapes.
     def _base_query(
         self,
         retention_type: str,
         target: dict | None = None,
         returning: dict | None = None,
         breakdown_filter: dict | None = None,
-        aggregation_property: str | None = None,
         aggregation_group_type_index: int | None = None,
-        use_dwh_variant: bool = False,
     ) -> ast.SelectQuery:
         query: dict = {
             "kind": "RetentionQuery",
@@ -8514,14 +8473,10 @@ class TestRetentionFirstTimeTwoArmScan(APIBaseTest):
         }
         if breakdown_filter is not None:
             query["breakdownFilter"] = breakdown_filter
-        if aggregation_property is not None:
-            query["retentionFilter"]["aggregationType"] = "sum"
-            query["retentionFilter"]["aggregationProperty"] = aggregation_property
         if aggregation_group_type_index is not None:
             query["aggregation_group_type_index"] = aggregation_group_type_index
         runner = RetentionQueryRunner(team=self.team, query=query)
-        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=use_dwh_variant):
-            return RetentionFixedIntervalBaseQueryBuilder(runner).build_base_query()
+        return RetentionFixedIntervalBaseQueryBuilder(runner).build_base_query()
 
     @staticmethod
     def _where_constants(arm: ast.SelectQuery) -> list[Any]:
@@ -8561,14 +8516,12 @@ class TestRetentionFirstTimeTwoArmScan(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("legacy_first_time", "retention_first_time", False),
-            ("legacy_first_ever", "retention_first_ever_occurrence", False),
-            ("variant_first_time", "retention_first_time", True),
-            ("variant_first_ever", "retention_first_ever_occurrence", True),
+            ("first_time", "retention_first_time"),
+            ("first_ever", "retention_first_ever_occurrence"),
         ]
     )
-    def test_first_time_modes_scan_two_arms_with_bounded_return_arm(self, _name, retention_type, use_dwh_variant):
-        base_query = self._base_query(retention_type, use_dwh_variant=use_dwh_variant)
+    def test_first_time_modes_scan_two_arms_with_bounded_return_arm(self, _name, retention_type):
+        base_query = self._base_query(retention_type)
         assert base_query.select_from is not None
         self.assertEqual(base_query.select_from.alias, "events")
         table = base_query.select_from.table
@@ -8585,14 +8538,11 @@ class TestRetentionFirstTimeTwoArmScan(APIBaseTest):
         self.assertFalse(self._where_has_timestamp_bound(start_arm))
         self.assertTrue(self._where_has_timestamp_bound(return_arm))
 
-    @parameterized.expand([("legacy", False), ("variant", True)])
-    def test_first_time_all_events_return_bounds_return_arm_to_window(self, _name, use_dwh_variant):
+    def test_first_time_all_events_return_bounds_return_arm_to_window(self):
         # The gate only needs concrete START event names, so an all-events return entity still
         # two-arms: its arm has no name filter but must carry the window bound. Without the split
         # this shape scans the team's entire event history (the biggest first-time over-read).
-        base_query = self._base_query(
-            "retention_first_time", returning={"id": None, "type": "events"}, use_dwh_variant=use_dwh_variant
-        )
+        base_query = self._base_query("retention_first_time", returning={"id": None, "type": "events"})
         assert base_query.select_from is not None
         table = base_query.select_from.table
         self.assertIsInstance(table, ast.SelectSetQuery)
@@ -8605,78 +8555,40 @@ class TestRetentionFirstTimeTwoArmScan(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("recurring", "retention_recurring", None, None, None, None, False),
-            ("recurring_variant", "retention_recurring", None, None, None, None, True),
+            ("recurring", "retention_recurring", None, None, None),
             (
                 "same_entity",
                 "retention_first_time",
                 {"id": "signup", "type": "events"},
                 {"id": "signup", "type": "events"},
                 None,
-                None,
-                False,
             ),
-            (
-                "same_entity_variant",
-                "retention_first_time",
-                {"id": "signup", "type": "events"},
-                {"id": "signup", "type": "events"},
-                None,
-                None,
-                True,
-            ),
-            ("all_events_target", "retention_first_time", {"id": None, "type": "events"}, None, None, None, False),
-            (
-                "all_events_target_variant",
-                "retention_first_time",
-                {"id": None, "type": "events"},
-                None,
-                None,
-                None,
-                True,
-            ),
+            ("all_events_target", "retention_first_time", {"id": None, "type": "events"}, None, None),
             (
                 "breakdown",
                 "retention_first_time",
                 None,
                 None,
                 {"breakdowns": [{"type": "event", "property": "plan"}]},
-                None,
-                False,
             ),
-            (
-                "breakdown_variant",
-                "retention_first_time",
-                None,
-                None,
-                {"breakdowns": [{"type": "event", "property": "plan"}]},
-                None,
-                True,
-            ),
-            # Variant property aggregation is the per-entity UNION, not a single scan, so it has no
-            # variant row here; its arm scoping is asserted in TestRetention.
-            ("property_aggregation", "retention_first_time", None, None, None, "revenue", False),
+            # Property aggregation is deliberately absent: it takes the per-entity UNION, not the
+            # single scan; its arm scoping is asserted in TestRetention.
         ]
     )
     def test_keeps_single_scan_when_split_cannot_apply(
-        self, _name, retention_type, target, returning, breakdown_filter, aggregation_property, use_dwh_variant
+        self, _name, retention_type, target, returning, breakdown_filter
     ):
         base_query = self._base_query(
             retention_type,
             target=target,
             returning=returning,
             breakdown_filter=breakdown_filter,
-            aggregation_property=aggregation_property,
-            use_dwh_variant=use_dwh_variant,
         )
         assert base_query.select_from is not None
         self.assertIsInstance(base_query.select_from.table, ast.Field)
 
-    @parameterized.expand([("legacy", False), ("variant", True)])
-    def test_first_time_group_aggregation_filters_both_arms(self, _name, use_dwh_variant):
-        base_query = self._base_query(
-            "retention_first_time", aggregation_group_type_index=0, use_dwh_variant=use_dwh_variant
-        )
+    def test_first_time_group_aggregation_filters_both_arms(self):
+        base_query = self._base_query("retention_first_time", aggregation_group_type_index=0)
         assert base_query.select_from is not None
         table = base_query.select_from.table
         self.assertIsInstance(table, ast.SelectSetQuery)

@@ -4,7 +4,9 @@ import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
 
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
-import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
+import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
+import { resolveEventSource } from '@/lib/event-source'
+import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     buildMCPAnalyticsGroups,
@@ -14,7 +16,6 @@ import {
 } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
-import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
@@ -39,6 +40,15 @@ function buildBaseProperties(
 
     const properties: Record<string, unknown> = {
         $ai_product: 'mcp',
+        // The same property `posthog/event_usage.py` stamps on product events, so an MCP call
+        // and the API work it causes land in one breakdown. Distinct from `$mcp_source`, which
+        // names the emitting SDK rather than the surface.
+        source: resolveEventSource({
+            mcpConsumer: clientIdentity.mcpConsumer,
+            clientUserAgent: requestContext.clientUserAgent,
+            apiKeyScopes: state.apiKeyScopes,
+            oauthClientId: state.oauthClientId,
+        }),
         $mcp_source: MCP_ANALYTICS_SOURCE,
         $mcp_server_name: MCP_SERVER_NAME,
         $mcp_server_version: MCP_SERVER_VERSION,
@@ -65,10 +75,6 @@ function buildBaseProperties(
             : {}),
         mcp_runtime: 'hono',
         mcp_vendor_client: clientIdentity.mcpVendorClient,
-        // Stamped on every event so catalog-on vs catalog-off cohorts can be split
-        // in analytics; the flag only gates instructions content, so nothing else
-        // on the event reveals whether the agent was steered toward the catalog.
-        mcp_data_catalog_enabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
         ...buildMCPSessionAnalyticsProperties(state.sessionContext),
     }
     return { properties, groups }
@@ -285,10 +291,37 @@ const REDACTED_VALUE = '[redacted]'
 // like user-settings-update carry `password`/`current_password`, warehouse
 // sources carry `client_secret`, and hog-function inputs carry `secret` values.
 // Match errs toward redaction — an over-redacted eval field is harmless, a
-// leaked credential is not. Deliberately excludes bare `key`/`id`/`token`, which
-// are almost always identifiers or token counts an evaluation needs.
+// leaked credential is not.
+//
+// Enumerating credential prefixes missed most of them: our own warehouse sources
+// name their secret `api_token`, `database_token`, `consumer_key`,
+// `signing_key`, and a dozen more, none of which the prefix list matched. The
+// trailing-segment rule catches that whole shape. Plural `*_tokens` stays out on
+// purpose — it is LLM token counts and Adjust's `app_tokens` app ids, never a
+// secret. `connection_string` gets its own name: Postgres, MSSQL, Redshift,
+// Snowflake and friends all accept one as an alternative to discrete
+// host/user/password fields, and it carries the credentials inline
+// (`postgres://user:pass@host/db`) — MongoDB's source has no other field for them.
+// `certificate` covers Temporal Cloud's `client_certificate`: the source config
+// itself marks it `secret: true` even though the name reads as public key
+// material, and a client cert is namespace-identifying enough to keep out of
+// telemetry too. `server_client_root_ca` stays unmatched on purpose — it is
+// the CA the client uses to verify the *server*, public key material with no
+// private half, marked `secret: true` only because the UI groups it with the
+// real credentials.
+//
+// `app_id`/`api_id` and the trailing `username` case cover sources whose
+// credential is an identifier rather than a token: Open Exchange Rates'
+// `app_id` and Veracode's `api_id` are the whole usable credential, and
+// Pipeliner generates its `username` alongside `password` as one half of a
+// one-time API key pair (`secret: true` on the source config), unlike every
+// other source's plain login `username`. Aircall's `api_id` and
+// AppsFlyer/AppSignal/Churnkey's `app_id` are not credentials — they select
+// which account or app an already-redacted token applies to — but the
+// pattern can't tell those apart by name, and over-redacting a non-secret
+// identifier is harmless where under-redacting a credential is not.
 const SENSITIVE_KEY_PATTERN =
-    /password|passwd|passphrase|secret|credential|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer/i
+    /password|passwd|passphrase|secret|credential|certificate|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|connection[_-]?string|app[_-]?id|api[_-]?id|(^|[_-])(token|key|keys|username)$/i
 
 function redactSecrets(value: unknown): unknown {
     if (Array.isArray(value)) {
@@ -380,6 +413,12 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
             event: '$mcp_auth_failed',
             properties: {
                 $ai_product: 'mcp',
+                // Resolved without scopes — the request never authenticated, so nothing can
+                // vouch for a declared consumer and anything unproven lands as `mcp`.
+                source: resolveEventSource({
+                    mcpConsumer: props.mcpConsumer,
+                    clientUserAgent: props.clientUserAgent,
+                }),
                 $mcp_source: MCP_ANALYTICS_SOURCE,
                 $mcp_server_name: MCP_SERVER_NAME,
                 $mcp_server_version: MCP_SERVER_VERSION,

@@ -17,8 +17,15 @@ describe('AI observability scout templates', () => {
     it.each(AI_OBSERVABILITY_SCOUT_TEMPLATES)(
         '$title creates an enabled 9 a.m. daily scout with the product tag',
         ({ initialValues, schedule }) => {
+            // Every field comes out of a SKILL.md parsed at module scope, so a malformed file is a
+            // commit away. These assertions are what stops one reaching the eager import in
+            // AIObservabilityScene.
             expect(initialValues.name).toMatch(/^signals-scout-ai-observability-/)
-            expect(initialValues.body).toBeTruthy()
+            expect(initialValues.description?.trim()).toBeTruthy()
+            // The body is read out of a SKILL.md whose frontmatter carries name and description as
+            // separate form fields. A broken strip would push `---\nname: ...` into Instructions.
+            expect(initialValues.body).not.toMatch(/^---/)
+            expect(initialValues.body).toMatch(/^# /)
             expect(schedule).toBe('Daily at 9:00 AM')
             expect(initialValues.config).toMatchObject({
                 enabled: true,

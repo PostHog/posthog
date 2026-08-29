@@ -1,5 +1,5 @@
 from django.db import models
-from django.db.models import Case, CharField, Expression, FloatField, Func, Value, When
+from django.db.models import Case, CharField, Expression, F, FloatField, Func, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 
@@ -55,6 +55,14 @@ class ReplayObservation(UUIDModel):
         null=True,
         blank=True,
         help_text="Start time of the recorded session; copied from session metadata so downstream steps don't re-query.",
+    )
+    session_group_keys = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Group keys the recorded session's events carry, keyed by group type index (e.g. {'0': 'acme-inc'}). "
+            "Resolved at scan time so the emitted event can be attributed to the group without re-querying."
+        ),
     )
 
     status = models.CharField(max_length=16, choices=ObservationStatus.choices, default=ObservationStatus.PENDING)
@@ -123,6 +131,13 @@ class ReplayObservation(UUIDModel):
         indexes = [
             models.Index(fields=["team", "created_at"], name="rlo_team_created_idx"),
             models.Index(fields=["scanner", "status"], name="rlo_scanner_status_idx"),
+            # Serves the alert-engine observation window: succeeded rows per scanner in a
+            # completed_at range. Partial: terminal succeeded rows are the only ones scanned.
+            models.Index(
+                fields=["scanner", "completed_at"],
+                name="rlo_scanner_completed_idx",
+                condition=models.Q(status="succeeded"),
+            ),
             # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
             models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
             models.Index(
@@ -167,6 +182,15 @@ class ReplayObservation(UUIDModel):
 
 def jsonb_typeof(expr: Expression) -> Func:
     return Func(expr, function="JSONB_TYPEOF", output_field=CharField())
+
+
+def hydrate_for_serialization(qs: "models.QuerySet[ReplayObservation]") -> "models.QuerySet[ReplayObservation]":
+    """Load everything `ReplayObservationSerializer` reads, so no queryset feeding it goes one query per row.
+
+    `scanner_origin` is annotated rather than joined through `select_related("scanner")`: the serializer
+    reads one enum, and hydrating the scanner would ship its config and hour-bucket JSON blobs per row.
+    """
+    return qs.select_related("triggered_by_user", "label").annotate(scanner_origin=F("scanner__origin"))
 
 
 def annotate_output_number(

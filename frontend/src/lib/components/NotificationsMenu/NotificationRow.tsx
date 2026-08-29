@@ -73,6 +73,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Subscription suggestions',
         description: 'When PostHog suggests subscribing to a dashboard you keep coming back to',
     },
+    data_quality_check_failure: {
+        label: 'Data quality check failures',
+        description: 'When a data quality check on a warehouse table or view starts failing',
+    },
 }
 
 export function NotificationTitle({

@@ -17,6 +17,7 @@ import type {
     CimdVerificationTokensListParams,
     DomainsListParams,
     EnterprisePropertyDefinitionApi,
+    EventIngestionRestrictionApi,
     ExportedAssetApi,
     ExportedAssetCreateApi,
     ExportsListParams,
@@ -26,6 +27,7 @@ import type {
     FileSystemShortcutListParams,
     FileSystemShortcutReorderApi,
     GitHubBranchesResponseApi,
+    GitHubInstallRequestListResponseApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     IdentityProviderConfigApi,
@@ -38,6 +40,9 @@ import type {
     OrganizationDomainApi,
     OrganizationInviteApi,
     OrganizationInviteDelegateApi,
+    OrganizationNotificationLockBulkUpdateApi,
+    OrganizationNotificationMemberApi,
+    OrganizationsProjectsEventIngestionRestrictionsListParams,
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
     PaginatedEnterprisePropertyDefinitionListApi,
@@ -75,6 +80,7 @@ import type {
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
     UserGitHubPrepareCallbackRequestApi,
+    UserGithubLoginApi,
     UserPushTokenItemApi,
     UserPushTokenRegisterRequestApi,
     UserPushTokenUnregisterRequestApi,
@@ -86,6 +92,7 @@ import type {
     UsersIntegrationsListParams,
     UsersListParams,
     UsersLoginSessionsListParams,
+    VerifyEmailRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -643,6 +650,43 @@ export const invitesDelegateCreate = async (
     })
 }
 
+export const getNotificationLocksListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/notification_locks/`
+}
+
+/**
+ * List the organization's members with their own notification settings and the locks in force for each.
+ */
+export const notificationLocksList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<OrganizationNotificationMemberApi[]> => {
+    return apiMutator<OrganizationNotificationMemberApi[]>(getNotificationLocksListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotificationLocksBulkUpdateCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/notification_locks/bulk_update/`
+}
+
+/**
+ * Lock or unlock notification settings for members of this organization. Each affected member is notified in the app.
+ */
+export const notificationLocksBulkUpdateCreate = async (
+    organizationId: string,
+    organizationNotificationLockBulkUpdateApi: OrganizationNotificationLockBulkUpdateApi,
+    options?: RequestInit
+): Promise<OrganizationNotificationMemberApi[]> => {
+    return apiMutator<OrganizationNotificationMemberApi[]>(getNotificationLocksBulkUpdateCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(organizationNotificationLockBulkUpdateApi),
+    })
+}
+
 export const getOauthApplicationsListUrl = (organizationId: string, params?: OauthApplicationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1037,20 +1081,37 @@ export const organizationsProjectsDeleteSecretTokenBackupPartialUpdate = async (
     )
 }
 
-export const getOrganizationsProjectsEventIngestionRestrictionsRetrieveUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/event_ingestion_restrictions/`
+export const getOrganizationsProjectsEventIngestionRestrictionsListUrl = (
+    organizationId: string,
+    id: number,
+    params?: OrganizationsProjectsEventIngestionRestrictionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/projects/${id}/event_ingestion_restrictions/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/projects/${id}/event_ingestion_restrictions/`
 }
 
 /**
  * Projects for the current organization.
  */
-export const organizationsProjectsEventIngestionRestrictionsRetrieve = async (
+export const organizationsProjectsEventIngestionRestrictionsList = async (
     organizationId: string,
     id: number,
+    params?: OrganizationsProjectsEventIngestionRestrictionsListParams,
     options?: RequestInit
-): Promise<ProjectBackwardCompatApi> => {
-    return apiMutator<ProjectBackwardCompatApi>(
-        getOrganizationsProjectsEventIngestionRestrictionsRetrieveUrl(organizationId, id),
+): Promise<EventIngestionRestrictionApi[]> => {
+    return apiMutator<EventIngestionRestrictionApi[]>(
+        getOrganizationsProjectsEventIngestionRestrictionsListUrl(organizationId, id, params),
         {
             ...options,
             method: 'GET',
@@ -2421,8 +2482,8 @@ export const getUsersGithubLoginRetrieveUrl = (uuid: string) => {
     return `/api/users/${uuid}/github_login/`
 }
 
-export const usersGithubLoginRetrieve = async (uuid: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersGithubLoginRetrieveUrl(uuid), {
+export const usersGithubLoginRetrieve = async (uuid: string, options?: RequestInit): Promise<UserGithubLoginApi> => {
+    return apiMutator<UserGithubLoginApi>(getUsersGithubLoginRetrieveUrl(uuid), {
         ...options,
         method: 'GET',
     })
@@ -2617,6 +2678,49 @@ export const usersIntegrationsGithubReposRefreshCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getUsersIntegrationsGithubInstallRequestsRetrieveUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/github/install_requests/`
+}
+
+/**
+ * Return the requesting user's GitHub App install-approval requests, newest first.
+ *
+ * This is the durable server-side "awaiting org owner approval" state (see
+ * ``posthog.models.user_integration.GitHubInstallRequest``), distinct from the in-flight
+ * connect spinner, which never touches this table.
+ * @summary List the user's GitHub install-approval requests
+ */
+export const usersIntegrationsGithubInstallRequestsRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<GitHubInstallRequestListResponseApi> => {
+    return apiMutator<GitHubInstallRequestListResponseApi>(getUsersIntegrationsGithubInstallRequestsRetrieveUrl(uuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUsersIntegrationsGithubInstallRequestsDestroyUrl = (uuid: string, requestId: string) => {
+    return `/api/users/${uuid}/integrations/github/install_requests/${requestId}/`
+}
+
+/**
+ * Delete one of the requesting user's install-approval requests, whatever its status.
+ *
+ * User-facing bookkeeping only: a later connect attempt records a fresh row.
+ * @summary Dismiss a GitHub install-approval request
+ */
+export const usersIntegrationsGithubInstallRequestsDestroy = async (
+    uuid: string,
+    requestId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUsersIntegrationsGithubInstallRequestsDestroyUrl(uuid, requestId), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
 export const getUsersIntegrationsGithubPrepareCallbackCreateUrl = (uuid: string) => {
@@ -3058,11 +3162,14 @@ export const getUsersVerifyEmailCreateUrl = () => {
     return `/api/users/verify_email/`
 }
 
-export const usersVerifyEmailCreate = async (userApi: NonReadonly<UserApi>, options?: RequestInit): Promise<void> => {
+export const usersVerifyEmailCreate = async (
+    verifyEmailRequestApi: VerifyEmailRequestApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getUsersVerifyEmailCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(userApi),
+        body: JSON.stringify(verifyEmailRequestApi),
     })
 }

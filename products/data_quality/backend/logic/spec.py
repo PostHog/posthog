@@ -62,9 +62,25 @@ class CheckTypeSpec(ABC):
             raise CheckConfigError(f"A {self.type_name} check needs a column_name.")
         return self.parse_config(config)
 
+    def coerce_to_column(self, config: CheckConfig, column_type: str | None) -> CheckConfig:
+        """Normalize config values against the column's type. Identity for types that hold none.
+
+        ``column_type`` is the raw ClickHouse type, or None when it could not be established.
+        """
+        return config
+
     def related_subject_ref(self, config: CheckConfig) -> tuple[str, str] | None:
         """The second subject this check needs resolved before it can compile, if any."""
         return None
+
+    def referenced_table_names(self, config: CheckConfig) -> list[str]:
+        """Warehouse names this check reads directly, besides its subject and related subject.
+
+        Only ``custom_sql`` needs this -- its query names arbitrary tables. Every structured type
+        reaches exactly its subject plus, via ``related_subject_ref``, one other, so the default is
+        empty. Used to authorize every subject a check reads, since the worker executes with team
+        scope only."""
+        return []
 
     @abstractmethod
     def build(

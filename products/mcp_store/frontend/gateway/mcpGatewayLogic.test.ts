@@ -30,7 +30,7 @@ import type {
     MCPServiceAccountApi,
     UserBasicApi,
 } from '../generated/api.schemas'
-import { CONNECTED_SERVERS_FILTER, GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
+import { GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
 
 const YOU: UserBasicApi = {
     id: MOCK_DEFAULT_USER.id,
@@ -378,16 +378,14 @@ describe('mcpGatewayLogic', () => {
         )
     })
 
-    it('adds a custom server with team and agent sharing in one guarded request', async () => {
+    it("adds a custom server shared with the team and with every agent for the user's own runs by default", async () => {
         const pendingInstall = deferred<Awaited<ReturnType<typeof mcpServerInstallationsInstallCustomCreate>>>()
         mockInstallCustom.mockReturnValue(pendingInstall.promise)
-        logic.actions.loadServiceAccountsSuccess([serviceAccount()])
         logic.actions.openAddServerModal()
         logic.actions.setAddServerFormValue('name', '  Custom server  ')
         logic.actions.setAddServerFormValue('url', ' https://mcp.example.com/mcp ')
         logic.actions.setAddServerFormValue('authType', 'api_key')
         logic.actions.setAddServerFormValue('apiKey', 'secret-key')
-        logic.actions.setAddServerFormValue('agentIds', ['scout-id'])
 
         logic.actions.submitAddServer()
         logic.actions.submitAddServer()
@@ -403,7 +401,7 @@ describe('mcpGatewayLogic', () => {
                 api_key: 'secret-key',
                 scope: 'personal',
                 team_enabled: true,
-                agent_ids: ['scout-id'],
+                agent_scope: 'personal',
             })
         )
 
@@ -607,7 +605,7 @@ describe('mcpGatewayLogic', () => {
         expect(logic.values.recommendedTemplates).toEqual([freshTemplate])
     })
 
-    it('filters to servers with a connection, including connections that need attention', () => {
+    it('lists servers with a connection, including connections that need attention', () => {
         const connectedServer = gatewayServer({
             id: 'connected-server',
             your_connection: {
@@ -621,10 +619,7 @@ describe('mcpGatewayLogic', () => {
         const disconnectedServer = gatewayServer({ id: 'disconnected-server' })
         logic.actions.loadServersSuccess([connectedServer, disconnectedServer])
 
-        logic.actions.setCategoryFilter(CONNECTED_SERVERS_FILTER)
-
-        expect(logic.values.connectedServerCount).toBe(1)
-        expect(logic.values.filteredServers).toEqual([connectedServer])
+        expect(logic.values.connectedServers).toEqual([connectedServer])
     })
 
     it.each([
@@ -700,10 +695,10 @@ describe('mcpGatewayLogic', () => {
     })
 
     // The endpoint defaults an omitted scope back to personal, so a share sent without
-    // one silently demotes a team share.
+    // one silently demotes a team share. The action fills in 'team', the product default.
     it.each([
-        ['team' as const, 'team'],
-        [undefined, 'personal'],
+        ['personal' as const, 'personal'],
+        [undefined, 'team'],
     ])('sends scope %s as %s when sharing a server with an agent', async (requested, expected) => {
         mockServiceAccountAccess.mockResolvedValue(serviceAccountWithShare(expected as MCPAgentGrantScopeEnumApi))
 

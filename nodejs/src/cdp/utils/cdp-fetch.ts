@@ -80,6 +80,21 @@ export function isConnectionLevelError(error: any): boolean {
     )
 }
 
+// An AggregateError's own message is usually empty — undici throws it when every connection
+// attempt to a host fails, and the per-address reasons (ECONNREFUSED, ETIMEDOUT, ...) live in
+// `errors`. Without unpacking them, the customer-facing log reads "AggregateError: " with no way
+// to tell a DNS failure from a refused connection.
+export function fetchErrorDetail(error: Error): string {
+    const causes =
+        error instanceof AggregateError && error.errors.length > 0
+            ? error.errors.map((e) => (e instanceof Error ? e.message : String(e))).join('; ')
+            : ''
+    if (error.message && causes) {
+        return `${error.message} (${causes})`
+    }
+    return error.message || causes
+}
+
 // Attribution for a tracked fetch, so a blocked/refused request can be traced back to the
 // owning hog function and team. Optional because a few callers (push notifications, hog
 // transformations) hand `cdpTrackedFetch` to the Hog VM without an invocation in scope.

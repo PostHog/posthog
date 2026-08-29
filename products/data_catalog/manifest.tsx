@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -39,8 +38,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.ANALYTICS,
             iconType: 'data_warehouse',
             href: urls.dataCatalog(),
-            flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
-            tags: ['alpha'],
+            tags: ['beta'],
             sceneKey: 'DataCatalog',
         },
     ],

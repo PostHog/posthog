@@ -65,6 +65,7 @@ export function SidebarItem({
   endHint,
   disabled,
   ref,
+  className,
   ...buttonProps
 }: SidebarItemProps) {
   const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
@@ -76,15 +77,26 @@ export function SidebarItem({
       type="button"
       className={cn(
         "group flex w-full cursor-default text-left text-[13px] leading-snug transition-colors",
-        "disabled:opacity-100 data-active:bg-fill-selected data-selected:bg-(--gray-3)",
+        "disabled:opacity-100",
+        // A second row outgrows the button's fixed height, and the overflow
+        // lands on the row below it. The padding stands in for the height the
+        // row gives up.
+        subtitle && "h-auto py-1",
+        // The open row keeps its neutral background on its own, and takes the
+        // accent only once it is part of a selection, a shade above the rows
+        // picked around it.
+        isActive && (isSelected ? "bg-primary/20" : "bg-fill-selected"),
+        !isActive && isSelected && "bg-primary/10",
         // A bar on the leading edge rather than another background: the open
         // session already owns its background, and this lets it also say it is
         // part of a bulk selection.
-        "relative data-in-selection:before:absolute data-in-selection:before:inset-y-0 data-in-selection:before:left-0 data-in-selection:before:w-0.5 data-in-selection:before:bg-(--accent-9) data-in-selection:before:content-['']",
+        "relative data-in-selection:before:absolute data-in-selection:before:inset-y-0 data-in-selection:before:left-0 data-in-selection:before:w-0.5 data-in-selection:before:bg-primary data-in-selection:before:content-['']",
         isDimmed && "opacity-50",
+        // Last, so a caller can override the row's cursor-default — the
+        // spread above sits before this prop and would otherwise drop it.
+        className,
       )}
       data-active={isActive || undefined}
-      data-selected={(isSelected && !isActive) || undefined}
       data-in-selection={isSelected || undefined}
       draggable={draggable}
       onDragStart={onDragStart}
@@ -123,7 +135,7 @@ export function SidebarItem({
           ) : null}
         </span>
         {subtitle ? (
-          <span className="truncate text-gray-10 group-data-active:text-gray-11">
+          <span className="truncate text-muted-foreground/70 text-xxs group-data-active:text-muted-foreground">
             {subtitle}
           </span>
         ) : null}

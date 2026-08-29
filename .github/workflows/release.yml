@@ -44,6 +44,7 @@ jobs:
               run: |
                   installer="$RUNNER_TEMP/cargo-dist-installer.sh"
                   curl --proto '=https' --tlsv1.2 -LsSf \
+                      --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
                       "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
                       -o "$installer"
                   if command -v sha256sum >/dev/null 2>&1; then
@@ -131,6 +132,7 @@ jobs:
               run: |
                   installer="$RUNNER_TEMP/cargo-dist-installer.sh"
                   curl --proto '=https' --tlsv1.2 -LsSf \
+                      --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
                       "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
                       -o "$installer"
                   if command -v sha256sum >/dev/null 2>&1; then

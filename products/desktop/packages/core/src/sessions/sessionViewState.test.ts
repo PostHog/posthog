@@ -46,6 +46,21 @@ function makeSession(
 }
 
 describe("deriveSessionViewState", () => {
+  it("uses a live cloud session when task run metadata is unavailable", () => {
+    const task = makeTask("in_progress");
+    task.latest_run = undefined;
+
+    const state = deriveSessionViewState(
+      makeSession("in_progress"),
+      task,
+      null,
+      false,
+    );
+
+    expect(state.isCloud).toBe(true);
+    expect(state.isCloudRunNotTerminal).toBe(true);
+  });
+
   it("uses terminal task status over stale same-run session status", () => {
     const state = deriveSessionViewState(
       makeSession("in_progress"),
@@ -70,6 +85,26 @@ describe("deriveSessionViewState", () => {
     expect(state.cloudStatus).toBe("in_progress");
     expect(state.isCloudRunNotTerminal).toBe(true);
   });
+
+  it.each([
+    { isHydratingTranscript: true, expected: true },
+    { isHydratingTranscript: undefined, expected: false },
+  ])(
+    "shows an empty terminal thread as initializing only while its transcript hydrates (hydrating: $isHydratingTranscript)",
+    ({ isHydratingTranscript, expected }) => {
+      const session = makeSession("completed");
+      session.isHydratingTranscript = isHydratingTranscript;
+
+      const state = deriveSessionViewState(
+        session,
+        makeTask("completed"),
+        null,
+        true,
+      );
+
+      expect(state.isInitializing).toBe(expected);
+    },
+  );
 
   it("treats not_started as a non-terminal cloud state", () => {
     const state = deriveSessionViewState(

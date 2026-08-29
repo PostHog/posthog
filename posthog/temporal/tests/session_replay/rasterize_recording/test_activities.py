@@ -1,9 +1,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.session_recordings.recordings.recording_api_jwt import recording_api_signing_keys
@@ -19,9 +21,20 @@ from posthog.temporal.session_replay.rasterize_recording.types import (
     compute_params_fingerprint,
 )
 
+from products.exports.backend.models.exported_asset import ExportedAsset
+
 MOCK_SETTINGS = MagicMock()
 MOCK_SETTINGS.OBJECT_STORAGE_BUCKET = "posthog"
 MOCK_SETTINGS.OBJECT_STORAGE_EXPORTS_FOLDER = "exports"
+
+
+@pytest.fixture(autouse=True)
+def reported_events():
+    """Keeps the analytics client out of these unit tests, and exposes what would have been reported."""
+    with patch(
+        "posthog.temporal.session_replay.rasterize_recording.activities.rasterize.report_export_event"
+    ) as reporter:
+        yield reporter
 
 
 def _make_asset(
@@ -38,6 +51,7 @@ def _make_asset(
     asset.export_context = export_context
     asset.export_format = export_format
     asset.content_location = content_location
+    asset.source_authentication = None
     asset.save = MagicMock()
     return asset
 
@@ -49,6 +63,7 @@ def _patches(asset: MagicMock, head_object_return: dict | None = None):
     # finalize_rasterization wraps its read-modify-write in transaction.atomic
     # + select_for_update; both need to be mockable here.
     mock_qs.select_for_update.return_value.get.return_value = asset
+    mock_qs.select_related.return_value.select_for_update.return_value.get.return_value = asset
     head_mock = MagicMock(return_value=head_object_return)
 
     class _NoopAtomic:
@@ -173,15 +188,51 @@ class TestBuildRasterizationInput:
         asset = _make_asset(pk=99, export_context={"playback_speed": 4})
         patches, _ = _patches(asset)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            with pytest.raises(ValueError, match="no session_recording_id"):
+            with pytest.raises(ApplicationError, match="no session_recording_id") as excinfo:
                 build_rasterization_input(99)
+        assert excinfo.value.non_retryable
 
     def test_none_export_context_raises(self):
         asset = _make_asset(pk=100, export_context=None)
         patches, _ = _patches(asset)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            with pytest.raises(ValueError, match="no session_recording_id"):
+            with pytest.raises(ApplicationError, match="no session_recording_id") as excinfo:
                 build_rasterization_input(100)
+        assert excinfo.value.non_retryable
+
+    @parameterized.expand(
+        [
+            ("traversal", "../../2/recordings/other"),
+            ("slash", "abc/def"),
+            ("backslash", "abc\\def"),
+            ("percent_encoded", "%2e%2e%2f2"),
+            ("dot_segment", ".."),
+            ("trailing_newline", "abc\n"),
+        ]
+    )
+    def test_malformed_session_id_raises(self, _name, session_id):
+        asset = _make_asset(pk=101, export_context={"session_recording_id": session_id})
+        patches, _ = _patches(asset)
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            with pytest.raises(ApplicationError, match="malformed session_recording_id") as excinfo:
+                build_rasterization_input(101)
+        assert excinfo.value.non_retryable
+
+    @parameterized.expand(
+        [
+            ("null_speed", {"session_recording_id": "s1", "playback_speed": None}, "playback_speed", 4),
+            ("null_fps", {"session_recording_id": "s1", "recording_fps": None}, "recording_fps", 24),
+        ]
+    )
+    def test_explicit_null_falls_back_to_default(self, _name, export_context, field, expected):
+        # An explicit null in export_context used to reach pydantic as None and fail validation
+        # three retries in a row instead of falling back.
+        asset = _make_asset(pk=50, export_context=export_context)
+        patches, _ = _patches(asset)
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            result = build_rasterization_input(50)
+        assert result.activity_input is not None
+        assert getattr(result.activity_input, field) == expected
 
     def test_timestamp_and_duration_mapped_to_offsets(self):
         asset = _make_asset(
@@ -301,7 +352,9 @@ class TestBuildRasterizationInput:
 
     @parameterized.expand(
         [
-            ("slow_motion_preserved", 0.5, 0.5),
+            # Speeds below 1 are clamped up: Node rejects them because the pipeline has no
+            # slow-motion filter chain and the reported duration would be wrong.
+            ("below_one_clamped", 0.5, 1.0),
             ("default_in_range", 4, 4),
             ("at_cap", 360, 360),
             ("above_cap", 1000, 360),
@@ -363,6 +416,37 @@ class TestBuildRasterizationCache:
         assert result.cached_output.file_size_bytes == 99000
         assert result.cached_output.truncated is False
         assert result.cached_output.inactivity_periods == []
+
+    def test_cache_hit_reports_started_and_success(self, reported_events):
+        """A cache hit returns to the workflow without reaching finalize, so if it doesn't report
+        here it never reports at all, and the export looks like it never finished."""
+        asset = _make_asset(pk=50, export_context={"session_recording_id": "s1"})
+        fp = self._fingerprint_for(asset)
+        cached_asset = _make_asset(
+            pk=50,
+            export_context=self._ctx_with_render(fp),
+            content_location="exports/mp4/team-1/task-50/video.mp4",
+        )
+        # _fingerprint_for ran the activity to get the fingerprint, so drop what that reported.
+        reported_events.reset_mock()
+
+        patches, _ = _patches(cached_asset, head_object_return={"ContentLength": 99000})
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            build_rasterization_input(50)
+
+        assert [(call.args[1], call.kwargs.get("cached")) for call in reported_events.call_args_list] == [
+            ("export started", True),
+            ("export succeeded", True),
+        ]
+
+    def test_render_reports_started(self, reported_events):
+        asset = _make_asset(pk=42, export_context={"session_recording_id": "s1"})
+
+        patches, _ = _patches(asset)
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            build_rasterization_input(42)
+
+        assert [call.args[1] for call in reported_events.call_args_list] == ["export started"]
 
     def test_cache_miss_when_fingerprint_differs(self):
         asset = _make_asset(
@@ -518,7 +602,27 @@ class TestFinalizeRasterization:
         assert asset.export_context["file_size_bytes"] == 12345
         assert asset.export_context["session_recording_id"] == "s1"
         assert asset.export_context["render_fingerprint"] == "abc1234567890def"
-        asset.save.assert_called_once_with(update_fields=["content_location", "export_context"])
+        asset.save.assert_called_once_with(
+            update_fields=["content_location", "export_context", "exception", "exception_type", "failure_type"]
+        )
+        # A re-render must not leave the previous attempt's reason sitting next to fresh content.
+        assert asset.exception is None
+        assert asset.exception_type is None
+        assert asset.failure_type is None
+
+    def test_reports_success(self, reported_events):
+        asset = _make_asset(pk=42, export_context={"session_recording_id": "s1"})
+        result = self._make_result(file_size_bytes=12345)
+
+        patches, _ = _patches(asset)
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            finalize_rasterization(
+                FinalizeRasterizationInput(exported_asset_id=42, result=result, render_fingerprint="abc")
+            )
+
+        assert [(call.args[1], call.kwargs.get("cached")) for call in reported_events.call_args_list] == [
+            ("export succeeded", False)
+        ]
 
     def test_wrong_s3_prefix_raises(self):
         asset = _make_asset(pk=42)
@@ -543,6 +647,38 @@ class TestFinalizeRasterization:
         assert "video_duration_s" in asset.export_context
         assert asset.export_context["render_fingerprint"] == "x"
         asset.save.assert_called_once()
+
+    @pytest.mark.django_db
+    def test_finalizes_against_a_real_database(self, team):
+        """The rest of this class mocks the ORM, so it cannot catch a query the database rejects.
+
+        The row is read with both `select_related` and `select_for_update`, and Postgres refuses a row
+        lock that reaches the nullable side of the resulting outer join.
+        """
+        asset = ExportedAsset.objects.create(
+            team=team,
+            export_format=ExportedAsset.ExportFormat.MP4,
+            export_context={"session_recording_id": "s1"},
+            exception="an earlier attempt failed",
+            exception_type="TIMEOUT",
+            failure_type="timeout_generation",
+        )
+        result = self._make_result(
+            s3_uri=f"s3://{settings.OBJECT_STORAGE_BUCKET}/exports/mp4/team-1/task-1/video.mp4",
+        )
+
+        # The activity drops stale connections because it runs in a long-lived worker; here that would
+        # close the connection holding the test's transaction open.
+        with patch("posthog.temporal.session_replay.rasterize_recording.activities.rasterize.close_old_connections"):
+            finalize_rasterization(
+                FinalizeRasterizationInput(exported_asset_id=asset.id, result=result, render_fingerprint="abc")
+            )
+
+        asset.refresh_from_db()
+        assert asset.content_location == "exports/mp4/team-1/task-1/video.mp4"
+        assert asset.exception is None
+        assert asset.exception_type is None
+        assert asset.failure_type is None
 
     def test_inactivity_periods_round_trip(self):
         period = InactivityPeriod(ts_from_s=1.0, ts_to_s=2.0, active=True)

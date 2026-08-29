@@ -29,6 +29,15 @@ class QuotaLimitExceeded(APIException):
     default_detail = "Your organization reached its billing limit for this resource. Increase the limits in Billing settings, or ask an org admin to do so."
 
 
+class APIQueriesQuotaExceeded(QuotaLimitExceeded):
+    default_code = "api_queries_quota_exceeded"
+    default_detail = (
+        "Your organization has read more query data over the API than its free allowance for this month. "
+        "API queries will be available again when the allowance resets. "
+        "Upgrade your plan in Billing settings to restore access sooner, or ask an org admin to do so."
+    )
+
+
 class EnterpriseFeatureException(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
     default_code = "payment_required"
@@ -106,9 +115,20 @@ class ClickHouseQueryMemoryLimitExceeded(APIException):
     # CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE constant.
     default_code = "clickhouse_memory_limit_exceeded"
     default_detail = "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries"
-    # True only when ClickHouse hit this query's own memory ceiling, meaning a retry will fail
-    # the same way. Server-wide and per-user limits are transient cluster pressure.
     is_per_query_limit = False
+
+
+class ClickHouseClusterMemoryLimitExceeded(ClickHouseQueryMemoryLimitExceeded):
+    """ClickHouse refused the query because the server-wide or per-user memory ceiling was full.
+
+    The query itself can be sized fine, so this belongs to `CH_TRANSIENT_ERRORS` and every retry
+    mechanism that references that tuple can get past it. Subclassing keeps the 513 status and the
+    machine-readable code, but the detail tells the user to wait rather than shrink a fine query.
+    """
+
+    default_detail = (
+        "We're under heavy load right now and couldn't finish this query. Please try again in a few minutes."
+    )
 
 
 class ExceptionContext(TypedDict):

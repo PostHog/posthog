@@ -10,7 +10,7 @@ from posthog.tasks.alerts.trends import query_excludes_incomplete_periods
 from products.alerts.backend.evaluation.contract import AlertExtractionError, ExtractionResult, lookback_intervals_for
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _trailing_date_range_override(interval: IntervalType | None, periods: int) -> dict:

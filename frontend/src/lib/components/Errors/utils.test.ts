@@ -1,7 +1,18 @@
-import { ErrorEventProperties, ExceptionAttributes } from './types'
-import { getExceptionAttributes, getExceptionList, getExceptionRelease, getSessionId } from './utils'
+import { ErrorEventProperties, ErrorTrackingStackFrame, ExceptionAttributes } from './types'
+import {
+    getExceptionAttributes,
+    getExceptionList,
+    getExceptionRelease,
+    getInstructionAddress,
+    getRuntimeFromLib,
+    getSessionId,
+} from './utils'
 
 describe('Error Display', () => {
+    it('recognizes the Kotlin Multiplatform SDK runtime', () => {
+        expect(getRuntimeFromLib('posthog-kmp')).toBe('kotlin')
+    })
+
     it('can read sentry stack trace when $exception_list is not present', () => {
         const eventProperties = {
             'should not be in the': 'result',
@@ -178,6 +189,29 @@ describe('Error Display', () => {
         expect(result.level).toEqual('fatal')
     })
 
+    // Mobile SDKs report the platform in $os_name and leave $os unset, so reading $os alone left
+    // iOS, Android, and React Native errors with no OS anywhere in the UI.
+    // Non-string values must resolve to undefined: they reach PropertyIcon, whose lowercase lookup
+    // would throw and take down the whole exception card.
+    it.each([
+        ['$os_name only', { $os_name: 'iOS' }, 'iOS'],
+        ['$os only', { $os: 'Windows' }, 'Windows'],
+        ['both keys', { $os_name: 'iPadOS', $os: 'Mac OS X' }, 'iPadOS'],
+        ['neither key', {}, undefined],
+        ['an empty $os_name', { $os_name: '', $os: 'Windows' }, 'Windows'],
+        ['a non-string $os_name', { $os_name: 42, $os: 'Windows' }, 'Windows'],
+        ['non-string values in both keys', { $os_name: 42, $os: {} }, undefined],
+    ])('resolves os from %s', (_name, properties, expected) => {
+        expect(getExceptionAttributes(properties).os).toEqual(expected)
+    })
+
+    it.each([
+        ['a string $browser', { $browser: 'Chrome' }, 'Chrome'],
+        ['a non-string $browser', { $browser: 42 }, undefined],
+    ])('resolves browser from %s', (_name, properties, expected) => {
+        expect(getExceptionAttributes(properties).browser).toEqual(expected)
+    })
+
     // A non-string $session_id (e.g. a numeric timestamp from a misbehaving SDK) must not leak
     // through as a number — it used to crash the issue scene via a ts-pattern exhaustive match.
     it.each([
@@ -227,5 +261,18 @@ describe('Error Display', () => {
         ['release without a timestamp', { $exception_release: { id: 'release-id', version: '1.2.3' } }],
     ])('ignores an invalid %s', (_name, properties) => {
         expect(getExceptionRelease(properties as ErrorEventProperties)).toBeUndefined()
+    })
+
+    it.each([
+        ['an apple frame', { raw_frame: { instruction_addr: '0x00000001010444e4' } }, '0x00000001010444e4'],
+        ['a frame with no junk drawer', undefined, null],
+        ['a junk drawer with no raw frame', {}, null],
+        ['a raw frame with no address', { raw_frame: { colno: 12 } }, null],
+        ['a null address', { raw_frame: { instruction_addr: null } }, null],
+        ['a non-string address', { raw_frame: { instruction_addr: 4311089892 } }, null],
+        ['a whitespace-only address', { raw_frame: { instruction_addr: '   ' } }, null],
+        ['a padded address', { raw_frame: { instruction_addr: '  0x00000001010444e4 ' } }, '0x00000001010444e4'],
+    ])('reads the instruction address from %s', (_name, junk_drawer, expected) => {
+        expect(getInstructionAddress({ junk_drawer } as ErrorTrackingStackFrame)).toEqual(expected)
     })
 })

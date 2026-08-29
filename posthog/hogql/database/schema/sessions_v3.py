@@ -172,6 +172,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
     "$is_bounce": BooleanDatabaseField(
         name="$is_bounce",
+        nullable=True,
         description="True if the session was a bounce (single page view, short duration, no interaction).",
     ),
     "$hosts": StringArrayDatabaseField(name="$hosts", description="Distinct hosts visited during the session."),

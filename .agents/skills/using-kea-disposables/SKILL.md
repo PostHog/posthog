@@ -82,6 +82,15 @@ actions.connectionErrored(reason)
 This matters most in a `finally`.
 A request the unmount aborted rejects, and the `finally` then runs against a logic that no longer exists.
 
+One caveat on a logic that mounts again.
+The next mount puts a fresh manager on the cache, so a continuation left over from the previous life can reach `cache.disposables` and find a live one.
+`isDisposed` reads `false` there, and disposing a shared key tears down the new life's resource.
+Capture what the continuation needs while the logic is alive when that matters.
+
+Do not guard a timer callback with `isDisposed` alone if it reads `values`.
+The flag only moves on unmount, and replacing the kea context (which storybook does on every story mount) drops the logic from the store without unmounting it, so the cleanup never runs.
+Compare `getContext()` against the context the resource was set up in — see `frontend/src/scenes/notebooks/Notebook/notebookKernelInfoLogic.ts`.
+
 ## Examples in the codebase
 
 **Unnamed `setInterval` poller** — see the canonical example in [The pattern](#the-pattern) (`frontend/src/layout/navigation/noEventsBannerLogic.ts:14-21`).

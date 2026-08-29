@@ -739,7 +739,7 @@ def str_to_optional_list(s: str | list[typing.Any] | None) -> list[str] | None:
         return None
     if isinstance(s, list):
         values = [str(item).strip() for item in s]
-    else:
+    elif isinstance(s, str):
         stripped = s.strip()
         if stripped == "":
             return None
@@ -754,6 +754,11 @@ def str_to_optional_list(s: str | list[typing.Any] | None) -> list[str] | None:
                 values = [stripped]
         else:
             values = [item.strip() for item in stripped.split(",")]
+    else:
+        # A non-str/list value (e.g. a dict submitted for a multi-select field) has no list
+        # interpretation. Raise so `_convert_value` surfaces it as a clean validation error
+        # instead of an unhandled `AttributeError` from calling `.strip()` on it.
+        raise TypeError(f"expected a string, list, or None, got {type(s).__name__}")
     values = [value for value in values if value]
     return values or None
 

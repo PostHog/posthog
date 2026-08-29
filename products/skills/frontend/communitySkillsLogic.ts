@@ -77,10 +77,12 @@ export interface communitySkillsLogicValues {
 export interface communitySkillsLogicActions {
     installSkill: (
         slug: string,
-        newName?: string
+        newName?: string,
+        variables?: Record<string, string>
     ) => {
         newName: string | undefined
         slug: string
+        variables: Record<string, string> | undefined
     }
     installSkillFailure: (slug: string) => {
         slug: string
@@ -176,7 +178,11 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
             debounce,
         }),
         loadSkills: (debounce: boolean = true) => ({ debounce }),
-        installSkill: (slug: string, newName?: string) => ({ slug, newName }),
+        installSkill: (slug: string, newName?: string, variables?: Record<string, string>) => ({
+            slug,
+            newName,
+            variables,
+        }),
         installSkillSuccess: (slug: string) => ({ slug }),
         installSkillFailure: (slug: string) => ({ slug }),
         toggleVote: (slug: string) => ({ slug }),
@@ -287,10 +293,11 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
             }
         },
 
-        installSkill: async ({ slug, newName }) => {
+        installSkill: async ({ slug, newName, variables }) => {
             try {
                 await communitySkillsInstallCreate(String(ApiConfig.getCurrentTeamId()), slug, {
                     new_name: newName,
+                    variables,
                 })
                 lemonToast.success(`Installed "${newName || slug}" into your project.`)
                 actions.installSkillSuccess(slug)

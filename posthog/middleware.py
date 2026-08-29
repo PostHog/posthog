@@ -53,17 +53,17 @@ from posthog.models.activity_logging.utils import (
     activity_storage,
 )
 from posthog.models.utils import generate_random_token
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -1372,6 +1372,31 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
     ),
     # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$")),
+    # POST but read-only: the Logs product sends its queries as POST because the filter payload
+    # is too large for a query string. Action names are enumerated rather than allowing the whole
+    # `logs/` prefix, which also hosts writing CRUD viewsets (alerts, views, sampling_rules,
+    # retention_rules, metric_rules, anomalies).
+    (
+        "POST",
+        re.compile(
+            r"^/api/(environments|projects)/([0-9]+|@current)/logs/"
+            r"(query|sparkline|facet_values|count-ranges|count|services|patterns_diff|patterns|group-by)/?$"
+        ),
+    ),
+    # POST but read-only: same reasoning for the Traces (tracing spans) product
+    (
+        "POST",
+        re.compile(
+            r"^/api/(environments|projects)/([0-9]+|@current)/tracing/spans/"
+            r"(query|count|symbol-stats|sparkline|duration-histogram|latency-heatmap|aggregate|tree"
+            r"|attribute-breakdown|trace/[a-zA-Z0-9]+)/?$"
+        ),
+    ),
+    # POST but read-only: same reasoning for the Metrics product
+    (
+        "POST",
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metrics/(query|samples|characterize|explain)/?$"),
+    ),
     # Allow upgrading from read-only to read-write impersonation
     ("POST", "/admin/impersonation/upgrade/"),
     # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),

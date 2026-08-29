@@ -99,6 +99,33 @@ export interface ReviewProgressApi {
     total: number | null
 }
 
+/**
+ * * `resolving` - resolving
+ * * `stopped` - stopped
+ */
+export type ResolutionStatusEnumApi = (typeof ResolutionStatusEnumApi)[keyof typeof ResolutionStatusEnumApi]
+
+export const ResolutionStatusEnumApi = {
+    Resolving: 'resolving',
+    Stopped: 'stopped',
+} as const
+
+export interface ReviewResolutionStatusApi {
+    /** Where the run stands: `resolving` while threads are being settled, `stopped` when the run died partway (went quiet with no closing summary).
+     *
+     * * `resolving` - resolving
+     * * `stopped` - stopped */
+    resolution_status: ResolutionStatusEnumApi
+    /** Queued threads settled so far this run. */
+    done: number
+    /** Threads queued for this run. */
+    total: number
+    /** Settled threads that were fixed with a commit to the branch. */
+    fixed: number
+    /** Settled threads left for the author: judged worth doing but not safe to fix unattended. */
+    needs_attention: number
+}
+
 export interface ReviewRecentReviewApi {
     /** The review report's id, for fetching the review's detail. */
     id: string
@@ -147,10 +174,12 @@ export interface ReviewRecentReviewApi {
     last_run_at: string | null
     /** Whether a review has been published back to GitHub. */
     published: boolean
-    /** Whether a review turn is running on this report right now (activity within the last 30 minutes). */
+    /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
     in_progress: boolean
-    /** The in-flight turn's stage and counters; null unless `in_progress`. */
+    /** The in-flight review turn's stage and counters; null unless a review turn is running (a resolving report carries `resolution` instead). */
     progress: ReviewProgressApi | null
+    /** The report's latest resolution run (settling the PR's review threads): live progress while it runs, or where it stopped when it died partway. Null when there is none, it completed, or a newer review turn superseded it. */
+    resolution: ReviewResolutionStatusApi | null
     /** The latest turn's valid findings at must_fix effective priority. */
     must_fix_count: number
     /** The latest turn's valid findings at should_fix effective priority. */
@@ -360,10 +389,12 @@ export interface ReviewDetailApi {
     last_run_at: string | null
     /** Whether a review has been published back to GitHub. */
     published: boolean
-    /** Whether a review turn is running on this report right now (activity within the last 30 minutes). */
+    /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
     in_progress: boolean
-    /** The in-flight turn's stage and counters; null unless `in_progress`. */
+    /** The in-flight review turn's stage and counters; null unless a review turn is running (a resolving report carries `resolution` instead). */
     progress: ReviewProgressApi | null
+    /** The report's latest resolution run (settling the PR's review threads): live progress while it runs, or where it stopped when it died partway. Null when there is none, it completed, or a newer review turn superseded it. */
+    resolution: ReviewResolutionStatusApi | null
     /** The latest turn's valid findings at must_fix effective priority. */
     must_fix_count: number
     /** The latest turn's valid findings at should_fix effective priority. */
@@ -443,9 +474,10 @@ export interface ReviewPerspectiveStatsApi {
  * * `review_only` - review_only
  * * `resolve_only` - resolve_only
  */
-export type RunModeEnumApi = (typeof RunModeEnumApi)[keyof typeof RunModeEnumApi]
+export type ReviewTriggerRequestRunModeEnumApi =
+    (typeof ReviewTriggerRequestRunModeEnumApi)[keyof typeof ReviewTriggerRequestRunModeEnumApi]
 
-export const RunModeEnumApi = {
+export const ReviewTriggerRequestRunModeEnumApi = {
     Review: 'review',
     ReviewOnly: 'review_only',
     ResolveOnly: 'resolve_only',
@@ -459,7 +491,7 @@ export interface ReviewTriggerRequestApi {
      * * `review` - review
      * * `review_only` - review_only
      * * `resolve_only` - resolve_only */
-    run_mode?: RunModeEnumApi
+    run_mode?: ReviewTriggerRequestRunModeEnumApi
 }
 
 export interface ReviewTriggerResponseApi {

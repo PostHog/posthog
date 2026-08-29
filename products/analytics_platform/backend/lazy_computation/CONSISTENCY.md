@@ -336,7 +336,7 @@ Not applicable to PostHog (fully self-hosted), but for reference:
 
 ## Concurrent first-readers: redundant INSERTs (by design)
 
-The partial unique index `unique_pending_job_per_range` (migration `0004_unique_pending_job_index.py`) is `WHERE status='pending'`. Once a job transitions PENDING → READY the row is no longer in the index, so a second CREATE for the same `(team_id, query_hash, range)` no longer raises `IntegrityError`. This is intentional: a stale READY job past its TTL should be replaceable.
+The partial unique index `unique_pending_job_per_range` (migration `0004_unique_pending_job_index.py`) is `WHERE status='pending'`. Once a job transitions PENDING → READY the row is no longer in the index, so a second CREATE for the same `(team_id, query_hash, range)` no longer collides. This is intentional: a stale READY job past its TTL should be replaceable.
 
 Combined with the executor's `for range in ttl_ranges` loop, this produces a wasted-INSERT pattern under concurrent first-readers on the **shortest-TTL** ranges (today / yesterday in `LAZY_TTL_SECONDS`):
 
@@ -345,8 +345,8 @@ T=0.000  N threads enter executor. All call find_existing_jobs → []. All compu
          the same stale ttl_ranges = [today, yesterday, 7-day].
 
 T=0.005  3 threads each WIN a different range (one PENDING per range via the
-         partial unique index). The other (N-3) threads hit IntegrityError on
-         all 3 ranges and loop back to wait on pubsub.
+         partial unique index). The other (N-3) threads lose the create race on
+         all 3 ranges (ON CONFLICT DO NOTHING) and loop back to wait on pubsub.
 
 T~0.5    The 3 winners each finish their CH INSERT (~470ms) and mark READY
          within a few ms of each other.
@@ -365,3 +365,13 @@ Observed in a 10-concurrent-first-readers stress test of the `web_overview_query
 **Cost:** ~2× redundant INSERTs on the shortest-TTL ranges under cold-cache load. At low concurrency this is invisible. At high concurrency (e.g. dashboard-load fan-out across multiple browser tabs) it doubles CH write load for those ranges only. Mitigated naturally once the cache is primed — a second wave against the same range produces zero new INSERTs.
 
 **Possible fix (not applied):** `break` out of the for-loop after a successful CREATE+INSERT, returning control to the while-loop so `find_existing_jobs` re-runs and `ttl_ranges` gets recomputed against current state. Trade-off: each thread does at most one INSERT per round-trip (slower wall time when one thread legitimately owns multiple ranges), but eliminates the race. See `test_for_loop_creates_duplicate_after_peer_completes_mid_loop` in `tests/test_lazy_computation_executor.py` for the deterministic reproduction.
+
+## Expired-but-PENDING rows: blocked windows (known limitation)
+
+`find_existing_jobs` filters on `expires_at >= now`, but the `unique_pending_job_per_range` index only keys on `status='pending'`. A PENDING row whose `expires_at` has passed is therefore invisible to readers while still holding the create slot for its window. Rows land in that state when the owning executor dies without a terminal update and the TTL then lapses, or when an INSERT outlives the TTL stamped at creation (short today-bands are most exposed).
+
+**Consequences:** the window looks uncovered, every create for it loses the race, and the step-4 stale reaper never sees the row (it only reaps jobs `find_existing_jobs` returned). Writers retry immediately once (the healthy-race case, where the rescan finds the winner's row), then back off exponentially like the wait branch, giving up at `wait_timeout_seconds`; check-only reads are unaffected and fall back to the live query.
+
+**Detection:** a sustained `lazy_computation_job_create_conflicts_total` rate for a table with no matching `lazy_computation_jobs_created_total` / `lazy_computation_jobs_finished_total` progress. The steady background conflict rate from warmers and SWR revalidation racing on shared windows does not show this signature.
+
+**Possible fixes (not applied):** on a lost race, fetch the blocking PENDING row and fail it when expired; or a periodic sweeper that fails PENDING rows past `expires_at`. Both stay compatible with the index as deployed.

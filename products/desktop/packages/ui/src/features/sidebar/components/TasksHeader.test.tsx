@@ -37,7 +37,11 @@ describe("TasksHeader", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     featureFlagEnabled.value = true;
-    useSidebarStore.setState({ channelsEnabled: false });
+    useSidebarStore.setState({
+      channelsEnabled: false,
+      organizeMode: "by-project",
+      sortMode: "updated",
+    });
   });
 
   it("switches modes from the panel title and changes the available actions", async () => {
@@ -73,6 +77,31 @@ describe("TasksHeader", () => {
       action_type: "toggle_channels",
       surface: "nav",
     });
+  });
+
+  it("groups the task list by repository or date", async () => {
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <TasksHeader />
+      </Theme>,
+    );
+
+    await user.click(screen.getByLabelText("Filter tasks"));
+
+    expect(await screen.findByText("Group by")).toBeInTheDocument();
+    expect(screen.getByText("Repository")).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+
+    await user.click(screen.getByText("Date"));
+
+    expect(useSidebarStore.getState().organizeMode).toBe("chronological");
+    expect(track).toHaveBeenCalledWith(
+      ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED,
+      { group_by: "date", sort_by: "updated", surface: "sidebar" },
+    );
   });
 
   it("hides the mode selector when Channels is unavailable", () => {

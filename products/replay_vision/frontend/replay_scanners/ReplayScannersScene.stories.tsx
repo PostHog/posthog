@@ -6,9 +6,11 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
+import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { StartupProgramLabel } from '~/types'
 
 import type {
+    DraftScannerResponseApi,
     ObservationStatsApi,
     ReplayObservationApi,
     ReplayScannerApi,
@@ -18,6 +20,8 @@ import type {
     VisionActionApi,
     VisionQuotaApi,
 } from '../generated/api.schemas'
+import { replayScannerLogic } from './replayScannerLogic'
+import type { SamplingMode, ScannerConfig, ScannerType } from './types'
 
 const alice: UserBasicApi = {
     id: 1,
@@ -41,12 +45,16 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         id: '00000000-0000-0000-0000-00000000000a',
         name: 'Scanner',
         description: '',
+        tags: [],
         scanner_type: 'monitor',
         scanner_config: { prompt: 'Did the user struggle?' },
         query: null,
         sampling_rate: 1,
+        // The API always serializes this (non-null column with a default), so a fixture without it
+        // would render the editor's form default instead of the scanner's own coverage.
+        sampling_mode: 'comprehensive',
         provider: 'google',
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.7-flash',
         enabled: true,
         emits_signals: false,
         scanner_version: 1,
@@ -72,6 +80,7 @@ const scanners = {
             credits_this_month: 1250,
             observations_this_month: 1250,
             description: 'Flags sessions where the user hesitated at payment.',
+            tags: ['checkout', 'core flows'],
             scanner_type: 'monitor',
             sampling_rate: 1,
             created_by: alice,
@@ -183,7 +192,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             name: summarizerScanner.name,
             scanner_type: 'summarizer',
             scanner_version: 1,
-            model: 'gemini-3.6-flash',
+            model: 'gemini-3.7-flash',
             provider: 'google',
             emits_signals: false,
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
@@ -451,6 +460,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
@@ -488,25 +498,28 @@ export default meta
 
 export const ScannersList: StoryObj = {}
 
-// Zero scanners: snapshot-covers the table empty state and its docs link, which no other story renders.
+// A project that has never created a scanner: the surface of the empty-state experiment.
+const emptyProjectDecorators = [
+    mswDecorator({
+        get: {
+            '/api/projects/:team_id/vision/scanners/': { count: 0, next: null, previous: null, results: [] },
+            '/api/projects/:team_id/vision/scanners/stats/': {
+                total: 0,
+                enabled: 0,
+                by_type: {
+                    monitor: { enabled: 0, total: 0 },
+                    classifier: { enabled: 0, total: 0 },
+                    scorer: { enabled: 0, total: 0 },
+                    summarizer: { enabled: 0, total: 0 },
+                },
+            } satisfies ScannerStatsResponseApi,
+            '/api/projects/:team_id/vision/scanners/creators/': { creators: [] },
+        },
+    }),
+]
+
 export const ScannersListEmpty: StoryObj = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/vision/scanners/': { count: 0, next: null, previous: null, results: [] },
-                '/api/projects/:team_id/vision/scanners/stats/': {
-                    total: 0,
-                    enabled: 0,
-                    by_type: {
-                        monitor: { enabled: 0, total: 0 },
-                        classifier: { enabled: 0, total: 0 },
-                        scorer: { enabled: 0, total: 0 },
-                        summarizer: { enabled: 0, total: 0 },
-                    },
-                } satisfies ScannerStatsResponseApi,
-            },
-        }),
-    ],
+    decorators: emptyProjectDecorators,
 }
 
 export const UsageTab: StoryObj = {
@@ -516,6 +529,55 @@ export const UsageTab: StoryObj = {
 // Nothing else renders the summarizer's friction/keyword panels, so this story is what catches regressions there.
 export const SummarizerOverview: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+}
+
+// The scan-drought banner: current version 4 has no marker, and the sweep watermark sits past the
+// last config change, so the page warns that the filters matched nothing. No other story renders it.
+export const ScannerScanDrought: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/:id/': scanner({
+                    id: summarizerScanner.id,
+                    name: 'Confused checkout',
+                    scanner_type: 'monitor',
+                    scanner_config: { prompt: 'Did the user struggle?' },
+                    scanner_version: 4,
+                    sampling_rate: 0.1,
+                    updated_at: '2026-05-10T00:00:00Z',
+                    last_swept_at: '2026-05-12T00:00:00Z',
+                    created_by: alice,
+                }),
+                '/api/projects/:team_id/vision/scanners/:id/observations/stats/': {
+                    ...summarizerStats,
+                    summarizer: null,
+                    monitor: { yes_total: 12, no_total: 130, inconclusive_total: 0 },
+                    labels: {
+                        ...summarizerStats.labels,
+                        version_markers: [
+                            {
+                                date: '2026-05-01',
+                                version: 3,
+                                prompt: 'Did the user struggle?',
+                                scanner_config: { prompt: 'Did the user struggle?' },
+                                scanner_type: 'monitor',
+                                model: 'gemini-3.7-flash',
+                                provider: 'google',
+                                emits_signals: false,
+                                query: null,
+                                sampling_rate: 1,
+                                sampling_mode: 'comprehensive',
+                                up: 6,
+                                down: 2,
+                                total: 142,
+                            },
+                        ],
+                    },
+                } satisfies ObservationStatsApi,
+            },
+        }),
+    ],
 }
 
 export const ScannerObservations: StoryObj = {
@@ -563,6 +625,10 @@ export const ScannerTemplates: StoryObj = {
     parameters: { pageUrl: urls.replayVisionTemplates() },
 }
 
+export const ScannerEditorDetails: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionScannerDetails(summarizerScanner.id) },
+}
+
 export const ScannerEditorConfigure: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id) },
 }
@@ -585,6 +651,10 @@ export const ScannerEditorConfigureLiteStandardPro: StoryObj = {
 
 export const ScannerEditorTriggers: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerTriggers(summarizerScanner.id) },
+}
+
+export const ScannerEditorBudget: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionScannerBudget(summarizerScanner.id) },
 }
 
 export const ActionEditorAlert: StoryObj = {
@@ -615,11 +685,77 @@ export const StartupProgramCap: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/quota/': { ...quota, credit_limit: null, remaining: null },
                 '/api/billing/': { ...billingJson, startup_program_label: StartupProgramLabel.YC },
             },
         }),
+    ],
+}
+
+// The goal-based creation flow's two questions replace the template gallery when the flag's test
+// variant is on.
+export const ScannerEditorGoalFlow: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerTemplate('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+    },
+}
+
+const goalDraft: DraftScannerResponseApi = {
+    name: 'Billing give-up monitor',
+    description: 'Flags sessions where a user reaches billing and leaves without finishing.',
+    scanner_type: 'monitor',
+    scanner_config: {
+        prompt: 'Did the user reach a billing page and leave without completing what they started there? Answer yes or no with a one-sentence reason.',
+        allow_inconclusive: true,
+    },
+    rationale:
+        'You want to catch people who give up around billing, so this watches sessions that touch your billing pages and asks a yes/no question about each one. Giving up looks unremarkable, so it watches all matching replays rather than only the eventful ones.',
+    query: {
+        kind: 'RecordingsQuery',
+        properties: [
+            {
+                type: 'recording',
+                key: 'visited_page',
+                value: ['/organization/billing/overview', '/organization/billing/plans', '/checkout'],
+                operator: 'icontains',
+            },
+        ],
+    },
+    sampling_mode: 'comprehensive',
+    sampling_rate: 0.25,
+    model: 'gemini-3-flash-preview',
+    credit_limit: 5000,
+    estimated_monthly_observations: 1000,
+}
+
+// The landing step after a goal draft: the whole config ordered by comprehension, each section
+// deep-linking into the wizard step that edits it. Seeded through the same action the loader fires.
+export const ScannerEditorGoalOverview: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+    },
+    decorators: [
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            // The success listener's stale-navigation guard sees the overview URL and skips its own
+            // reset + redirect, so only the goalDraft reducer applies; the form is seeded by hand.
+            logic.actions.draftScannerFromGoalSuccess(goalDraft)
+            logic.actions.setScannerValues({
+                name: goalDraft.name,
+                description: goalDraft.description,
+                scanner_type: goalDraft.scanner_type as ScannerType,
+                scanner_config: goalDraft.scanner_config as ScannerConfig,
+                query: goalDraft.query as RecordingsQuery,
+                sampling_mode: goalDraft.sampling_mode as SamplingMode,
+                sampling_rate: goalDraft.sampling_rate ?? 1,
+            })
+            return <StoryFn />
+        },
     ],
 }

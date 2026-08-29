@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
     CDC_BACKPRESSURE_STUCK_AGE,
     CDC_MAX_CHANGES_PER_READ,
+    CDC_MAX_EXTRACTION_ATTEMPTS,
     CDC_ORPHAN_JOB_MIN_AGE,
     CDC_ORPHANED_JOB_MESSAGE,
     SLOT_INVALIDATION_RECOVERY_MESSAGE,
@@ -28,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
     cdc_extract_activity,
     cleanup_orphan_slots_activity,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN, CDC_SEQ_PROVENANCE
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -670,12 +671,41 @@ class TestShadowBufferWrite:
         legacy_table = mock_s3.write_batch.call_args[0][0]
         assert legacy_table.column(CDC_SEQ_COLUMN).to_pylist() == [42]
 
-    def _hook_activity(self):
+    def _hook_activity(self, trailing_column: bool = False):
         source = _make_source()
         act = _make_extract_activity(source)
         schema = _make_schema("users", cdc_mode="streaming", source=source)
-        table = pa.table({"id": pa.array([1], type=pa.int64()), CDC_SEQ_COLUMN: pa.array([256], type=pa.int64())})
+        table = pa.table({"id": pa.array([1], type=pa.int64())}).append_column(
+            pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE),
+            pa.array([256], type=pa.int64()),
+        )
+        if trailing_column:
+            table = table.append_column(pa.field("added_later", pa.string()), pa.array(["x"], type=pa.string()))
         return act, schema, table
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_shadow_writes_when_a_column_sits_after_the_seq_column(self, MockBufferWriter):
+        # The hook used to locate the position by index, assuming the batcher appended it last. A
+        # column added after it would silently stop buffering, or feed cleanup a restart floor read
+        # off the wrong column.
+        act, schema, table = self._hook_activity(trailing_column=True)
+        MockBufferWriter.return_value.write_batch.return_value = MagicMock(write_duration_seconds=0.01)
+        act._shadow_enabled = True
+
+        act._maybe_shadow_write_buffer(schema, "users", table)
+
+        MockBufferWriter.return_value.write_batch.assert_called_once()
+        assert MockBufferWriter.return_value.cleanup_superseded_files.call_args.kwargs["restart_seq"] == 256
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_shadow_skips_a_source_owned_seq_column(self, MockBufferWriter):
+        act, schema, _ = self._hook_activity()
+        unstamped = pa.table({"id": pa.array([1], type=pa.int64()), CDC_SEQ_COLUMN: pa.array([999], type=pa.int64())})
+        act._shadow_enabled = True
+
+        act._maybe_shadow_write_buffer(schema, "users", unstamped)
+
+        MockBufferWriter.return_value.write_batch.assert_not_called()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_shadow_file_index_increments_per_table_including_failures(self, MockBufferWriter):
@@ -958,6 +988,7 @@ class TestCDCExtractActivity:
     ):
         source = _make_source()
         MockSourceModel.objects.get.return_value = source
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
 
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
@@ -2398,6 +2429,123 @@ class TestErrorClassification:
         assert schema.latest_error == cdc_error_info(CDCErrorCategory.CONNECTION_FAILED).friendly_message
         mock_posthoganalytics.capture.assert_not_called()
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_machine_id",
+        return_value="machine-1",
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_terminal_unclassified_error_is_captured_for_triage(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+        mock_posthoganalytics,
+        mock_get_machine_id,
+    ):
+        # An unclassified failure stays retryable and never pauses the schedule, so a deterministic one
+        # re-fails every scheduled run forever. Only the non-retryable path emits analytics, so without
+        # this capture these highest-volume retry loops stay invisible to error triage.
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        mock_get_schemas.return_value = [schema]
+
+        # A non-psycopg error the adapter can't classify falls back to retryable UNKNOWN.
+        mock_reader = MagicMock()
+        mock_reader.read_changes.side_effect = RuntimeError("arrow merge blew up")
+        mock_reader.truncated_tables = []
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.classify_error = PostgresCDCAdapter().classify_error
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.heartbeat = MagicMock()
+        # Retries exhausted: the failure is terminal, so the capture fires (unlike a mid-retry attempt).
+        mock_activity.info.return_value = MagicMock(
+            workflow_id="wf-1", workflow_run_id="run-1", attempt=CDC_MAX_EXTRACTION_ATTEMPTS
+        )
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with (
+            patch("products.data_warehouse.backend.facade.tasks.schedule_external_data_failure_digest"),
+            pytest.raises(RuntimeError, match="arrow merge blew up"),
+        ):
+            cdc_extract_activity(inputs)
+
+        assert schema.latest_error == cdc_error_info(CDCErrorCategory.UNKNOWN).friendly_message
+        mock_posthoganalytics.capture.assert_called_once()
+        captured = mock_posthoganalytics.capture.call_args.kwargs
+        assert captured["event"] == "cdc extraction unclassified error"
+        assert captured["properties"]["source_id"] == str(source.id)
+        # The exception type — not str(exc), which could embed customer host/table names — is what a
+        # human needs to teach the taxonomy to recognise this failure.
+        assert "RuntimeError" in captured["properties"]["exception_types"]
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_machine_id",
+        return_value="machine-1",
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_terminal_unclassified_error_captures_sqlstate_for_triage(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+        mock_posthoganalytics,
+        mock_get_machine_id,
+    ):
+        # A revoked REPLICATION/SELECT grant surfaces as psycopg InsufficientPrivilege, which the
+        # adapter doesn't classify, so it loops as retryable UNKNOWN. Its SQLSTATE (42501) is what
+        # tells a human this is a permission error and not some other ProgrammingError.
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        mock_get_schemas.return_value = [schema]
+
+        mock_reader = MagicMock()
+        mock_reader.read_changes.side_effect = psycopg.errors.InsufficientPrivilege("permission denied")
+        mock_reader.truncated_tables = []
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.classify_error = PostgresCDCAdapter().classify_error
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.heartbeat = MagicMock()
+        mock_activity.info.return_value = MagicMock(
+            workflow_id="wf-1", workflow_run_id="run-1", attempt=CDC_MAX_EXTRACTION_ATTEMPTS
+        )
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with (
+            patch("products.data_warehouse.backend.facade.tasks.schedule_external_data_failure_digest"),
+            pytest.raises(psycopg.errors.InsufficientPrivilege),
+        ):
+            cdc_extract_activity(inputs)
+
+        captured = mock_posthoganalytics.capture.call_args.kwargs
+        assert captured["event"] == "cdc extraction unclassified error"
+        assert "42501" in captured["properties"]["sqlstates"]
+
 
 class TestSlotInvalidationRecovery:
     """When the replication slot is invalidated/dropped on the source DB, the activity
@@ -2826,6 +2974,112 @@ class TestFailureVisibilityJobs:
         assert MockJob.objects.create.call_count == 2
         created_for = {call.kwargs["schema"] for call in MockJob.objects.create.call_args_list}
         assert created_for == {schema_a, schema_b}
+
+
+class TestPKColumnLoading:
+    def _activity(self, schemas, queried_pks=None, default_namespace="public"):
+        source = _make_source()
+        source.job_inputs = {**source.job_inputs, "schema": default_namespace}
+        act = _make_extract_activity(source)
+        act.cdc_schemas = schemas
+        for schema in schemas:
+            schema.source = source
+        act.reader = MagicMock()
+        act.reader.get_primary_key_columns.side_effect = lambda namespace, relations: {
+            relation: pks for relation, pks in (queried_pks or {}).get(namespace, {}).items() if relation in relations
+        }
+        return act
+
+    def test_qualified_name_is_split_for_the_query_and_rejoined_for_the_result(self):
+        # The catalog filters on the bare relation name inside one namespace, so a qualified
+        # ExternalDataSchema.name matched nothing and the table synced with no merge key.
+        schema = _make_schema("cdc_test.orders")
+        act = self._activity([schema], queried_pks={"cdc_test": {"orders": ["id"]}})
+
+        act._load_pk_columns()
+
+        assert act.reader.get_primary_key_columns.call_args.args == ("cdc_test", ["orders"])
+        assert act.pk_columns_by_table == {"cdc_test.orders": ["id"]}
+        assert schema.sync_type_config["primary_key_columns"] == ["id"]
+        warnings = [call.args[0] for call in act.log.bind.return_value.warning.call_args_list]
+        assert "cdc_pk_columns_first_write" in warnings
+
+    def test_bare_name_falls_back_to_the_source_namespace(self):
+        schema = _make_schema("orders")
+        act = self._activity([schema], queried_pks={"analytics": {"orders": ["id"]}}, default_namespace="analytics")
+
+        act._load_pk_columns()
+
+        assert act.reader.get_primary_key_columns.call_args.args == ("analytics", ["orders"])
+        assert act.pk_columns_by_table == {"orders": ["id"]}
+
+    def test_tables_are_grouped_by_namespace(self):
+        # One query per namespace, and two tables sharing a relation name stay distinct.
+        act = self._activity(
+            [_make_schema("cdc_test.orders"), _make_schema("public.orders")],
+            queried_pks={"cdc_test": {"orders": ["id"]}, "public": {"orders": ["uuid"]}},
+        )
+
+        act._load_pk_columns()
+
+        queried_namespaces = {call.args[0] for call in act.reader.get_primary_key_columns.call_args_list}
+        assert queried_namespaces == {"cdc_test", "public"}
+        assert act.pk_columns_by_table == {"cdc_test.orders": ["id"], "public.orders": ["uuid"]}
+
+    def test_stored_keys_are_not_requeried(self):
+        schema = _make_schema("cdc_test.orders")
+        schema.sync_type_config["primary_key_columns"] = ["id"]
+        act = self._activity([schema])
+
+        act._load_pk_columns()
+
+        act.reader.get_primary_key_columns.assert_not_called()
+        assert act.pk_columns_by_table == {"cdc_test.orders": ["id"]}
+
+
+class TestPKDivergenceDetection:
+    def _activity(self, decoder_pks, stored_pks, table="cdc_test.orders"):
+        source = _make_source()
+        schema = _make_schema(table, source=source)
+        act = _make_extract_activity(source)
+        act.cdc_schemas = [schema]
+        act.schema_by_name = {table: schema}
+        act.all_table_names = {table}
+        act.pk_columns_by_table = {table: stored_pks}
+        act.reader = MagicMock()
+        act.reader.get_decoder_key_columns.return_value = decoder_pks
+        return act, schema
+
+    @parameterized.expand(
+        [
+            # The qualified name is the whole point: it is what ExternalDataSchema.name holds, and
+            # the decoder used to match only the bare relation name, so this never fired.
+            ("key_gained_a_column", ["id", "tenant_id"], ["id"], True),
+            ("key_replaced", ["uuid"], ["id"], True),
+            # pg_catalog orders by index position, the decoder by column position.
+            ("same_key_different_order", ["tenant_id", "id"], ["id", "tenant_id"], False),
+            ("unchanged", ["id"], ["id"], False),
+            # What REPLICA IDENTITY FULL and NOTHING both report.
+            ("no_key_in_wal", [], ["id"], False),
+        ]
+    )
+    def test_divergence_warns_only_on_a_real_change(self, _name, decoder_pks, stored_pks, expect_warning):
+        act, _schema = self._activity(decoder_pks, stored_pks)
+
+        act._detect_pk_changes_post_wal()
+
+        warnings = [call.args[0] for call in act.log.bind.return_value.warning.call_args_list]
+        assert ("cdc_pk_columns_diverged" in warnings) is expect_warning
+
+    def test_diverged_key_is_not_persisted_over_the_merge_key(self):
+        # Re-keying a live Delta table duplicates every row already merged under the old key, so a
+        # detected change stays a signal until an operator re-snapshots the table.
+        act, schema = self._activity(["id", "tenant_id"], ["id"])
+
+        act._detect_pk_changes_post_wal()
+
+        assert "primary_key_columns" not in schema.sync_type_config
+        assert act.pk_columns_by_table["cdc_test.orders"] == ["id"]
 
 
 class _ScriptedReader:
@@ -3315,3 +3569,137 @@ class TestFailureVisibilityCooldown:
 
         rows_this_run = ExternalDataJob.objects.filter(schema=schema, workflow_run_id="run-2").count()
         assert rows_this_run == (1 if expect_new_row else 0)
+
+
+class TestBufferedIngressCapture:
+    # Capture for a flipped source: eligible schemas are delivered by buffer alone, ineligible ones
+    # keep today's transforms and sourcebatch dispatch, and a buffer failure must fail the run —
+    # the slot is about to advance past those changes.
+
+    def _run(self, MockBufferWriter, events, schemas, source, capture: dict | None = None):
+        with (
+            patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections"),
+            patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob") as MockJob,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource"
+            ) as MockSourceModel,
+            patch.object(CDCExtractActivity, "_get_cdc_schemas") as mock_get_schemas,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter"
+            ) as mock_get_adapter,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter"
+            ) as MockS3Writer,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer"
+            ) as MockProducer,
+            patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity") as mock_activity,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.is_shadow_write_enabled",
+                return_value=False,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.complete_schema_run"
+            ) as mock_complete,
+        ):
+            MockBufferWriter.return_value.write_batch.return_value.write_duration_seconds = 0.01
+            mock_reader, mock_s3, mock_producer, _mock_job = _setup_mocks(
+                mock_activity,
+                MockProducer,
+                MockS3Writer,
+                mock_get_adapter,
+                mock_get_schemas,
+                MockSourceModel,
+                MockJob,
+                MagicMock(),
+                source,
+                schemas,
+                events,
+            )
+            mock_get_adapter.return_value.parse_cdc_config.return_value.ingest_mode = "buffered"
+            if capture is not None:
+                capture["reader_ref"] = mock_reader
+                capture["complete_schema_run"] = mock_complete
+            cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+        return mock_reader, mock_s3, mock_producer
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_buffered_schema_is_delivered_by_buffer_alone(self, MockBufferWriter):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [
+            _make_event(op="I", position="0/100", columns={"id": 1, "name": "Alice"}),
+            _make_event(op="U", position="0/200", columns={"id": 1, "name": "Bob"}),
+        ]
+
+        mock_reader, mock_s3, mock_producer = self._run(MockBufferWriter, events, [schema], source)
+
+        buffered = MockBufferWriter.return_value.write_batch.call_args.kwargs["table"]
+        assert buffered.column(CDC_SEQ_COLUMN).to_pylist() == [0x100, 0x200]
+        # Raw stream, seq intact — the loader dedupes and resolves positions.
+        assert buffered.num_rows == 2
+        # No legacy delivery: no S3 batch, no sourcebatch row, so no ExternalDataJob to bill.
+        mock_s3.write_batch.assert_not_called()
+        mock_producer.send_batch_notification.assert_not_called()
+        # The point of the whole design: durable buffer releases the customer's WAL immediately.
+        mock_reader.confirm_position.assert_called_once_with("0/200")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_an_ineligible_schema_on_a_flipped_source_keeps_the_legacy_path(self, MockBufferWriter):
+        source = _make_source()
+        companion = _make_schema("events", cdc_mode="streaming", cdc_table_mode="cdc_only", source=source)
+        events = [_make_event(op="I", position="0/100", table="events", columns={"id": 1})]
+
+        _reader, mock_s3, mock_producer = self._run(MockBufferWriter, events, [companion], source)
+
+        MockBufferWriter.return_value.write_batch.assert_not_called()
+        mock_s3.write_batch.assert_called_once()
+        mock_producer.send_batch_notification.assert_called_once()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_buffer_write_failure_fails_the_run_and_leaves_the_slot(self, MockBufferWriter):
+        # The opposite of the shadow lane's policy: swallowing here would advance the slot past
+        # changes that reached nothing, losing them for good.
+        MockBufferWriter.return_value.write_batch.side_effect = Exception("s3 down")
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+        captured: dict = {}
+
+        with pytest.raises(Exception, match="s3 down"):
+            captured["reader"] = self._run(MockBufferWriter, events, [schema], source, capture=captured)
+
+        captured["reader_ref"].confirm_position.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_source_column_named_like_seq_fails_the_buffered_run(self, MockBufferWriter):
+        # The batcher skips its append on the collision, so the file's name, ordering, and retry
+        # cleanup would all derive from customer data — cleanup can then delete unconsumed files.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", position="0/100", columns={"id": 1, CDC_SEQ_COLUMN: 42})]
+        captured: dict = {}
+
+        with pytest.raises(Exception, match="_ph_cdc_seq"):
+            self._run(MockBufferWriter, events, [schema], source, capture=captured)
+
+        MockBufferWriter.return_value.write_batch.assert_not_called()
+        captured["reader_ref"].confirm_position.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_capture_does_not_repaint_a_buffered_schema_healthy(self, MockBufferWriter):
+        # The scheduled sync owns a buffered schema's status; capture repainting COMPLETED every
+        # tick would erase a failing consumer run within a minute and hide a buffer backlog.
+        source = _make_source()
+        buffered = _make_schema("users", cdc_mode="streaming", source=source)
+        legacy = _make_schema("events", cdc_mode="streaming", cdc_table_mode="cdc_only", source=source)
+        events = [
+            _make_event(op="I", position="0/100", columns={"id": 1}),
+            _make_event(op="I", position="0/100", table="events", columns={"id": 1}),
+        ]
+        captured: dict = {}
+
+        self._run(MockBufferWriter, events, [buffered, legacy], source, capture=captured)
+
+        repainted = [call.args[0].name for call in captured["complete_schema_run"].call_args_list]
+        assert repainted == ["events"]

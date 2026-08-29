@@ -1,6 +1,7 @@
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError
 
 import deltalake
+import psycopg.errors
 import botocore.exceptions
 from parameterized import parameterized
 
@@ -12,6 +13,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_transient_maintenance_error,
     is_transient_object_store_error,
 )
+
+
+def _internal_error_with_cause(cause: BaseException) -> InternalError:
+    """Mirrors how Django's DatabaseErrorWrapper re-raises a psycopg error: `raise dj_exc_value ... from exc_value`."""
+    error = InternalError("cannot execute SELECT FOR UPDATE in a read-only transaction")
+    error.__cause__ = cause
+    return error
 
 
 class TestIsTransientObjectStoreError:
@@ -26,6 +34,13 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             ("unrelated_os_error", OSError("Permission denied: bucket policy forbids this operation"), False),
+            (
+                # s3fs wraps a CopyObject/PutObject 5xx as a plain OSError once boto's own retries
+                # are exhausted - S3's fixed InternalError message, not a bug in our code.
+                "s3_internal_error_os_error",
+                OSError("[Errno 121] We encountered an internal error. Please try again."),
+                True,
+            ),
             (
                 # s3fs/aiobotocore's own credential resolution (distinct from delta-rs's Rust
                 # object_store crate) can raise this bare, unwrapped — same IMDS/STS blip
@@ -165,6 +180,23 @@ class TestIsTransientMaintenanceError:
                 True,
             ),
             ("genuine_bug", RuntimeError("maintenance blew up"), False),
+            # A primary failover briefly turns the write connection into a read-only standby mid
+            # watermark-persist — Postgres raises ReadOnlySqlTransaction (25006), which psycopg
+            # classifies under InternalError rather than OperationalError.
+            (
+                "watermark_persist_during_failover",
+                _internal_error_with_cause(
+                    psycopg.errors.ReadOnlySqlTransaction("cannot execute SELECT FOR UPDATE in a read-only transaction")
+                ),
+                True,
+            ),
+            # Other InternalError subtypes (e.g. real corruption) must not be swept up by the
+            # ReadOnlySqlTransaction check just because they share the same Django exception class.
+            (
+                "internal_error_unrelated_cause_not_matched",
+                _internal_error_with_cause(psycopg.errors.DataCorrupted("index is corrupted")),
+                False,
+            ),
         ]
     )
     def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):

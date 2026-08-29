@@ -80,7 +80,7 @@ def test_body_tallies_publishable_findings_by_severity(
         published_priorities=_SHOULD_FIX_PUBLISHED,
     )
 
-    assert body == f"# ReviewHog Report\n\n{expected_line}\n"
+    assert body == f"# PostHog Review\n\n{expected_line}\n"
 
 
 @pytest.mark.parametrize(

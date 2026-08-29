@@ -1,5 +1,6 @@
 import re
 import datetime as dt
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
@@ -35,14 +36,19 @@ __all__ = [
     "clear_node_suspension",
     "clear_node_suspension_for_engine",
     "count_leading_failures",
+    "get_previous_jobs",
     "is_externally_aborted",
     "is_node_suspended",
     "is_suspension_enforced",
     "mark_node_suspended",
     "maybe_suspend_node_for_engine",
+    "starts_a_failure_streak",
     "strip_hostname_from_error",
     "update_node_system_properties",
 ]
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 LOGGER = get_logger(__name__)
 
@@ -50,6 +56,43 @@ LOGGER = get_logger(__name__)
 CONSECUTIVE_FAILURES_TO_SUSPEND = 5
 
 SUSPENSION_ENFORCEMENT_FLAG = "data-modeling-suspend-failing-nodes"
+
+# Shared with quality_block_materialization so the counter below can recognize its job rows.
+QUALITY_BLOCKED_ERROR_PREFIX = "Not published:"
+
+
+def get_previous_jobs(
+    saved_query_id: UUID, current_job: DataModelingJob, count: int, ignore_inconclusive: bool = False
+) -> "QuerySet[DataModelingJob]":
+    """Get the runs of a saved query that came before this one.
+
+    Bounded by the current job's own timestamp rather than just excluding its id: a DAG run judges
+    a failure once every sibling has finished, so a "Sync now" of the same view can land in between
+    and would otherwise be read as what came before it.
+    """
+    jobs = (
+        DataModelingJob.objects.filter(
+            saved_query_id=saved_query_id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            created_at__lt=current_job.created_at,
+        )
+        # a skipped run never executed, so it is evidence of neither health nor failure. Leaving it
+        # in lets one upstream outage clear a timeout streak that is about to pause the schedule.
+        .exclude(status=DataModelingJobStatus.SKIPPED)
+    )
+    if ignore_inconclusive:
+        # Neither status says whether the query recovered: a cancel is our doing (preemption, a
+        # deploy), and a run still marked running either is one, or was abandoned by a dead worker.
+        # The timeout counter keeps treating both as a break, deliberately.
+        jobs = jobs.exclude(status__in=(DataModelingJobStatus.CANCELLED, DataModelingJobStatus.RUNNING))
+    return jobs.order_by("-created_at")[:count]
+
+
+def starts_a_failure_streak(saved_query_id: UUID, current_job: DataModelingJob) -> bool:
+    """True when this failure is the edge into a streak, so repeats of an ongoing one stay quiet."""
+    previous_job = get_previous_jobs(saved_query_id, current_job, 1, ignore_inconclusive=True).first()
+    return previous_job is None or previous_job.status != DataModelingJobStatus.FAILED
+
 
 # The test before adding a marker is "was the query denied the chance to fail on its own merits",
 # NOT "was this our fault" - a query that exhausts memory is one we do want suspended.
@@ -61,6 +104,8 @@ EXTERNALLY_ABORTED_MARKERS = (
     "QueueEmpty: ",  # no root node to start from, so the graph was refused rather than the query
     "Preempted: ",
     ABANDONED_ERROR,
+    # the query ran and produced rows; only the publish was refused
+    QUALITY_BLOCKED_ERROR_PREFIX,
 )
 
 

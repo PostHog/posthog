@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this canvas.",
+            "type": "string"
+        },
+        "key": {
+            "description": "Key to write, unique within its scope.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "scope": {
+            "description": "Scope to write into; the canvas must declare it in capabilities.posthog.state.\n\n* `user` - user\n* `shared` - shared",
+            "enum": ["user", "shared"],
+            "type": "string"
+        },
+        "value": {
+            "description": "JSON value to store (at most 64 KB serialized), or null to delete the key."
+        }
+    },
+    "required": ["id", "scope", "key", "value"],
+    "type": "object"
+}

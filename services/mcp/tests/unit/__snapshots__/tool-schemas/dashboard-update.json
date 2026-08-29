@@ -53,6 +53,11 @@
             },
             "type": "object"
         },
+        "grid_spacing": {
+            "description": "Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+            "enum": ["tight", "condensed", "standard", "relaxed", "wide"],
+            "type": "string"
+        },
         "id": {
             "description": "A unique integer value identifying this dashboard.",
             "type": "number"
@@ -60,6 +65,11 @@
         "include_dashboards": {
             "description": "Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.",
             "type": "boolean"
+        },
+        "layout_compaction": {
+            "description": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+            "enum": ["vertical", "horizontal", "stable"],
+            "type": "string"
         },
         "name": {
             "anyOf": [

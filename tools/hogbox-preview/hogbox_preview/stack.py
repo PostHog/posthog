@@ -598,9 +598,11 @@ class PostHogPreviewStack:
         # so settings import is fine; collectstatic itself needs no live DB.
         import pathlib
 
-        timing.stage("frontend swap start (upload dist)")
-        tar = pathlib.Path(self.frontend_dist_tar).read_bytes()
-        self.backend.write_file(f"{self.repo_dir}/frontend/dist.tgz", tar)
+        # Time upload and collectstatic separately because the exec transfer and
+        # static processing require different fixes.
+        with timing.span("frontend-dist-upload"):
+            tar = pathlib.Path(self.frontend_dist_tar).read_bytes()
+            self.backend.write_file(f"{self.repo_dir}/frontend/dist.tgz", tar)
         compose = f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE}"
         # CI tars the dist with `-C frontend dist`, so its members are rooted at
         # `dist/`; strip that leading level on extract or the SPA double-nests to
@@ -609,7 +611,8 @@ class PostHogPreviewStack:
             f"cd {self.repo_dir} && "
             "rm -rf frontend/dist && mkdir -p frontend/dist staticfiles && "
             "tar xzf frontend/dist.tgz -C frontend/dist --strip-components=1 && "
-            f"{compose} run --rm -T -e STATIC_COLLECTION=1 -e SKIP_SERVICE_VERSION_REQUIREMENTS=1 "
+            f"{compose} run --rm -T "
+            "-e STATIC_COLLECTION=1 -e STATIC_PRECOMPRESS=0 -e SKIP_SERVICE_VERSION_REQUIREMENTS=1 "
             "web python manage.py collectstatic --noinput"
         )
         self.backend.run_long(script, name="frontend", timeout=900)
@@ -621,9 +624,8 @@ class PostHogPreviewStack:
         # a restart skips it and leaves `listeners: {}`, so nothing serves.
         # up_services already brought web up cleanly — just wait for it to serve.
         # Django is a heavy import; first health can take ~7 min.
-        timing.stage("health poll start")
-        self.backend.wait_http_ok("/_health", expect=200, timeout=900)
-        timing.stage("health poll pass")
+        with timing.span("health-poll"):
+            self.backend.wait_http_ok("/_health", expect=200, timeout=900)
 
     def deep_health(self) -> None:
         # /_health is UNAUTHENTICATED — it passed the whole time previews were
@@ -640,8 +642,8 @@ class PostHogPreviewStack:
         # a failed LOGIN (a genuinely unseeded box has no demo user): that
         # soft-skips with a note instead of failing. Any failure past login —
         # and a failed login on a seeded run — is fatal.
-        timing.stage("deep health (authed api)")
-        self._run_authed_probe()
+        with timing.span("deep-health"):
+            self._run_authed_probe()
 
     def _run_authed_probe(self) -> None:
         # Everything runs INSIDE the box (curl against localhost:8000), so it's

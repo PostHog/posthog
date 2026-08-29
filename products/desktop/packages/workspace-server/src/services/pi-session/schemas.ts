@@ -12,10 +12,16 @@ import { z } from "zod";
 
 export { piRpcResponseSchema };
 
-export const startPiSessionInput = z.object({
+const piTaskContextInput = z.object({
   taskId: z.string(),
   cwd: z.string(),
-  projectTrustPath: z.string().optional(),
+  customInstructions: z.string().optional(),
+  additionalDirectories: z.array(z.string()).optional(),
+  channelMode: z.boolean().optional(),
+});
+
+export const startPiSessionInput = z.object({
+  taskContext: piTaskContextInput,
   prompt: z.string(),
   model: z.string().optional(),
   thinkingLevel: z.enum(PI_THINKING_LEVELS).optional(),
@@ -35,24 +41,12 @@ export const piSessionHealthOutput = z.object({
 });
 
 export const resumePiSessionInput = z.object({
-  taskId: z.string(),
-  cwd: z.string(),
-  projectTrustPath: z.string().optional(),
+  taskContext: piTaskContextInput.pick({ taskId: true, cwd: true }),
 });
 
 export type ResumePiSessionInput = z.infer<typeof resumePiSessionInput>;
 
 export const piSessionTaskInput = z.object({ taskId: z.string() });
-
-export const piProjectTrustOutput = z.object({
-  trusted: z.boolean(),
-  hasProjectResources: z.boolean(),
-});
-
-export const setPiProjectTrustInput = z.object({
-  taskId: z.string(),
-  trusted: z.boolean(),
-});
 
 export const mcpToolPermissionRequestSchema = z.object({
   requestId: z.string(),

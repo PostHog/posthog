@@ -9,7 +9,8 @@ import { urls } from 'scenes/urls'
 
 import { ExperimentStatsMethod, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { DEFAULT_LOOKBACK_DAYS } from '../constants'
+import { DEFAULT_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
+
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getBaselineVariantKey } from '../utils'
@@ -60,7 +61,14 @@ export function SettingsTab(): JSX.Element {
                         {isBayesian ? 'Bayesian' : 'Frequentist'} / {confidenceDisplay}
                         {!isBayesian && sequentialEnabled && ' · Sequential testing'}
                     </span>
-                    <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openStatsEngineModal} />
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        icon={<IconPencil />}
+                        onClick={openStatsEngineModal}
+                        tooltip="Edit statistics settings"
+                        aria-label="Edit statistics settings"
+                    />
                 </div>
                 <StatsMethodModal />
             </div>
@@ -71,7 +79,14 @@ export function SettingsTab(): JSX.Element {
                         {cupedEnabled ? 'Enabled' : 'Disabled'}
                     </LemonTag>
                     {cupedEnabled && <span>{cupedLookbackDays}-day lookback</span>}
-                    <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openCupedModal} />
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        icon={<IconPencil />}
+                        onClick={openCupedModal}
+                        tooltip="Edit CUPED settings"
+                        aria-label="Edit CUPED settings"
+                    />
                 </div>
                 <p className="text-muted text-xs mt-1">
                     Use pre-experiment data to detect significant effects faster. Currently supported for mean and
