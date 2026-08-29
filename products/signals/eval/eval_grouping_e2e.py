@@ -54,10 +54,9 @@ from products.signals.backend.temporal.safety_filter import safety_filter
 from products.signals.backend.temporal.types import (
     ExistingReportMatch,
     MatchResult,
-    NewReportMatch,
-    NoMatchMetadata,
     SignalCandidate,
     SpecificityMetadata,
+    build_split_report_match,
 )
 from products.signals.eval.capture import EvalMetric, capture_evaluation, deterministic_uuid
 from products.signals.eval.common import (
@@ -245,14 +244,7 @@ class EvalGroupingPipeline:
             if specificity_result.specific_enough:
                 specificity_match_result.match_metadata.specificity = specificity_meta
             else:
-                specificity_match_result = NewReportMatch(
-                    title=description.split("\n")[0],
-                    summary=f"Split from group: {report_title}",
-                    match_metadata=NoMatchMetadata(
-                        reason=f'PR-specificity rejected: "{specificity_result.pr_title}" — {specificity_result.reason}',
-                        specificity_rejection=specificity_meta,
-                    ),
-                )
+                specificity_match_result = build_split_report_match(description, specificity_meta)
 
         return match_result, specificity_match_result, candidates
 

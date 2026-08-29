@@ -33,12 +33,11 @@ from products.signals.backend.temporal.types import (
     EmitSignalInputs,
     ExistingReportMatch,
     MatchResult,
-    NewReportMatch,
-    NoMatchMetadata,
     ReportContext,
     SignalCandidate,
     SignalReportSummaryWorkflowInputs,
     SpecificityMetadata,
+    build_split_report_match,
 )
 
 logger = structlog.get_logger(__name__)
@@ -219,14 +218,7 @@ async def _process_signal(
             updated_title = specificity_result.pr_title
             match_result.match_metadata.specificity = specificity_meta
         else:
-            match_result = NewReportMatch(
-                title=signal.description.split("\n")[0],
-                summary=f"Split from group: {report_title}",
-                match_metadata=NoMatchMetadata(
-                    reason=f'PR-specificity rejected: "{specificity_result.pr_title}" — {specificity_result.reason}',
-                    specificity_rejection=specificity_meta,
-                ),
-            )
+            match_result = build_split_report_match(signal.description, specificity_meta)
 
     # Step 6: Assign + emit
     assign_result: AssignAndEmitSignalOutput = await workflow.execute_activity(
