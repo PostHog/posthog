@@ -215,6 +215,10 @@ tools:
             remote branch). Status artefacts (priority, actionability, reviewers) are latest-wins — append a new version
             to re-assess. Without the write tools, work as instructed by your task — artefact persistence is handled for
             you."
+        param_overrides:
+            id:
+                aliases:
+                    - report_id
     inbox-reports-set-state:
         operation: signals_reports_state_create
         enabled: true

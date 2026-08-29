@@ -4,6 +4,10 @@ import { router, combineUrl } from 'kea-router'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
+import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
@@ -35,6 +39,7 @@ export const scene: SceneExport = {
 }
 
 const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
+const MCP_ANALYTICS_FEEDBACK_SURVEY_ID = '01a04991-bc80-0000-70c5-beeea0553cd0'
 
 export function MCPAnalyticsScene(): JSX.Element {
     return (
@@ -49,6 +54,12 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)
     const { notificationCount } = useValues(mcpAnalyticsNotificationsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const intentRoutingEnabled = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]
+
+    if (activeTab === 'intent-clustering' && !intentRoutingEnabled) {
+        return <NotFound object="page" />
+    }
 
     // landing is a one-shot redirect marker, while search belongs to Sessions and Missing capabilities.
     // The date range stays shared across every tab.
@@ -87,13 +98,17 @@ function MCPAnalyticsSceneContent(): JSX.Element {
             link: combineUrl(urls.mcpAnalyticsToolQuality(), sharedParams).url,
             'data-attr': 'mcp-analytics-tool-quality-tab',
         },
-        {
-            key: 'intent-clustering',
-            label: 'Intent clustering',
-            content: <MCPAnalyticsClustering />,
-            link: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
-            'data-attr': 'mcp-analytics-intent-clustering-tab',
-        },
+        ...(intentRoutingEnabled
+            ? [
+                  {
+                      key: 'intent-clustering' as const,
+                      label: 'Intent clustering',
+                      content: <MCPAnalyticsClustering />,
+                      link: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
+                      'data-attr': 'mcp-analytics-intent-clustering-tab',
+                  },
+              ]
+            : []),
         {
             key: 'missing-capabilities',
             label: 'Missing capabilities',
@@ -128,6 +143,14 @@ function MCPAnalyticsSceneContent(): JSX.Element {
                 resourceType={{ type: 'mcp_analytics' }}
                 actions={
                     <>
+                        <FeedbackSurveyButton
+                            surveyId={MCP_ANALYTICS_FEEDBACK_SURVEY_ID}
+                            properties={{
+                                feedback_surface: 'mcp_analytics',
+                                mcp_analytics_tab: activeTab,
+                            }}
+                            data-attr="mcp-analytics-feedback-button"
+                        />
                         {onboardingState === 'onboarded' && (
                             <LemonButton
                                 type="secondary"
