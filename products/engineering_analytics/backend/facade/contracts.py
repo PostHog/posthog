@@ -624,6 +624,65 @@ class FlakyTestList:
     limit: int
 
 
+# How long a Trunk quarantine may stand before the scoreboard calls it overdue. Trunk itself never
+# expires a quarantine, so this deadline is the product's own accountability bar.
+TRUNK_QUARANTINE_TTL_DAYS = 15
+
+
+@dataclass(frozen=True)
+class TrunkQuarantinedTest:
+    """One test Trunk currently quarantines, aged against ``TRUNK_QUARANTINE_TTL_DAYS``.
+
+    Rows come from the synced TrunkIo ``QuarantinedTests`` warehouse table. Ownership rides the
+    per-test CI spans (the emitter stamps ``test.owner_team``); a quarantined test with no
+    in-retention span aggregates under ``'unowned'``.
+    """
+
+    # Runner label derived from Trunk's uploader-specific 'parent' field: 'pytest', 'jest',
+    # 'playwright', 'rust', or 'storybook'. Free-form on purpose; Trunk ingests suites the
+    # CITestRunner enum does not model.
+    runner: str
+    # Runner-native test id reconstructed from Trunk's (file, classname, name) key.
+    nodeid: str
+    file: str
+    owner_team: str
+    # Trunk's health verdict on the test, e.g. 'FLAKY' or 'BROKEN'.
+    status: str
+    # How the quarantine was applied, e.g. 'AUTO_QUARANTINE'.
+    quarantine_setting: str
+    quarantined_at: datetime
+    age_days: int
+    overdue: bool
+    # The Trunk app's page for this test; None when the source has no org slug or the row no id.
+    trunk_url: str | None
+
+
+@dataclass(frozen=True)
+class TrunkQuarantineTeamDebt:
+    """One owning team's share of the standing Trunk quarantine debt."""
+
+    owner_team: str
+    test_count: int
+    overdue_count: int
+    oldest_age_days: int
+
+
+@dataclass(frozen=True)
+class TrunkQuarantineDebt:
+    """The standing Trunk quarantine debt: every currently quarantined test with its owning team,
+    age, and whether it has outlived the TTL, plus the per-team rollup. ``available`` is false when
+    no TrunkIo source has the QuarantinedTests endpoint synced — that is not an error."""
+
+    available: bool
+    ttl_days: int
+    # The 'owner/name' repository the debt was read for; test file paths are relative to it.
+    repository: str
+    # The Trunk app's flaky-tests page for this repository; None when the source has no org slug.
+    trunk_url: str | None
+    teams: list[TrunkQuarantineTeamDebt]
+    tests: list[TrunkQuarantinedTest]
+
+
 @dataclass(frozen=True)
 class TeamCIHealthItem:
     """One owning team's rollup of the CI test surfaces it owns, with equal-length

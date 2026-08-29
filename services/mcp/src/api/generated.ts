@@ -85155,6 +85155,61 @@ export namespace Schemas {
       summary: unknown;
     }
 
+    export interface TrunkQuarantineTeamDebt {
+      /** Owning team slug, or 'unowned'. */
+      owner_team: string;
+      /** Tests this team owns that Trunk currently quarantines. */
+      test_count: number;
+      /** Of those, tests quarantined longer than ttl_days. */
+      overdue_count: number;
+      /** Age in days of the team's oldest standing quarantine. */
+      oldest_age_days: number;
+    }
+
+    export interface TrunkQuarantinedTest {
+      /** Test runner: 'pytest' or 'jest'. */
+      runner: string;
+      /** Runner-native test id reconstructed from Trunk's (file, classname, name) key. */
+      nodeid: string;
+      /** Repo-relative path of the test file, as Trunk reports it. */
+      file: string;
+      /** Owning team slug from the per-test CI spans' emission-time stamp, or 'unowned' when no in-retention span carries one. */
+      owner_team: string;
+      /** Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'. */
+      status: string;
+      /** How the quarantine was applied in Trunk, e.g. 'AUTO_QUARANTINE'. */
+      quarantine_setting: string;
+      /** When Trunk quarantined the test. */
+      quarantined_at: string;
+      /** Whole days since the quarantine started. */
+      age_days: number;
+      /** True once age_days exceeds ttl_days: the quarantine has outlived the TTL. */
+      overdue: boolean;
+      /**
+         * The Trunk app's page for this test; null when the connected source has no organization slug or the row carries no test case id.
+         * @nullable
+         */
+      trunk_url: string | null;
+    }
+
+    export interface TrunkQuarantineDebt {
+      /** Per-team rollup, most indebted first: overdue count, then test count, then oldest age. */
+      teams: TrunkQuarantineTeamDebt[];
+      /** Every currently quarantined test, oldest first. */
+      tests: TrunkQuarantinedTest[];
+      /** False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error. */
+      available: boolean;
+      /** Days a quarantine may stand before it counts as overdue. */
+      ttl_days: number;
+      /** The 'owner/name' repository the debt was read for; test file paths are relative to it. */
+      repository: string;
+      /**
+         * The Trunk app's flaky-tests page for this repository; null when the connected source has no organization slug.
+         * @nullable
+         */
+      trunk_url: string | null;
+    }
+
     export interface UnquarantineQuery {
       /**
          * Snapshot identifier to unquarantine
@@ -91966,6 +92021,17 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsTrunkQuarantineParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsWorkflowHealthParams = {
     /**
      * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
@@ -97493,6 +97559,10 @@ export namespace Schemas {
     export type SurveysListParams = {
     archived?: boolean;
     /**
+     * Filter surveys by the ID of the user who created them.
+     */
+    created_by?: number;
+    /**
      * Multiple values may be separated by commas.
      */
     ids?: string[];
@@ -97509,6 +97579,14 @@ export namespace Schemas {
      */
     search?: string;
     /**
+     * Filter surveys by their current status.
+     *
+     * * `draft` - Draft
+     * * `running` - Running
+     * * `complete` - Complete
+     */
+    status?: SurveysListStatus;
+    /**
      * * `popover` - popover
      * * `widget` - widget
      * * `external_survey` - external survey
@@ -97516,6 +97594,15 @@ export namespace Schemas {
      */
     type?: SurveysListType;
     };
+
+    export type SurveysListStatus = typeof SurveysListStatus[keyof typeof SurveysListStatus];
+
+
+    export const SurveysListStatus = {
+      Complete: 'complete',
+      Draft: 'draft',
+      Running: 'running',
+    } as const;
 
     export type SurveysListType = typeof SurveysListType[keyof typeof SurveysListType];
 
