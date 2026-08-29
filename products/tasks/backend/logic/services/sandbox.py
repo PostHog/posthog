@@ -41,6 +41,7 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
+    DEV_STACK_CPU_REQUEST_CORES,
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
 )
@@ -174,6 +175,7 @@ class SandboxConfig(BaseModel):
     # downgraded one was used instead (e.g. published custom image -> plain base). Human-readable,
     # surfaced in the run log so image downgrades are never silent.
     image_fallback: str | None = None
+    dev_stack_present: bool | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -194,10 +196,21 @@ class SandboxConfig(BaseModel):
         return self.vm_runtime or self.template == SandboxTemplate.VM_BASE
 
     @property
+    def is_dev_stack_image(self) -> bool:
+        if not self.is_vm:
+            return False
+        if self.dev_stack_present is not None:
+            return self.dev_stack_present
+        return self.custom_image_name == DEV_STACK_IMAGE_NAME
+
+    @property
     def effective_cpu_request_cores(self) -> float:
         """CPU floor the provider actually reserves when burstable: the configured request,
-        clamped to the limit."""
-        return min(float(self.cpu_request_cores), float(self.cpu_cores))
+        raised to the dev-stack image floor, clamped to the limit."""
+        floor = float(self.cpu_request_cores)
+        if self.is_dev_stack_image:
+            floor = max(floor, DEV_STACK_CPU_REQUEST_CORES)
+        return min(floor, float(self.cpu_cores))
 
     @property
     def effective_memory_request_mb(self) -> int:

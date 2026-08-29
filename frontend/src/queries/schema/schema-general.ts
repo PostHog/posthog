@@ -3516,16 +3516,40 @@ export interface MCPToolQualityRowItem {
     last_seen: string
 }
 
+export type MCPToolQualitySortColumn =
+    | 'total_calls'
+    | 'error_rate_pct'
+    | 'p50_duration_ms'
+    | 'p95_duration_ms'
+    | 'p99_duration_ms'
+    | 'users'
+    | 'sessions'
+    | 'last_seen'
+
+export type MCPToolQualitySortDirection = 'ASC' | 'DESC'
+
 export interface MCPToolQualityRowsQueryResponse extends AnalyticsQueryResponseBase {
     results: MCPToolQualityRowItem[]
+    /** Number of tools matching the date, category, and search filters. */
+    totalCount: integer
 }
 
-/** One row per $mcp_tool_name — call volume, error rate, latency percentiles, and reach — over the window. */
+/** One row per effective MCP tool name, with server-side search, sorting, and pagination. */
 export interface MCPToolQualityRowsQuery extends DataNode<MCPToolQualityRowsQueryResponse> {
     kind: NodeKind.MCPToolQualityRowsQuery
     dateRange?: DateRange
     /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
     categories?: string[]
+    /** Case-insensitive substring search on the effective tool name. */
+    search?: string
+    /** Aggregate column used to order tools. Defaults to total_calls. */
+    sortColumn?: MCPToolQualitySortColumn
+    /** Sort direction. Defaults to DESC. */
+    sortDirection?: MCPToolQualitySortDirection
+    /** Page size. The server defaults to 50 and caps this at 100. */
+    limit?: integer
+    /** Number of matching tools to skip. */
+    offset?: integer
 }
 
 export type CachedMCPToolQualityRowsQueryResponse = CachedQueryResponse<MCPToolQualityRowsQueryResponse>
@@ -5015,10 +5039,6 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     sceneKeys?: string[]
     /** Product key(s) that generate interest in this item when intent is triggered */
     intents?: ProductKey[]
-    /** Reason for custom product suggestion (from UserProductList) */
-    reason?: UserProductListReason
-    /** Custom reason text for custom product suggestion (from UserProductList) */
-    reasonText?: string | null
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
 }
@@ -9814,24 +9834,10 @@ export interface ProductsData {
     metadata: ProductItem[]
 }
 
-export enum UserProductListReason {
-    DEFAULT = 'default',
-    ONBOARDING = 'onboarding',
-    PRODUCT_INTENT = 'product_intent',
-    USED_BY_COLLEAGUES = 'used_by_colleagues',
-    USED_SIMILAR_PRODUCTS = 'used_similar_products',
-    USED_ON_SEPARATE_TEAM = 'used_on_separate_team',
-    NEW_PRODUCT = 'new_product',
-    SALES_LED = 'sales_led',
-    ONBOARDING_DELEGATED = 'onboarding_delegated',
-}
-
 export interface UserProductListItem {
     id: string
     product_path: string
     enabled: boolean
-    reason: UserProductListReason
-    reason_text: string | null
     created_at: string
     updated_at: string
 }

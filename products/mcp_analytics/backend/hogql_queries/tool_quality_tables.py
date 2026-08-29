@@ -1,13 +1,11 @@
 """Query runners for the MCP analytics Tool quality tab.
 
-The tab's per-tool table, aggregate activity series, and category share/counts.
-Unlike the per-tool detail runners in `tool_tables.py`, these scope by the raw
-`$mcp_tool_name` property (not the single-exec-resolved effective tool), matching
-the tab's broad overview — the two surfaces intentionally query different populations.
+The per-tool table and activity series resolve the effective tool name so exec-wrapped
+calls match the per-tool detail runners. Category queries use the event-supplied category.
 """
 
 from functools import cached_property
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast
 
 from posthog.schema import (
     CachedMCPToolCategoriesQueryResponse,
@@ -41,7 +39,11 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
-from products.mcp_analytics.backend.hogql_queries.base import mcp_query_date_range, validate_mcp_analytics_access
+from products.mcp_analytics.backend.hogql_queries.base import (
+    EFFECTIVE_TOOL_SQL,
+    mcp_query_date_range,
+    validate_mcp_analytics_access,
+)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -52,6 +54,18 @@ _P50 = "round(quantile(0.5)(toFloat(properties.$mcp_duration_ms)))"
 _P95 = "round(quantile(0.95)(toFloat(properties.$mcp_duration_ms)))"
 _P99 = "round(quantile(0.99)(toFloat(properties.$mcp_duration_ms)))"
 _IS_ERROR = "countIf(toBool(properties.$mcp_is_error))"
+_TOOL_ROW_DEFAULT_LIMIT = 50
+_TOOL_ROW_MAX_LIMIT = 100
+_TOOL_SORT_COLUMNS = {
+    "total_calls",
+    "error_rate_pct",
+    "p50_duration_ms",
+    "p95_duration_ms",
+    "p99_duration_ms",
+    "users",
+    "sessions",
+    "last_seen",
+}
 
 
 def _category_in(categories: list[str] | None) -> list[ast.Expr]:
@@ -77,13 +91,19 @@ def _named_tool_where(
         parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
         parse_expr("timestamp >= {date_from}", placeholders={"date_from": date_range.date_from_as_hogql()}),
         parse_expr("timestamp <= {date_to}", placeholders={"date_to": date_range.date_to_as_hogql()}),
-        parse_expr("properties.$mcp_tool_name IS NOT NULL"),
-        parse_expr("properties.$mcp_tool_name != ''"),
+        parse_expr("{tool} IS NOT NULL", placeholders={"tool": parse_expr(EFFECTIVE_TOOL_SQL)}),
+        parse_expr("{tool} != ''", placeholders={"tool": parse_expr(EFFECTIVE_TOOL_SQL)}),
         *_category_in(categories),
     ]
     if tool_name:
         exprs.append(
-            parse_expr("properties.$mcp_tool_name = {tool}", placeholders={"tool": ast.Constant(value=tool_name)})
+            parse_expr(
+                "{effective_tool} = {tool}",
+                placeholders={
+                    "effective_tool": parse_expr(EFFECTIVE_TOOL_SQL),
+                    "tool": ast.Constant(value=tool_name),
+                },
+            )
         )
     return ast.And(exprs=exprs)
 
@@ -99,11 +119,22 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
     def query_date_range(self) -> QueryDateRange:
         return mcp_query_date_range(self.team, self.query.dateRange)
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        return parse_select(
+    def to_query(
+        self, *, limit_override: int | None = None, offset_override: int | None = None
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        requested_limit = limit_override if limit_override is not None else self.query.limit
+        limit = min(max(requested_limit or _TOOL_ROW_DEFAULT_LIMIT, 1), _TOOL_ROW_MAX_LIMIT)
+        offset = max(offset_override if offset_override is not None else self.query.offset or 0, 0)
+        search = (self.query.search or "").strip()
+        sort_column = self.query.sortColumn or "total_calls"
+        if sort_column not in _TOOL_SORT_COLUMNS:
+            sort_column = "total_calls"
+        sort_direction = cast(Literal["ASC", "DESC"], self.query.sortDirection or "DESC")
+
+        query = parse_select(
             """
             SELECT
-                toString(properties.$mcp_tool_name) AS tool,
+                {_EFFECTIVE_TOOL} AS tool,
                 count() AS total_calls,
                 {_IS_ERROR} AS errors,
                 round({_IS_ERROR} * 100.0 / count(), 1) AS error_rate_pct,
@@ -113,21 +144,34 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 uniq(distinct_id) AS users,
                 countDistinctIf(toString(properties.$session_id), toString(properties.$session_id) != '') AS sessions,
                 min(timestamp) AS first_seen,
-                max(timestamp) AS last_seen
+                max(timestamp) AS last_seen,
+                count() OVER () AS total_count
             FROM events
             WHERE {where}
             GROUP BY tool
-            ORDER BY total_calls DESC
-            LIMIT 200
+            HAVING positionCaseInsensitive(tool, {search}) > 0
+            ORDER BY total_calls DESC, tool ASC
+            LIMIT {limit}
+            OFFSET {offset}
             """,
             placeholders={
+                "_EFFECTIVE_TOOL": parse_expr(EFFECTIVE_TOOL_SQL),
                 "_IS_ERROR": parse_expr(_IS_ERROR),
                 "_P50": parse_expr(_P50),
                 "_P95": parse_expr(_P95),
                 "_P99": parse_expr(_P99),
                 "where": _named_tool_where(self.query_date_range, self.query.categories),
+                "search": ast.Constant(value=search),
+                "limit": ast.Constant(value=limit),
+                "offset": ast.Constant(value=offset),
             },
         )
+        if isinstance(query, ast.SelectQuery):
+            query.order_by = [
+                ast.OrderExpr(expr=ast.Field(chain=[sort_column]), order=sort_direction),
+                ast.OrderExpr(expr=ast.Field(chain=["tool"]), order="ASC"),
+            ]
+        return query
 
     def _calculate(self) -> MCPToolQualityRowsQueryResponse:
         with tags_context(
@@ -145,7 +189,20 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
             )
-
+            rows = response.results or []
+            total_count = int(rows[0][11] or 0) if rows else 0
+            if not rows and (self.query.offset or 0) > 0:
+                first_row_response = execute_hogql_query(
+                    query=self.to_query(limit_override=1, offset_override=0),
+                    team=self.team,
+                    user=self.user,
+                    query_type="mcp_tool_quality_rows_query",
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                )
+                first_row = first_row_response.results or []
+                total_count = int(first_row[0][11] or 0) if first_row else 0
         results = [
             MCPToolQualityRowItem(
                 tool=str(row[0] or ""),
@@ -160,10 +217,14 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 first_seen=str(row[9] or ""),
                 last_seen=str(row[10] or ""),
             )
-            for row in (response.results or [])
+            for row in rows
         ]
         return MCPToolQualityRowsQueryResponse(
-            results=results, timings=response.timings, hogql=response.hogql, modifiers=self.modifiers
+            results=results,
+            totalCount=total_count,
+            timings=response.timings,
+            hogql=response.hogql,
+            modifiers=self.modifiers,
         )
 
 

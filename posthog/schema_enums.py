@@ -3094,6 +3094,22 @@ class NeighborDirection(StrEnum):
     AFTER = "after"
 
 
+class MCPToolQualitySortColumn(StrEnum):
+    TOTAL_CALLS = "total_calls"
+    ERROR_RATE_PCT = "error_rate_pct"
+    P50_DURATION_MS = "p50_duration_ms"
+    P95_DURATION_MS = "p95_duration_ms"
+    P99_DURATION_MS = "p99_duration_ms"
+    USERS = "users"
+    SESSIONS = "sessions"
+    LAST_SEEN = "last_seen"
+
+
+class MCPToolQualitySortDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
 class MarketingAnalyticsAttributionBreakdown(StrEnum):
     CHANNEL = "channel"
     SOURCE = "source"
@@ -4173,18 +4189,6 @@ class UsageMetricDisplay(StrEnum):
 class UsageMetricFormat(StrEnum):
     NUMERIC = "numeric"
     CURRENCY = "currency"
-
-
-class UserProductListReason(StrEnum):
-    DEFAULT = "default"
-    ONBOARDING = "onboarding"
-    PRODUCT_INTENT = "product_intent"
-    USED_BY_COLLEAGUES = "used_by_colleagues"
-    USED_SIMILAR_PRODUCTS = "used_similar_products"
-    USED_ON_SEPARATE_TEAM = "used_on_separate_team"
-    NEW_PRODUCT = "new_product"
-    SALES_LED = "sales_led"
-    ONBOARDING_DELEGATED = "onboarding_delegated"
 
 
 class WebAgentAnalyticsQueryType(StrEnum):

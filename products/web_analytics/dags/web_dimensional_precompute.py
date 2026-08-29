@@ -28,14 +28,13 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.cloud_utils import is_cloud
-from posthog.dags.common import JobOwners, chunk_ranges
+from posthog.dags.common import JobOwners, chunk_ranges, skip_on_kill_switch
 from posthog.models import Team
 
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
 )
-from products.web_analytics.dags.web_preaggregated import skip_on_kill_switch
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
 logger = structlog.get_logger(__name__)
