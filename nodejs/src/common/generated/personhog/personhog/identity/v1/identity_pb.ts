@@ -599,9 +599,10 @@ export const MergePersonsResponseSchema: GenMessage<MergePersonsResponse> =
     messageDesc(file_personhog_identity_v1_identity, 15)
 
 /**
- * Add new values to every client before any server emits them: an old
- * client decodes an unknown value to its generic error outcome and acks
- * it as a settled loss during the skew window.
+ * Add new values to every client before any server emits them: a client
+ * that cannot name a value has to treat it as neither settled nor
+ * retryable, which costs the event a trip through the dead-letter queue
+ * for the length of the skew window.
  *
  * @generated from enum personhog.identity.v1.MergeSourceOutcome
  */

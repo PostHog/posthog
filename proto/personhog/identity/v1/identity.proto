@@ -166,9 +166,10 @@ message MergePersonsRequest {
   string creator_event_uuid = 10;
 }
 
-// Add new values to every client before any server emits them: an old
-// client decodes an unknown value to its generic error outcome and acks
-// it as a settled loss during the skew window.
+// Add new values to every client before any server emits them: a client
+// that cannot name a value has to treat it as neither settled nor
+// retryable, which costs the event a trip through the dead-letter queue
+// for the length of the skew window.
 enum MergeSourceOutcome {
   MERGE_SOURCE_OUTCOME_UNSPECIFIED = 0;
   // The source person was merged into the survivor and destroyed.
