@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
@@ -45,7 +47,7 @@ ANALYTICS_GRANULARITY = "DAILY"
 ANALYTICS_MAX_INSTANCES_PER_RUN = 400
 
 
-@dataclass
+@frozen
 class AppStoreConnectEndpointConfig:
     name: str
     kind: EndpointKind
