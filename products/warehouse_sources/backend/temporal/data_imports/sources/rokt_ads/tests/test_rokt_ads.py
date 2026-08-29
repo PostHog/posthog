@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.rokt_ads import (
+    DateWindow,
+    ReportCapabilities,
     RoktAdsClient,
     RoktAdsError,
     RoktAdsResumeConfig,
@@ -25,6 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.s
 
 ALL_DIMENSIONS = {dimension for endpoint in ENDPOINTS.values() for dimension in endpoint["dimensions"]}
 ALL_METRICS = set(CAMPAIGN_METRICS)
+ALL_CAPABILITIES = ReportCapabilities(dimensions=ALL_DIMENSIONS, metrics=ALL_METRICS)
+MARCH_WINDOW = DateWindow(start=date(2026, 3, 1), end=date(2026, 4, 1))
 
 
 def _manager(resume_state: RoktAdsResumeConfig | None = None) -> MagicMock:
@@ -38,13 +42,13 @@ class TestDateWindows:
     def test_splits_range_into_bounded_windows(self):
         windows = list(_date_windows(date(2026, 1, 1), date(2026, 3, 1), 31))
         assert windows == [
-            (date(2026, 1, 1), date(2026, 2, 1)),
-            (date(2026, 2, 1), date(2026, 3, 1)),
+            DateWindow(start=date(2026, 1, 1), end=date(2026, 2, 1)),
+            DateWindow(start=date(2026, 2, 1), end=date(2026, 3, 1)),
         ]
 
     def test_final_window_is_clipped_to_the_end(self):
         windows = list(_date_windows(date(2026, 1, 1), date(2026, 1, 10), 31))
-        assert windows == [(date(2026, 1, 1), date(2026, 1, 10))]
+        assert windows == [DateWindow(start=date(2026, 1, 1), end=date(2026, 1, 10))]
 
     def test_empty_when_start_is_not_before_end(self):
         assert list(_date_windows(date(2026, 1, 5), date(2026, 1, 5), 31)) == []
@@ -52,7 +56,7 @@ class TestDateWindows:
     def test_windows_never_overlap_or_leave_gaps(self):
         windows = list(_date_windows(date(2026, 1, 1), date(2026, 6, 1), 31))
         for earlier, later in zip(windows, windows[1:]):
-            assert earlier[1] == later[0]
+            assert earlier.end == later.start
 
 
 class TestResolveStartDate:
@@ -76,10 +80,8 @@ class TestBuildReportBody:
     def test_requests_every_declared_dimension_and_a_daily_interval(self):
         body = build_report_body(
             "CreativePerformance",
-            date(2026, 3, 1),
-            date(2026, 4, 1),
-            ALL_DIMENSIONS,
-            ALL_METRICS,
+            MARCH_WINDOW,
+            ALL_CAPABILITIES,
             None,
             None,
         )
@@ -89,18 +91,14 @@ class TestBuildReportBody:
         assert body["endDate"] == "2026-04-01"
 
     def test_orders_ascending_so_the_declared_sort_mode_holds(self):
-        body = build_report_body(
-            "CampaignPerformance", date(2026, 3, 1), date(2026, 4, 1), ALL_DIMENSIONS, ALL_METRICS, None, None
-        )
+        body = build_report_body("CampaignPerformance", MARCH_WINDOW, ALL_CAPABILITIES, None, None)
         assert body["orderBys"] == [{"column": "datetime", "direction": "asc"}]
 
     def test_drops_metrics_the_account_cannot_report_on(self):
         body = build_report_body(
             "CampaignPerformance",
-            date(2026, 3, 1),
-            date(2026, 4, 1),
-            ALL_DIMENSIONS,
-            {"impressions", "referrals"},
+            MARCH_WINDOW,
+            ReportCapabilities(dimensions=ALL_DIMENSIONS, metrics={"impressions", "referrals"}),
             None,
             None,
         )
@@ -110,29 +108,33 @@ class TestBuildReportBody:
         allowed = ALL_DIMENSIONS - {"creative_id"}
         with pytest.raises(RoktAdsError, match="creative_id"):
             build_report_body(
-                "CreativePerformance", date(2026, 3, 1), date(2026, 4, 1), allowed, ALL_METRICS, None, None
+                "CreativePerformance",
+                MARCH_WINDOW,
+                ReportCapabilities(dimensions=allowed, metrics=ALL_METRICS),
+                None,
+                None,
             )
 
     def test_rejects_an_account_that_grants_no_metrics(self):
         with pytest.raises(RoktAdsError, match="none of the metrics"):
             build_report_body(
-                "CampaignPerformance", date(2026, 3, 1), date(2026, 4, 1), ALL_DIMENSIONS, set(), None, None
+                "CampaignPerformance",
+                MARCH_WINDOW,
+                ReportCapabilities(dimensions=ALL_DIMENSIONS, metrics=set()),
+                None,
+                None,
             )
 
     def test_omits_optional_settings_when_unset(self):
-        body = build_report_body(
-            "CampaignPerformance", date(2026, 3, 1), date(2026, 4, 1), ALL_DIMENSIONS, ALL_METRICS, None, None
-        )
+        body = build_report_body("CampaignPerformance", MARCH_WINDOW, ALL_CAPABILITIES, None, None)
         assert "timezoneVariation" not in body
         assert "currencyCode" not in body
 
     def test_passes_optional_settings_through(self):
         body = build_report_body(
             "CampaignPerformance",
-            date(2026, 3, 1),
-            date(2026, 4, 1),
-            ALL_DIMENSIONS,
-            ALL_METRICS,
+            MARCH_WINDOW,
+            ALL_CAPABILITIES,
             "Australia/Sydney",
             "AUD",
         )
@@ -143,7 +145,7 @@ class TestBuildReportBody:
 class TestRoktAdsSource:
     def _client(self, rows: list[dict[str, Any]] | None = None) -> MagicMock:
         client = MagicMock()
-        client.report_capabilities.return_value = (ALL_DIMENSIONS, ALL_METRICS)
+        client.report_capabilities.return_value = ALL_CAPABILITIES
         client.run_report.return_value = rows if rows is not None else [{"datetime": "2026-03-04T00:00:00Z"}]
         return client
 
@@ -278,10 +280,10 @@ class TestRoktAdsClient:
         }
         session.get.return_value = response
 
-        dimensions, metrics = self._client(token_session, session).report_capabilities("acc_1", "campaigns")
+        capabilities = self._client(token_session, session).report_capabilities("acc_1", "campaigns")
 
-        assert dimensions == {"campaign_id"}
-        assert metrics == {"impressions"}
+        assert capabilities.dimensions == {"campaign_id"}
+        assert capabilities.metrics == {"impressions"}
 
     def test_run_report_routes_each_kind_to_its_own_path(self):
         token_session = MagicMock()

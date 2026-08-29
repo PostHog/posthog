@@ -29,6 +29,18 @@ class RoktAdsResumeConfig:
     next_start_date: str
 
 
+@frozen
+class ReportCapabilities:
+    dimensions: set[str]
+    metrics: set[str]
+
+
+@frozen
+class DateWindow:
+    start: date
+    end: date
+
+
 class RoktAdsError(Exception):
     pass
 
@@ -105,12 +117,13 @@ class RoktAdsClient:
         payload = self.get("/v1/query/accounts")
         return payload if isinstance(payload, list) else []
 
-    def report_capabilities(self, account_id: str, kind: str) -> tuple[set[str], set[str]]:
+    def report_capabilities(self, account_id: str, kind: str) -> ReportCapabilities:
         """Dimension and metric slugs this account may request for a report resource."""
         payload = self.get(f"/v1/query/accounts/{account_id}/{kind}/help")
-        dimensions = {item["slug"] for item in payload.get("dimensions", []) if item.get("slug")}
-        metrics = {item["slug"] for item in payload.get("metrics", []) if item.get("slug")}
-        return dimensions, metrics
+        return ReportCapabilities(
+            dimensions={item["slug"] for item in payload.get("dimensions", []) if item.get("slug")},
+            metrics={item["slug"] for item in payload.get("metrics", []) if item.get("slug")},
+        )
 
     def run_report(self, account_id: str, kind: str, body: dict[str, Any]) -> list[dict[str, Any]]:
         path = f"/v1/query/accounts/{account_id}/campaigns/"
@@ -135,12 +148,12 @@ def _as_date(value: Any) -> Optional[date]:
     return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
 
 
-def _date_windows(start: date, end: date, window_days: int) -> Iterator[tuple[date, date]]:
+def _date_windows(start: date, end: date, window_days: int) -> Iterator[DateWindow]:
     """Split [start, end) into consecutive half-open windows, oldest first."""
     cursor = start
     while cursor < end:
         window_end = min(cursor + timedelta(days=window_days), end)
-        yield cursor, window_end
+        yield DateWindow(start=cursor, end=window_end)
         cursor = window_end
 
 
@@ -153,10 +166,8 @@ def resolve_start_date(db_incremental_field_last_value: Optional[Any], today: da
 
 def build_report_body(
     endpoint_name: str,
-    window_start: date,
-    window_end: date,
-    allowed_dimensions: set[str],
-    allowed_metrics: set[str],
+    window: DateWindow,
+    capabilities: ReportCapabilities,
     timezone_variation: Optional[str],
     currency_code: Optional[str],
 ) -> dict[str, Any]:
@@ -168,21 +179,21 @@ def build_report_body(
     """
     endpoint = ENDPOINTS[endpoint_name]
 
-    missing_dimensions = sorted(set(endpoint["dimensions"]) - allowed_dimensions)
+    missing_dimensions = sorted(set(endpoint["dimensions"]) - capabilities.dimensions)
     if missing_dimensions:
         raise RoktAdsError(
             f"Rokt account cannot report on {', '.join(missing_dimensions)}, which {endpoint_name} needs "
             f"to identify a row. Deselect this table or ask Rokt to enable those dimensions."
         )
 
-    metrics = [metric for metric in endpoint["metrics"] if metric in allowed_metrics]
+    metrics = [metric for metric in endpoint["metrics"] if metric in capabilities.metrics]
     if not metrics:
         raise RoktAdsError(f"Rokt account grants none of the metrics {endpoint_name} reports on.")
 
     body: dict[str, Any] = {
         "interval": REPORT_INTERVAL,
-        "startDate": window_start.isoformat(),
-        "endDate": window_end.isoformat(),
+        "startDate": window.start.isoformat(),
+        "endDate": window.end.isoformat(),
         "metrics": metrics,
         "dimensions": endpoint["dimensions"],
         "orderBys": [{"column": "datetime", "direction": "asc"}],
@@ -209,7 +220,7 @@ def rokt_ads_source(
         return
 
     endpoint = ENDPOINTS[endpoint_name]
-    allowed_dimensions, allowed_metrics = client.report_capabilities(account_id, endpoint["kind"])
+    capabilities = client.report_capabilities(account_id, endpoint["kind"])
 
     current_day = today or datetime.now(tz=UTC).date()
     # `endDate` is exclusive, so reaching tomorrow is what includes today.
@@ -223,22 +234,14 @@ def rokt_ads_source(
             if resumed is not None:
                 start_date = resumed
 
-    for window_start, window_end in _date_windows(start_date, end_date, WINDOW_DAYS):
-        body = build_report_body(
-            endpoint_name,
-            window_start,
-            window_end,
-            allowed_dimensions,
-            allowed_metrics,
-            timezone_variation,
-            currency_code,
-        )
+    for window in _date_windows(start_date, end_date, WINDOW_DAYS):
+        body = build_report_body(endpoint_name, window, capabilities, timezone_variation, currency_code)
         rows = client.run_report(account_id, endpoint["kind"], body)
         if rows:
             yield rows
         # Saved after the yield: a crash re-reads this window and the merge dedupes on the
         # primary key, where saving first would skip it.
-        resumable_source_manager.save_state(RoktAdsResumeConfig(next_start_date=window_end.isoformat()))
+        resumable_source_manager.save_state(RoktAdsResumeConfig(next_start_date=window.end.isoformat()))
 
 
 def validate_credentials(app_id: str, app_secret: str, account_id: str) -> tuple[bool, str | None]:
