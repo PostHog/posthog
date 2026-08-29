@@ -68,6 +68,17 @@ impl DsymFile {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn from_uuid_for_test(uuid: &str, data: Vec<u8>) -> Self {
+        Self {
+            entries: vec![DsymEntry {
+                uuid: uuid.to_string(),
+                data,
+            }],
+            release_id: None,
+        }
+    }
+
     pub fn uuids(&self) -> Vec<&str> {
         self.entries.iter().map(|e| e.uuid.as_str()).collect()
     }
