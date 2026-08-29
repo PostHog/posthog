@@ -65,7 +65,11 @@ export interface inboxTriageLogicActions {
         id: string | null
         openMethod: import('../inboxAnalytics').InboxReportOpenMethod
     } // inboxSceneLogic
-    createPrFromReport: (report: SignalReport) => {
+    createPrFromReport: (
+        report: SignalReport,
+        feedback?: string | undefined
+    ) => {
+        feedback: string | undefined
         report: SignalReport
     } // inboxTaskKickoffLogic
     archiveReport: (

@@ -108,8 +108,9 @@ export function CreatePrButton({ report }: { report: SignalReport }): JSX.Elemen
                 sideIcon={<IconChevronDown />}
                 active={isOpen}
                 loading={isCreatingPr}
-                disabledReason={disabledReason}
-                tooltip={disabledReason ? undefined : 'Have Self-driving open a pull request for this report'}
+                // The trigger always opens, even when consent is missing or a PR task already exists;
+                // the reason sits on the submit inside, next to the thing it blocks.
+                tooltip="Have Self-driving open a pull request for this report"
                 onClick={() => setIsOpen((open) => !open)}
                 data-attr="inbox-report-create-pr"
             >
