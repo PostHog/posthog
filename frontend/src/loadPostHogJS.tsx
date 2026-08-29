@@ -15,6 +15,18 @@ const shouldDefer = (): boolean => {
     return sampleOnProperty(sessionId, 0.5)
 }
 
+/**
+ * Tag exceptions raised on a localhost dev session so error tracking can filter them out. A dev 500
+ * reports through the same path as a production one, so without this tag a local-only failure lands
+ * in the same issue as real user traffic.
+ */
+const tagLocalhostExceptions: BeforeSendFn = (event) => {
+    if (event && event.event === '$exception' && window.location.hostname === 'localhost') {
+        event.properties = { ...event.properties, exception_from_localhost: true }
+    }
+    return event
+}
+
 const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
     return (
         !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||
@@ -57,7 +69,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            before_send: [tagLocalhostExceptions, ...[options.beforeSend ?? []].flat()],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true

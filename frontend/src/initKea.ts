@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
+import { apiFailureExceptionProperties, isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -200,7 +200,7 @@ export function initKea({
                     console.error({ error, reducerKey, actionKey })
                 }
                 if (shouldReportApiFailure(error)) {
-                    posthog.captureException(error)
+                    posthog.captureException(error, apiFailureExceptionProperties(error))
                 }
             },
         }),

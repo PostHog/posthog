@@ -3530,7 +3530,10 @@ const api = {
                     apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
 
                     if (!response.ok) {
-                        const error = await ApiError.fromResponse(response, apiErrorFallback(response, 'GET', url))
+                        const error = await ApiError.fromResponse(response, apiErrorFallback(response, 'GET', url), {
+                            method: 'GET',
+                            path: requestPathname(url),
+                        })
                         onError(error)
                         abortController.abort()
                         return
@@ -7313,7 +7316,11 @@ const api = {
                         abortController.abort()
                     }
                 } else if (!response.ok) {
-                    const error = await ApiError.fromResponse(response, `Request failed with status ${response.status}`)
+                    const error = await ApiError.fromResponse(
+                        response,
+                        `Request failed with status ${response.status}`,
+                        { method, path: requestPathname(url) }
+                    )
                     const errorData = error.data
                     // TEMPORARY: capture 401s with decoded (masked) JWT claims so we can
                     // identify which failure mode is producing the livestream auth baseline.
@@ -7611,7 +7618,7 @@ async function handleFetch(
             }
         }
 
-        throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
+        throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url), { method, path: pathname })
     }
 
     return response

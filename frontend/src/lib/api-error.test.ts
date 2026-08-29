@@ -1,4 +1,11 @@
-import { ApiError, isTransientServerError, shouldReportApiFailure } from './api-error'
+import { apiFailureExceptionProperties, ApiError, isTransientServerError, shouldReportApiFailure } from './api-error'
+
+function apiErrorWithRequest(method: string, path: string, status?: number): ApiError {
+    const error = new ApiError('A server error occurred.', status)
+    error.method = method
+    error.path = path
+    return error
+}
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -12,6 +19,17 @@ describe('api-error', () => {
             const error = await ApiError.fromResponse(response, 'fallback')
 
             expect(error).toMatchObject({ message: expected, status: 400, data: body })
+        })
+
+        it('stores the request method and path when given request context', async () => {
+            const response = new Response(JSON.stringify({ detail: 'A server error occurred.' }), { status: 500 })
+
+            const error = await ApiError.fromResponse(response, 'fallback', {
+                method: 'GET',
+                path: '/api/projects/2/insights/9Pq3xR2t',
+            })
+
+            expect(error).toMatchObject({ method: 'GET', path: '/api/projects/2/insights/9Pq3xR2t' })
         })
 
         it('uses the fallback for a response without a recognized message', async () => {
@@ -115,6 +133,58 @@ describe('api-error', () => {
             const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 403 }))
 
             expect(shouldReportApiFailure(error)).toBe(false)
+        })
+    })
+
+    describe('apiFailureExceptionProperties', () => {
+        const fingerprint = (method: string, path: string, status?: number): string =>
+            apiFailureExceptionProperties(apiErrorWithRequest(method, path, status))!.$exception_fingerprint as string
+
+        it('gives one fingerprint per endpoint, method and status, collapsing resource ids', () => {
+            // Two resources under the same endpoint share one issue.
+            expect(fingerprint('GET', '/api/projects/2/insights/9Pq3xR2t', 500)).toBe(
+                fingerprint('GET', '/api/projects/7/insights/aB4kZ9mn', 500)
+            )
+            // A different endpoint, method, or status splits it.
+            expect(fingerprint('GET', '/api/projects/2/insights/9Pq3xR2t', 500)).not.toBe(
+                fingerprint('GET', '/api/projects/2/dashboards/9Pq3xR2t', 500)
+            )
+            expect(fingerprint('GET', '/api/projects/2/insights/9Pq3xR2t', 500)).not.toBe(
+                fingerprint('POST', '/api/projects/2/insights/9Pq3xR2t', 500)
+            )
+            expect(fingerprint('GET', '/api/projects/2/insights/9Pq3xR2t', 500)).not.toBe(
+                fingerprint('GET', '/api/projects/2/insights/9Pq3xR2t', 404)
+            )
+        })
+
+        it.each([
+            ['a numeric id', '/api/projects/2', '/api/projects/58'],
+            [
+                'a uuid',
+                '/api/projects/2/persons/018f2b3c-4d5e-6f70-8901-234567890abc',
+                '/api/projects/2/persons/0190aabb-ccdd-7eef-8011-223344556677',
+            ],
+            ['a base62 short id', '/api/projects/2/insights/9Pq3xR2t', '/api/projects/2/insights/aB4kZ9mn'],
+        ])('collapses %s so the endpoint keeps one fingerprint', (_, pathA, pathB) => {
+            expect(fingerprint('GET', pathA, 500)).toBe(fingerprint('GET', pathB, 500))
+        })
+
+        it('reports the actual path and status as readable properties', () => {
+            expect(
+                apiFailureExceptionProperties(apiErrorWithRequest('GET', '/api/projects/2/insights/9Pq3xR2t', 500))
+            ).toMatchObject({
+                api_request_method: 'GET',
+                api_request_path: '/api/projects/2/insights/9Pq3xR2t',
+                api_response_status: 500,
+            })
+        })
+
+        it.each([
+            ['a plain Error', new Error('boom')],
+            ['null', null],
+            ['an ApiError with no request context', new ApiError('boom', 500)],
+        ])('returns undefined for %s', (_, error) => {
+            expect(apiFailureExceptionProperties(error)).toBeUndefined()
         })
     })
 })

@@ -84,6 +84,58 @@ export function shouldReportApiFailure(error: unknown): boolean {
     return !isApprovalRequiredError(failure)
 }
 
+/**
+ * Collapse the volatile id segments of a request path so per-endpoint grouping stays bounded.
+ * `/api/projects/2/insights/9Pq3xR2t` and `/api/projects/7/insights/aB4kZ9mn` both become
+ * `/api/projects/:id/insights/:id`, so one endpoint maps to one error tracking issue instead of
+ * one per resource.
+ */
+function normalizeRequestPath(path: string): string {
+    return path
+        .split('/')
+        .map((segment) => {
+            // Numeric primary keys, e.g. team or project ids.
+            if (/^\d+$/.test(segment)) {
+                return ':id'
+            }
+            // UUIDs, e.g. persons and some resources.
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment)) {
+                return ':id'
+            }
+            // Base62 short ids (insights, dashboards, notebooks): 6+ chars that carry a digit or
+            // mix case. Static route words are lower-case and stay untouched.
+            const hasDigit = /\d/.test(segment)
+            const mixesCase = /[a-z]/.test(segment) && /[A-Z]/.test(segment)
+            if (segment.length >= 6 && /[A-Za-z]/.test(segment) && (hasDigit || mixesCase)) {
+                return ':id'
+            }
+            return segment
+        })
+        .join('/')
+}
+
+/**
+ * Extra properties for the `captureException` call that reports an API failure. Django's default
+ * 500 body is `{"detail": "A server error occurred."}`, so every unrelated backend failure builds
+ * an `ApiError` with the same message and the same stack (this file), which error tracking groups
+ * into one untraceable issue. A manual `$exception_fingerprint` per method, endpoint, and status
+ * splits that family into issues a person can chase, and the readable properties name the endpoint.
+ * Returns `undefined` when the request context is unknown, so the report falls back to default
+ * grouping.
+ */
+export function apiFailureExceptionProperties(error: unknown): Record<string, unknown> | undefined {
+    if (!(error instanceof ApiError) || !error.method || !error.path) {
+        return undefined
+    }
+    const endpoint = normalizeRequestPath(error.path)
+    return {
+        $exception_fingerprint: `ApiError ${error.status ?? 'unknown'} ${error.method} ${endpoint}`,
+        api_request_method: error.method,
+        api_request_path: error.path,
+        api_response_status: error.status ?? null,
+    }
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
@@ -96,6 +148,11 @@ export class ApiError extends Error {
 
     /** Link to external resources, e.g. stripe invoices */
     link: string | null
+
+    /** HTTP method of the failed request, when known. Reported to error tracking for grouping. */
+    method: string | null = null
+    /** Path of the failed request, when known. Reported to error tracking for grouping. */
+    path: string | null = null
 
     constructor(
         message?: string,
@@ -112,7 +169,11 @@ export class ApiError extends Error {
         this.attr = data?.attr || null
     }
 
-    static async fromResponse(response: Response, fallbackMessage?: string): Promise<ApiError> {
+    static async fromResponse(
+        response: Response,
+        fallbackMessage?: string,
+        request?: { method: string; path: string }
+    ): Promise<ApiError> {
         let data: unknown = null
 
         try {
@@ -128,7 +189,12 @@ export class ApiError extends Error {
             (value): value is string => typeof value === 'string'
         )
 
-        return new ApiError(responseMessage || fallbackMessage, response.status, response.headers, data)
+        const error = new ApiError(responseMessage || fallbackMessage, response.status, response.headers, data)
+        if (request) {
+            error.method = request.method
+            error.path = request.path
+        }
+        return error
     }
 
     /**
