@@ -80,7 +80,7 @@ s3://<bucket>/<prefix>/
 
 The training job is S3-only, so it can run on a laptop against copies of the prod snapshots. The dataset job cannot: it needs the dogfood project's ClickHouse and cross-region Postgres.
 
-1. Sync the two prefixes the job reads into the local object-storage bucket. This needs an SSO session with the `secrets-editor` role on `prod-us-secrets`, and the Secrets Manager id of the dataset reader credential (provisioned with the bucket; ask the owning team):
+1. With the dev stack up (`bin/start`; the script waits for object storage to accept requests), sync the two prefixes the job reads into the local object-storage bucket. This needs an SSO session with the `secrets-editor` role on `prod-us-secrets`, and the Secrets Manager id of the dataset reader credential (provisioned with the bucket; ask the owning team):
 
    ```bash
    aws sso login --profile prod-us-secrets
@@ -89,9 +89,9 @@ The training job is S3-only, so it can run on a laptop against copies of the pro
 
    This copies `inbox_report_state/v1/dt=*` and `inbox_report_labels/v1/dt=*` to `~/.cache/posthog/inbox_ranking/` and from there into `s3://posthog/inbox_ranking/` on SeaweedFS (`localhost:19000`). It prints the partition days present in both tables; pick one of those as the partition to run. Re-runs only move new days.
 
-2. Leave `INBOX_RANKING_DATASET_S3_BUCKET` unset: `common.s3_client()` then talks to SeaweedFS and `dataset_bucket()` is `posthog`.
+2. Make sure `INBOX_RANKING_DATASET_S3_BUCKET` is unset in the shell that runs Dagster (`env | grep INBOX_RANKING`): `common.s3_client()` then talks to SeaweedFS and `dataset_bucket()` is `posthog`. If it is set, the dag uses your ambient AWS credentials against that bucket, and the read-only credential the sync used protects nothing.
 
-3. With the dev stack up (`bin/start` runs `dagster dev` on http://localhost:3030 with the signals location loaded), materialize `inbox_ranking_training_job` for that partition from the UI, or from the CLI:
+3. `bin/start` runs `dagster dev` on http://localhost:3030 with the signals location loaded; materialize `inbox_ranking_training_job` for that partition from the UI, or from the CLI:
 
    ```bash
    dagster job launch -w .dagster_home/workspace.yaml --location posthog.dags.locations.signals \
@@ -100,7 +100,7 @@ The training job is S3-only, so it can run on a laptop against copies of the pro
 
    The schedule is stopped outside prod US, so nothing runs unasked. If the run sits in `QUEUED`, check the daemon log for `Maximum is 10, won't launch more`: runs from a killed `dagster dev` stay `STARTED` forever and count against the local queue. Terminate them from the Runs page (force termination).
 
-4. Read the result from `s3://posthog/inbox_ranking/inbox_ranking_models/v1/dt=<day>/metadata.json` (per-head AUCs, readability) and the examples parquet next to it:
+4. Read the result from `s3://posthog/inbox_ranking/inbox_ranking_models/v1/dt=<day>/metadata.json` (per-head AUCs, readability); the examples are at `s3://posthog/inbox_ranking/inbox_ranking_training_examples/v1/dt=<day>/part-00000.parquet`:
 
    ```bash
    AWS_ACCESS_KEY_ID=object_storage_root_user AWS_SECRET_ACCESS_KEY=object_storage_root_password \
