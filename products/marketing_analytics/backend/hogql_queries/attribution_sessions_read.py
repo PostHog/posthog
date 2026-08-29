@@ -18,6 +18,7 @@ from posthog.schema import MarketingAnalyticsAttributionBreakdown
 from posthog.hogql import ast
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
@@ -80,21 +81,30 @@ def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDat
         # The rows are userless and shared, so they cannot honor per-user property restrictions.
         return "property_access_controlled"
 
-    start, end = window(runner, date_range)
-    if (end - start).total_seconds() > MAX_WINDOW_DAYS * 86400:
+    read = window(runner, date_range)
+    if (read.end - read.start).total_seconds() > MAX_WINDOW_DAYS * 86400:
         return "window_over_max"
 
     return None
 
 
-def window(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> tuple[datetime, datetime]:
-    """The display range extended back by the attribution window, in UTC.
+@frozen
+class ReadWindow:
+    """The span of session activity a query reads: its display range extended back by the attribution
+    window, in UTC. Both edges are datetimes, so they are named rather than positional."""
 
-    Converted before subtracting: subtracting from a team-local aware datetime is wall-clock
+    start: datetime
+    end: datetime
+
+
+def window(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> ReadWindow:
+    """Converted before subtracting: subtracting from a team-local aware datetime is wall-clock
     arithmetic, which lands an hour away from the credit side across a DST transition.
     """
-    start = date_range.date_from().astimezone(UTC) - timedelta(seconds=runner.attribution_window_seconds)
-    return start, date_range.date_to().astimezone(UTC)
+    return ReadWindow(
+        start=date_range.date_from().astimezone(UTC) - timedelta(seconds=runner.attribution_window_seconds),
+        end=date_range.date_to().astimezone(UTC),
+    )
 
 
 def _ensure(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -> Optional[list[str]]:
@@ -119,15 +129,15 @@ def _resolve(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -
             logger.info("attribution_sessions_precompute_ineligible", team_id=runner.team.pk, reason=reason)
             return None
 
-        start, end = window(runner, date_range)
+        read = window(runner, date_range)
         # Materialize from a session's length before the window: the writer files a session under the
         # chunk holding its start, so a session that opened earlier and ran into the window lives in
         # the preceding chunk. Reading the window alone leaves that row unwritten, and bounding by
         # event time cannot recover a row that was never built.
-        ensure_start = start - timedelta(minutes=SESSION_FORWARD_PAD_MINUTES)
+        ensure_start = read.start - timedelta(minutes=SESSION_FORWARD_PAD_MINUTES)
         # Check-only: a read must never materialize a cold window on the request thread. A miss
         # falls through to the live path and the scheduled job warms the window instead.
-        result = ensure_marketing_sessions_precomputed(runner.team, ensure_start, end, run_inserts=False)
+        result = ensure_marketing_sessions_precomputed(runner.team, ensure_start, read.end, run_inserts=False)
     except Exception:
         logger.exception("attribution_sessions_precompute_failed", team_id=runner.team.pk)
         return None
@@ -136,7 +146,7 @@ def _resolve(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -
     return [str(j) for j in result.job_ids]
 
 
-def _scope(job_ids: list[str], start: datetime, end: datetime) -> list[ast.Expr]:
+def _scope(job_ids: list[str], read: ReadWindow) -> list[ast.Expr]:
     """Scope to the job set and the window, bounding by event time.
 
     The live path keeps a session whose events fall in the window and then reports its start as the
@@ -147,10 +157,10 @@ def _scope(job_ids: list[str], start: datetime, end: datetime) -> list[ast.Expr]
     return [
         ast.Call(name="in", args=[_field("job_id"), ast.Tuple(exprs=[ast.Constant(value=j) for j in job_ids])]),
         ast.CompareOperation(
-            left=_field("max_event_timestamp"), op=ast.CompareOperationOp.GtEq, right=ast.Constant(value=start)
+            left=_field("max_event_timestamp"), op=ast.CompareOperationOp.GtEq, right=ast.Constant(value=read.start)
         ),
         ast.CompareOperation(
-            left=_field("min_event_timestamp"), op=ast.CompareOperationOp.LtEq, right=ast.Constant(value=end)
+            left=_field("min_event_timestamp"), op=ast.CompareOperationOp.LtEq, right=ast.Constant(value=read.end)
         ),
     ]
 
@@ -193,7 +203,7 @@ def build_reach(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange
     job_ids = _ensure(runner, date_range)
     if job_ids is None:
         return None
-    start, end = window(runner, date_range)
+    read = window(runner, date_range)
     # Collapsed per session first, for the reason in `build_person_arrays`. `uniq` already keeps a
     # duplicated session from counting its person twice, but two rows can carry different dimensions,
     # which puts one visitor in two breakdown rows.
@@ -206,7 +216,7 @@ def build_reach(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange
             ),
         ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", TABLE])),
-        where=ast.And(exprs=[*_scope(job_ids, start, end), *_exclusions(runner)]),
+        where=ast.And(exprs=[*_scope(job_ids, read), *_exclusions(runner)]),
         group_by=[_field("session_id"), _field("person_id")],
     )
     return ast.SelectQuery(
@@ -271,7 +281,7 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
     job_ids = _ensure(runner, date_range)
     if job_ids is None:
         return None
-    start, end = window(runner, date_range)
+    read = window(runner, date_range)
 
     conv = _conversions_per_person(runner, date_range)
     session_start = ast.Call(name="toUnixTimestamp", args=[_field("start_timestamp")])
@@ -315,7 +325,7 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
                 ),
             ),
         ),
-        where=ast.And(exprs=[*_scope(job_ids, start, end), *_exclusions(runner)]),
+        where=ast.And(exprs=[*_scope(job_ids, read), *_exclusions(runner)]),
         group_by=[ast.Field(chain=["conv", "conv_person_id"]), _field("session_id")],
     )
 
