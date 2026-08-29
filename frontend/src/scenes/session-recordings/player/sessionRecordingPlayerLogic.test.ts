@@ -954,6 +954,21 @@ describe('sessionRecordingPlayerLogic', () => {
                 expectedLeadingUnplayableMs: 0,
                 expectedHasLate: false,
             },
+            {
+                // multi-window lost snapshot: the first window holds only a backdated bookkeeping event,
+                // while a second window emits real content before its recovery full snapshot. The missing
+                // leading content lives in the other window, so the span must still be flagged.
+                description: 'flags a lost leading snapshot when the missing content is in a later window',
+                firstSourceSnapshots: [meta(START)],
+                secondSourceSnapshots: [
+                    w2inc(START + 61000),
+                    w2inc(START + 62000),
+                    w2fs(LATE_FS_TS),
+                    w2inc(LATE_FS_TS + 1000),
+                ],
+                expectedLeadingUnplayableMs: LATE_FS_TS - START,
+                expectedHasLate: true,
+            },
         ])(
             '$description',
             ({ firstSourceSnapshots, secondSourceSnapshots, expectedLeadingUnplayableMs, expectedHasLate }) => {

@@ -1872,8 +1872,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // pulls the recording start back by the whole idle span. Nothing renders in that span,
                 // so only call it unplayable when real screen content sits before the recovery point.
                 const recoveryTimestamp = renderability.timestamp
-                const windowEvents = sessionPlayerData.snapshotsByWindowId[firstWindowSegment.windowId] ?? []
-                const hasContentBeforeRecovery = windowEvents.some(
+                // The recovery point is the earliest renderable full snapshot across all windows, so the
+                // content check must span all windows too. A lost initial snapshot in any window leaves
+                // real screen content before recovery, even when the first window holds only bookkeeping.
+                const allEvents = Object.values(sessionPlayerData.snapshotsByWindowId).flat()
+                const hasContentBeforeRecovery = allEvents.some(
                     (event: eventWithTime) =>
                         event.type === EventType.IncrementalSnapshot &&
                         event.timestamp >= start &&
