@@ -343,9 +343,7 @@ def _render_previous_presentation_context(previous_title: str | None, previous_s
 
 
 # Chart-authoring guidance for the presentation step, adapted from the scout channel's
-# `_REPORT_CHARTS`. Rendered only when the team has the report-charts capability — and when it isn't,
-# the `charts` field is dropped from the schema too (see `build_report_presentation_prompt`), so a
-# team that isn't opted in is never shown or steered toward charts on the delicate fleet-wide path.
+# `_REPORT_CHARTS`.
 _REPORT_CHARTS_GUIDANCE = f"""## Attaching charts
 
 You may attach charts under `charts`, which the inbox draws on the report itself so a data move is visible next to the sentence describing it rather than a number the reader has to go and reproduce.
