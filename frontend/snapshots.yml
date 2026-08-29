@@ -6868,6 +6868,10 @@ snapshots:
         hash: v1.k794b7964.4ab1f8cb97f347a2aae442ca814c70c538c54e4a9efb1c3cdd6681a56cad5e90.wVmcanELl0wz7-rhcnN8K5MGXmKMMxXELkYcCEpCxKs
     scenes-app-inbox-cards--skeleton--light:
         hash: v1.k794b7964.24c19ab5df1e4ccb843b1ad726752e3a98aeadaa08595e66cb4b41aff1a9e9a1.Y3z44tkU4jsAYUyXxfl72fTuZ0MKA6_S6TTNCKt5jSg
+    scenes-app-inbox-createprbutton--default--dark:
+        hash: v1.k794b7964.48c126cb2fbf7e2ff90a961fec1dbe587726b4fe10346c933e7948f0c5722fc6.o3rRliF1DHQt7OSgtsMeThXxAYCAkiUcKqRxRRaqvMg
+    scenes-app-inbox-createprbutton--default--light:
+        hash: v1.k794b7964.afd9c8a70584e887de98dc27361817c64057c32da340ceb85f4584212bfb2dad.J1FNKAVCovRg8LIuY9uoXEFCuQ6MlUp1kFs6aJ33X5Y
     scenes-app-inbox-detail--pull-request--dark:
         hash: v1.k794b7964.e3d35a1f32d39211cf8bd41914c83ec6e4ed9e0251e8b883a8fa62c048dc4165.na0HIQko2FwF9KTcKxD66kvttld6IbR_S0bejyK_1hs
     scenes-app-inbox-detail--pull-request--light:
