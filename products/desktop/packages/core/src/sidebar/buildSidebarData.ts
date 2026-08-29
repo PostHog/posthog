@@ -1,5 +1,9 @@
 import { readPrUrls, type WorkspaceMode } from "@posthog/shared";
-import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
+import {
+  isTerminalStatus,
+  type Task,
+  type TaskRunStatus,
+} from "@posthog/shared/domain-types";
 import { taskActivityAt } from "../tasks/taskActivity";
 import { getRepositoryInfo } from "./groupTasks";
 import type { TaskData, TaskGroup } from "./sidebarData.types";
@@ -111,7 +115,7 @@ export function filterVisibleTasks(
 }
 
 export interface TaskSession {
-  taskRunId?: string;
+  taskRunId: string;
   isPromptPending?: boolean;
   pendingPermissions?: { size: number };
   cloudStatus?: TaskRunStatus;
@@ -135,9 +139,7 @@ export function computeSidebarSessionSignature(
       typeof session.cloudOutput?.pr_url === "string"
         ? session.cloudOutput.pr_url
         : "";
-    const isAgentIdle =
-      session.taskRunId !== undefined &&
-      session.agentIdleForRunId === session.taskRunId;
+    const isAgentIdle = session.agentIdleForRunId === session.taskRunId;
     signature += `${session.taskId}:${session.isPromptPending ? 1 : 0}:${
       session.pendingPermissions?.size ?? 0
     }:${session.cloudStatus ?? ""}:${prUrl}:${isAgentIdle ? 1 : 0};`;
@@ -210,15 +212,22 @@ export function deriveTaskRunState(
   session: TaskSession | undefined,
 ): Pick<
   TaskData,
-  "id" | "isGenerating" | "isAgentIdle" | "taskRunStatus" | "taskRunEnvironment"
+  "id" | "isGenerating" | "taskRunStatus" | "taskRunEnvironment"
 > {
+  const taskRunStatus =
+    session?.cloudStatus ?? task.latest_run?.status ?? undefined;
+  const isAgentIdle =
+    session !== undefined && session.agentIdleForRunId === session.taskRunId;
+  const isActiveCloudRun =
+    task.latest_run?.environment === "cloud" &&
+    taskRunStatus !== undefined &&
+    !isTerminalStatus(taskRunStatus) &&
+    !isAgentIdle;
+
   return {
     id: task.id,
-    isGenerating: session?.isPromptPending ?? false,
-    isAgentIdle:
-      session?.taskRunId !== undefined &&
-      session.agentIdleForRunId === session.taskRunId,
-    taskRunStatus: session?.cloudStatus ?? task.latest_run?.status ?? undefined,
+    isGenerating: session?.isPromptPending === true || isActiveCloudRun,
+    taskRunStatus,
     taskRunEnvironment: task.latest_run?.environment ?? undefined,
   };
 }

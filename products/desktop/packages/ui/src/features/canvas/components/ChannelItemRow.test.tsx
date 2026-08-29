@@ -163,6 +163,7 @@ describe("ChannelItemRow", () => {
       {
         taskRunStatus: "in_progress" as const,
         workspaceMode: "cloud" as const,
+        isGenerating: true,
       },
       "Working",
     ],
@@ -174,7 +175,6 @@ describe("ChannelItemRow", () => {
         taskRunStatus: "in_progress" as const,
         runMode: "interactive" as const,
         workspaceMode: "cloud" as const,
-        isAgentIdle: true,
       },
       "All caught up",
     ],
@@ -197,7 +197,7 @@ describe("ChannelItemRow", () => {
       // A local run's persisted status is not advanced when the agent finishes.
       "a local background run parked at queued",
       { taskRunStatus: "queued" as const, runMode: "background" as const },
-      "All caught up",
+      "Pending — no work in flight",
     ],
     [
       // Re-running a task that already shipped a PR leaves the previous PR on
@@ -224,7 +224,6 @@ describe("ChannelItemRow", () => {
         taskRunStatus: "in_progress" as const,
         runMode: "background" as const,
         workspaceMode: "cloud" as const,
-        isAgentIdle: true,
         prState: "open" as const,
       },
       "All caught up",
@@ -235,7 +234,6 @@ describe("ChannelItemRow", () => {
         taskRunStatus: "in_progress" as const,
         runMode: "background" as const,
         workspaceMode: "cloud" as const,
-        isAgentIdle: true,
         prUrl: "https://github.com/PostHog/code/pull/1",
       },
       "All caught up",

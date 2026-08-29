@@ -34,10 +34,6 @@ describe("TaskStatusDot", () => {
       "a cloud session is queued",
       { workspaceMode: "cloud", taskRunStatus: "queued" },
     ],
-    [
-      "a cloud session runs after an app restart",
-      { workspaceMode: "cloud", taskRunStatus: "in_progress" },
-    ],
   ])("uses the loading icon while %s", (_case, status) => {
     expect(taskDot(status).spinner).toBe(true);
   });

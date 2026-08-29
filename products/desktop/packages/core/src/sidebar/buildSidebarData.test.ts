@@ -1,8 +1,11 @@
+import type { TaskRunStatus } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
 import {
+  deriveTaskRunState,
   limitTasksPerGroup,
   readRunMode,
   sliceVisibleTasks,
+  type TaskSession,
 } from "./buildSidebarData";
 import type { TaskData, TaskGroup } from "./sidebarData.types";
 
@@ -32,6 +35,55 @@ function makeGroup(id: string, taskCount: number): TaskGroup {
     tasks: Array.from({ length: taskCount }, (_, i) => makeTask(`${id}-${i}`)),
   };
 }
+
+describe("deriveTaskRunState", () => {
+  it.each<
+    [string, TaskRunStatus, "local" | "cloud", TaskSession | undefined, boolean]
+  >([
+    ["a cloud run reconnects", "in_progress", "cloud", undefined, true],
+    ["a cloud run waits for setup", "not_started", "cloud", undefined, true],
+    [
+      "the current cloud run is active",
+      "in_progress",
+      "cloud",
+      { taskRunId: "run-1" },
+      true,
+    ],
+    [
+      "the current cloud run reports idle",
+      "in_progress",
+      "cloud",
+      { taskRunId: "run-1", agentIdleForRunId: "run-1" },
+      false,
+    ],
+    [
+      "an old cloud run reports idle",
+      "in_progress",
+      "cloud",
+      { taskRunId: "run-2", agentIdleForRunId: "run-1" },
+      true,
+    ],
+    ["a cloud run completes", "completed", "cloud", undefined, false],
+    ["a local run stays in progress", "in_progress", "local", undefined, false],
+    [
+      "a local agent streams output",
+      "in_progress",
+      "local",
+      { taskRunId: "run-1", isPromptPending: true },
+      true,
+    ],
+  ])(
+    "derives loading for %s",
+    (_case, status, environment, session, expected) => {
+      const result = deriveTaskRunState(
+        { id: "task-1", latest_run: { status, environment } },
+        session,
+      );
+
+      expect(result.isGenerating).toBe(expected);
+    },
+  );
+});
 
 describe("sliceVisibleTasks", () => {
   it("caps the flat list to the visible count and reports hasMore", () => {

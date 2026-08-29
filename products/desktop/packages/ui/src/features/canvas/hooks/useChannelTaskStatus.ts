@@ -48,7 +48,6 @@ export function useTaskStatusInput(
       workspace?.mode ??
       (taskData.taskRunEnvironment === "cloud" ? "cloud" : undefined),
     isGenerating: taskData.isGenerating,
-    isAgentIdle: taskData.isAgentIdle,
     isUnread: taskData.isUnread,
     isPinned: taskData.isPinned,
     isSuspended: taskData.isSuspended,

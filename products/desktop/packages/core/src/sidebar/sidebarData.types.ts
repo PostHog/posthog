@@ -12,7 +12,6 @@ export interface TaskData {
   createdAt: number;
   lastActivityAt: number;
   isGenerating: boolean;
-  isAgentIdle?: boolean;
   isUnread: boolean;
   isPinned: boolean;
   needsPermission: boolean;
