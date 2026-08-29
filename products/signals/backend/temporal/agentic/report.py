@@ -512,7 +512,8 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
     reports were judged afterwards (join `signal_report_completed` on `report_id`).
 
     `dismissal_notes_attached` is the one that answers whether a reviewer's "stop flagging this"
-    reaches the stage that decides whether to flag it again.
+    reaches the stage that decides whether to flag it again. `pipeline_notes_attached` answers
+    whether anyone addresses notes to this stage at all.
 
     Delivery is at-least-once, because an activity retry re-fires an identical payload, so read
     report state as the latest event per `report_id` rather than by counting raw events.
@@ -528,6 +529,7 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
                 "report_id": report_id,
                 "notes_attached": steering.notes_attached,
                 "dismissal_notes_attached": steering.dismissal_notes_attached,
+                "pipeline_notes_attached": steering.pipeline_notes_attached,
                 "scratchpad_available": steering.scratchpad_available,
             },
             groups=groups(team.organization, team),

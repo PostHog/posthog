@@ -12,7 +12,8 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
-from products.signals.backend.report_steering import NO_STEERING, load_research_steering
+from products.signals.backend.report_steering import NO_STEERING, load_report_steering, load_research_steering
+from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH
 from products.skills.backend.models.skills import LLMSkill
 
 SCOUT_SKILL = "signals-scout-error-tracking"
@@ -72,14 +73,34 @@ def test_research_steering_carries_the_report_derived_notes(organization, team):
             content="which teams does this hit?",
             origin=SignalScoutNote.Origin.REPORT_DISCUSSION,
         )
+        SignalScoutNote.objects.create(
+            team=team,
+            skill_name=PIPELINE_AUDIENCE_REPORT_RESEARCH,
+            content="route billing-adjacent reports to the billing folks",
+        )
 
     # No ambient team scope here on purpose: research runs in a Temporal activity, so the reads
     # have to set their own scope or every fail-closed model raises.
     steering = load_research_steering(team.id, str(report.id))
 
-    assert steering.notes_attached == 3
+    assert steering.notes_attached == 4
     assert steering.dismissal_notes_attached == 1
+    assert steering.pipeline_notes_attached == 1
     assert "the checkout flow is frozen" in steering.section
+    # The research audience is a second read merged into the same list. It is this stage's own
+    # channel, so the implementation run, which reads by exact target, must not see it.
+    assert "route billing-adjacent reports" in steering.section
+    assert "route billing-adjacent reports" not in load_report_steering(team.id, str(report.id)).section
+    # A pipeline-authored report resolves no scout, so it reads the fleet-wide and research-audience
+    # notes and none of the scout-targeted ones.
+    pipeline_report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+    pipeline_steering = load_research_steering(team.id, str(pipeline_report.id))
+    assert pipeline_steering.notes_attached == 2
+    assert pipeline_steering.pipeline_notes_attached == 1
+    assert "route billing-adjacent reports" in pipeline_steering.section
+    assert "this is the approval flow" not in pipeline_steering.section
     assert "this is the approval flow, not a bug" in steering.section
     assert "which teams does this hit?" in steering.section
     # A note is evidence about what the team wants, never a second set of instructions for a run

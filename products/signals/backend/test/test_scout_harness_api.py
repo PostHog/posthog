@@ -42,6 +42,7 @@ from products.signals.backend.models import (
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
@@ -1423,23 +1424,38 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         assert listed.status_code == status.HTTP_200_OK
         assert [row["id"] for row in listed.json()] == [created["id"]]
 
+    def test_create_accepts_a_pipeline_audience_with_no_scout_skill(self) -> None:
+        # A pipeline audience names a stage of the report pipeline, which has no `LLMSkill` row,
+        # so it must clear the write path without one.
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "route billing-adjacent reports to the billing folks", "skill_name": PIPELINE_AUDIENCE},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["skill_name"] == PIPELINE_AUDIENCE
+
     @parameterized.expand(
         [
-            # (include_general, expected contents) — a scout's list must carry its own notes plus
-            # the fleet-wide general notes, and never another scout's.
-            ("with_general", "true", {"for the fleet", "for web analytics"}),
-            ("own_notes_only", "false", {"for web analytics"}),
+            # (target, include_general, expected contents) — a target's list must carry its own
+            # notes plus the fleet-wide general notes, and never another target's. A pipeline
+            # audience reads the same way a scout does, and neither one sees the other's notes.
+            ("scout_with_general", "signals-scout-web-analytics", "true", {"for the fleet", "for web analytics"}),
+            ("scout_own_notes_only", "signals-scout-web-analytics", "false", {"for web analytics"}),
+            ("pipeline_with_general", PIPELINE_AUDIENCE, "true", {"for the fleet", "for research"}),
+            ("pipeline_own_notes_only", PIPELINE_AUDIENCE, "false", {"for research"}),
         ]
     )
-    def test_list_scopes_to_skill_plus_general(self, _name: str, include_general: str, expected: set[str]) -> None:
+    def test_list_scopes_to_target_plus_general(
+        self, _name: str, target: str, include_general: str, expected: set[str]
+    ) -> None:
         SignalScoutNote.objects.create(team=self.team, skill_name="", content="for the fleet")
         SignalScoutNote.objects.create(
             team=self.team, skill_name="signals-scout-web-analytics", content="for web analytics"
         )
         SignalScoutNote.objects.create(team=self.team, skill_name="signals-scout-logs", content="for logs")
-        response = self.client.get(
-            f"{self._list_url()}?skill_name=signals-scout-web-analytics&include_general={include_general}"
-        )
+        SignalScoutNote.objects.create(team=self.team, skill_name=PIPELINE_AUDIENCE, content="for research")
+        response = self.client.get(self._list_url(), data={"skill_name": target, "include_general": include_general})
         assert response.status_code == status.HTTP_200_OK
         assert {row["content"] for row in response.json()} == expected
 
@@ -1465,6 +1481,9 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
             # both a non-scout name and a scout name with no matching skill on the project.
             ("bad_target", {"content": "note", "skill_name": "web-analytics"}),
             ("unknown_scout", {"content": "note", "skill_name": "signals-scout-web-anlytics"}),
+            # Same reasoning for the pipeline family: it is an allowlist, not a free-form prefix,
+            # so a stage that reads no notes cannot be addressed.
+            ("unknown_pipeline_audience", {"content": "note", "skill_name": "pipeline:implementation"}),
             # A note born expired would never be seen by anyone.
             ("past_expiry", {"content": "note", "expires_at": "2020-01-01T00:00:00Z"}),
             ("blank_content", {"content": "   ", "skill_name": ""}),

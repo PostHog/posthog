@@ -2,7 +2,9 @@
 
 Two agentic runs read a report's steering, and they read it differently.
 
-The **research** run judges the report itself, so it reads every origin. A reviewer who dismissed an
+The **research** run judges the report itself, so it reads every origin, and it is the one reader of
+the `pipeline:report-research` audience (`scout_harness/note_targets.PIPELINE_AUDIENCES`), the target
+a person uses for guidance about how reports get researched rather than about what a scout watches. A reviewer who dismissed an
 earlier report with "this is expected, it's the approval flow" is giving feedback on exactly the
 judgment this run is about to make, and until that reaches the research prompt it only ever reaches
 scheduled scout runs.
@@ -27,6 +29,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.signals.backend.models import SignalScoutNote
 from products.signals.backend.scout_authorship import resolve_report_scout_skill
+from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH
 
 if TYPE_CHECKING:
     from products.signals.backend.scout_harness.tools.notes import ScoutNote
@@ -55,6 +58,9 @@ class ReportSteering:
     # How many of the attached notes carry a reviewer's verdict on an earlier report. Always 0 on
     # the implementation run, which excludes the derived origins.
     dismissal_notes_attached: int = 0
+    # How many of the attached notes were addressed to the research stage itself. Always 0 on the
+    # implementation run, which reads no pipeline audience.
+    pipeline_notes_attached: int = 0
 
 
 NO_STEERING = ReportSteering(section="", notes_attached=0, scratchpad_available=False)
@@ -95,13 +101,20 @@ def render_steering_note(note: ScoutNote) -> str:
 class _FleetNotes:
     notes: tuple[ScoutNote, ...]
     scratchpad_available: bool
+    pipeline_notes: int = 0
 
 
 _NO_FLEET_NOTES = _FleetNotes(notes=(), scratchpad_available=False)
 
 
-def _load_fleet_notes(team_id: int, report_id: str, *, exclude_origins: Sequence[str]) -> _FleetNotes:
+def _load_fleet_notes(
+    team_id: int, report_id: str, *, exclude_origins: Sequence[str], research_audience: bool = False
+) -> _FleetNotes:
     """The notes addressed to this report's scout plus the fleet-wide ones, best-effort.
+
+    With `research_audience`, the notes addressed to `pipeline:report-research` join them. `list_notes`
+    takes one target, so that is a second read; the two are merged newest first and cut to the same
+    cap, so a stage that gets its own notes does not also get a bigger prompt.
 
     A report on a child environment gets nothing. Notes live on the canonical project, and both
     consumers surface what they read on the report's own team, so canonicalizing the read would
@@ -131,13 +144,28 @@ def _load_fleet_notes(team_id: int, report_id: str, *, exclude_origins: Sequence
                 content_max_chars=_MAX_STEERING_NOTE_CHARS,
                 exclude_origins=exclude_origins,
             )
+            pipeline_notes = 0
+            if research_audience:
+                audience_notes = list_notes(
+                    team_id=team_id,
+                    skill_name=PIPELINE_AUDIENCE_REPORT_RESEARCH,
+                    include_general=False,
+                    limit=_MAX_STEERING_NOTES,
+                    content_max_chars=_MAX_STEERING_NOTE_CHARS,
+                    exclude_origins=exclude_origins,
+                )
+                merged = sorted(
+                    [*notes, *audience_notes], key=lambda note: (note.created_at or "", note.id), reverse=True
+                )
+                notes = merged[:_MAX_STEERING_NOTES]
+                pipeline_notes = sum(1 for note in notes if note.skill_name == PIPELINE_AUDIENCE_REPORT_RESEARCH)
             # Resolve the scratchpad pointer only when the fleet wrote at least one live entry, so
             # a team with no fleet memory does not pay for an instruction that can find nothing.
             scratchpad_available = bool(search_scratchpad(team_id=team_id, limit=1, keys_only=True))
     except Exception:
         logger.exception("signals report steering fetch failed", report_id=report_id, team_id=team_id)
         return _NO_FLEET_NOTES
-    return _FleetNotes(notes=tuple(notes), scratchpad_available=scratchpad_available)
+    return _FleetNotes(notes=tuple(notes), scratchpad_available=scratchpad_available, pipeline_notes=pipeline_notes)
 
 
 def _compose(head: str, pointer: str, fleet: _FleetNotes) -> str:
@@ -171,8 +199,11 @@ def load_research_steering(team_id: int, report_id: str) -> ReportSteering:
     report like that one is worth surfacing again. The run is read-only, its prompt already carries
     the report's own raw signals, and it writes back only to the report on the same team, so the
     report content a derived note quotes reaches nobody it could not already reach.
+
+    This run is also the reader of the `pipeline:report-research` audience. The implementation run
+    is not: guidance about how to research a report is not guidance about how to change code.
     """
-    fleet = _load_fleet_notes(team_id, report_id, exclude_origins=())
+    fleet = _load_fleet_notes(team_id, report_id, exclude_origins=(), research_audience=True)
     return ReportSteering(
         section=_compose(_RESEARCH_NOTES_HEAD, _RESEARCH_SCRATCHPAD_POINTER, fleet),
         notes_attached=len(fleet.notes),
@@ -180,4 +211,5 @@ def load_research_steering(team_id: int, report_id: str) -> ReportSteering:
         dismissal_notes_attached=sum(
             1 for note in fleet.notes if note.origin == SignalScoutNote.Origin.REPORT_DISMISSAL
         ),
+        pipeline_notes_attached=fleet.pipeline_notes,
     )
