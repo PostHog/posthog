@@ -324,7 +324,7 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> DcrClientRegistrat
 
     token_endpoint_auth_method = select_token_endpoint_auth_method(metadata)
     payload: dict[str, object] = {
-        "client_name": "MCP Store (PostHog)",
+        "client_name": "PostHog MCP Store",
         "redirect_uris": [redirect_uri],
         "grant_types": requested_oauth_grant_types(metadata),
         "response_types": ["code"],

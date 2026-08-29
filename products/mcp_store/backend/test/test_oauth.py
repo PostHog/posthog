@@ -925,6 +925,28 @@ class TestRegisterDCRClient(SimpleTestCase):
     def test_omitted_supported_methods_default_to_basic_for_confidential_clients(self):
         assert select_token_endpoint_auth_method({}, has_client_secret=True) == "client_secret_basic"
 
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_sends_provider_friendly_client_name(self, mock_post, _allow):
+        """Regression: hardcoded "MCP Store (PostHog)" breaks DCR against strict
+        providers (e.g. Calendly) that reject parentheses in client_name (RFC 7591
+        leaves charset unconstrained). See #89998."""
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.status_code = 201
+        mock_response.json.return_value = {"client_id": "abc"}
+        mock_post.return_value = mock_response
+
+        register_dcr_client(
+            {"registration_endpoint": "https://auth.example.com/register"},
+            "https://app.posthog.com/callback",
+        )
+
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["client_name"] == "PostHog MCP Store"
+        assert "(" not in payload["client_name"]
+        assert ")" not in payload["client_name"]
+
     @patch("products.mcp_store.backend.oauth.requests.post")
     def test_rejects_dcr_when_provider_only_lists_unsupported_auth_methods(self, mock_post):
         with self.assertRaisesMessage(ValueError, "private_key_jwt"):

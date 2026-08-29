@@ -978,7 +978,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except Exception as e:
             log_context["error"] = str(e)
             logger.exception("DCR registration failed", **log_context)
-            raise DCRRegistrationFailedError from e
+            # Прокидываем детали провайдера (тело 400 с причиной) до пользователя:
+            # без этого фронт видит только глухое "OAuth registration failed."
+            resp = getattr(e, "response", None)
+            detail = (getattr(resp, "text", "") or "").strip()[:500]
+            raise DCRRegistrationFailedError(detail or str(e)) from e
 
     def _build_authorize_url_from_metadata(
         self,
@@ -1426,10 +1430,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            except DCRRegistrationFailedError:
+            except DCRRegistrationFailedError as e:
                 if created:
                     installation.delete()
-                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": str(e) or "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
             client_id = registration.client_id
 
             # Cache the discovered metadata and minted per-user client on the
@@ -1695,10 +1699,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            except DCRRegistrationFailedError:
+            except DCRRegistrationFailedError as e:
                 if created:
                     installation.delete()
-                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": str(e) or "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
             client_id = registration.client_id
             dcr_client_secret = registration.client_secret
             token_endpoint_auth_method = registration.token_endpoint_auth_method
