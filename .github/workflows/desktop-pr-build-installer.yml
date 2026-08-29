@@ -1,7 +1,7 @@
 name: Desktop PR Build Installer
 
 # On-demand, signed macOS test builds for a pull request. Add the
-# `build-installer` label to package apps/code and get a downloadable .dmg/.zip
+# `desktop-build-installer` label to package apps/code and get a downloadable .dmg/.zip
 # attached to the run, with a sticky comment on the PR linking to it. Testers
 # download the artifact and run the app locally.
 #
@@ -27,13 +27,13 @@ concurrency:
 
 jobs:
     build-macos:
-        # Run on a same-repo PR that carries the `build-installer` label (either
+        # Run on a same-repo PR that carries the `desktop-build-installer` label (either
         # just added, or already present on a push).
         if: >-
             github.event.pull_request.head.repo.full_name == github.repository &&
             (
-              (github.event.action == 'labeled' && github.event.label.name == 'build-installer') ||
-              (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'build-installer'))
+              (github.event.action == 'labeled' && github.event.label.name == 'desktop-build-installer') ||
+              (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'desktop-build-installer'))
             )
         runs-on: depot-macos-26
         timeout-minutes: 45
