@@ -10,12 +10,17 @@ use tokio_retry::{
 use crate::database::{
     get_connection_with_metrics, get_writer_connection_with_metrics, pool_names, PostgresRouter,
 };
-use common_database::PostgresReader;
+use common_database::{PostgresReader, PostgresWriter};
 use common_types::{Person, PersonId, TeamId};
 use once_cell::sync::Lazy;
+use rand::Rng;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-use sqlx::{Acquire, Row};
+use sqlx::{
+    postgres::{PgConnection, PgRow},
+    Acquire, Row,
+};
+use tokio::time::timeout;
 use tracing::{debug, instrument, warn};
 
 // Add thread-local imports for test-specific counter
@@ -30,8 +35,8 @@ use crate::{
     metrics::consts::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DATABASE_ERROR_COUNTER,
         FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
-        FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME,
-        FLAG_PERSON_QUERY_TIME,
+        FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_REPLICA_CHECK, FLAG_HASH_KEY_RETRIES_COUNTER,
+        FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
     },
     properties::property_models::{OperatorType, PropertyFilter},
 };
@@ -39,6 +44,14 @@ use crate::{
 use super::{flag_group_type_mapping::GroupTypeIndex, flag_matching::FlagEvaluationState};
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
+
+/// Enough to size a rate nobody has measured, small enough that the extra primary load is noise.
+const REPLICA_STALENESS_SAMPLE_RATE: f64 = 0.01;
+
+/// Bounds how long a detached check can occupy the writer pool. Covers connection acquisition as
+/// well as the query, so a saturated pool kills the task here rather than at its 10s acquire
+/// timeout.
+const REPLICA_STALENESS_CHECK_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// Precomputed mapping from property name to its $initial_ equivalent.
 /// Source: posthog/taxonomy/taxonomy.py - PERSON_PROPERTIES_ADAPTED_FROM_EVENT + CAMPAIGN_PROPERTIES
@@ -153,8 +166,10 @@ pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Valu
 ///
 /// Web SDKs (posthog-js) report the OS as `$os`; mobile SDKs report it as
 /// `$os_name`. Ingestion normalizes `$os_name` -> `$os` at write time
-/// (`personInitialAndUTMProperties` in nodejs/src/utils/db/utils.ts), but that
-/// only covers newly-written rows — historical and un-normalized person rows can
+/// (`normalizeOsAlias` in nodejs/src/common/utils/event.ts for the event's own
+/// `$os`, `personInitialAndUTMProperties` in nodejs/src/common/utils/db/utils.ts
+/// for the person row), but that only covers newly-written rows, and it excludes
+/// `$is_server` events; historical and un-normalized person rows can
 /// carry only one of the two keys. Flag matching does exact-key lookups, so
 /// without this a mobile person whose row has only `$os_name` never matches an
 /// `$os` filter (and vice versa). The mirror is bidirectional so either filter
@@ -774,6 +789,7 @@ pub fn match_flag_value_to_flag_filter(
 pub async fn get_feature_flag_hash_key_overrides(
     reader: PostgresReader,
     pool_name: &'static str,
+    persons_writer: PostgresWriter,
     team_id: TeamId,
     distinct_id_and_hash_key_override: Vec<String>,
 ) -> Result<HashMap<String, String>, FlagError> {
@@ -791,6 +807,7 @@ pub async fn get_feature_flag_hash_key_overrides(
         let result = try_get_feature_flag_hash_key_overrides(
             &reader,
             pool_name,
+            &persons_writer,
             team_id,
             &distinct_id_and_hash_key_override,
         )
@@ -836,6 +853,7 @@ pub async fn get_feature_flag_hash_key_overrides(
 async fn try_get_feature_flag_hash_key_overrides(
     reader: &PostgresReader,
     pool_name: &'static str,
+    persons_writer: &PostgresWriter,
     team_id: TeamId,
     distinct_id_and_hash_key_override: &[String],
 ) -> Result<HashMap<String, String>, FlagError> {
@@ -844,29 +862,17 @@ async fn try_get_feature_flag_hash_key_overrides(
         get_connection_with_metrics(reader, pool_name, "get_feature_flag_hash_key_overrides")
             .await?;
 
-    // Get person data and their hash key overrides in one query
-    let hash_override_query = r#"
-            SELECT
-                ppd.person_id,
-                ppd.distinct_id,
-                fhko.feature_flag_key,
-                fhko.hash_key
-            FROM posthog_persondistinctid ppd
-            LEFT JOIN posthog_featureflaghashkeyoverride fhko
-                ON fhko.person_id = ppd.person_id
-                AND fhko.team_id = ppd.team_id
-            WHERE ppd.team_id = $1
-                AND ppd.distinct_id = ANY($2)
-                AND ppd.is_deleted = false
-        "#;
-
     let query_start = Instant::now();
-    let rows = sqlx::query(hash_override_query)
-        .bind(team_id)
-        .bind(distinct_id_and_hash_key_override)
-        .fetch_all(&mut *conn)
-        .await?;
+    let rows = fetch_override_rows(&mut conn, team_id, distinct_id_and_hash_key_override).await?;
     let query_duration = query_start.elapsed();
+
+    // Nothing below needs the reader connection, and this function is on the hottest path.
+    drop(conn);
+
+    // The join keeps a person row even when it has no override, so no rows at all means this pool
+    // could not see any of the requested distinct IDs. That is a different miss from seeing at
+    // least one and finding no override.
+    let any_distinct_id_found = !rows.is_empty();
 
     if query_duration.as_millis() > 200 {
         warn!(
@@ -896,10 +902,7 @@ async fn try_get_feature_flag_hash_key_overrides(
         person_id_to_distinct_id.insert(person_id, distinct_id);
 
         // Collect overrides where they exist
-        if let (Ok(feature_flag_key), Ok(hash_key)) = (
-            row.try_get::<String, _>("feature_flag_key"),
-            row.try_get::<String, _>("hash_key"),
-        ) {
+        if let Some((feature_flag_key, hash_key)) = row_override(&row) {
             overrides.push((feature_flag_key, hash_key, person_id));
         }
     }
@@ -935,7 +938,119 @@ async fn try_get_feature_flag_hash_key_overrides(
         1,
     );
 
+    if pool_name == pool_names::PERSONS_READER
+        && feature_flag_hash_key_overrides.is_empty()
+        && rand::thread_rng().gen_bool(REPLICA_STALENESS_SAMPLE_RATE)
+    {
+        // Detached, so a sampled request never waits on the primary. The cost is that the check
+        // runs slightly after the served read, so an override that replicates in that gap counts
+        // as a disagreement. That inflates the rate rather than hiding lag.
+        let persons_writer = persons_writer.clone();
+        let distinct_ids = distinct_id_and_hash_key_override.to_vec();
+        tokio::spawn(async move {
+            check_primary_for_stale_empty(
+                &persons_writer,
+                team_id,
+                &distinct_ids,
+                any_distinct_id_found,
+            )
+            .await;
+        });
+    }
+
     Ok(feature_flag_hash_key_overrides)
+}
+
+/// Tells apart the two causes of an empty result: the person has no override, or the row has not
+/// replicated. Only the second is wrong, and the served metrics cannot separate them.
+///
+/// The answer is counted and thrown away. Serving it would make this a partial fix, and the rate
+/// would then measure the fix.
+///
+/// Diagnostic. Remove once the rate is known.
+async fn check_primary_for_stale_empty(
+    persons_writer: &PostgresWriter,
+    team_id: TeamId,
+    distinct_id_and_hash_key_override: &[String],
+    any_distinct_id_found_on_replica: bool,
+) {
+    let check = primary_has_override(persons_writer, team_id, distinct_id_and_hash_key_override);
+
+    // Both booleans test "any requested distinct ID", not one specific person, so with several
+    // distinct IDs (the $anon_distinct_id case) the split between the two disagree buckets is
+    // approximate: the replica may have seen one distinct ID while missing the person that owns the
+    // primary override. The aggregate disagreement rate is unaffected.
+    let outcome = match timeout(REPLICA_STALENESS_CHECK_TIMEOUT, check).await {
+        Err(_) => "timeout",
+        Ok(Err(_)) => "error",
+        Ok(Ok(false)) => "agree",
+        Ok(Ok(true)) if any_distinct_id_found_on_replica => "disagree_override_missing",
+        Ok(Ok(true)) => "disagree_person_missing",
+    };
+
+    common_metrics::inc(
+        FLAG_HASH_KEY_REPLICA_CHECK,
+        &[("outcome".to_string(), outcome.to_string())],
+        1,
+    );
+}
+
+/// The served read and the staleness check must agree on what counts as an override, or the
+/// disagree metrics measure the gap between two tests rather than replica lag.
+fn row_override(row: &PgRow) -> Option<(String, String)> {
+    let feature_flag_key: String = row.try_get("feature_flag_key").ok()?;
+    let hash_key: String = row.try_get("hash_key").ok()?;
+    Some((feature_flag_key, hash_key))
+}
+
+/// Both the served read and the staleness check run this, so a disagreement between them means
+/// the data differed, not the question.
+async fn fetch_override_rows(
+    conn: &mut PgConnection,
+    team_id: TeamId,
+    distinct_id_and_hash_key_override: &[String],
+) -> Result<Vec<PgRow>, FlagError> {
+    // Get person data and their hash key overrides in one query
+    let hash_override_query = r#"
+            SELECT
+                ppd.person_id,
+                ppd.distinct_id,
+                fhko.feature_flag_key,
+                fhko.hash_key
+            FROM posthog_persondistinctid ppd
+            LEFT JOIN posthog_featureflaghashkeyoverride fhko
+                ON fhko.person_id = ppd.person_id
+                AND fhko.team_id = ppd.team_id
+            WHERE ppd.team_id = $1
+                AND ppd.distinct_id = ANY($2)
+                AND ppd.is_deleted = false
+        "#;
+
+    sqlx::query(hash_override_query)
+        .bind(team_id)
+        .bind(distinct_id_and_hash_key_override)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(FlagError::from)
+}
+
+/// Asks the primary whether any override exists for these distinct IDs.
+async fn primary_has_override(
+    persons_writer: &PostgresWriter,
+    team_id: TeamId,
+    distinct_id_and_hash_key_override: &[String],
+) -> Result<bool, FlagError> {
+    let mut conn = get_connection_with_metrics(
+        persons_writer,
+        pool_names::PERSONS_WRITER,
+        // Its own operation name, so these stay out of the served read's metrics.
+        "get_feature_flag_hash_key_overrides_replica_check",
+    )
+    .await?;
+
+    let rows = fetch_override_rows(&mut conn, team_id, distinct_id_and_hash_key_override).await?;
+
+    Ok(rows.iter().any(|row| row_override(row).is_some()))
 }
 
 /// Sets feature flag hash key overrides for a list of distinct IDs.
@@ -2230,6 +2345,59 @@ mod tests {
             count, 0,
             "Should have no overrides when persons don't exist"
         );
+    }
+
+    #[rstest]
+    #[case(false, false, false)]
+    #[case(true, false, false)]
+    #[case(true, true, true)]
+    #[tokio::test]
+    async fn test_primary_has_override_reports_only_a_real_override(
+        #[case] person_exists: bool,
+        #[case] override_set: bool,
+        #[case] expected: bool,
+    ) {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "replica_check_user".to_string();
+
+        if person_exists {
+            context
+                .insert_person(team.id, distinct_id.clone(), None)
+                .await
+                .unwrap();
+        }
+
+        if override_set {
+            let flag = mock!(FeatureFlag,
+                team_id: team.id,
+                filters: FlagFilters {
+                    groups: vec![],
+                    ..Default::default()
+                },
+                ensure_experience_continuity: Some(true)
+            );
+            let flag_row = mock!(FeatureFlagRow, from: flag);
+            context.insert_flag(team.id, Some(flag_row)).await.unwrap();
+
+            let router = context.create_postgres_router();
+            set_feature_flag_hash_key_overrides(
+                &router,
+                team.id,
+                vec![distinct_id.clone()],
+                "replica_check_hash_key".to_string(),
+            )
+            .await
+            .unwrap();
+        }
+
+        let found = primary_has_override(&context.persons_writer, team.id, &[distinct_id])
+            .await
+            .unwrap();
+
+        // A wrong query here reports no override every time: the check reads healthy and the
+        // rate it exists to measure is silently zero.
+        assert_eq!(found, expected);
     }
 
     #[rstest]

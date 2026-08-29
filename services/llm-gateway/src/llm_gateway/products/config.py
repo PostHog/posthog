@@ -6,7 +6,11 @@ from typing import Final
 
 from fastapi import HTTPException
 
-from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL
+from llm_gateway.baseten import (
+    BASETEN_DEEPSEEK_PUBLIC_MODEL,
+    BASETEN_GLM53_FLASH_PUBLIC_MODEL,
+    BASETEN_GLM53_PUBLIC_MODEL,
+)
 from llm_gateway.bedrock import BEDROCK_MODEL_IDS, get_bedrock_model_access_candidates, get_bedrock_region_name
 from llm_gateway.config import get_settings
 
@@ -92,6 +96,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "gpt-5-mini",
         "@cf/zai-org/glm-5.2",
         "zai-org/glm-5.3",
+        "zai-org/glm-5.3-flash",
         "moonshotai/kimi-k3",
     }
 )
@@ -104,6 +109,7 @@ RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
     # Evaluated by ReviewHog; exposed in PostHog Code behind the posthog-code-deepseek-model flag.
     BASETEN_DEEPSEEK_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
     BASETEN_GLM53_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
+    BASETEN_GLM53_FLASH_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
 }
 
 PRODUCTS: Final[dict[str, ProductConfig]] = {
@@ -150,6 +156,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.3-codex",
                 "gpt-5.2",
                 "gpt-5-mini",
+                "gpt-5.6-luna",
                 # ReviewHog sandbox runs route here (no review_hog entry in the agent's
                 # origin→product map), so its reviewer-experiment arms must be allowed.
                 "gpt-5.6-sol",
@@ -243,19 +250,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
     ),
     "signals": ProductConfig(
-        # Dual-accept during the app migration: the PostHog Code ids stay listed until every
-        # region has a Signals application row and its runs mint under it. Dropping them is
-        # what finally makes this product unreachable from a Desktop-app token.
-        allowed_application_ids=frozenset(
-            {
-                POSTHOG_CODE_US_APP_ID,
-                POSTHOG_CODE_EU_APP_ID,
-                POSTHOG_CODE_DEV_APP_ID,
-                SIGNALS_US_APP_ID,
-                SIGNALS_EU_APP_ID,
-                SIGNALS_DEV_APP_ID,
-            }
-        ),
+        # Only the dedicated Signals app: dropping the PostHog Code ids is what finally makes
+        # this product unreachable from a Desktop-app token.
+        allowed_application_ids=frozenset({SIGNALS_US_APP_ID, SIGNALS_EU_APP_ID, SIGNALS_DEV_APP_ID}),
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
         credit_bucket=None,
@@ -270,6 +267,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
             {
                 "@cf/zai-org/glm-5.2",
                 "zai-org/glm-5.3",
+                "zai-org/glm-5.3-flash",
                 "deepseek-ai/deepseek-v4-flash-0731",
                 "claude-sonnet-5",
                 "claude-opus-4-8",
@@ -474,6 +472,7 @@ MODEL_ACCESS_FLAGS: Final[dict[str, str]] = {
     "moonshotai/kimi-k3": "tasks-kimi-k3",
     "deepseek-ai/deepseek-v4-flash-0731": "posthog-code-deepseek-model",
     "zai-org/glm-5.3": "posthog-code-glm-53-model",
+    "zai-org/glm-5.3-flash": "posthog-code-glm-53-flash-model",
 }
 
 

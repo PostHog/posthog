@@ -64,7 +64,7 @@ def build_pipeline_sinks(
     A new publisher becomes one entry here instead of new constructor blocks and call
     sites in each pipeline.
     """
-    cdp_producer = CDPProducer(team_id=team_id, schema_id=schema_id, job_id=job_id, logger=logger)
+    cdp_producer = CDPProducer.for_source(team_id=team_id, schema_id=schema_id, job_id=job_id, logger=logger)
     person_property_sink = PersonPropertyRowSink(
         team_id=team_id,
         binding=schema_binding(schema_id),

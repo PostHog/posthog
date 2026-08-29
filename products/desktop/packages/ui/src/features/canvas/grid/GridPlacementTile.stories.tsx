@@ -1,9 +1,6 @@
 import type { GridPlacement } from "@posthog/core/canvas/gridLayoutSchemas";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  GridPlacementTile,
-  type PlacementTileActions,
-} from "./GridPlacementTile";
+import { GridPlacementTile, type PlacementActions } from "./GridPlacementTile";
 
 const PLACEMENT: GridPlacement = {
   id: "p1",
@@ -14,7 +11,7 @@ const PLACEMENT: GridPlacement = {
   h: 2,
 };
 
-const actions: PlacementTileActions = {
+const actions: PlacementActions = {
   describe: async () => {},
   reset: () => {},
   remove: () => {},

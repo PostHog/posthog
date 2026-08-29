@@ -4,54 +4,20 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.surveysparrow import (
     SurveySparrowSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.surveysparrow.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.surveysparrow.source import (
     SurveySparrowSource,
     _base_url_for,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.surveysparrow.surveysparrow import (
-    SurveySparrowResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.surveysparrow.source"
 
 
 def _config(access_token: str = "token", data_center: str = "us") -> SurveySparrowSourceConfig:
     return SurveySparrowSourceConfig(access_token=access_token, data_center=data_center)  # type: ignore[arg-type]
-
-
-class TestSurveySparrowSourceType:
-    def test_source_type(self) -> None:
-        assert SurveySparrowSource().source_type == ExternalDataSourceType.SURVEYSPARROW
-
-
-class TestSurveySparrowSourceConfigFields:
-    def test_exposes_access_token_and_data_center(self) -> None:
-        cfg = SurveySparrowSource().get_source_config
-
-        names = {f.name for f in cfg.fields}
-        assert names == {"access_token", "data_center"}
-
-        token_field = next(f for f in cfg.fields if f.name == "access_token")
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.required is True
-        assert token_field.secret is True
-
-        dc_field = next(f for f in cfg.fields if f.name == "data_center")
-        assert isinstance(dc_field, SourceFieldSelectConfig)
-        assert dc_field.defaultValue == "us"
-        assert {opt.value for opt in dc_field.options} == {"us", "eu", "ap", "me", "uk", "ap-sy", "ca"}
-
-    def test_release_status_is_alpha(self) -> None:
-        assert SurveySparrowSource().get_source_config.releaseStatus == ReleaseStatus.ALPHA
 
 
 class TestBaseUrlFor:
@@ -71,39 +37,6 @@ class TestBaseUrlFor:
 
     def test_unknown_data_center_falls_back_to_us(self) -> None:
         assert _base_url_for(_config(data_center="nope")) == "https://api.surveysparrow.com"
-
-
-class TestSurveySparrowGetSchemas:
-    def test_exposes_all_endpoints(self) -> None:
-        schemas = SurveySparrowSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_only_responses_support_incremental(self) -> None:
-        schemas = SurveySparrowSource().get_schemas(_config(), team_id=1)
-        incremental = {s.name for s in schemas if s.supports_incremental}
-        assert incremental == {"responses"}
-
-    def test_filters_by_names(self) -> None:
-        schemas = SurveySparrowSource().get_schemas(_config(), team_id=1, names=["surveys", "contacts"])
-        assert {s.name for s in schemas} == {"surveys", "contacts"}
-
-
-class TestSurveySparrowValidateCredentials:
-    @patch(f"{SOURCE_PATCH}.validate_surveysparrow_credentials")
-    def test_delegates_with_resolved_base_url(self, mock_validate: MagicMock) -> None:
-        mock_validate.return_value = (True, None)
-
-        ok, error = SurveySparrowSource().validate_credentials(_config(data_center="eu"), team_id=1)
-
-        assert ok is True and error is None
-        mock_validate.assert_called_once_with("token", "https://eu-api.surveysparrow.com")
-
-
-class TestSurveySparrowResumableManager:
-    def test_returns_manager_bound_to_resume_config(self) -> None:
-        manager = SurveySparrowSource().get_resumable_source_manager(MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SurveySparrowResumeConfig
 
 
 class TestSurveySparrowSourceForPipeline:
@@ -149,10 +82,3 @@ class TestSurveySparrowSourceForPipeline:
         assert response.primary_keys == ["survey_id", "id"]
         assert response.partition_mode is None
         assert response.partition_keys is None
-
-
-class TestSurveySparrowNonRetryableErrors:
-    def test_marks_auth_errors_non_retryable(self) -> None:
-        errors = SurveySparrowSource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)

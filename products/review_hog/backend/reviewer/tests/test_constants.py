@@ -1,5 +1,7 @@
 import pytest
 
+from posthog.temporal.oauth import has_write_scopes, resolve_scopes
+
 from products.review_hog.backend.reviewer.constants import (
     CHUNKING_MODEL,
     CHUNKING_REASONING_EFFORT,
@@ -9,6 +11,7 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_RUNTIME_ADAPTER,
     DEFAULT_REVIEW_ARM,
     REVIEW_EXPERIMENT_ARMS,
+    REVIEW_MCP_SCOPES,
     REVIEW_MODEL,
     REVIEW_REASONING_EFFORT,
     REVIEW_RUNTIME_ADAPTER,
@@ -116,3 +119,13 @@ def test_resolve_review_arm_honors_valid_assignments_and_falls_back(
     persisted: tuple[str | None, str | None, str | None, str | None], expected: ReviewArm
 ) -> None:
     assert resolve_review_arm(*persisted) == expected
+
+
+def test_review_mcp_scopes_open_a_session_and_stay_read_only() -> None:
+    # The MCP server resolves the calling user when a session opens, so a token without `user:read`
+    # is refused outright and the agent runs without its skill. Lock both halves of the pin: the
+    # handshake scope is present, and the token still carries no user-facing write scope.
+    resolved = resolve_scopes(REVIEW_MCP_SCOPES)
+    assert "user:read" in resolved
+    assert "llm_skill:read" in resolved
+    assert not has_write_scopes(REVIEW_MCP_SCOPES)

@@ -38,16 +38,21 @@ import {
 import { castStringToInt } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
+    withAgentNote,
     omitResponseFields,
     withInformationalResponse,
     type WithPostHogUrl,
+    type WithAgentNote,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DashboardCreateSchema = DashboardsCreateQueryParams.omit({ format: true }).extend(DashboardsCreateBody.shape)
 
-const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
+const dashboardCreate = (): ToolBase<
+    typeof DashboardCreateSchema,
+    WithAgentNote<WithPostHogUrl<Schemas.Dashboard>>
+> => ({
     name: 'dashboard-create',
     schema: DashboardCreateSchema,
     handler: async (context: Context, params: z.infer<typeof DashboardCreateSchema>) => {
@@ -79,6 +84,9 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUr
         }
         if (params.grid_spacing !== undefined) {
             body['grid_spacing'] = params.grid_spacing
+        }
+        if (params.layout_compaction !== undefined) {
+            body['layout_compaction'] = params.layout_compaction
         }
         if (params.use_template !== undefined) {
             body['use_template'] = params.use_template
@@ -136,7 +144,10 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUr
             'tiles.*.insight.timezone',
             'tiles.*.insight.resolved_date_range',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`),
+            "Consider offering the user a recurring delivery of this dashboard as a next step, but only when the dashboard in this response has tiles on it. Creating from a template (`use_template`) or duplicating another dashboard (`use_dashboard`) usually starts with tiles, though duplicating an empty dashboard does not. A dashboard with no tiles has nothing to deliver, and subscriptions-create needs at least one chart, so say nothing about subscriptions until it has some. Describe it the way a person would recognize it, for example a weekly email every Monday morning with these charts attached, or the same thing posted to a Slack channel. To create it, use subscriptions-create. It needs `dashboard` set to the dashboard's id, `dashboard_export_insights` listing up to 10 charts, `target_type` of `email` or `slack`, and `target_value`, `frequency`, `interval` and `start_date`. For a Slack delivery, also set `integration_id`. Find the connected Slack workspace with integrations-list (filter kind=slack) and the channel for `target_value` with integrations-channels-retrieve. Ask the user for the recipients and the cadence rather than choosing them, since this creates a recurring outbound delivery. If either subscriptions-create or subscriptions-list is not available to you in this session, say nothing about subscriptions. If the user already declined a subscription earlier in this conversation, do not offer again."
+        )
     },
 })
 
@@ -478,6 +489,9 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUr
         }
         if (params.grid_spacing !== undefined) {
             body['grid_spacing'] = params.grid_spacing
+        }
+        if (params.layout_compaction !== undefined) {
+            body['layout_compaction'] = params.layout_compaction
         }
         if (params.tiles !== undefined) {
             body['tiles'] = params.tiles

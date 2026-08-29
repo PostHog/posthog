@@ -1,3 +1,4 @@
+import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
@@ -5,7 +6,13 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
-import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import {
+    createOrganization,
+    createTeam,
+    createTestTeamFixture,
+    getTeam,
+    updateOrganizationAvailableFeatures,
+} from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
@@ -28,11 +35,13 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     const createDataWarehouseEvent = (
         teamId: number,
         properties: Record<string, any> = {},
-        tableName?: string
+        tableName?: string,
+        tableType?: 'source' | 'view'
     ): CdpDataWarehouseEvent => {
         return {
             team_id: teamId,
             table_name: tableName,
+            table_type: tableType,
             event_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
             properties: {
                 column1: 'value1',
@@ -58,9 +67,12 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres) // This team has data_pipelines feature by default (legacy addon)
+        const { organizationId, team: fixtureTeam } = await createTestTeamFixture(hub.postgres)
+        team = fixtureTeam
+        await updateOrganizationAvailableFeatures(hub.postgres, organizationId, [
+            { key: 'data_pipelines', name: 'Data Pipelines' },
+        ])
 
         // Create second organization without data_pipelines for testing quota limiting
         const otherOrganizationId = await createOrganization(hub.postgres)
@@ -76,13 +88,6 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             hogQueue: mockJobQueue,
             hogflowQueue: mockJobQueue,
         })
-
-        // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
-        processor['kafkaConsumer'] = {
-            connect: jest.fn(),
-            disconnect: jest.fn(),
-            isHealthy: jest.fn(() => ({ status: 'healthy' })),
-        } as any
 
         mockQueueInvocations = mockJobQueue.queueInvocations
 
@@ -404,12 +409,16 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     })
 
     describe('hog flow invocations', () => {
-        const buildDataWarehouseHogFlow = (teamId: number, tableName: string): HogFlow =>
+        const buildDataWarehouseHogFlow = (
+            teamId: number,
+            tableName: string,
+            triggerType: 'data-warehouse-table' | 'data-warehouse-view' = 'data-warehouse-table'
+        ): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(teamId)
                 .withSimpleWorkflow({
                     trigger: {
-                        type: 'data-warehouse-table',
+                        type: triggerType,
                         table_name: tableName,
                         // Always-true bytecode (return true)
                         filters: { properties: [], bytecode: ['_h', 29] } as any,
@@ -456,6 +465,39 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             expect(globals[0].event?.event).toBe('$warehouse_source_row')
             expect(globals[0].event?.properties?.$source_table).toBe('postgres.table_1')
         })
+
+        it('should build a hog flow invocation for a materialized view row', async () => {
+            const hogFlow = await insertHogFlow(
+                buildDataWarehouseHogFlow(team.id, 'daily_revenue', 'data-warehouse-view')
+            )
+
+            const event = createDataWarehouseEvent(team.id, {}, 'daily_revenue', 'view')
+            const globals = await processor._parseKafkaBatch([createKafkaMessage(event)])
+            expect(globals[0].event?.event).toBe('$warehouse_view_row')
+
+            const { invocations } = await processor.processBatch(globals)
+
+            const hogFlowInvocations = invocations.filter((i: any) => i.hogFlow)
+            expect(hogFlowInvocations).toHaveLength(1)
+            expect(hogFlowInvocations[0].functionId).toBe(hogFlow.id)
+        })
+
+        it.each([
+            ['view', 'data-warehouse-table'],
+            ['source', 'data-warehouse-view'],
+        ] as const)(
+            'should not invoke a %s row against a %s trigger of the same name',
+            async (tableType, triggerType) => {
+                await insertHogFlow(buildDataWarehouseHogFlow(team.id, 'same_name', triggerType))
+
+                const event = createDataWarehouseEvent(team.id, {}, 'same_name', tableType)
+                const globals = await processor._parseKafkaBatch([createKafkaMessage(event)])
+
+                const { invocations } = await processor.processBatch(globals)
+
+                expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(0)
+            }
+        )
     })
 
     describe('quota limiting', () => {

@@ -3,6 +3,7 @@ import React, { useCallback, useMemo, useRef } from 'react'
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { bandCenter, type BarChartPrivate, groupedBarCenter } from '../../core/bar-layout'
+import { applyChartDefaults } from '../../core/chart-config'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
@@ -69,7 +70,7 @@ export function BarChart<Meta = unknown>({ onError, ...rest }: BarChartProps<Met
 function BarChartInner<Meta = unknown>({
     series,
     labels,
-    config,
+    config: rawConfig,
     theme,
     tooltip,
     onPointClick,
@@ -78,6 +79,7 @@ function BarChartInner<Meta = unknown>({
     dataAttr,
     children,
 }: Omit<BarChartProps<Meta>, 'onError'>): React.ReactElement {
+    const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
     const {
         yScaleType = 'linear',
         showGrid = false,

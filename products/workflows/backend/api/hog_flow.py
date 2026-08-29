@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import timedelta
 from time import monotonic
 from typing import Any, NamedTuple, Optional, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.core.cache import cache
@@ -32,6 +33,10 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.schema import ProductKey
 
+from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_expr
+
 from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals_by_source
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.hog_invocation_cancel import (
@@ -56,7 +61,9 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.filters import compile_filters_expr
+from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.cdp.validation import (
+    DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
@@ -74,26 +81,26 @@ from posthog.plugins.plugin_server_api import (
     get_hog_flow_in_flight_count,
     rerun_hog_invocations,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import relative_date_parse_with_delta_mapping
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
-from products.feature_flags.backend.user_blast_radius import (
-    PERSON_BATCH_SIZE,
-    BlastRadiusResult,
-    get_user_blast_radius,
-    get_user_blast_radius_persons,
-)
+from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.api.message_templates import DesignOperationSerializer
 from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
+from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.workflow_tasks import WorkflowTaskConnectorsInvalid, validate_connectors
 from products.workflows.backend.api.action_redirects import compute_action_redirects
 from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
@@ -135,7 +142,6 @@ from products.workflows.backend.services.batch_audience import (
     SUPPORTED_DEDUPE_KEYS,
     get_batch_audience_count,
     get_batch_audience_person_ids,
-    use_workflows_batch_audience_query,
 )
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
@@ -153,6 +159,9 @@ logger = structlog.get_logger(__name__)
 # wait_until_condition's max_wait_duration reaches the same parser via conditional_branch.ts, so it
 # is held to the same format.
 DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhms]$")
+
+# A delay_until offset is the same shape, signed, so it can point before the date it is offsetting.
+DELAY_OFFSET_REGEX = re.compile(r"^-?\d*\.?\d+[dhms]$")
 
 
 def _is_valid_duration(value: Any) -> bool:
@@ -176,6 +185,7 @@ DRAFT_CONTENT_FIELDS = (
     "trigger_masking",
     "conversion",
     "exit_condition",
+    "email_sending_rate_limit",
     "abort_action",
     "variables",
 )
@@ -518,11 +528,24 @@ def _first_error_string(detail: Any) -> Optional[str]:
 # The literal template_id each fixed-template node type requires. A saved library template
 # (from workflows-list-email-templates) is referenced via config.template_uuid, never here -
 # putting its UUID in template_id is the dominant authoring mistake on these nodes.
+# A trigger config's `type` doubles as its filter source, so the two vocabularies are the same set.
+DATA_WAREHOUSE_TRIGGER_TYPES = DATA_WAREHOUSE_SOURCES
+
 _FIXED_TEMPLATE_IDS = {
     "function_email": "template-email",
     "function_sms": "template-twilio",
     "function_push": "template-native-push",
 }
+
+# The "Create AI task" step. Its inputs name things (connectors, a model, a repository) that
+# only make sense checked against live state, so it gets extra save-time checks beyond the
+# generic input-shape validation every function step goes through.
+_CREATE_TASK_TEMPLATE_ID = "template-posthog-create-task"
+
+_REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+
+MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 1
+MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 100
 
 
 class _TriggerSourceTemplate(NamedTuple):
@@ -761,6 +784,38 @@ def _normalize_slack_channel_filters(filters: dict) -> None:
             prop["value"] = [item.split("|")[0] if isinstance(item, str) else item for item in value]
 
 
+# Exact is the only operator that names channels. Channel ids are opaque (C0...), so
+# substring and regex matching can't narrow meaningfully and patterns like ".*" or "C"
+# match every channel; presence operators match every message and carry the operator
+# string as their value, so a value check alone can't catch them; negations exclude
+# channels rather than pick any. The property compiler treats a missing operator as exact.
+_CHANNEL_RESTRICTING_OPERATORS = frozenset({"exact"})
+
+
+def _has_slack_channel_filter(filters: dict) -> bool:
+    """Whether the filters restrict the trigger to at least one Slack channel.
+
+    The builder always writes this filter ("Please pick a Slack channel"), but the table's
+    enable action, the raw API, and MCP authoring all reach activation without the builder,
+    and a live slack-message trigger with no channel filter fires on every message in every
+    channel the bot was ever invited to.
+    """
+    properties = filters.get("properties")
+    if not isinstance(properties, list):
+        return False
+    for prop in properties:
+        if not isinstance(prop, dict) or prop.get("key") != "channel":
+            continue
+        if (prop.get("operator") or "exact") not in _CHANNEL_RESTRICTING_OPERATORS:
+            continue
+        value = prop.get("value")
+        if isinstance(value, str) and value.strip():
+            return True
+        if isinstance(value, list) and any(isinstance(item, str) and item.strip() for item in value):
+            return True
+    return False
+
+
 def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]:
     """Stored email sender overrides keyed by action id, live and draft variants both kept.
 
@@ -819,6 +874,21 @@ class BlastRadiusSerializer(serializers.Serializer):
             "echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes."
         ),
     )
+
+
+class InternalBlastRadiusPersonsSerializer(serializers.Serializer):
+    """Response contract for the internal blast-radius persons endpoint. Mirrors
+    BlastRadiusPersonsResponse in nodejs hogflow-batch-person-query.service.ts."""
+
+    users_affected = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Person identifiers in this page, in stable pagination order.",
+    )
+    cursor = serializers.CharField(
+        allow_null=True,
+        help_text="Cursor for the next call, or null when this page is the last.",
+    )
+    has_more = serializers.BooleanField(help_text="Whether another page may follow.")
 
 
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
@@ -1059,9 +1129,21 @@ class HogFlowActionSerializer(serializers.Serializer):
             "so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). "
             "Dictionary input values are template strings too — write booleans/numbers as single-expression "
             "templates ('{true}', '{42}'), which evaluate to the typed value. "
-            "delay: {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). "
-            "Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
-            "Max 30d. "
+            "delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of "
+            "delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. "
+            "Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are "
+            "SILENTLY CLAMPED. Max 30d. "
+            "delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date "
+            "expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the "
+            "same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours "
+            "after). expression is compiled server-side, so any bytecode sent with it is discarded. "
+            "A person property is person.properties.<key>; an event property is properties.<key>, as the "
+            "'event.' prefix resolves to nothing and aborts the run. "
+            "Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and "
+            "fallback_timezone decide which zone a date with no offset of its own is read in; a date that "
+            "states an offset, and unix seconds, ignore them. Default UTC. "
+            "Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how "
+            "far past the step's start the wait may run. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
             "random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' "
             "edge with index:N; percentages are relative weights, so they should sum to 100 but a total above "
@@ -1143,6 +1225,75 @@ class HogFlowActionSerializer(serializers.Serializer):
                             )
                         }
                     )
+
+    def _validate_create_task_action(self, inputs: dict) -> None:
+        """Save-time checks for the "Create AI task" step beyond input shape: whether the
+        chosen connectors, model and repository are actually usable, and the parallel-run
+        limit is sane - so a misconfigured step fails here instead of only when it fires."""
+        connectors = (inputs.get("connectors") or {}).get("value")
+        if connectors:
+            get_team = self.context.get("get_team")
+            owner_id = self.context.get("workflow_owner_id")
+            # No team/owner to check against outside a request (internal re-saves) - nothing
+            # new is being authored there, so there is nothing to validate.
+            if get_team is not None and owner_id is not None:
+                try:
+                    validate_connectors(get_team().id, owner_id, connectors)
+                except WorkflowTaskConnectorsInvalid as e:
+                    raise serializers.ValidationError(
+                        {"inputs": {"connectors": f"MCP installation(s) not found or inactive: {e.invalid_ids}"}}
+                    )
+
+        repository = (inputs.get("repository") or {}).get("value")
+        if repository and not _REPOSITORY_SHAPE.fullmatch(repository):
+            raise serializers.ValidationError(
+                {"inputs": {"repository": "Repository must be an organization/repo name like your-org/your-repo."}}
+            )
+
+        model_value = (inputs.get("model") or {}).get("value") or {}
+        model = model_value.get("model")
+        reasoning_effort = model_value.get("reasoning_effort")
+        if model:
+            # An empty catalogue means the gateway is unreachable, not that no model is valid -
+            # skip rather than block every save during an outage (see available_model_choices).
+            available = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
+            if available:
+                choice = next((c for c in available if c.model == model), None)
+                if choice is None:
+                    raise serializers.ValidationError({"inputs": {"model": f"'{model}' is not an available model."}})
+                if reasoning_effort and reasoning_effort not in choice.supported_efforts:
+                    raise serializers.ValidationError(
+                        {
+                            "inputs": {
+                                "model": (
+                                    f"Reasoning effort '{reasoning_effort}' is not supported for model "
+                                    f"'{model}'. Supported values: {', '.join(choice.supported_efforts) or 'none'}."
+                                )
+                            }
+                        }
+                    )
+
+        max_parallel_tasks = (inputs.get("max_parallel_tasks") or {}).get("value")
+        if max_parallel_tasks is not None:
+            # Matches the runtime IntegerField's own leniency (a "5.0" from an API client
+            # coerces to 5 there) while still catching a fractional value or a bool, neither
+            # of which the runtime field accepts.
+            is_whole_number = (isinstance(max_parallel_tasks, int) and not isinstance(max_parallel_tasks, bool)) or (
+                isinstance(max_parallel_tasks, float) and max_parallel_tasks.is_integer()
+            )
+            if not is_whole_number or not (
+                MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS <= max_parallel_tasks <= MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "inputs": {
+                            "max_parallel_tasks": (
+                                f"Must be a whole number between {MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS} and "
+                                f"{MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS}."
+                            )
+                        }
+                    }
+                )
 
     def validate(self, data):
         is_draft = self.context.get("is_draft")
@@ -1234,12 +1385,14 @@ class HogFlowActionSerializer(serializers.Serializer):
                     filters = data.get("config", {}).get("filters", {})
                     if isinstance(filters, dict):
                         self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
-            elif data.get("config", {}).get("type") == "data-warehouse-table":
+            elif data.get("config", {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES:
                 # Warehouse-triggered workflows are person-less ("row-scoped"): one workflow run
-                # per synced row, filtering only against the row payload. The dot-notated table_name
-                # must match the format produced by the Python CDPProducer so producer gating and
-                # trigger config use identical strings.
+                # per synced row, filtering only against the row payload. The table_name must match
+                # the string the Python CDPProducer emits — dot-notated for a source table, the
+                # saved query's own name for a materialized view — so producer gating and trigger
+                # config use identical strings.
                 config = data.get("config", {})
+                trigger_type = config.get("type")
                 table_name = config.get("table_name")
                 if not is_draft and (not table_name or not isinstance(table_name, str)):
                     raise serializers.ValidationError(
@@ -1247,11 +1400,11 @@ class HogFlowActionSerializer(serializers.Serializer):
                     )
 
                 # Compile the row-property filters to bytecode so the executor can evaluate them.
-                # We force the data-warehouse-table source so only row properties are considered.
+                # We force the warehouse source so only row properties are considered.
                 filters = config.get("filters", {}) or {}
                 if not isinstance(filters, dict):
                     raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
-                filters["source"] = "data-warehouse-table"
+                filters["source"] = trigger_type
                 serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                 if is_draft:
                     if serializer.is_valid():
@@ -1269,6 +1422,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                 filters.pop("events", None)
                 filters.pop("actions", None)
                 _normalize_slack_channel_filters(filters)
+                if not is_draft and not _has_slack_channel_filter(filters):
+                    raise serializers.ValidationError(
+                        {
+                            "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
+                        }
+                    )
                 # Left on the default "events" source: the internal event is event-shaped, so
                 # property filters compile against event.properties.* with no special casing.
                 serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
@@ -1297,6 +1456,14 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if get_team is not None:
                     _apply_email_template_content(config, get_team(), strict, self.context)
             template = HogFunctionTemplate.get_template(template_id)
+            gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
+            already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
+            if template is not None and gating_flag is not None and not already_stored:
+                # Outside a request (internal re-saves, direct construction) there is no team to
+                # evaluate the flag against, and the flow was already allowed to hold this step.
+                get_team = self.context.get("get_team")
+                if get_team is not None and not gated_template_enabled(gating_flag, get_team()):
+                    template = None
             if not template:
                 if strict:
                     raise serializers.ValidationError({"template_id": _describe_unknown_template(data, template_id)})
@@ -1343,6 +1510,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                 else:
                     function_config_serializer.is_valid(raise_exception=True)
                     data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+
+                if strict and template_id == _CREATE_TASK_TEMPLATE_ID:
+                    self._validate_create_task_action(data["config"]["inputs"])
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
@@ -1456,10 +1626,82 @@ class HogFlowActionSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"config": _duration_error("max_wait_duration")})
 
         if data.get("type") == "delay":
-            if strict and not _is_valid_duration(data.get("config", {}).get("delay_duration")):
-                raise serializers.ValidationError({"config": _duration_error("delay_duration")})
+            self._validate_delay(data, strict)
 
         return data
+
+    def _validate_delay(self, data: dict, strict: bool) -> None:
+        """A delay waits either a fixed span or until a date carried by the person or event, never both."""
+        config = data.get("config") or {}
+        delay_until = config.get("delay_until")
+
+        if delay_until is None:
+            if strict and not _is_valid_duration(config.get("delay_duration")):
+                raise serializers.ValidationError({"config": _duration_error("delay_duration")})
+            return
+
+        if config.get("delay_duration"):
+            raise serializers.ValidationError(
+                {"config": "A delay takes either delay_duration or delay_until, not both."}
+            )
+        if not isinstance(delay_until, dict):
+            raise serializers.ValidationError({"config": "delay_until must be an object with an 'expression'."})
+
+        # Client bytecode is dropped on every path, strict or not, as the executor runs whatever it finds.
+        stored = {k: v for k, v in delay_until.items() if k not in ("bytecode", "bytecode_error")}
+        data["config"]["delay_until"] = stored
+
+        expression = delay_until.get("expression")
+        if not isinstance(expression, str) or not expression.strip():
+            if strict:
+                raise serializers.ValidationError({"config": "delay_until.expression is required and must be SQL."})
+            # The builder writes the mode before the date is picked, so a draft can legitimately be
+            # half-configured. Nothing further is checkable without an expression.
+            return
+
+        offset = delay_until.get("offset")
+        if strict and offset is not None and not (isinstance(offset, str) and DELAY_OFFSET_REGEX.match(offset)):
+            raise serializers.ValidationError(
+                {
+                    "config": (
+                        "delay_until.offset must be a string matching ^-?\\d*\\.?\\d+[dhms]$ "
+                        "(e.g. '-1d' for a day before the date, '2h' for two hours after)."
+                    )
+                }
+            )
+
+        max_delay_duration = config.get("max_delay_duration")
+        if strict and max_delay_duration is not None and not _is_valid_duration(max_delay_duration):
+            raise serializers.ValidationError({"config": _duration_error("max_delay_duration")})
+
+        use_person_timezone = delay_until.get("use_person_timezone")
+        if strict and use_person_timezone is not None and not isinstance(use_person_timezone, bool):
+            # The executor only checks whether this is truthy, so a string like "no" would switch the
+            # person's timezone on rather than off.
+            raise serializers.ValidationError({"config": "delay_until.use_person_timezone must be true or false."})
+
+        # An unknown zone would silently fall back to UTC in the executor, which is the wrong local day
+        # for most of the world - the mistake this setting exists to prevent.
+        for field in ("timezone", "fallback_timezone"):
+            value = delay_until.get(field)
+            if not strict or value is None:
+                continue
+            try:
+                ZoneInfo(value)
+            except (ZoneInfoNotFoundError, ValueError, TypeError):
+                raise serializers.ValidationError(
+                    {"config": f"delay_until.{field} must be an IANA timezone name, e.g. 'Europe/Berlin'."}
+                )
+
+        # Compiled here rather than trusted from the client. Compiling also surfaces a broken expression
+        # at save time instead of at the first run that reaches it.
+        try:
+            stored["bytecode"] = create_bytecode(
+                parse_expr(expression), context=HogQLContext(team_id=self.context["get_team"]().id)
+            ).bytecode
+        except Exception as e:
+            if strict:
+                raise serializers.ValidationError({"config": f"delay_until.expression could not be read as SQL: {e}"})
 
 
 class HogFlowVariableSerializer(serializers.ListSerializer):
@@ -1569,6 +1811,32 @@ class HogFlowConversionSerializer(serializers.Serializer):
     def to_representation(self, value):
         # Pass stored JSON through untouched — rows written before the 'events' slot existed may hold
         # legacy shapes (object in 'filters') that field-level coercion would mangle on read.
+        return value
+
+
+class HogFlowEmailSendingRateLimitSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        min_value=1,
+        max_value=1_000_000,
+        help_text="Maximum number of emails this workflow sends per period.",
+    )
+    period = serializers.ChoiceField(
+        choices=["minute", "hour"],
+        help_text="Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.",
+    )
+
+    def validate(self, data):
+        # A PATCH propagates partial=True into nested serializers, which would let a lone
+        # {"period": ...} skip the required count and store a shape the worker can't enforce.
+        # The value is atomic: replace it whole or clear it with null.
+        missing = [field for field in ("count", "period") if field not in data]
+        if missing:
+            raise serializers.ValidationError(f"Both count and period are required, missing: {', '.join(missing)}.")
+        return data
+
+    def to_representation(self, value):
+        # Pass stored JSON through untouched so a legacy or hand-written row that doesn't match
+        # the declared fields can still render (and be fixed) instead of crashing the read.
         return value
 
 
@@ -1866,6 +2134,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "trigger_masking",
             "conversion",
             "exit_condition",
+            "email_sending_rate_limit",
             "edges",
             "actions",
             "abort_action",
@@ -1970,6 +2239,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "exit_on_trigger_not_matched_or_conversion: both (needs 'conversion')."
         ),
     )
+    email_sending_rate_limit = HogFlowEmailSendingRateLimitSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker "
+            "spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead "
+            "of failing. Null disables pacing."
+        ),
+    )
     edges = serializers.ListField(
         child=HogFlowEdgeSerializer(),
         required=False,
@@ -2035,6 +2313,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
         instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
 
+        # Who a "Create AI task" step runs as: the existing creator for an update, or the
+        # requesting user for a brand-new flow (matches the `created_by` a create() actually
+        # writes). None outside a request (internal re-saves), where connector checks are skipped.
+        owner = instance.created_by if instance else None
+        if owner is None:
+            request = self.context.get("request")
+            user = getattr(request, "user", None)
+            if user is not None and getattr(user, "is_authenticated", False):
+                owner = user
+        self.context["workflow_owner_id"] = owner.id if owner else None
+
         # Wait conditions the live flow already carries, so per-action validation can tell a newly
         # introduced clock condition from one we have been storing all along. Seeded here because
         # nested action validation runs during field processing, before validate() is reached.
@@ -2042,6 +2331,21 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             action["id"]: (action.get("config") or {}).get("condition")
             for action in ((instance.actions if instance else None) or [])
             if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
+        }
+
+        # Action ids already stored with a flag-gated template, so the gate only polices new
+        # adoption: a flow that was allowed to hold the step keeps validating after a flag
+        # dial-down or eval blip (the gate fails closed), instead of becoming un-editable and
+        # failing refresh_hog_flows. Only an active flow's steps count - active means the step
+        # passed the gate at activation, whereas a draft can hold the step without ever passing
+        # it (lenient web saves skip strict validation), so grandfathering a draft would let an
+        # unflagged team activate the step.
+        self.context["stored_gated_template_action_ids"] = {
+            action["id"]
+            for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
+            if isinstance(action, dict)
+            and action.get("id")
+            and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
         }
 
         status = data.get("status")
@@ -2082,7 +2386,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         self.context["is_dwh_source"] = any(
             isinstance(action, dict)
             and action.get("type") == "trigger"
-            and (action.get("config") or {}).get("type") == "data-warehouse-table"
+            and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
         return super().to_internal_value(data)
@@ -2102,6 +2406,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "trigger_masking",
             "conversion",
             "exit_condition",
+            "email_sending_rate_limit",
             "edges",
             "actions",
             "abort_action",
@@ -2168,12 +2473,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         data["trigger"] = trigger_actions[0]["config"]
 
-        # Some triggers are person-less ("row-scoped"): a synced warehouse row and a Slack poster are
-        # both things no PostHog person is attached to. Person-dependent steps and person-aware exit
-        # conditions would silently assume person data, so we block them here — the serializer is the
-        # source of truth, so the API, MCP, and frontend can't bypass it. We force exit_only_at_end
-        # since the other exit conditions re-evaluate trigger/conversion filters that may reference
-        # person properties.
+        # Some triggers are person-less ("row-scoped"): a synced warehouse row, a materialized view row,
+        # and a Slack poster are all things no PostHog person is attached to. Person-dependent steps and
+        # person-aware exit conditions would silently assume person data, so we block them here — the
+        # serializer is the source of truth, so the API, MCP, and frontend can't bypass it. We force
+        # exit_only_at_end since the other exit conditions re-evaluate trigger/conversion filters that
+        # may reference person properties.
         if data["trigger"].get("type") in ROW_SCOPED_TRIGGER_TYPES:
             data["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
             if not is_draft:
@@ -3899,9 +4204,9 @@ class HogFlowViewSet(
         # the legacy person-count query is skipped entirely, "total" comes straight from
         # the cached team-wide count it would have returned anyway. The applied key is
         # echoed back so the frontend labels the count from the response instead of
-        # guessing whether the flag-gated dedup actually ran.
+        # guessing whether the dedup actually ran.
         applied_dedupe_key = None
-        if dedupe_key is not None and group_type_index is None and use_workflows_batch_audience_query(self.team):
+        if dedupe_key is not None and group_type_index is None:
             total = self.team.persons_seen_so_far
             affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
             blast_radius = BlastRadiusResult(affected=affected, total=total)
@@ -4632,20 +4937,17 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            if use_workflows_batch_audience_query(team):
-                users_affected = get_batch_audience_person_ids(
-                    team, filters, group_type_index, cursor, dedupe_key=dedupe_key
-                )
-                batch_size = WORKFLOWS_PERSON_BATCH_SIZE
-            else:
-                users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
-                batch_size = PERSON_BATCH_SIZE
+            users_affected = get_batch_audience_person_ids(
+                team, filters, group_type_index, cursor, dedupe_key=dedupe_key
+            )
             return Response(
-                {
-                    "users_affected": users_affected,
-                    "cursor": users_affected[-1] if users_affected else None,
-                    "has_more": len(users_affected) == batch_size,
-                }
+                InternalBlastRadiusPersonsSerializer(
+                    {
+                        "users_affected": users_affected,
+                        "cursor": users_affected[-1] if users_affected else None,
+                        "has_more": len(users_affected) == WORKFLOWS_PERSON_BATCH_SIZE,
+                    }
+                ).data
             )
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)

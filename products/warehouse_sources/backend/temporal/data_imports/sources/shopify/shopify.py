@@ -68,6 +68,25 @@ SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR = (
     "docs, then enter its client ID and secret."
 )
 
+# Raised on a 4xx whose body reports `error: shop_not_permitted`. Shopify only allows the
+# client_credentials grant when the app and the store belong to the same Shopify organization,
+# so re-entering credentials can never fix it. Surfaced separately so the message points at the
+# organization rather than the credentials.
+SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR = (
+    "Shopify doesn't allow this app to connect to this store (shop_not_permitted). The app and "
+    "the store must be in the same Shopify organization. In the Shopify Dev Dashboard, open the "
+    "organization that contains your store and create the app there."
+)
+
+# Raised on a 4xx whose body reports `error: app_not_installed`. The client ID and secret are
+# valid, but the app is not installed on this store, so Shopify refuses to mint a token for it.
+# Re-entering the credentials cannot fix that; the user must install the app on the store first.
+# Surfaced separately so the message points at installing the app rather than the credentials.
+SHOPIFY_ACCESS_TOKEN_APP_NOT_INSTALLED_ERROR = (
+    "This Shopify app isn't installed on your store, so PostHog can't get an access token. "
+    "Install the app on your store, then re-enter the client ID and secret here."
+)
+
 # Raised when the OAuth token endpoint returns 404 — there is no store at
 # `<store-id>.myshopify.com`, so the store id is wrong or the store no longer exists.
 # Reconnecting the app can't fix a bad store id, so this is surfaced separately from the
@@ -377,6 +396,10 @@ def _access_token_auth_error_message(error_code: str | None) -> str:
         return SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR
     if error_code == "unsupported_grant_type":
         return SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR
+    if error_code == "shop_not_permitted":
+        return SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR
+    if error_code == "app_not_installed":
+        return SHOPIFY_ACCESS_TOKEN_APP_NOT_INSTALLED_ERROR
     return SHOPIFY_ACCESS_TOKEN_AUTH_ERROR
 
 
@@ -419,7 +442,9 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
         "client_secret": shopify_client_secret,
         "grant_type": SHOPIFY_ACCESS_TOKEN_GRANT,
     }
-    access_res = make_tracked_session().post(access_token_url, data=access_data)
+    # The Accept header is load-bearing: without it Shopify renders 4xx OAuth errors as an HTML
+    # page instead of JSON, which leaves `_parse_oauth_error` with no error code to read.
+    access_res = make_tracked_session(headers={"Accept": "application/json"}).post(access_token_url, data=access_data)
     if not access_res.ok:
         # A 404 means there's no store at this subdomain — the store id is wrong or the store
         # is gone. Reconnecting the app can't fix that, so point the user at the store id

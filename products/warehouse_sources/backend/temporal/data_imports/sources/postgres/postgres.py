@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
+    BinaryColumnReporter,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
@@ -254,9 +255,12 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # carrying "(ECIRCUITBREAKER) failed to retrieve database credentials after multiple attempts,
     # new connections are temporarily blocked". Same class as EAUTHQUERY above — the pooler's own
     # bookkeeping failing, not a rejection of the client's credentials — and the breaker resets once
-    # the fetch succeeds again, so a fresh connect after backoff typically recovers. Match the
-    # stable code, distinct from genuine credential-rejection wordings.
-    "(ecircuitbreaker)",
+    # the fetch succeeds again, so a fresh connect after backoff typically recovers. Match the full
+    # "failed to retrieve database credentials" wording, NOT the bare "(ECIRCUITBREAKER)" code —
+    # Supavisor reuses the same code for a different condition ("too many authentication failures",
+    # tripped by repeated bad credentials rather than pooler bookkeeping), which must stay
+    # non-retryable and is matched separately in source.py's `get_non_retryable_errors`.
+    "(ecircuitbreaker) failed to retrieve database credentials",
     # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
     # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
     # `ban_time` — reporting it as SQLSTATE 58000 ("could not get connection from the pool -
@@ -306,11 +310,20 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 # fresh reconnect re-establishes a new session — the same transient class. Matching only the
 # "(authenticated)" wrapper would be too broad: a non-:closed "Internal error (authenticated): ..."
 # could be a permanent pooler/protocol failure that should surface immediately, not be retried.
+#
+# Neon's own compute-side WAL relay ("walsender") surfaces the same generic XX000 InternalError_
+# when it loses connectivity to a safekeeper — the storage-tier peer that actually holds the WAL,
+# since a Neon compute doesn't keep it locally: "[walsender] Failed to read WAL (...): failed to
+# connect to safekeeper-<n>.<cell>....neon.tech:<port> to fetch WAL: ... server closed the
+# connection unexpectedly". Not a pooler, but the same transient class — a safekeeper failover or
+# network blip — and a fresh peek recovers once Neon's storage tier is reachable again. Match the
+# stable "failed to connect to safekeeper" phrase, excluding the volatile hostname/port.
 _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     "edbhandlerexited",
     "echeckoutretries",
     "echeckouttimeout",
     "internal error (authenticated): :closed",
+    "failed to connect to safekeeper",
 )
 
 # Connect-time capacity errors: the source refuses a *new* connection because it has hit a
@@ -388,8 +401,9 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     if isinstance(error, psycopg.errors.ProtocolViolation | psycopg.OperationalError):
         message = " ".join(str(arg) for arg in error.args).lower()
         return any(substring in message for substring in _CONNECTION_DROPPED_ERROR_SUBSTRINGS)
-    # Supavisor's pooler drop arrives as a generic XX000 InternalError_, not the libpq/PgBouncer
-    # types above, so match it on its own narrow signature (see _POOLER_CONNECTION_DROPPED_*).
+    # Supavisor's pooler drop and Neon's own walsender-to-safekeeper drop both arrive as a generic
+    # XX000 InternalError_, not the libpq/PgBouncer types above, so match on their own narrow
+    # signatures (see _POOLER_CONNECTION_DROPPED_*).
     if isinstance(error, psycopg.errors.InternalError_):
         message = " ".join(str(arg) for arg in error.args).lower()
         return any(substring in message for substring in _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS)
@@ -1184,6 +1198,20 @@ def _is_unsupported_statement_timeout_error(error: Exception) -> bool:
     return "statement_timeout" in message and "not supported" in message
 
 
+def _is_statement_timeout_error(error: BaseException) -> bool:
+    """True when the guarding `SET LOCAL statement_timeout` on a best-effort catalog scan fires.
+
+    Distinct from `_is_unsupported_statement_timeout_error`, which recognises an engine
+    rejecting the `SET` itself. This recognises the `SET` succeeding and the guarded query
+    running long enough to hit it — the guard doing exactly what it's there for, on the same
+    best-effort metadata scan `_xmin_capable_tables_from_conn` already degrades quietly for.
+    """
+    return (
+        isinstance(error, psycopg.errors.QueryCanceled)
+        and "statement timeout" in " ".join(str(arg) for arg in error.args).lower()
+    )
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1260,13 +1288,19 @@ def _rls_active_from_conn(
         # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, etc.) accept our connection
         # but don't implement `row_security_active`. RLS is a Postgres-only concept there, so a
         # missing-function error is an expected "no RLS" answer, not a bug — degrade quietly rather
-        # than flooding error tracking. Still capture genuinely unexpected failures.
+        # than flooding error tracking. A genuine statement timeout is the same kind of expected
+        # outcome: this lookup is best-effort like the PK/xmin/index lookups it runs alongside, and
+        # they all run under the same 30s SET LOCAL guard against a runaway catalog scan — hitting
+        # it is the guard working, not new information about a bug here (mirrors
+        # `_xmin_capable_tables_from_conn`, which already degrades quietly for it). Still capture
+        # genuinely unexpected failures.
         if (
             not connection.closed
             and not connection.broken
             and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
             and not _is_unsupported_function_error(e, "row_security_active")
             and not _is_unsupported_statement_timeout_error(e)
+            and not _is_statement_timeout_error(e)
         ):
             capture_exception(e)
         return {}
@@ -1692,6 +1726,21 @@ class RangeAsStringLoader(Loader):
     representations. For example, `psycopg.types.range.Range(4, 5, '[]')` could
     be represented as "[4,5]" or "[4,6)". We let `psycopg` figure which string
     representation to use (from testing, it seems that the latter is preferred).
+    """
+
+    def load(self, data):
+        if data is None:
+            return None
+        return bytes(data).decode("utf-8")
+
+
+class NetworkAsStringLoader(Loader):
+    """Load PostgreSQL inet/cidr values as their string representation.
+
+    psycopg's default loaders convert these to `ipaddress.IPv4Address`/`IPv4Network`
+    (and IPv6 counterparts) objects. `PostgreSQLColumn.to_arrow_field` maps `inet`/`cidr`
+    to `pa.string()` via the default case, so pyarrow rejects those objects with
+    "Expected bytes, got a '...' object" when building the column array.
     """
 
     def load(self, data):
@@ -3306,6 +3355,7 @@ def postgres_source(
                 time.sleep(min(2 * setup_connection_dropped_errors, 30))
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
+        binary_reporter = BinaryColumnReporter(logger)
         arrow_schema = table.to_arrow_schema()
         if xmin_bounds is not None:
             # The forced `_ph_xmin` projection isn't part of the discovered columns, so add it to
@@ -3359,6 +3409,8 @@ def postgres_source(
                 connection.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
                 connection.adapters.register_loader("time", SafeTimeLoader)
                 connection.adapters.register_loader("timetz", SafeTimetzLoader)
+                connection.adapters.register_loader("inet", NetworkAsStringLoader)
+                connection.adapters.register_loader("cidr", NetworkAsStringLoader)
                 # Bump statement_timeout for the streaming connection. A server
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)
@@ -3477,6 +3529,8 @@ def postgres_source(
                             yield table_from_iterator(
                                 (dict(zip(column_names, row)) for row in rows),
                                 restrict_schema_to_columns(arrow_schema, column_names),
+                                primary_keys=primary_keys,
+                                binary_reporter=binary_reporter,
                             )
 
                             successive_errors = 0
@@ -3607,6 +3661,8 @@ def postgres_source(
                     incremental_field=incremental_field,
                     incremental_field_type=incremental_field_type,
                     db_incremental_field_last_value=db_incremental_field_last_value,
+                    primary_keys=primary_keys,
+                    binary_reporter=binary_reporter,
                 )
                 return
 
@@ -3641,6 +3697,8 @@ def postgres_source(
                     logger=logger,
                     using_read_replica=using_read_replica,
                     is_connection_dropped=_is_connection_dropped_error,
+                    primary_keys=primary_keys,
+                    binary_reporter=binary_reporter,
                 )
                 return
 
@@ -3685,7 +3743,9 @@ def postgres_source(
 
                                 dicts = [dict(zip(column_names, row)) for row in rows]
                                 del rows
-                                yield table_from_iterator(iter(dicts), read_schema)
+                                yield table_from_iterator(
+                                    iter(dicts), read_schema, primary_keys=primary_keys, binary_reporter=binary_reporter
+                                )
                                 offset += len(dicts)
                     return
                 except psycopg.errors.SerializationFailure as e:

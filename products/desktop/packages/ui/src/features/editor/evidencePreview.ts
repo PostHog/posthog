@@ -1,3 +1,7 @@
+import type {
+  EvidenceDetailSection,
+  ExperimentResultsPresentation,
+} from "@posthog/api-client/evidence-previews";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import {
   type ChartHeadlineStat,
@@ -17,17 +21,41 @@ import type { EvidenceLinkTarget } from "../../utils/evidenceLinks";
 export interface EvidenceCardData {
   title: string;
   detail?: string;
+  /** Lifecycle state as a badge label + tone, kept out of `detail`. */
+  status?: {
+    label: string;
+    tone: "positive" | "neutral" | "caution" | "critical";
+  };
   /** Short scannable attributes, e.g. "100% rollout" or "42 clicks". */
   facts?: string[];
+  /** Headline numbers for the full page's stat strip; chips use `facts`. */
+  stats?: Array<{ label: string; value: string }>;
   /** Latest value + step change when the result is a single time series. */
   headline?: ChartHeadlineStat | null;
-  /** Mini chart of the primary series. */
-  spark?: { points: number[]; render: "line" | "bar" };
+  /** Mini chart of the primary series; `labels` carries bucket dates. */
+  spark?: { points: number[]; labels?: string[]; render: "line" | "bar" };
+  /** A titled multi-series time chart, drawn with hover values on full pages. */
+  chart?: {
+    title: string;
+    labels: string[];
+    series: Array<{ label: string; data: number[] }>;
+    render: "line" | "bar";
+  };
+  sections?: EvidenceDetailSection[];
+  experimentResults?: ExperimentResultsPresentation;
+  /** A dashboard's tiles, each resolvable to a live insight chart. */
+  tiles?: Array<{ shortId: string; name: string | null }>;
   /** Canonical id when it differs from the cited one (a flag cited by key). */
   resolvedId?: string;
 }
 
 const MAX_SPARK_POINTS = 60;
+
+export const EVIDENCE_PREVIEW_STALE_TIME = 5 * 60 * 1000;
+
+export function evidencePreviewQueryKey(target: EvidenceLinkTarget) {
+  return ["evidence-preview", target.kind, target.id] as const;
+}
 
 /** Reduce a shaped chart result to the card's headline + sparkline. */
 function fromChartData(
@@ -53,9 +81,15 @@ function fromChartData(
     };
   }
   if (data.type === "table") {
+    // Column titles are raw SQL for HogQL sources, not labels; show counts.
     return {
       title: `${data.rows.length.toLocaleString("en-US")} ${data.rows.length === 1 ? "row" : "rows"}`,
-      detail: data.columns.join(", ") || undefined,
+      facts:
+        data.columns.length > 0
+          ? [
+              `${data.columns.length} ${data.columns.length === 1 ? "column" : "columns"}`,
+            ]
+          : undefined,
     };
   }
   return { title: fallbackTitle };
@@ -94,7 +128,7 @@ async function insightPreview(
   };
   const plan = planReportChart(insight.query);
   if (plan.kind !== "run") return base;
-  const response = await client.runQuery(plan.source);
+  const response = insight.response ?? (await client.runQuery(plan.source));
   const chart = fromChartData(shapeReportChartData(response, plan), base.title);
   return { ...chart, title: base.title, detail: chart.detail ?? base.detail };
 }

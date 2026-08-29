@@ -26,6 +26,7 @@ from products.experiments.backend.hogql_queries.utils import (
     get_variant_result,
     get_variant_results,
     metric_variant_to_statistic,
+    sanitize_non_finite,
     validate_variant_result,
 )
 from products.experiments.stats.shared.statistics import ProportionStatistic, SampleMeanStatistic
@@ -1051,3 +1052,24 @@ class TestMetricVariantToStatistic:
         assert isinstance(stat, ProportionStatistic)
         assert isinstance(stat.sum, int)
         assert stat.sum == 4
+
+
+class TestSanitizeNonFinite:
+    def test_replaces_non_finite_floats_recursively(self):
+        result = sanitize_non_finite(
+            {
+                "chance_to_win": 0.97,
+                "confidence_interval": [float("-inf"), float("inf")],
+                "variants": [{"key": "control", "variance": float("nan"), "count": 100}],
+            }
+        )
+
+        assert result == {
+            "chance_to_win": 0.97,
+            "confidence_interval": [None, None],
+            "variants": [{"key": "control", "variance": None, "count": 100}],
+        }
+
+    def test_leaves_finite_values_untouched(self):
+        value = {"a": 1, "b": [1.5, "x", None, True], "c": {"d": 0.0}}
+        assert sanitize_non_finite(value) == value

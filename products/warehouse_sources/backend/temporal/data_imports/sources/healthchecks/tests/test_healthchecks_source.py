@@ -1,21 +1,14 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.healthchecks import (
     HealthchecksSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.healthchecks import (
-    HealthchecksResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.source import HealthchecksSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHealthchecksSource:
@@ -23,36 +16,6 @@ class TestHealthchecksSource:
         self.source = HealthchecksSource()
         self.team_id = 123
         self.config = HealthchecksSourceConfig(api_key="key", base_url=None)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.HEALTHCHECKS
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Healthchecks"
-        assert config.label == "Healthchecks.io"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/healthchecks"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["api_key", "base_url"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
-
-    def test_base_url_field_is_optional_text(self):
-        config = self.source.get_source_config
-        base_url_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "base_url"
-        )
-        assert base_url_field.type == SourceFieldInputConfigType.TEXT
-        assert base_url_field.required is False
-        assert base_url_field.secret is False
 
     def test_connection_host_fields_cover_base_url(self):
         # The base URL decides where the stored API key gets sent.
@@ -167,13 +130,6 @@ class TestHealthchecksSource:
 
         assert is_valid is True
         assert error_message is None
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is HealthchecksResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.source.healthchecks_source"

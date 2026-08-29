@@ -122,8 +122,8 @@ function DismissReportDialogBody({
       </Dialog.Title>
       <Dialog.Description className="text-gray-10 text-sm">
         {selectedCount > 1
-          ? "These reports will be removed from your inbox. Your feedback is saved on each report and helps the agent."
-          : "This report will be removed from your inbox. Your feedback is saved on the report and helps the agent."}
+          ? "These reports will be removed from Self-driving. Your feedback is saved on each report and helps the agent."
+          : "This report will be removed from Self-driving. Your feedback is saved on the report and helps the agent."}
       </Dialog.Description>
 
       <Flex direction="column" gap="4" mt="4">

@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
@@ -73,6 +74,9 @@ describe('DashboardHeader', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_CUSTOMIZATION], {
+            [FEATURE_FLAGS.DASHBOARD_CUSTOMIZATION]: true,
+        })
     })
 
     afterEach(() => {
@@ -156,26 +160,40 @@ describe('DashboardHeader', () => {
             scenario: 'View mode, can edit',
             dashboardMode: null as DashboardMode | null,
             canEdit: true,
-            visible: ['dashboard-share-button', 'dashboard-add-tile', 'dashboard-edit-mode-button'],
-            notVisible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save'],
+            visible: [],
+            notVisible: [
+                'dashboard-add-tile',
+                'dashboard-share-button',
+                'dashboard-edit-mode-button',
+                'dashboard-edit-mode-discard',
+                'dashboard-edit-mode-save',
+            ],
         },
         {
             scenario: 'View mode, cannot edit',
             dashboardMode: null as DashboardMode | null,
             canEdit: false,
-            visible: ['dashboard-share-button', 'dashboard-add-tile'],
-            notVisible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-edit-mode-button'],
+            visible: [],
+            notVisible: [
+                'dashboard-add-tile',
+                'dashboard-share-button',
+                'dashboard-edit-mode-discard',
+                'dashboard-edit-mode-save',
+                'dashboard-edit-mode-button',
+            ],
         },
         {
             scenario: 'Filter edit mode',
             dashboardMode: DashboardMode.Edit,
             dashboardModeSource: DashboardEventSource.DashboardFilters,
             canEdit: true,
-            visible: ['dashboard-add-tile'],
+            visible: [],
             notVisible: [
+                'dashboard-add-tile',
                 'dashboard-edit-mode-discard',
                 'dashboard-edit-mode-save',
                 'dashboard-share-button',
+                'dashboard-edit-layout-customize-dropdown',
                 'add-text-tile-to-dashboard',
                 'dashboard-add-graph-header',
             ],
@@ -185,8 +203,14 @@ describe('DashboardHeader', () => {
             dashboardMode: DashboardMode.Edit,
             dashboardModeSource: DashboardEventSource.SceneCommonButtons,
             canEdit: true,
-            visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-add-tile'],
-            notVisible: ['dashboard-share-button', 'add-text-tile-to-dashboard', 'dashboard-add-graph-header'],
+            visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save'],
+            notVisible: [
+                'dashboard-add-tile',
+                'dashboard-share-button',
+                'dashboard-edit-layout-customize-dropdown',
+                'add-text-tile-to-dashboard',
+                'dashboard-add-graph-header',
+            ],
         },
         {
             scenario: 'Fullscreen mode',

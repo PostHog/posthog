@@ -1109,6 +1109,29 @@ class BigQueryClient:
                 await asyncio.sleep(backoff)
                 attempt += 1
             except BadRequest as err:
+                if "matched no files" in str(err):
+                    backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
+                    self.logger.warning(
+                        "LoadJob could not find the uploaded file",
+                        attempt=attempt,
+                        backoff=backoff,
+                        error_code=err.code,
+                        exc_info=True,
+                    )
+                    self.external_logger.warning(
+                        "BigQuery could not find the file we uploaded for a load job."
+                        " This is usually a temporary issue on BigQuery's side. The load will be retried in %d"
+                        " seconds, this is attempt number %d.",
+                        backoff,
+                        attempt,
+                        attempt=attempt,
+                        backoff=backoff,
+                        error_code=err.code,
+                    )
+                    await asyncio.sleep(backoff)
+                    attempt += 1
+                    continue
+
                 if err.reason != "invalidQuery" or "Required field" not in str(err):
                     raise
                 try:

@@ -3,6 +3,8 @@ import json
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -15,6 +17,7 @@ from posthog.cdp.validation import (
     RecordAliasRewriter,
     compile_hog,
     generate_template_bytecode,
+    reserved_functions_used,
 )
 from posthog.models.integration import Integration
 
@@ -219,6 +222,24 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                 "order": 4,
             },
         }
+
+    def test_omitted_required_input_falls_back_to_the_schema_default(self):
+        schema = [
+            {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
+            {"key": "method", "type": "string", "label": "HTTP Method", "required": True, "default": "POST"},
+        ]
+
+        inputs = validate_inputs(schema, {"url": {"value": "https://example.com"}})
+
+        assert inputs["method"]["value"] == "POST"
+
+    def test_explicitly_emptied_required_input_is_still_rejected(self):
+        schema = [{"key": "method", "type": "string", "label": "HTTP Method", "required": True, "default": "POST"}]
+
+        with pytest.raises(ValidationError) as e:
+            validate_inputs(schema, {"method": {"value": ""}})
+
+        assert "This field is required." in str(e.value)
 
     def test_validate_inputs_creates_bytecode_for_html(self):
         # NOTE: CSS block curly brackets must be escaped beforehand
@@ -878,6 +899,36 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ],
         }
 
+    # Behavioral filters compile to a ClickHouse subquery over events history, which neither
+    # bytecode (per-event) nor transpiled JS (in-browser) filters can evaluate
+    @parameterized.expand(
+        [
+            ("destination_global_properties", "destination", "properties"),
+            ("site_destination_global_properties", "site_destination", "properties"),
+            ("destination_event_properties", "destination", "event_properties"),
+        ]
+    )
+    def test_validate_filters_rejects_behavioral_properties(self, _name, function_type, placement):
+        behavioral_property = {
+            "type": "behavioral",
+            "value": "performed_event",
+            "key": "$pageview",
+            "event_type": "events",
+            "time_value": 30,
+            "time_interval": "day",
+        }
+        event = {"id": "$pageview", "type": "events", "name": "$pageview", "order": 0}
+        if placement == "properties":
+            filters = {"events": [event], "properties": [behavioral_property]}
+        else:
+            filters = {"events": [{**event, "properties": [behavioral_property]}]}
+
+        serializer = HogFunctionFiltersSerializer(
+            data=filters, context={**self.filters_context, "function_type": function_type}
+        )
+        assert not serializer.is_valid()
+        assert "behavioral" in str(serializer.errors).lower()
+
     def test_validate_filters_person_updates_only_allows_properties(self):
         filters = {
             "source": "person-updates",
@@ -1139,3 +1190,55 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             )
         # The original value round-trips so the UI can still render the templated source string.
         assert validated["tags"]["value"] == value
+
+
+class TestTaskInputTypeValidation(SimpleTestCase):
+    # The task_* input types are authored programmatically (workflow API, MCP agents), so the
+    # serializer is the only guard against a payload shape the tasks endpoint would reject at
+    # run time - long after the workflow saved fine.
+    @parameterized.expand(
+        [
+            ("repository_string", "task_repository", "example-org/example-repo", True),
+            ("repository_not_string", "task_repository", 123, False),
+            ("model_full", "task_model", {"model": "claude-sonnet-5", "reasoning_effort": "high"}, True),
+            ("model_without_effort", "task_model", {"model": "claude-sonnet-5"}, True),
+            ("model_not_dict", "task_model", "claude-sonnet-5", False),
+            ("model_value_not_string", "task_model", {"model": 5}, False),
+            ("model_key_absent", "task_model", {"reasoning_effort": "high"}, False),
+            ("model_value_empty_string", "task_model", {"model": ""}, False),
+            ("installations_string_list", "task_mcp_installations", ["id-1", "id-2"], True),
+            ("installations_not_list", "task_mcp_installations", "id-1", False),
+            ("installations_not_strings", "task_mcp_installations", [1, 2], False),
+        ]
+    )
+    def test_task_input_value_shapes(self, _name, schema_type, value, expect_valid):
+        schema = [{"key": "field", "type": schema_type, "label": "Field", "required": False}]
+        inputs = {"field": {"value": value}}
+
+        if expect_valid:
+            validate_inputs(schema, inputs)
+        else:
+            with pytest.raises(ValidationError):
+                validate_inputs(schema, inputs)
+
+
+class TestReservedFunctionsUsed(SimpleTestCase):
+    # The worker's async function registry is global, so the save-time check is the only thing
+    # that stops user-authored hog from reaching a handler only PostHog's machinery should call.
+    @parameterized.expand(
+        [
+            ("direct_call", "let res := sendEmail(inputs.email)", {"sendEmail"}),
+            ("bare_reference", "let f := sendEmail", {"sendEmail"}),
+            ("inside_block", "if (true) { sendEmail(inputs.email) }", {"sendEmail"}),
+            ("inside_lambda", "let f := (to) -> sendEmail(to)", {"sendEmail"}),
+            ("as_argument", "print(sendEmail)", {"sendEmail"}),
+            ("two_names", "sendEmail(1)\nsendPushNotification(2)", {"sendEmail", "sendPushNotification"}),
+            ("supported_function", "let res := fetch('https://example.com', {})", set()),
+            ("similar_name", "let res := sendEmails(inputs.email)", set()),
+            ("property_of_same_name", "return inputs.sendEmail", set()),
+            ("string_only", "return f'sendEmail is not called here'", set()),
+            ("does_not_parse", "let res := sendEmail(", set()),
+        ]
+    )
+    def test_reserved_functions_used(self, _name: str, hog: str, expected: set[str]) -> None:
+        assert reserved_functions_used(hog) == expected

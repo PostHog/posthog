@@ -3,10 +3,8 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
-export const getAngularSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, dedent, snippets, Tab } = ctx
-
-    const JSEventCapture = snippets?.JSEventCapture
+export const getAngularInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, Tab } = ctx
 
     return [
         {
@@ -171,11 +169,23 @@ export const getAngularSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            content: <>{JSEventCapture && <JSEventCapture />}</>,
-        },
     ]
 }
+
+export const getAngularEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { snippets } = ctx
+
+    const JSEventCapture = snippets?.JSEventCapture
+
+    return {
+        title: 'Send events',
+        content: <>{JSEventCapture && <JSEventCapture />}</>,
+    }
+}
+
+export const getAngularSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getAngularInstallSteps(ctx),
+    getAngularEventStep(ctx),
+]
 
 export const AngularInstallation = createInstallation(getAngularSteps)

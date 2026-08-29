@@ -33,8 +33,12 @@ from posthog.constants import AvailableFeature
 from posthog.scopes import APIScopeObject
 
 from products.customer_analytics.backend.facade.hogql import (
+    account_channel_summaries,
     account_custom_property_values,
     account_custom_property_values_history,
+    account_email_thread_links,
+    account_email_threads,
+    account_meetings,
     account_relationship_definitions,
     account_relationships,
     account_resource_notebooks,
@@ -1739,6 +1743,30 @@ error_tracking_assignment_rules: PostgresTable = PostgresTable(
     },
 )
 
+error_tracking_severity_rules: PostgresTable = PostgresTable(
+    name="error_tracking_severity_rules",
+    postgres_table_name="posthog_errortrackingseverityrule",
+    access_scope="error_tracking",
+    description="Ordered rules that assign severity to newly created error tracking issues; one row per rule.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Rule UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "severity": StringDatabaseField(
+            name="severity", description="Severity assigned when the rule is the first match."
+        ),
+        "order_key": IntegerDatabaseField(name="order_key", description="Evaluation order; lower runs first."),
+        "filters": StringJSONDatabaseField(
+            name="filters", description="JSON conditions a new issue's event must match for the rule to apply."
+        ),
+        "bytecode": StringJSONDatabaseField(name="bytecode", description="Compiled Hog bytecode for the filters."),
+        "disabled_data": StringJSONDatabaseField(
+            name="disabled_data", nullable=True, description="JSON state when the rule is disabled; NULL when active."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the rule was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the rule was last updated."),
+    },
+)
+
 error_tracking_bypass_rules: PostgresTable = PostgresTable(
     name="error_tracking_bypass_rules",
     postgres_table_name="posthog_errortrackingbypassrule",
@@ -2129,6 +2157,11 @@ support_tickets: PostgresTable = PostgresTable(
         "team_id": IntegerDatabaseField(name="team_id"),
         "ticket_number": IntegerDatabaseField(
             name="ticket_number", description="Human-friendly sequential ticket number."
+        ),
+        "organization_id": StringDatabaseField(
+            name="organization_id",
+            nullable=True,
+            description="Customer organization key. This matches a customer analytics account's external_id.",
         ),
         "channel_source": StringDatabaseField(
             name="channel_source", description="Channel the ticket came in on, e.g. 'email', 'widget'."
@@ -2804,6 +2837,14 @@ class SystemTables(TableNode):
         "_account_resource_notebooks": TableNode(
             name="_account_resource_notebooks", table=account_resource_notebooks, hidden=True
         ),
+        "_account_meetings": TableNode(name="_account_meetings", table=account_meetings, hidden=True),
+        "_account_channel_summaries": TableNode(
+            name="_account_channel_summaries", table=account_channel_summaries, hidden=True
+        ),
+        "_account_email_threads": TableNode(name="_account_email_threads", table=account_email_threads, hidden=True),
+        "_account_email_thread_links": TableNode(
+            name="_account_email_thread_links", table=account_email_thread_links, hidden=True
+        ),
         "_account_custom_property_values": TableNode(
             name="_account_custom_property_values", table=account_custom_property_values, hidden=True
         ),
@@ -2855,6 +2896,9 @@ class SystemTables(TableNode):
         ),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
         "error_tracking_releases": TableNode(name="error_tracking_releases", table=error_tracking_releases),
+        "error_tracking_severity_rules": TableNode(
+            name="error_tracking_severity_rules", table=error_tracking_severity_rules
+        ),
         "error_tracking_symbol_sets": TableNode(name="error_tracking_symbol_sets", table=error_tracking_symbol_sets),
         "error_tracking_suppression_rules": TableNode(
             name="error_tracking_suppression_rules", table=error_tracking_suppression_rules

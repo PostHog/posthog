@@ -101,7 +101,7 @@ const DashboardCard = memo(function DashboardCard({
       )}
     >
       <Link
-        to="/website/$channelId/dashboards/$dashboardId"
+        to="/spaces/$channelId/dashboards/$dashboardId"
         params={{ channelId, dashboardId: summary.id }}
         className="no-underline"
         onClick={() =>

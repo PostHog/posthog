@@ -80,6 +80,7 @@ APIScopeObject = Literal[
     "llm_skill",
     "logs",
     "loop",
+    "loop_context_internal",
     "marketing_analytics",
     "mcp_builtin_agent",
     "mcp_analytics",
@@ -120,6 +121,7 @@ APIScopeObject = Literal[
     "user",
     "user_interview",  # Alpha product — access gated by feature flag at the MCP/API layer rather than by hiding the scope.
     "vision_action",
+    "vision_alert",
     "visual_review",
     "warehouse_objects",
     "warehouse_table",
@@ -164,6 +166,8 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # it on the internal products that share the PostHog Desktop OAuth app so a user's
         # own credential can't reach them — see services/llm-gateway products/config.py.
         "internal_run",
+        # Grants context maintenance tools only to Loop runs configured with update_context.
+        "loop_context_internal",
         # Marks a sandbox OAuth token as belonging to a trusted built-in agent.
         # MCP Store uses it to deny the human/member control plane and force the
         # agent through its own explicit gateway grants.

@@ -84,7 +84,7 @@ pnpm make
 Output will be in:
 
 - `out/mac-arm64/PostHog.app` - Packaged app
-- `out/PostHog-Code-*.dmg` - macOS installer
+- `out/PostHog-Desktop-*.dmg` - macOS installer
 - `out/make/zip/` - ZIP archives
 
 **Note:** Native modules for the DMG maker are automatically compiled via the `prePackage` hook. If you need to manually rebuild them, run:

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   getCloudAttachmentPreviewUrl: vi.fn(),
   commentsError: false,
   sessionEvents: [] as unknown[],
+  sessionArtifacts: [] as TaskRunArtifact[],
   taskRunsRefreshKeys: [] as number[],
 }));
 
@@ -45,7 +46,10 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
 
 vi.mock("@posthog/ui/features/sessions/sessionStore", () => ({
   useSessionSelector: (_taskId: string, select: (s: unknown) => unknown) =>
-    select({ events: mocks.sessionEvents }),
+    select({
+      events: mocks.sessionEvents,
+      cloudArtifacts: mocks.sessionArtifacts,
+    }),
 }));
 vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
   usePanelLayoutStore: () => mocks.openArtifactTab,
@@ -133,6 +137,7 @@ describe("TaskArtifactsList", () => {
   beforeEach(() => {
     mocks.commentsError = false;
     mocks.sessionEvents = [];
+    mocks.sessionArtifacts = [];
     mocks.taskRunsRefreshKeys = [];
     mocks.runs = [run("run-1", { prNumber: 1 }), run("run-2", { prNumber: 2 })];
     mocks.openArtifactTab.mockReset();
@@ -233,6 +238,48 @@ describe("TaskArtifactsList", () => {
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText("2")).toBeTruthy();
     expect(within(row as HTMLElement).getByText("Agent · 17 KB")).toBeTruthy();
+  });
+
+  it("lists a PostHog reference beside file artifacts and opens its artifact tab", () => {
+    mocks.runs = [
+      run("run-1", {
+        artifacts: [
+          outputFile({ id: "a" }),
+          {
+            id: "phref-1",
+            name: "Checkout funnel",
+            type: "reference",
+            source: "posthog_object",
+            uploaded_at: "2026-08-19T00:00:00Z",
+            metadata: {
+              reference_type: "posthog_object",
+              object_kind: "insight",
+              object_id: "9pQx3",
+              source_message_ids: ["turn-1", "turn-2"],
+              occurrence_count: 2,
+            },
+          },
+        ],
+      }),
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    expect(screen.getByText("report.md")).toBeInTheDocument();
+    expect(screen.getByText("Checkout funnel")).toBeInTheDocument();
+    expect(
+      screen.getByText(/^Insight · Referenced 2 times/),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Checkout funnel"));
+    expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
+      runId: "run-1",
+      artifactId: "phref-1",
+      name: "Checkout funnel",
+      objectKind: "insight",
+    });
+    expect(
+      screen.queryByRole("button", { name: "Download Checkout funnel" }),
+    ).toBeNull();
   });
 
   it("keeps artifacts visible when comment counts fail", () => {
@@ -506,6 +553,47 @@ describe("TaskArtifactsList", () => {
     render(<TaskArtifactsList task={task} timeline={[]} />);
 
     expect(mocks.taskRunsRefreshKeys.at(-1)).toBe(1);
+  });
+
+  it("refreshes the runs query when a PostHog reference is registered", () => {
+    mocks.sessionArtifacts = [
+      {
+        id: "phref-1",
+        name: "Checkout funnel",
+        type: "reference",
+        source: "posthog_object",
+        metadata: {
+          reference_type: "posthog_object",
+          object_kind: "insight",
+          object_id: "9pQx3",
+          source_message_ids: ["turn-1"],
+          occurrence_count: 1,
+        },
+      },
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    // Entry plus its occurrence count, so an in-place update re-keys too.
+    expect(mocks.taskRunsRefreshKeys.at(-1)).toBe(2);
+
+    mocks.sessionArtifacts = [
+      {
+        id: "phref-1",
+        name: "Checkout funnel",
+        type: "reference",
+        source: "posthog_object",
+        metadata: {
+          reference_type: "posthog_object",
+          object_kind: "insight",
+          object_id: "9pQx3",
+          source_message_ids: ["turn-1", "turn-2"],
+          occurrence_count: 2,
+        },
+      },
+    ];
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+    expect(mocks.taskRunsRefreshKeys.at(-1)).toBe(3);
   });
 
   it.each([

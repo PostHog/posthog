@@ -4,7 +4,7 @@ import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
 
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
-import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
+import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { resolveEventSource } from '@/lib/event-source'
 import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
@@ -75,10 +75,6 @@ function buildBaseProperties(
             : {}),
         mcp_runtime: 'hono',
         mcp_vendor_client: clientIdentity.mcpVendorClient,
-        // Stamped on every event so catalog-on vs catalog-off cohorts can be split
-        // in analytics; the flag only gates instructions content, so nothing else
-        // on the event reveals whether the agent was steered toward the catalog.
-        mcp_data_catalog_enabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
         ...buildMCPSessionAnalyticsProperties(state.sessionContext),
     }
     return { properties, groups }

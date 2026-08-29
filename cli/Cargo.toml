@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "posthog-cli"
-version = "0.13.0"
+version = "0.16.0"
 authors = [
     "David <david@posthog.com>",
     "Olly <oliver@posthog.com>",
@@ -85,6 +85,7 @@ unit_bindings = "deny"
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
+debug = "line-tables-only"
 lto = "thin"
 
 [package.metadata.dist]

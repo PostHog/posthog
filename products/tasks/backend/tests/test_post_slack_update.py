@@ -84,6 +84,24 @@ class TestPostSlackUpdate(TestCase):
         mock_post_pr_opened.assert_called_once()
         mock_run.task.mark_slack_pr_notified.assert_called_once_with("https://github.com/org/repo/pull/1")
 
+    @patch.object(SlackThreadHandler, "post_pr_opened")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_a_slack_run_that_fell_back_to_the_bot_asks_for_a_personal_github(
+        self, mock_task_run_class, _mock_update_reaction, mock_post_pr_opened
+    ):
+        mock_run = self._make_mock_run(
+            mock_task_run_class.Status.COMPLETED,
+            output={"pr_url": "https://github.com/org/repo/pull/1"},
+            state={"pr_authorship_mode": "bot"},
+        )
+        mock_run.task.origin_product = "slack"
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+
+        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        assert mock_post_pr_opened.call_args.kwargs["bot_authored"] is True
+
     @patch.object(SlackThreadHandler, "post_completion")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch("products.tasks.backend.models.TaskRun")
@@ -219,6 +237,7 @@ class TestPostSlackUpdate(TestCase):
             "https://github.com/org/repo/pull/1",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
             reply_target_slack_user_id=expected_target,
+            bot_authored=False,
         )
         mock_update_reaction.assert_called_once_with("eyes")
         mock_post_progress.assert_not_called()
@@ -358,6 +377,7 @@ class TestPostSlackUpdate(TestCase):
             "https://github.com/org/repo/pull/1",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
             reply_target_slack_user_id=None,
+            bot_authored=False,
         )
 
     @patch.object(SlackThreadHandler, "delete_progress")
@@ -448,6 +468,7 @@ class TestPostSlackUpdate(TestCase):
             "https://github.com/org/repo/pull/2",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
             reply_target_slack_user_id=None,
+            bot_authored=False,
         )
         mock_run.task.mark_slack_pr_notified.assert_called_once_with("https://github.com/org/repo/pull/2")
 
@@ -546,6 +567,7 @@ class TestPostSlackUpdate(TestCase):
             "https://github.com/org/repo/pull/2",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
             reply_target_slack_user_id=None,
+            bot_authored=False,
         )
 
     @patch.object(SlackThreadHandler, "post_completion")
@@ -664,4 +686,5 @@ class TestPostSlackUpdate(TestCase):
             "https://github.com/org/repo/pull/2",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
             reply_target_slack_user_id=None,
+            bot_authored=False,
         )

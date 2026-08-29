@@ -1,5 +1,4 @@
 import asyncio
-from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import structlog
@@ -80,19 +79,14 @@ def cascade_posthog_code_repository_activity(
 def _messages_at_or_before(messages: list[dict[str, str]], mention_ts: str | None) -> list[dict[str, str]]:
     """Messages eligible as repo-selection evidence: posted at or before the mention.
 
-    Fail-closed: without a parseable bound, or for a message without a parseable ``ts``,
-    the message contributes nothing and resolution degrades to the mention text alone.
+    Fail-closed on a missing bound — resolution degrades to the mention text alone —
+    which is why this doesn't just call the shared helper: there, no bound means no clip.
     """
-
-    def at_or_before(ts: str, bound: str) -> bool:
-        try:
-            return Decimal(ts) <= Decimal(bound)
-        except InvalidOperation:
-            return False
+    from products.slack_app.backend.services.slack_messages import messages_at_or_before
 
     if not mention_ts:
         return []
-    return [message for message in messages if at_or_before(message.get("ts", ""), mention_ts)]
+    return messages_at_or_before(messages, mention_ts)
 
 
 def _resolve_explicit_repo(
