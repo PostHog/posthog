@@ -82,6 +82,25 @@ class AppleSearchAdsSource(ResumableSource[AppleSearchAdsSourceConfig, AppleSear
             "Could not sign the Apple Ads client secret": "The private key isn't a valid unencrypted EC (P-256) PEM. Paste the key you generated for your Apple Ads API client and reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # Apple's transport already retries these statuses in-process (see the
+        # `status_forcelist` on `APPLE_SEARCH_ADS_RETRY`) with backoff, so one only reaches
+        # here once that budget is exhausted — Apple is rate-limiting us (429) or its API is
+        # briefly unavailable (5xx). Both are transient and self-recovering, so let Temporal
+        # retry the whole activity. Unlike the shared REST engine, this source has its own
+        # client, so `raise_for_status()` surfaces a plain `requests.HTTPError` that no
+        # `RESTClientRetryableError` type-check catches; without this classification the
+        # benign, self-recovering failure is logged at `exception` and reported as an
+        # unclassified error every run. Match the code-anchored fragment, not the volatile
+        # reason phrase or per-request URL.
+        return {
+            "429 Client Error",
+            "500 Server Error",
+            "502 Server Error",
+            "503 Server Error",
+            "504 Server Error",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
