@@ -140,6 +140,31 @@ describe('Cohorts', { concurrent: false }, () => {
             expect(cohort.description).toBe('For retrieve test')
             expect(cohort._posthogUrl).toContain('/cohorts/')
         })
+
+        it('should not expose the creator profile beyond its id', async () => {
+            const name = `Creator Test ${generateUniqueKey('creator')}`
+            const createResult = await createTool.handler(context, { name, is_static: true })
+            const created = parseToolResponse(createResult)
+            createdResources.cohorts.push(created.id)
+
+            const result = await retrieveTool.handler(context, { id: created.id })
+            const cohort = parseToolResponse(result)
+
+            // The creator id stays for reference; the rest of the profile must not leak.
+            expect(cohort.created_by.id).toBeTruthy()
+            for (const field of [
+                'uuid',
+                'distinct_id',
+                'first_name',
+                'last_name',
+                'email',
+                'is_email_verified',
+                'hedgehog_config',
+                'role_at_organization',
+            ]) {
+                expect(cohort.created_by[field]).toBeUndefined()
+            }
+        })
     })
 
     describe('cohorts-partial-update tool', () => {

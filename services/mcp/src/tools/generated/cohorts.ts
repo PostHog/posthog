@@ -188,6 +188,14 @@ const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema, WithPostHogUr
                 'filters.properties.values.*.bytecode',
                 'filters.properties.values.*.bytecode_error',
                 'filters.properties.values.*.conditionHash',
+                'created_by.uuid',
+                'created_by.distinct_id',
+                'created_by.first_name',
+                'created_by.last_name',
+                'created_by.email',
+                'created_by.is_email_verified',
+                'created_by.hedgehog_config',
+                'created_by.role_at_organization',
             ]) as typeof result
             return await withPostHogUrl(context, filtered, `/cohorts/${filtered.id}`)
         },

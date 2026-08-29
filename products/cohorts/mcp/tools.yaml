@@ -210,6 +210,8 @@ tools:
                 cast: string-int
         ui_app: cohort
         response:
+            # Keep only created_by.id. Drop the rest of the creator profile so a
+            # cohort read does not expose personal data. Fetch it with a person lookup.
             exclude:
                 - filters.properties.values.*.values.*.bytecode
                 - filters.properties.values.*.values.*.bytecode_error
@@ -217,6 +219,14 @@ tools:
                 - filters.properties.values.*.bytecode
                 - filters.properties.values.*.bytecode_error
                 - filters.properties.values.*.conditionHash
+                - created_by.uuid
+                - created_by.distinct_id
+                - created_by.first_name
+                - created_by.last_name
+                - created_by.email
+                - created_by.is_email_verified
+                - created_by.hedgehog_config
+                - created_by.role_at_organization
     cohorts-rm-person-from-static-cohort-partial-update:
         operation: cohorts_remove_person_from_static_cohort_partial_update
         enabled: true
