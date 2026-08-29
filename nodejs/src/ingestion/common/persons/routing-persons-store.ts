@@ -438,9 +438,9 @@ export class RoutingPersonsStore implements PersonsStore {
      * Records whether the two backends reached the same merge verdict; the
      * survivor decides which person every later event in the batch lands on,
      * so a disagreement here is the most consequential shadow can surface.
-     * The outcome vocabularies are not identical between backends (see the
-     * parity notes), so an outcome difference is a finding to read rather
-     * than an alarm by itself.
+     * The outcome vocabularies are not identical between backends, so an
+     * outcome difference is a finding to read rather than an alarm by
+     * itself.
      */
     private compareMerge(authoritative: unknown, shadow: unknown): void {
         const left = authoritative as MergePersonsResult
