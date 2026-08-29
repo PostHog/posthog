@@ -131,14 +131,10 @@ _EXISTING_CHART = {
 }
 
 
-async def _run_activity_with_output(monkeypatch, ateam, report, output, *, charts_enabled=True):
+async def _run_activity_with_output(monkeypatch, ateam, report, output):
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
         lambda team_id: 1,
-    )
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report._team_report_charts_enabled",
-        lambda team_id: charts_enabled,
     )
 
     async def fake_run_multi_turn_research(*args, **kwargs):
@@ -487,22 +483,20 @@ async def test_run_agentic_report_activity_keeps_quiet_when_reviewers_are_retain
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "name,charts_enabled,output_factory,expected",
+    "name,output_factory,expected",
     [
-        # Opted-in + a valid chart → the JSON set to store.
-        ("enabled_non_empty", True, _build_research_output_with_chart, [{"chart_id": "signups-drop"}]),
-        # Not opted in → None (leave the column alone), even though the mocked run returned a chart.
-        ("disabled", False, _build_research_output_with_chart, None),
-        # Opted-in but the run authored no charts (optional field omitted / dropped) → None, never a
-        # wipe of whatever the report already showed.
-        ("enabled_empty", True, _build_research_output, None),
-        # Opted-in but the set busts the whole-set caps (duplicate id) → [] to clear, so a stale set
-        # can't sit under the new summary.
-        ("enabled_cap_bust", True, _build_research_output_with_duplicate_chart_ids, []),
+        # A valid chart → the JSON set to store.
+        ("non_empty", _build_research_output_with_chart, [{"chart_id": "signups-drop"}]),
+        # The run authored no charts (optional field omitted / dropped) → None, never a wipe of
+        # whatever the report already showed.
+        ("empty", _build_research_output, None),
+        # The set busts the whole-set caps (duplicate id) → [] to clear, so a stale set can't sit
+        # under the new summary.
+        ("cap_bust", _build_research_output_with_duplicate_chart_ids, []),
     ],
 )
 async def test_run_agentic_report_activity_resolves_charts_payload(
-    monkeypatch, ateam, name, charts_enabled, output_factory, expected
+    monkeypatch, ateam, name, output_factory, expected
 ):
     # The activity resolves the charts payload but does not write it — the transition activity does,
     # atomically with the title/summary (see test_mark_report_ready_activity_applies_charts). So we
@@ -511,9 +505,7 @@ async def test_run_agentic_report_activity_resolves_charts_payload(
         team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
     )
 
-    result = await _run_activity_with_output(
-        monkeypatch, ateam, report, output_factory(), charts_enabled=charts_enabled
-    )
+    result = await _run_activity_with_output(monkeypatch, ateam, report, output_factory())
 
     if expected is None:
         assert result.charts is None

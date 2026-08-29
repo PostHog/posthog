@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
-from django.conf import settings
 from django.db import transaction
 
 import structlog
@@ -11,7 +10,6 @@ from pydantic import BaseModel, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
@@ -321,21 +319,20 @@ def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts:
 
 
 def _resolve_report_charts_payload(
-    charts: list[ReportChart], charts_enabled: bool, *, report_id: str, team_id: int
+    charts: list[ReportChart], *, report_id: str, team_id: int
 ) -> list[dict[str, Any]] | None:
     """Resolve an authored chart set to what a report's `charts` column should become, or `None` to
     leave it untouched. The transition activity that writes the title/summary applies this atomically.
 
     Three cases, because the model's output is untrusted and the presentation `charts` field is optional:
     - a valid non-empty set → its JSON payload (replace the column).
-    - not opted in, or an *empty* set → `None` (leave the column alone). An omitted key and a
-      deliberate "drop everything" both arrive empty and are indistinguishable, so wiping
-      user-visible charts on that ambiguity is refused — the pipeline never auto-clears to zero (a
-      human can clear from the inbox).
+    - an *empty* set → `None` (leave the column alone). An omitted key and a deliberate "drop
+      everything" both arrive empty and are indistinguishable, so wiping user-visible charts on that
+      ambiguity is refused — the pipeline never auto-clears to zero (a human can clear from the inbox).
     - a cap-busting set (too many, too large, or a duplicate id the agent produced) → `[]` (clear),
       so a stale set can't sit under the run's new summary; any `chart:` link then degrades to a label.
     """
-    if not charts_enabled or not charts:
+    if not charts:
         return None
     batch_error = chart_batch_error(charts)
     if batch_error:
@@ -481,29 +478,6 @@ def _team_has_business_knowledge(team_id: int) -> bool:
         return False
 
 
-def _team_report_charts_enabled(team_id: int) -> bool:
-    """Whether the research agent may attach charts to this team's reports.
-
-    Gated by the `signals-report-charts` flag, org-keyed, evaluated fresh per run so a flip takes
-    effect immediately. Off by default everywhere so this ships dark on the fleet-wide research path;
-    on locally so `analyze_report` exercises it. Fails closed to False — a flag-service hiccup must
-    not start charting reports on a team that isn't opted in."""
-    if settings.DEBUG:
-        return True
-    try:
-        team = Team.objects.get(id=team_id)
-        return feature_enabled_or_false(
-            "signals-report-charts",
-            str(team.organization_id),
-            groups={"organization": str(team.organization_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        logger.warning("report-charts availability check failed", team_id=team_id, exc_info=True)
-        return False
-
-
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -537,9 +511,6 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 reasoning_effort=agent_runtime.reasoning_effort,
             )
             has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
-            charts_enabled = await database_sync_to_async(_team_report_charts_enabled, thread_sensitive=False)(
-                input.team_id
-            )
             # 2. Load previous research if this is a re-promoted report
             previous_research = await _load_previous_research(input.report_id)
             # 2b. Load the resolved report this one recurred from, if any, as extra research context
@@ -556,7 +527,6 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 has_business_knowledge=has_bk,
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
-                charts_enabled=charts_enabled,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(
@@ -570,9 +540,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
         # Resolve the charts payload here, but let the transition activity write it alongside the
         # title/summary so charts and their prose land in one transaction (and never on the
         # not-actionable reset or a failed run, which don't write the new prose).
-        charts_payload = _resolve_report_charts_payload(
-            result.charts, charts_enabled, report_id=input.report_id, team_id=input.team_id
-        )
+        charts_payload = _resolve_report_charts_payload(result.charts, report_id=input.report_id, team_id=input.team_id)
         logger.info(
             "signals agentic report completed",
             report_id=input.report_id,
