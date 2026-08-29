@@ -27,6 +27,7 @@ import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
+import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -147,6 +148,7 @@ export function ProjectTree({
     const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
     const { activeCampaign } = useValues(navPanelProductPushLogic)
+    const { user } = useValues(userLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
@@ -453,9 +455,11 @@ export function ProjectTree({
                 ) {
                     const key = item.record?.sceneKey
                     // A product push campaign is the org's one live recommendation, so the tag
-                    // marks the row whose product matches it.
+                    // marks the row whose product matches it. Respects the user's "no product
+                    // suggestions" setting, like the other campaign surfaces.
                     const isRecommended =
                         root === 'custom-products://' &&
+                        user?.allow_sidebar_suggestions !== false &&
                         !!activeCampaign?.product_path &&
                         item.record?.path === activeCampaign.product_path
 
