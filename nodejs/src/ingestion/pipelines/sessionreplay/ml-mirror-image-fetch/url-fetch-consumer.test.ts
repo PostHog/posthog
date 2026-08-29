@@ -1,11 +1,14 @@
 import { Message } from 'node-rdkafka'
 
+import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
+
 import { FetchCandidate, MAX_HOPS, serializeFrontierRecord } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, configurationCacheKey } from './crawl-history'
 import { AttemptOutcome, DELAY_TOO_LONG, FetchAttempt, FetchPass, HOPS_EXHAUSTED } from './fetch-runner'
 import { FrontierDeadLetterSink } from './frontier-dead-letter-sink'
 import { FrontierPublisher, RepublishFlushResult, RepublishResult } from './frontier-publisher'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
+import { ImageFetchTopHogMetrics } from './tophog-metrics'
 import { UrlFetchConsumer } from './url-fetch-consumer'
 
 const NOW_MS = 1_700_000_000_000
@@ -93,6 +96,7 @@ interface Harness {
     republish: jest.Mock<Promise<RepublishResult>, any[]>
     flush: jest.Mock<Promise<RepublishFlushResult>, []>
     park: jest.Mock<Promise<void>, any[]>
+    topHogRecords: Map<string, RecordedTopHogMetric[]>
 }
 
 function build(dryRun = false, deadLettersEnabled = true): Harness {
@@ -103,14 +107,17 @@ function build(dryRun = false, deadLettersEnabled = true): Harness {
     const republish = jest.fn(() => Promise.resolve('queued' as const))
     const flush = jest.fn(() => Promise.resolve({ failedUrls: 0 }))
     const park = jest.fn(() => Promise.resolve())
+    const recordingTopHog = createRecordingTopHog()
+    const topHogMetrics = new ImageFetchTopHogMetrics(recordingTopHog.registry)
     const consumer = new UrlFetchConsumer(
         history,
         { createRepublishBatch: () => ({ republish, flush }) } as unknown as FrontierPublisher,
         { seenTtlSeconds: 30 * 24 * 60 * 60, dryRun },
         dryRun ? undefined : ({ run } as FetchPass),
-        deadLettersEnabled ? ({ park } as FrontierDeadLetterSink) : null
+        deadLettersEnabled ? ({ park } as FrontierDeadLetterSink) : null,
+        topHogMetrics
     )
-    return { consumer, history, run, republish, flush, park }
+    return { consumer, history, run, republish, flush, park, topHogRecords: recordingTopHog.records }
 }
 
 describe('UrlFetchConsumer', () => {
@@ -217,6 +224,16 @@ describe('UrlFetchConsumer', () => {
         expect(harness.run.mock.calls[0][0]).toEqual([
             { ...fromPartition7, sourcePartitions: [7] },
             { ...fromPartition42, sourcePartitions: [42] },
+        ])
+        expect(harness.topHogRecords.get('ml_image_fetch_attempts_by_registrable_domain')).toEqual([
+            {
+                key: { registrable_domain: 'example.com', disposition: 'completed', outcome: 'ok' },
+                value: 1,
+            },
+            {
+                key: { registrable_domain: 'other.net', disposition: 'completed', outcome: 'ok' },
+                value: 1,
+            },
         ])
         expect(incPartitionAttempt).toHaveBeenCalledWith(7, 'completed', 'ok')
         expect(incPartitionAttempt).toHaveBeenCalledWith(42, 'completed', 'ok')
@@ -332,6 +349,12 @@ describe('UrlFetchConsumer', () => {
             30_000
         )
         expect(harness.history.writes).toEqual([])
+        expect(harness.topHogRecords.get('ml_image_fetch_attempts_by_registrable_domain')).toEqual([
+            {
+                key: { registrable_domain: 'example.com', disposition: 'republished', outcome: 'backoff' },
+                value: 1,
+            },
+        ])
     })
 
     it('records a terminal refusal when the remaining delay is over one hour', async () => {

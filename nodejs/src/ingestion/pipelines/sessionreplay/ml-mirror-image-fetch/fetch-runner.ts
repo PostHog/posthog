@@ -21,6 +21,7 @@ import {
 import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 import { canonicalizeUrl } from './politeness-key'
+import { ImageFetchTopHogMetrics } from './tophog-metrics'
 
 export type ShedReason =
     | 'breaker_open'
@@ -105,7 +106,8 @@ export class FetchRunner implements FetchPass {
         private readonly scheduler: OriginRequestScheduler,
         private readonly configurationPolicy: ConfigurationPolicyService,
         private readonly options: FetchRunnerOptions,
-        private readonly publisher: FrontierPublisher
+        private readonly publisher: FrontierPublisher,
+        private readonly topHogMetrics?: ImageFetchTopHogMetrics
     ) {
         requirePositiveSafeInteger(
             'SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN',
@@ -141,6 +143,7 @@ export class FetchRunner implements FetchPass {
             }
         }
         const queue = new FetchCandidateQueue(candidates, this.options)
+        this.topHogMetrics?.recordConcurrencyLimitedUrls(candidates, this.options.maxConcurrentPerRegistrableDomain)
         const podRequestSlots = Math.max(0, this.options.maxInFlightRequests - this.candidateWork.running)
         ImageFetchRequestMetrics.observeBatchSchedulableCapacity(
             Math.min(

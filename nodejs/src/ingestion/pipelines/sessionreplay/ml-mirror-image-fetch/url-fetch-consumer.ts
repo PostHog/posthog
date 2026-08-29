@@ -17,6 +17,7 @@ import {
 import { FrontierDeadLetterReason, FrontierDeadLetterSink } from './frontier-dead-letter-sink'
 import { FrontierPublisher, RepublishBatch } from './frontier-publisher'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
+import { ImageFetchTopHogMetrics } from './tophog-metrics'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 const REPUBLISH_DEADLINE_FROM_BATCH_START_MS = 200_000
@@ -39,7 +40,8 @@ export class UrlFetchConsumer {
         private readonly publisher: FrontierPublisher,
         private readonly options: UrlFetchConsumerOptions,
         private readonly runner?: FetchPass,
-        private readonly deadLetters: FrontierDeadLetterSink | null = null
+        private readonly deadLetters: FrontierDeadLetterSink | null = null,
+        private readonly topHogMetrics?: ImageFetchTopHogMetrics
     ) {
         if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds < 60 * 60) {
             throw new Error('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS must be at least 3600')
@@ -196,6 +198,7 @@ export class UrlFetchConsumer {
                         attempt.outcome
                     )
                 }
+                this.topHogMetrics?.recordAttempt(attempt)
                 if (!attempt.finished && isTransientOutcome(attempt.outcome)) {
                     ImageFetchRequestMetrics.incRetryCause(attempt.outcome)
                 }

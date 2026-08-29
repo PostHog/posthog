@@ -3,8 +3,9 @@ import { delay } from '~/common/utils/utils'
 
 import { ConfigurationRequestScheduler } from './configuration-policy'
 import { BudgetBlockReason, HostBudget } from './host-budget'
-import { ImageFetchRequestMetrics } from './metrics'
+import { ImageFetchRequestMetrics, SchedulerWaitScope } from './metrics'
 import { politenessKey } from './politeness-key'
+import { ImageFetchTopHogMetrics } from './tophog-metrics'
 
 export type ScheduledRequest<T> =
     | { ran: true; value: T }
@@ -15,7 +16,8 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
 
     constructor(
         private readonly budget: HostBudget,
-        maxInFlightRequests: number
+        maxInFlightRequests: number,
+        private readonly topHogMetrics?: ImageFetchTopHogMetrics
     ) {
         this.inFlight = new ConcurrencyController(maxInFlightRequests)
     }
@@ -57,9 +59,11 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
                     debugTag: registrableDomain,
                     fn: async () => {
                         const checkedAtMs = Date.now()
-                        ImageFetchRequestMetrics.observeSchedulerWait(
+                        this.recordSchedulerWait(
                             'request_capacity',
-                            Math.max(0, checkedAtMs - capacityWaitStartedAtMs) / 1000,
+                            Math.max(0, checkedAtMs - capacityWaitStartedAtMs),
+                            registrableDomain,
+                            configurationRequest,
                             sourcePartitions
                         )
                         const grant = this.budget.take(
@@ -120,15 +124,30 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
                 if (Date.now() + scheduled.waitMs > deadlineMs) {
                     return { ran: false, reason: 'deadline', waitMs: scheduled.waitMs }
                 }
-                ImageFetchRequestMetrics.observeSchedulerWait(
+                this.recordSchedulerWait(
                     scheduled.waitScope,
-                    scheduled.waitMs / 1000,
+                    scheduled.waitMs,
+                    registrableDomain,
+                    configurationRequest,
                     sourcePartitions
                 )
                 await delay(scheduled.waitMs)
             }
         } finally {
             this.budget.requestFinished(origin)
+        }
+    }
+
+    private recordSchedulerWait(
+        scope: SchedulerWaitScope,
+        waitMs: number,
+        registrableDomain: string,
+        configurationRequest: boolean,
+        sourcePartitions: readonly number[] | undefined
+    ): void {
+        ImageFetchRequestMetrics.observeSchedulerWait(scope, waitMs / 1000, sourcePartitions)
+        if (!configurationRequest) {
+            this.topHogMetrics?.recordSchedulerWait(registrableDomain, scope, waitMs)
         }
     }
 }

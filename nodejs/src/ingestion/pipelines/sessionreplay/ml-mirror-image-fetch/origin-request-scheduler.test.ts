@@ -1,6 +1,9 @@
+import { createRecordingTopHog } from '~/tests/helpers/tophog'
+
 import { HostBudget, HostBudgetOptions } from './host-budget'
 import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
+import { ImageFetchTopHogMetrics } from './tophog-metrics'
 
 const OPTIONS: HostBudgetOptions = {
     requestsPerSecond: 1,
@@ -26,7 +29,8 @@ describe('OriginRequestScheduler', () => {
     it('keeps concurrent request start times at least one second apart', async () => {
         const budget = new HostBudget(OPTIONS)
         budget.setCrawlDelay(ORIGIN.origin, 1_000, Date.now())
-        const scheduler = new OriginRequestScheduler(budget, 300)
+        const recordingTopHog = createRecordingTopHog()
+        const scheduler = new OriginRequestScheduler(budget, 300, new ImageFetchTopHogMetrics(recordingTopHog.registry))
         const observeSchedulerWait = jest.spyOn(ImageFetchRequestMetrics, 'observeSchedulerWait')
         const startedAtMs: number[] = []
         const deadlineMs = Date.now() + 10_000
@@ -52,6 +56,22 @@ describe('OriginRequestScheduler', () => {
         expect(startedAtMs).toEqual([1_700_000_000_000, 1_700_000_001_000, 1_700_000_002_000])
         expect(observeSchedulerWait).toHaveBeenCalledWith('origin_crawl_delay', 1, [7, 42])
         expect(observeSchedulerWait).toHaveBeenCalledWith('request_capacity', 0, [7, 42])
+        expect(recordingTopHog.records.get('ml_image_fetch_scheduler_wait_ms_by_registrable_domain')).toEqual(
+            expect.arrayContaining([
+                {
+                    key: { registrable_domain: REGISTRABLE_DOMAIN, scope: 'origin_crawl_delay' },
+                    value: 1_000,
+                },
+            ])
+        )
+        expect(recordingTopHog.records.get('ml_image_fetch_scheduler_wait_ms_by_registrable_domain')).not.toEqual(
+            expect.arrayContaining([
+                {
+                    key: { registrable_domain: REGISTRABLE_DOMAIN, scope: 'request_capacity' },
+                    value: 0,
+                },
+            ])
+        )
     })
 
     it('allows six concurrent same-origin requests when the request rate and crawl delay are disabled', async () => {

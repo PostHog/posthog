@@ -1,3 +1,5 @@
+import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
+
 import { FetchCandidate, MAX_HOPS } from './collected-urls-record'
 import { ConfigurationPolicyService, OriginPolicyDecision } from './configuration-policy'
 import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata } from './crawl-history'
@@ -7,6 +9,7 @@ import { HostBudget } from './host-budget'
 import { ImageFetchOptions, ImageFetchResult, ImageFetcher } from './image-fetcher'
 import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
+import { ImageFetchTopHogMetrics } from './tophog-metrics'
 
 const NOW_MS = 1_700_000_000_000
 const OPTIONS: FetchRunnerOptions = {
@@ -44,6 +47,7 @@ interface Harness {
     createPass: jest.Mock
     republish: jest.Mock<Promise<RepublishResult>, any[]>
     publishImage: jest.Mock<Promise<void>, any[]>
+    topHogRecords: Map<string, RecordedTopHogMetric[]>
 }
 
 function build(
@@ -87,15 +91,17 @@ function build(
         maxTrackedOrigins: 20_000,
         random: () => 0,
     })
+    const recordingTopHog = createRecordingTopHog()
     const runner = new FetchRunner(
         { fetch } as ImageFetcher,
         budget,
         scheduler,
         { createPass } as unknown as ConfigurationPolicyService,
         options,
-        { createRepublishBatch, publishImage } as unknown as FrontierPublisher
+        { createRepublishBatch, publishImage } as unknown as FrontierPublisher,
+        new ImageFetchTopHogMetrics(recordingTopHog.registry)
     )
-    return { runner, budget, fetch, check, createPass, republish, publishImage }
+    return { runner, budget, fetch, check, createPass, republish, publishImage, topHogRecords: recordingTopHog.records }
 }
 
 describe('FetchRunner', () => {
@@ -180,6 +186,12 @@ describe('FetchRunner', () => {
         releaseFirst?.()
         await run
         expect(harness.fetch).toHaveBeenCalledTimes(2)
+        expect(harness.topHogRecords.get('ml_image_fetch_concurrency_limited_urls_by_registrable_domain')).toEqual([
+            {
+                key: { registrable_domain: 'example.com', concurrency_limit: '1' },
+                value: 1,
+            },
+        ])
     })
 
     it('allocates sibling-origin workers by queue share', async () => {
