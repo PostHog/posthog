@@ -954,6 +954,63 @@ describe('sessionRecordingPlayerLogic', () => {
         )
     })
 
+    describe('seek recursion guard', () => {
+        const START = 1682952380877
+        const TWO_HOURS = 2 * 60 * 60 * 1000
+
+        const makeSnapshot = (timestamp: number, type: EventType): RecordingSnapshot =>
+            ({
+                timestamp,
+                type,
+                windowId: 1,
+                data: { source: IncrementalSource.MouseMove },
+            }) as unknown as RecordingSnapshot
+        const fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot)
+        const move = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.IncrementalSnapshot)
+
+        // Two active windows separated by a > 1 hour inactive gap, with the whole span loaded so the
+        // gap classifies as a skippable 'gap' rather than a pending 'buffer'.
+        const seedGappedRecording = (): void => {
+            const source = {
+                source: 'blob_v2',
+                blob_key: '7',
+                start_timestamp: new Date(START).toISOString(),
+                end_timestamp: new Date(START + TWO_HOURS + 10000).toISOString(),
+            }
+            const snapshots = [fs(START), move(START + 1000), move(START + TWO_HOURS), move(START + TWO_HOURS + 1000)]
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            dataLogic.actions.loadSnapshotSourcesSuccess([source] as any)
+            markLoaded(dataLogic.cache.store, 0, snapshots)
+            dataLogic.actions.storeUpdated()
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(snapshots)
+        }
+
+        beforeEach(async () => {
+            await expectLogic(logic)
+                .toDispatchActions([snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources])
+                .toFinishAllListeners()
+        })
+
+        it('defers the skip seek instead of recursing through a long gap', () => {
+            seedGappedRecording()
+            logic.actions.setSkipInactivitySetting(true)
+
+            const gap = logic.values.sessionPlayerData.segments.find((s) => s.kind === 'gap')
+            expect(gap?.durationMs).toBeGreaterThan(INSTANT_SKIP_INACTIVITY_THRESHOLD_MS)
+
+            const seekTarget = START + 60000
+
+            // Seeking into the gap makes setCurrentSegment dispatch a skip seek to the gap end on the
+            // same stack. Before the guard, a run of such gaps recursed until the stack overflowed. The
+            // guard defers the follow-up seek, so the playhead stays at the seek target and only the
+            // outer seek has run — no synchronous recursion to the gap end.
+            expect(() => logic.actions.seekToTimestamp(seekTarget)).not.toThrow()
+
+            expect(logic.values.currentTimestamp).toBe(seekTarget)
+            expect(logic.values.currentSegment?.kind).toBe('gap')
+        })
+    })
+
     describe('delete session recording', () => {
         const mockedDeleteRecording = deleteRecordingMock as jest.MockedFunction<typeof deleteRecordingMock>
 

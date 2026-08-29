@@ -2718,52 +2718,69 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         seekToTimestamp: ({ timestamp, forcePlay }, breakpoint) => {
-            // If the data before `timestamp` definitively has no FullSnapshot to render from (e.g. lost at capture time), clamp the seek forward to the first renderable position instead of sticking on an unrenderable frame.
-            // Despite the action's typing, some callers forward currentTimestamp while it still holds its initial null, which seekRenderability would coerce to 0 and clamp every normal recording to its first FullSnapshot.
-            let target = timestamp
-            for (let hops = 0; target != null && hops < 10; hops++) {
-                const renderability = values.seekRenderability(target)
-                if (renderability.kind !== 'clampToFullSnapshot' || renderability.timestamp === target) {
-                    break
-                }
-                posthog.capture('recording player seek clamped to next full snapshot', {
-                    sessionId: values.sessionRecordingId,
-                    seekTimestamp: target,
-                    clampedToTimestamp: renderability.timestamp,
-                })
-                target = renderability.timestamp
+            // Prevent synchronous re-entry: a seek can land in a skippable gap segment, whose
+            // setCurrentSegment dispatches seekToTimestamp again on the same stack (also via
+            // syncPlayerState). A run of consecutive gap segments recurses until the stack
+            // overflows, so defer a re-entrant seek to the next animation frame instead.
+            if (cache._inSeekToTimestamp) {
+                cache.disposables.add(() => {
+                    const timerId = requestAnimationFrame(() => actions.seekToTimestamp(timestamp, forcePlay))
+                    return () => cancelAnimationFrame(timerId)
+                }, 'seekChainTimer')
+                return
             }
+            cache._inSeekToTimestamp = true
 
-            actions.stopAnimation()
-            actions.pauseIframePlayback()
+            try {
+                // If the data before `timestamp` definitively has no FullSnapshot to render from (e.g. lost at capture time), clamp the seek forward to the first renderable position instead of sticking on an unrenderable frame.
+                // Despite the action's typing, some callers forward currentTimestamp while it still holds its initial null, which seekRenderability would coerce to 0 and clamp every normal recording to its first FullSnapshot.
+                let target = timestamp
+                for (let hops = 0; target != null && hops < 10; hops++) {
+                    const renderability = values.seekRenderability(target)
+                    if (renderability.kind !== 'clampToFullSnapshot' || renderability.timestamp === target) {
+                        break
+                    }
+                    posthog.capture('recording player seek clamped to next full snapshot', {
+                        sessionId: values.sessionRecordingId,
+                        seekTimestamp: target,
+                        clampedToTimestamp: renderability.timestamp,
+                    })
+                    target = renderability.timestamp
+                }
 
-            cache.pausedMediaElements = []
+                actions.stopAnimation()
+                actions.pauseIframePlayback()
 
-            // Check if we're seeking to a new segment
-            const segment = values.segmentForTimestamp(target)
+                cache.pausedMediaElements = []
 
-            actions.setCurrentTimestamp(target)
-            actions.setTargetTimestamp(target, segment?.kind === 'window' ? segment.windowId : undefined)
+                // Check if we're seeking to a new segment
+                const segment = values.segmentForTimestamp(target)
 
-            // End-of-recording detection — independent of segment type so that
-            // findSegmentForTimestamp can safely return a real segment for
-            // past-end timestamps (needed for the image exporter to boot the
-            // rrweb replayer). See #49364 and #53550.
-            //
-            // Strictly > (not >=): landing exactly on `end` is a valid
-            // "show the last frame" seek (e.g. from a stale ?t= URL that
-            // got clamped by seekToTime). Firing endReached here would
-            // pause the player before tryInitReplayer has created the
-            // rrweb wrapper. Natural playback progression still triggers
-            // endReached via updateAnimation.
-            const isPastEnd = values.sessionPlayerData.end && target > values.sessionPlayerData.end.valueOf()
-            if (isPastEnd) {
-                actions.setEndReached(true)
-            } else if (segment && !objectsEqual(segment, values.currentSegment)) {
-                // setCurrentSegment ends in its own syncPlayerState once the replayer is set up for the segment
-                actions.setCurrentSegment(segment)
-            } else {
-                actions.syncPlayerState(forcePlay, true)
+                actions.setCurrentTimestamp(target)
+                actions.setTargetTimestamp(target, segment?.kind === 'window' ? segment.windowId : undefined)
+
+                // End-of-recording detection — independent of segment type so that
+                // findSegmentForTimestamp can safely return a real segment for
+                // past-end timestamps (needed for the image exporter to boot the
+                // rrweb replayer). See #49364 and #53550.
+                //
+                // Strictly > (not >=): landing exactly on `end` is a valid
+                // "show the last frame" seek (e.g. from a stale ?t= URL that
+                // got clamped by seekToTime). Firing endReached here would
+                // pause the player before tryInitReplayer has created the
+                // rrweb wrapper. Natural playback progression still triggers
+                // endReached via updateAnimation.
+                const isPastEnd = values.sessionPlayerData.end && target > values.sessionPlayerData.end.valueOf()
+                if (isPastEnd) {
+                    actions.setEndReached(true)
+                } else if (segment && !objectsEqual(segment, values.currentSegment)) {
+                    // setCurrentSegment ends in its own syncPlayerState once the replayer is set up for the segment
+                    actions.setCurrentSegment(segment)
+                } else {
+                    actions.syncPlayerState(forcePlay, true)
+                }
+            } finally {
+                cache._inSeekToTimestamp = false
             }
 
             breakpoint()
