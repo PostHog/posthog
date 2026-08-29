@@ -1172,7 +1172,7 @@ class FeatureFlagExperimentSetMetadataSerializer(serializers.Serializer):
 
 
 class FeatureFlagUsageDashboardSuccessSerializer(serializers.Serializer):
-    success = serializers.BooleanField(help_text="Whether a usage dashboard is available for the feature flag.")
+    success = serializers.BooleanField(help_text="Whether the usage dashboard operation completed successfully.")
 
 
 class FeatureFlagUsageDashboardErrorSerializer(FeatureFlagUsageDashboardSuccessSerializer):
