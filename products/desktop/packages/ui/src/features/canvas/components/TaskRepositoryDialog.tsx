@@ -12,6 +12,8 @@ import {
 } from "@posthog/quill";
 import { FolderPicker } from "@posthog/ui/features/folder-picker/FolderPicker";
 import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
+import { useIntegrationSelectors } from "@posthog/ui/features/integrations/store";
+import { ProjectGithubConnectionSection } from "@posthog/ui/features/settings/sections/ProjectGithubConnectionSection";
 import { useState } from "react";
 
 interface TaskRepositoryDialogProps {
@@ -81,6 +83,7 @@ export function TaskRepositoryDialog({
   folder,
   onApply,
 }: TaskRepositoryDialogProps) {
+  const { hasGithubIntegration } = useIntegrationSelectors();
   const [draftRepositories, setDraftRepositories] = useState(repositories);
   const [draftIntegrationId, setDraftIntegrationId] = useState(integrationId);
   const [draftFolder, setDraftFolder] = useState(folder);
@@ -112,29 +115,33 @@ export function TaskRepositoryDialog({
         </DialogHeader>
         <DialogBody>
           {cloud ? (
-            <div className="flex flex-col gap-4">
-              <RepositoriesField
-                selected={draftRepositories}
-                integrationId={draftIntegrationId}
-                onChange={(next, nextIntegrationId) => {
-                  setDraftRepositories(next);
-                  setDraftIntegrationId(nextIntegrationId);
-                }}
-              />
-              <label
-                htmlFor="save-task-repositories-to-space"
-                className="flex cursor-pointer items-center gap-2 text-sm"
-              >
-                <Checkbox
-                  id="save-task-repositories-to-space"
-                  checked={saveToSpace}
-                  onCheckedChange={(checked) =>
-                    setSaveToSpace(checked === true)
-                  }
+            hasGithubIntegration ? (
+              <div className="flex flex-col gap-4">
+                <RepositoriesField
+                  selected={draftRepositories}
+                  integrationId={draftIntegrationId}
+                  onChange={(next, nextIntegrationId) => {
+                    setDraftRepositories(next);
+                    setDraftIntegrationId(nextIntegrationId);
+                  }}
                 />
-                Use these repositories for the whole space
-              </label>
-            </div>
+                <label
+                  htmlFor="save-task-repositories-to-space"
+                  className="flex cursor-pointer items-center gap-2 text-sm"
+                >
+                  <Checkbox
+                    id="save-task-repositories-to-space"
+                    checked={saveToSpace}
+                    onCheckedChange={(checked) =>
+                      setSaveToSpace(checked === true)
+                    }
+                  />
+                  Use these repositories for the whole space
+                </label>
+              </div>
+            ) : (
+              <ProjectGithubConnectionSection />
+            )
           ) : (
             <FolderPicker
               value={draftFolder}
@@ -148,26 +155,28 @@ export function TaskRepositoryDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            disabled={!cloud && !draftFolder}
-            onClick={() => {
-              onApply({
-                repositories: draftRepositories,
-                integrationId: draftIntegrationId,
-                folder: draftFolder,
-                saveToSpace,
-              });
-              onOpenChange(false);
-            }}
-          >
-            {cloud ? (
-              <GithubLogoIcon size={16} />
-            ) : (
-              <FolderOpenIcon size={16} />
-            )}
-            Apply
-          </Button>
+          {!cloud || hasGithubIntegration ? (
+            <Button
+              variant="primary"
+              disabled={!cloud && !draftFolder}
+              onClick={() => {
+                onApply({
+                  repositories: draftRepositories,
+                  integrationId: draftIntegrationId,
+                  folder: draftFolder,
+                  saveToSpace,
+                });
+                onOpenChange(false);
+              }}
+            >
+              {cloud ? (
+                <GithubLogoIcon size={16} />
+              ) : (
+                <FolderOpenIcon size={16} />
+              )}
+              Apply
+            </Button>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>
