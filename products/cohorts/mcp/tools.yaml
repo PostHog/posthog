@@ -106,6 +106,22 @@ tools:
             - count
             - experiment_set
         ui_app: cohort
+        response:
+            exclude:
+                - filters.properties.values.*.values.*.bytecode
+                - filters.properties.values.*.values.*.bytecode_error
+                - filters.properties.values.*.values.*.conditionHash
+                - filters.properties.values.*.bytecode
+                - filters.properties.values.*.bytecode_error
+                - filters.properties.values.*.conditionHash
+                - created_by.uuid
+                - created_by.distinct_id
+                - created_by.first_name
+                - created_by.last_name
+                - created_by.email
+                - created_by.is_email_verified
+                - created_by.hedgehog_config
+                - created_by.role_at_organization
     cohorts-destroy:
         operation: cohorts_destroy
         enabled: false
@@ -188,6 +204,22 @@ tools:
             id:
                 cast: string-int
         ui_app: cohort
+        response:
+            exclude:
+                - filters.properties.values.*.values.*.bytecode
+                - filters.properties.values.*.values.*.bytecode_error
+                - filters.properties.values.*.values.*.conditionHash
+                - filters.properties.values.*.bytecode
+                - filters.properties.values.*.bytecode_error
+                - filters.properties.values.*.conditionHash
+                - created_by.uuid
+                - created_by.distinct_id
+                - created_by.first_name
+                - created_by.last_name
+                - created_by.email
+                - created_by.is_email_verified
+                - created_by.hedgehog_config
+                - created_by.role_at_organization
     cohorts-persons-retrieve:
         operation: cohorts_persons_retrieve
         enabled: false
