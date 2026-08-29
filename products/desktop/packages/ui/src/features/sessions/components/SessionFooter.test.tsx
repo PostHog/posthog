@@ -30,10 +30,14 @@ describe("SessionFooter", () => {
           isBackgroundTurnActive
           promptStartedAt={Date.now()}
           lastGenerationDuration={null}
+          turnStatus="Updating account settings layout"
         />
       </Theme>,
     );
 
+    expect(
+      screen.getByText("Updating account settings layout..."),
+    ).toBeInTheDocument();
     expect(screen.getByText(/Esc to stop/)).toBeInTheDocument();
   });
 });

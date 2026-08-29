@@ -15,6 +15,7 @@ import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import { useChatTitleGenerator } from "./useChatTitleGenerator";
+import { useTurnStatusGenerator } from "./useTurnStatusGenerator";
 
 const log = logger.scope("session-connection");
 
@@ -47,6 +48,7 @@ export function useSessionConnection({
   const userPresent = useUserPresence();
 
   useChatTitleGenerator(task);
+  useTurnStatusGenerator(task.id);
 
   const taskRunId = session?.taskRunId;
   const sessionTaskId = session?.taskId;

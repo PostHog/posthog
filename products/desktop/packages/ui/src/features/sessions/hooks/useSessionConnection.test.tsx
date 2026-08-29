@@ -50,6 +50,10 @@ vi.mock("./useChatTitleGenerator", () => ({
   useChatTitleGenerator: vi.fn(),
 }));
 
+vi.mock("./useTurnStatusGenerator", () => ({
+  useTurnStatusGenerator: vi.fn(),
+}));
+
 import { useSessionConnection } from "./useSessionConnection";
 
 function makeTask(id: string): Task {

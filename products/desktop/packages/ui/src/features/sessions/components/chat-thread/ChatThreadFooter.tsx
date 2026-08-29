@@ -8,6 +8,7 @@ import {
   useQueuedMessagesForTask,
   useSessionForTask,
 } from "@posthog/ui/features/sessions/sessionStore";
+import { useTurnStatus } from "@posthog/ui/features/sessions/turnStatusStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { resolvePendingPermissionVisibility } from "./pendingPermissionVisibility";
 
@@ -48,9 +49,6 @@ export function ChatThreadFooter({
   const isCompacting =
     footerState?.isCompacting ?? eventFooterState.isCompacting;
   const isClearing = footerState?.isClearing ?? eventFooterState.isClearing;
-  const completedToolCallCount =
-    footerState?.completedToolCallCount ??
-    eventFooterState.completedToolCallCount;
   const lastActivityAt =
     footerState?.lastActivityAt ?? eventFooterState.lastActivityAt;
   const isBackgroundTurnActive =
@@ -64,6 +62,7 @@ export function ChatThreadFooter({
   const queuedCount = useQueuedMessagesForTask(taskId).length;
   const session = useSessionForTask(taskId);
   const pausedDurationMs = session?.pausedDurationMs ?? 0;
+  const turnStatus = useTurnStatus(taskId);
 
   return (
     <div className="pt-1">
@@ -83,7 +82,7 @@ export function ChatThreadFooter({
         isCompacting={isCompacting}
         isClearing={isClearing}
         isBackgroundTurnActive={isBackgroundTurnActive}
-        completedToolCallCount={completedToolCallCount}
+        turnStatus={turnStatus}
         lastActivityAt={lastActivityAt}
       />
     </div>
