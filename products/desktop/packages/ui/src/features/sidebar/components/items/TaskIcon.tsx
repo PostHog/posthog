@@ -275,7 +275,7 @@ export interface TaskIconProps {
   isSuspended?: boolean;
   needsPermission?: boolean;
   taskRunStatus?: TaskRunStatus;
-  /** Whether anyone follows this run. Only a background run's status claims work. */
+  /** Whether the run waits for follow-up messages. */
   runMode?: RunMode;
   originProduct?: string;
   /** Pre-built URL to the originating Slack thread (read from

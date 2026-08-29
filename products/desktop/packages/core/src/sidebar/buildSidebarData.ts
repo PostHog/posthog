@@ -111,10 +111,12 @@ export function filterVisibleTasks(
 }
 
 export interface TaskSession {
+  taskRunId?: string;
   isPromptPending?: boolean;
   pendingPermissions?: { size: number };
   cloudStatus?: TaskRunStatus;
   cloudOutput?: { pr_url?: unknown } | null;
+  agentIdleForRunId?: string;
 }
 
 /**
@@ -133,9 +135,12 @@ export function computeSidebarSessionSignature(
       typeof session.cloudOutput?.pr_url === "string"
         ? session.cloudOutput.pr_url
         : "";
+    const isAgentIdle =
+      session.taskRunId !== undefined &&
+      session.agentIdleForRunId === session.taskRunId;
     signature += `${session.taskId}:${session.isPromptPending ? 1 : 0}:${
       session.pendingPermissions?.size ?? 0
-    }:${session.cloudStatus ?? ""}:${prUrl};`;
+    }:${session.cloudStatus ?? ""}:${prUrl}:${isAgentIdle ? 1 : 0};`;
   }
   return signature;
 }
@@ -205,11 +210,14 @@ export function deriveTaskRunState(
   session: TaskSession | undefined,
 ): Pick<
   TaskData,
-  "id" | "isGenerating" | "taskRunStatus" | "taskRunEnvironment"
+  "id" | "isGenerating" | "isAgentIdle" | "taskRunStatus" | "taskRunEnvironment"
 > {
   return {
     id: task.id,
     isGenerating: session?.isPromptPending ?? false,
+    isAgentIdle:
+      session?.taskRunId !== undefined &&
+      session.agentIdleForRunId === session.taskRunId,
     taskRunStatus: session?.cloudStatus ?? task.latest_run?.status ?? undefined,
     taskRunEnvironment: task.latest_run?.environment ?? undefined,
   };
