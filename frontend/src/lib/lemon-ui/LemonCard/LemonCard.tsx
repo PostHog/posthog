@@ -11,6 +11,7 @@ import { LemonButton } from '../LemonButton'
 export interface LemonCardProps {
     hoverEffect?: boolean
     className?: string
+    style?: React.CSSProperties
     children?: React.ReactNode
     onClick?: () => void
     focused?: boolean
