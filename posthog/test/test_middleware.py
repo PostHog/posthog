@@ -1898,6 +1898,7 @@ class TestCSPMiddleware(APIBaseTest):
         assert "Content-Security-Policy-Report-Only" in response
         assert "Content-Security-Policy" not in response
 
+    @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
         # Browsers only deliver crash reports to the endpoint named `default`, so dropping or
         # renaming it silently stops crash ingestion.
@@ -1907,6 +1908,7 @@ class TestCSPMiddleware(APIBaseTest):
         assert 'default="https://us.i.posthog.com/report/' in header
         assert f"distinct_id={self.user.distinct_id}" in header
 
+    @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_reporting_endpoints_omit_distinct_id_when_logged_out(self):
         self.client.logout()
         response = self.client.get("/login")
@@ -1914,11 +1916,18 @@ class TestCSPMiddleware(APIBaseTest):
         assert 'default="https://us.i.posthog.com/report/' in header
         assert "distinct_id" not in header
 
-    @override_settings(CSP_REPORT_ENDPOINT="")
-    def test_no_report_endpoint_still_sends_the_policy_but_asks_for_no_reports(self):
-        # Self-hosted installs default to no endpoint. They must not report to PostHog, and the
-        # policy itself must survive, so dropping it here would silently remove a security control.
-        response = self.client.get("/")
+    @parameterized.expand(
+        [
+            ("self_hosted_by_default", {"CLOUD_DEPLOYMENT": None, "DEBUG": False}),
+            # Cloud would otherwise report, so this case proves the empty value turns it off.
+            ("explicitly_disabled", {"CLOUD_DEPLOYMENT": "US", "CSP_REPORT_ENDPOINT": ""}),
+        ]
+    )
+    def test_no_endpoint_still_sends_the_policy_but_asks_for_no_reports(self, _name, overrides):
+        # A self-hosted install must not report to PostHog, and the policy itself must survive, so
+        # dropping it here would silently remove a security control.
+        with override_settings(**{"CSP_REPORT_ENDPOINT": None, **overrides}):
+            response = self.client.get("/")
         policy = response["Content-Security-Policy-Report-Only"]
         assert "default-src 'self'" in policy
         assert "report-uri" not in policy

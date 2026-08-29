@@ -1,7 +1,5 @@
 import os
 
-from posthog.run_mode import derive_run_mode
-from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG
 from posthog.settings.utils import get_from_env, get_list, get_set
 from posthog.utils import str_to_bool
 
@@ -86,21 +84,18 @@ CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS = get_from_env(
 CAPTURE_INTERNAL_BATCH_CHUNK_SIZE = get_from_env("CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", type_cast=int, default=200)
 
 # Outbound: where browsers send CSP violation and crash reports for pages this instance serves.
-# CSPMiddleware puts it in the `report-uri` directive and the `Reporting-Endpoints` header. An empty
-# value turns reporting off. The policy is still sent and still applies; we only stop asking
-# browsers to report against it.
+# CSPMiddleware puts it in the `report-uri` directive and the `Reporting-Endpoints` header, and
+# picks the destination itself when this is unset. An empty value turns reporting off, which makes
+# this a kill switch that needs no deploy. The policy is still sent and still applies either way; we
+# only stop asking browsers to report against it.
 #
-# Self-hosted installs default to off. They otherwise report to PostHog's own ingestion under
-# PostHog's own project token. That sends us violations from deployments we do not run and cannot
-# act on, and it sends the instance's document URLs to a destination its operator never chose. An
-# operator who wants this data can point the variable at their own install, which already serves the
-# receiving `/report/` endpoint:
+# Read straight from the environment because `get_from_env` cannot tell an empty value from an unset
+# one, and the two mean different things here.
+#
+# An operator who wants this data can point the variable at their own install, which already serves
+# the receiving `/report/` endpoint:
 #   CSP_REPORT_ENDPOINT="https://posthog.example.com/report/?token=<their project token>&v=2"
-_POSTHOG_CSP_REPORT_ENDPOINT = "https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"
-CSP_REPORT_ENDPOINT: str = get_from_env(
-    "CSP_REPORT_ENDPOINT",
-    "" if derive_run_mode(CLOUD_DEPLOYMENT, DEBUG).is_hobby else _POSTHOG_CSP_REPORT_ENDPOINT,
-)
+CSP_REPORT_ENDPOINT: str | None = os.getenv("CSP_REPORT_ENDPOINT")
 
 # Inbound bounds for /report/. The endpoint is unauthenticated and expands each CSP violation in
 # the body into its own event (a reports+json bundle may also carry other Reporting API types,

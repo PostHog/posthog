@@ -39,7 +39,7 @@ from statshog.defaults.django import statsd
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
-from posthog.cloud_utils import is_cloud, is_dev_mode
+from posthog.cloud_utils import is_cloud, is_dev_mode, is_hobby
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
@@ -53,6 +53,7 @@ from posthog.models.activity_logging.utils import (
     activity_storage,
 )
 from posthog.models.utils import generate_random_token
+from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
@@ -1136,13 +1137,21 @@ class ActivityLoggingMiddleware:
         return response
 
 
+_POSTHOG_CSP_REPORT_ENDPOINT = f"{PH_US_HOST}/report/?token={PH_US_API_KEY}&v=2"
+
+
 def csp_report_endpoint(**params: str) -> str:
     """The URL browsers report CSP violations and crashes to, or "" when reporting is turned off."""
     endpoint = settings.CSP_REPORT_ENDPOINT
+    if endpoint is None:
+        # Self-hosted installs report nowhere. Violations from a deployment we do not run tell us
+        # nothing we can act on, and reporting sends that instance's document URLs to a destination
+        # its operator never chose.
+        endpoint = "" if is_hobby() else _POSTHOG_CSP_REPORT_ENDPOINT
     if not endpoint or not params:
         return endpoint
-    # The configured endpoint carries the destination's project token, so it normally already has a
-    # query string; a custom one set by a self-hosted operator may not.
+    # The endpoint carries the destination's project token, so it normally already has a query
+    # string; one an operator sets may not.
     separator = "&" if "?" in endpoint else "?"
     return f"{endpoint}{separator}{urlencode(params)}"
 
