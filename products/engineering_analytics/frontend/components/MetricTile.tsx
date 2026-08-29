@@ -4,7 +4,7 @@
 
 import { ReactNode } from 'react'
 
-import { LemonSkeleton, LemonTag, Tooltip, type LemonTagType } from '@posthog/lemon-ui'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { MetricCard, type MetricChange } from '@posthog/quill-charts'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -119,18 +119,18 @@ function deltaToChange(delta: TileDelta | undefined): MetricChange | null {
 }
 
 export interface TileBenchmark {
-    /** The band name the chip shows (e.g. 'Elite'). */
+    /** The band name (e.g. 'Elite'), named in the label tooltip. */
     label: string
     band: 'elite' | 'high' | 'medium' | 'low'
-    /** The full benchmark ladder, shown on chip hover. */
+    /** The full benchmark ladder, shown in the label tooltip. */
     tooltip: string
 }
 
-const BENCHMARK_TAG_TYPE: Record<TileBenchmark['band'], LemonTagType> = {
-    elite: 'success',
-    high: 'completion',
-    medium: 'warning',
-    low: 'danger',
+const BENCHMARK_EDGE_COLOR: Record<TileBenchmark['band'], string> = {
+    elite: 'var(--success)',
+    high: 'var(--purple)',
+    medium: 'var(--warning)',
+    low: 'var(--danger)',
 }
 
 export function MetricTile({
@@ -158,8 +158,19 @@ export function MetricTile({
     loading?: boolean
     className?: string
 }): JSX.Element {
-    const labelNode = tooltip ? (
-        <Tooltip title={tooltip}>
+    const tooltipContent =
+        tooltip || benchmark ? (
+            <div className="flex flex-col gap-1">
+                {tooltip && <div>{tooltip}</div>}
+                {benchmark && (
+                    <div>
+                        DORA band: {benchmark.label.toLowerCase()}. {benchmark.tooltip}
+                    </div>
+                )}
+            </div>
+        ) : undefined
+    const labelNode = tooltipContent ? (
+        <Tooltip title={tooltipContent}>
             <span className="cursor-default">{label}</span>
         </Tooltip>
     ) : (
@@ -169,6 +180,8 @@ export function MetricTile({
         <LemonCard
             hoverEffect={false}
             className={cn('flex min-w-44 flex-1 flex-col justify-center px-5 py-4', className)}
+            // The band-coloured edge; inset, because LemonCard's border shorthand beats a border-left override.
+            style={benchmark ? { boxShadow: `inset 3px 0 0 0 ${BENCHMARK_EDGE_COLOR[benchmark.band]}` } : undefined}
         >
             {/* MetricCard has no loading prop; skeleton the whole tile on a genuine reload so it never
                 flashes a stale/zero headline (the loading-states rule). */}
@@ -187,20 +200,7 @@ export function MetricTile({
                     change={deltaToChange(delta)}
                     goodDirection={delta?.goodWhenDown ? 'down' : 'up'}
                     changeTooltip={delta ? (delta.vs ?? 'vs the previous window') : undefined}
-                    subtitle={
-                        benchmark ? (
-                            <span className="flex items-center gap-1.5">
-                                <Tooltip title={benchmark.tooltip}>
-                                    <LemonTag type={BENCHMARK_TAG_TYPE[benchmark.band]} size="small">
-                                        {benchmark.label}
-                                    </LemonTag>
-                                </Tooltip>
-                                {sub}
-                            </span>
-                        ) : (
-                            sub
-                        )
-                    }
+                    subtitle={sub}
                 />
             )}
         </LemonCard>

@@ -11,9 +11,9 @@ export type DoraBand = 'elite' | 'high' | 'medium' | 'low'
 
 export interface DoraBenchmark {
     band: DoraBand
-    /** The band name as the tile chip shows it. */
+    /** The band name, shown in the label tooltip. */
     label: string
-    /** The full DORA ladder for the metric, shown on chip hover. */
+    /** The full DORA ladder for the metric, shown in the label tooltip. */
     tooltip: string
 }
 
