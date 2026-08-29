@@ -357,6 +357,25 @@ class TestShortcutSourceShape:
         assert response.partition_keys == ["created_at"]
         assert response.partition_format == "month"
 
+    @pytest.mark.parametrize(
+        "incremental_field, expected_sort_mode",
+        [
+            # The paginator orders stories by created_at, so only the created_at cursor is ascending.
+            ("created_at", "asc"),
+            # updated_at (and the None default, which falls back to updated_at) arrives unordered, so
+            # desc defers the watermark to the end of the run and a failed batch can't skip rows.
+            ("updated_at", "desc"),
+            (None, "desc"),
+        ],
+    )
+    def test_stories_sort_mode_matches_cursor_field(
+        self, incremental_field: str | None, expected_sort_mode: str
+    ) -> None:
+        response = shortcut_source(
+            "token", "stories", 1, "j", should_use_incremental_field=True, incremental_field=incremental_field
+        )
+        assert response.sort_mode == expected_sort_mode
+
     def test_stories_is_the_only_incremental_endpoint(self) -> None:
         # Sanity check that mirrors the schema-level contract in the settings catalog.
         incremental = {name for name, cfg in SHORTCUT_ENDPOINTS.items() if cfg.incremental_params}

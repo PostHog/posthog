@@ -16,7 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.settings import (
     SHORTCUT_ENDPOINTS,
     ShortcutEndpointConfig,
@@ -203,6 +203,12 @@ def shortcut_source(
             return _dedupe_pages_by_id(resource, config.primary_key)
         return resource
 
+    # The paginator returns stories in created_at order, so the updated_at cursor (the default)
+    # arrives unordered. Mark the sort ascending only for the created_at cursor; otherwise use desc,
+    # which advances the watermark once the run finishes rather than after each batch. A per-batch
+    # max on an unordered stream would skip unwritten lower rows on the next run's server-side filter.
+    sort_mode: SortMode = "asc" if incremental_field == "created_at" else "desc"
+
     return SourceResponse(
         name=endpoint,
         items=items,
@@ -213,6 +219,7 @@ def shortcut_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         column_hints=resource.column_hints,
+        sort_mode=sort_mode,
     )
 
 
