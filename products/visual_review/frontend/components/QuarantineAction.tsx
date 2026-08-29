@@ -88,6 +88,13 @@ interface QuarantineActionProps {
      * Forwarded to the parent via `onQuarantine` so the backend can store it.
      */
     sourceRunId?: string | null
+    /**
+     * Set while a quarantine write for this identifier is in flight. The create
+     * endpoint supersedes the prior active row, so a second submit writes a
+     * second record. Blocks the trigger rather than the modal's submit, because
+     * the modal closes as soon as the parent takes over.
+     */
+    pendingReason?: string | null
 }
 
 /**
@@ -103,6 +110,7 @@ export function QuarantineAction({
     initialReason,
     initialExpiresAt,
     sourceRunId,
+    pendingReason,
 }: QuarantineActionProps): JSX.Element {
     const isExtend = mode === 'extend'
     const copy = COPY[mode]
@@ -142,7 +150,14 @@ export function QuarantineAction({
 
     return (
         <div>
-            <LemonButton type="secondary" size="small" onClick={() => setIsOpen(true)} data-attr={copy.dataAttrOpen}>
+            <LemonButton
+                type="secondary"
+                size="small"
+                onClick={() => setIsOpen(true)}
+                data-attr={copy.dataAttrOpen}
+                loading={!!pendingReason}
+                disabledReason={pendingReason ?? undefined}
+            >
                 {triggerLabel ?? copy.triggerLabel}
             </LemonButton>
             <LemonModal

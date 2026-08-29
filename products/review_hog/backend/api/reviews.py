@@ -722,7 +722,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         # expensive, so widening beyond it is a deliberate later decision, not a default.
         if team_id not in settings.REVIEWHOG_TEAM_IDS:
             return Response(
-                {"error": "ReviewHog reviews can't be started from this project yet"},
+                {"error": "PostHog Review can't start reviews from this project yet"},
                 status=status.HTTP_403_FORBIDDEN,
             )
         serializer = ReviewTriggerRequestSerializer(data=request.data)
@@ -746,7 +746,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         if github is None:
             return Response(
                 {
-                    "error": f"ReviewHog's GitHub App can't access {repository}. It reviews repositories covered by this project's GitHub integration."
+                    "error": f"PostHog Review's GitHub App can't access {repository}. It reviews repositories covered by this project's GitHub integration."
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -768,12 +768,14 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise
         if pr_meta.is_fork:
             return Response(
-                {"error": "ReviewHog doesn't review fork pull requests (a fork's head can't be trusted)"},
+                {"error": "PostHog Review doesn't review fork pull requests (a fork's head can't be trusted)"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if pr_meta.state != "open":
             return Response(
-                {"error": f"Pull request #{pr_number} is {pr_meta.state}; ReviewHog reviews open pull requests"},
+                {
+                    "error": f"Pull request #{pr_number} is {pr_meta.state}; PostHog Review only reviews open pull requests"
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         run_mode: str = serializer.validated_data["run_mode"]

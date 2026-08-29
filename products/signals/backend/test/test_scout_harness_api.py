@@ -48,7 +48,7 @@ from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
-from products.skills.backend.models.skills import LLMSkill
+from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -1892,6 +1892,64 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["scout_origin"] == expected_origin
+
+    @parameterized.expand(["list", "partial_update", "sync"])
+    def test_config_responses_carry_the_skills_owners(self, action: str) -> None:
+        # Every response path builds the serializer's context by hand, and one that forgets the
+        # owners map reports the whole fleet as unowned instead of failing.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout", enabled=False)
+        self._make_skill("signals-scout-checkout")
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", None, first_name="Ada")
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-checkout", user=owner
+        )
+
+        if action == "list":
+            response = self.client.get(self._list_url())
+        elif action == "sync":
+            response = self.client.post(self._sync_url())
+        else:
+            response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        rows = body if isinstance(body, list) else [body]
+        serialized = next(row for row in rows if row["skill_name"] == "signals-scout-checkout")
+        assert [o["email"] for o in serialized["owners"]] == ["owner@example.com"]
+
+    def test_list_reports_no_owners_when_an_owner_lost_project_access(self) -> None:
+        # An owner row outlives the member losing access, and the scout page turns owners into
+        # "who to talk to" — pointing at someone who can't even open the project is worse than
+        # saying nobody owns it.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self._make_skill("signals-scout-checkout")
+        outsider = User.objects.create_user("outsider@example.com", None, first_name="Bo")
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-checkout", user=outsider
+        )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["owners"] == []
+
+    def test_list_hides_owners_from_a_scout_sandbox_token(self) -> None:
+        # The sandbox token carries `signal_scout:read`, so this is the one config path a scout run
+        # can reach. Owners are member PII that the skill API withholds from a sandbox caller unless
+        # the skill opted into the report channel, and a config list that ignored that would
+        # hand every custom scout's owners to any run.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self._make_skill("signals-scout-checkout")
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", None, first_name="Ada")
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-checkout", user=owner
+        )
+        _authenticate_as_scout(self)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["owners"] == []
 
     def test_list_origin_defaults_to_custom_when_skill_absent(self) -> None:
         # A config with no live skill row isn't a canonical scout.

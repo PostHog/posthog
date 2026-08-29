@@ -465,19 +465,26 @@ const browserTabsRouter = router({
     .output(tabsSnapshotSchema)
     .mutation(({ input }) => webBrowserTabsStore.setTabTarget(input)),
   close: publicProcedure
-    .input(z.object({ tabId: z.string() }))
+    .input(z.object({ tabId: z.string(), newTabId: z.string() }))
     .output(tabsSnapshotSchema)
-    .mutation(({ input }) => webBrowserTabsStore.close(input.tabId)),
+    .mutation(({ input }) =>
+      webBrowserTabsStore.close(input.tabId, input.newTabId),
+    ),
   closeMany: publicProcedure
     .input(
       z.object({
         tabIds: z.array(z.string()),
+        newTabId: z.string(),
         focusTabId: z.string().nullable().default(null),
       }),
     )
     .output(tabsSnapshotSchema)
     .mutation(({ input }) =>
-      webBrowserTabsStore.closeMany(input.tabIds, input.focusTabId),
+      webBrowserTabsStore.closeMany(
+        input.tabIds,
+        input.newTabId,
+        input.focusTabId,
+      ),
     ),
   setOrder: publicProcedure
     .input(z.object({ windowId: z.string(), tabIds: z.array(z.string()) }))

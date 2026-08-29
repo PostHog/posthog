@@ -136,11 +136,11 @@ class TestRenderFinalBody:
             # Whose settings gated the run must be named truthfully: blaming "the author's" settings
             # for a requester-gated run is the exact misattribution this wording exists to fix, and
             # the defensive default variant has no settings page to point at.
-            ("author", 'the author\'s "Should fix" urgency threshold in their ReviewHog settings'),
-            ("override", 'the requester\'s "Should fix" urgency threshold in their ReviewHog settings'),
+            ("author", 'the author\'s "Should fix" urgency threshold in their PostHog Review settings'),
+            ("override", 'the requester\'s "Should fix" urgency threshold in their PostHog Review settings'),
             ("default", 'the default "Should fix" urgency threshold,'),
             # An unknown future value must degrade to the author wording, not crash the comment.
-            ("mystery", 'the author\'s "Should fix" urgency threshold in their ReviewHog settings'),
+            ("mystery", 'the author\'s "Should fix" urgency threshold in their PostHog Review settings'),
         ]
     )
     def test_held_back_sentence_attributes_the_gating_threshold(self, resolved_from: str, expected: str) -> None:

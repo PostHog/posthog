@@ -5,8 +5,9 @@ import contextvars
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError
 
+import psycopg.errors
 from parameterized import parameterized
 
 from posthog.exceptions_capture import ambient_exception_properties
@@ -43,6 +44,14 @@ PENDING_TARGET = {
     "trigger_reason": "proactive_threshold",
     "attempts": 0,
 }
+
+
+def _read_only_transaction_error() -> InternalError:
+    # Mirrors how Django's DatabaseErrorWrapper re-raises a psycopg error: the driver exception
+    # (carrying SQLSTATE 25006) becomes __cause__.
+    error = InternalError("cannot execute UPDATE in a read-only transaction")
+    error.__cause__ = psycopg.errors.ReadOnlySqlTransaction("cannot execute UPDATE in a read-only transaction")
+    return error
 
 
 def _schema(
@@ -544,6 +553,10 @@ class TestTransientObjectStoreFailure:
                 ),
             ),
             ("interface_error", InterfaceError("connection already closed")),
+            # A primary-DB failover routes a rewrite write onto a read-only standby mid-run: psycopg
+            # raises ReadOnlySqlTransaction (25006), wrapped by Django as InternalError. It clears on
+            # the next sync, so it must stand down like the other infra blips, not burn an attempt.
+            ("read_only_transaction_failover", _read_only_transaction_error()),
         ]
     )
     @patch(f"{MODULE}.capture_exception")

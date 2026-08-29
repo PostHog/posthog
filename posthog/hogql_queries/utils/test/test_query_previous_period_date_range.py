@@ -84,6 +84,37 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
         self.assertEqual(query_date_range.date_from(), parser.isoparse(expected_from))
         self.assertEqual(query_date_range.date_to(), parser.isoparse(expected_to))
 
+    @parameterized.expand(
+        [
+            # "This week/month/quarter/year" run to now, so the current period is partial. The previous
+            # period is the full prior calendar unit (weekday/day-of-month aligned, complete), matching
+            # how day-anchored hour/minute ranges already behave — not the trailing slice of it.
+            ("this_week", "2021-08-25T12:34:00Z", "wStart", "2021-08-15T00:00:00Z", "2021-08-21T23:59:59.999999Z"),
+            ("this_month", "2021-08-25T12:34:00Z", "mStart", "2021-07-01T00:00:00Z", "2021-07-31T23:59:59.999999Z"),
+            # A shorter previous month must still come back whole: diff-in-days sizing can't express this.
+            (
+                "this_month_february",
+                "2021-03-15T12:34:00Z",
+                "mStart",
+                "2021-02-01T00:00:00Z",
+                "2021-02-28T23:59:59.999999Z",
+            ),
+            ("this_quarter", "2021-08-25T12:34:00Z", "qStart", "2021-04-01T00:00:00Z", "2021-06-30T23:59:59.999999Z"),
+            ("this_year", "2021-08-25T12:34:00Z", "yStart", "2020-01-01T00:00:00Z", "2020-12-31T23:59:59.999999Z"),
+        ]
+    )
+    def test_previous_period_for_calendar_anchored_range_is_full_prior_unit(
+        self, _name: str, now: str, date_from: str, expected_from: str, expected_to: str
+    ):
+        query_date_range = QueryPreviousPeriodDateRange(
+            team=self.team,
+            date_range=DateRange(date_from=date_from),
+            interval=IntervalType.DAY,
+            now=parser.isoparse(now),
+        )
+        self.assertEqual(query_date_range.date_from(), parser.isoparse(expected_from))
+        self.assertEqual(query_date_range.date_to(), parser.isoparse(expected_to))
+
     def test_explicit_timezone_info_overrides_team_timezone(self):
         # The previous-period delta parsing used to read directly from
         # `self._team.timezone_info`, so a `timezone_info=UTC` override on the constructor

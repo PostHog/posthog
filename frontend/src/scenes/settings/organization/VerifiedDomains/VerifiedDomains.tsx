@@ -82,7 +82,7 @@ export function VerifiedDomains(): JSX.Element {
     })
 
     return (
-        <PayGateMini feature={AvailableFeature.AUTOMATIC_PROVISIONING}>
+        <PayGateMini feature={AvailableFeature.AUTOMATIC_PROVISIONING} featureDetail="verified-domains">
             <p>
                 Enable users to sign up automatically with an email address on verified domains and enforce SSO for
                 accounts under your domains.

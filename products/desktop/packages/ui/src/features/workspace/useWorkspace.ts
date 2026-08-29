@@ -34,7 +34,7 @@ export function useIsWorkspaceCloudRun(taskId: string | undefined): boolean {
   return workspace?.mode === "cloud";
 }
 
-// The workspace row wins when present: handoff updates it before latest_run refreshes.
+// The workspace row is the local source of truth for the active execution mode.
 export function isCloudTask(task: Task, workspace: Workspace | null): boolean {
   if (workspace) {
     return workspace.mode === "cloud";

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-25 20:05:23 UTC
+// Generated at: 2026-08-28 14:00:55 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -95,10 +95,12 @@ export type CanonicalProvider =
     | 'inceptron-fp4'
     | 'inceptron-int4'
     | 'io-net-fp16'
-    | 'io-net-fp4'
     | 'io-net-fp8'
     | 'ionstream-fp4'
     | 'liquid-fp8'
+    | 'makora'
+    | 'makora-fp4'
+    | 'makora-fp8'
     | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
@@ -108,8 +110,8 @@ export type CanonicalProvider =
     | 'minimax-highspeed'
     | 'mistral'
     | 'mistral-eu'
-    | 'mistral-us'
     | 'mistral-zdr'
+    | 'modal-fp8'
     | 'modal-mxfp4'
     | 'modal-nvfp4'
     | 'modelrun-fp4'
@@ -131,7 +133,6 @@ export type CanonicalProvider =
     | 'nextbit-int4'
     | 'novita'
     | 'novita-bf16'
-    | 'novita-fast'
     | 'novita-fp16'
     | 'novita-fp4'
     | 'novita-fp8'
@@ -172,7 +173,6 @@ export type CanonicalProvider =
     | 'siliconflow'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
-    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake'
     | 'streamlake-fp8'
@@ -180,6 +180,7 @@ export type CanonicalProvider =
     | 'thinkingmachines-nvfp4'
     | 'together'
     | 'upstage'
+    | 'upstage-zdr'
     | 'venice'
     | 'venice-bf16'
     | 'venice-fp16'

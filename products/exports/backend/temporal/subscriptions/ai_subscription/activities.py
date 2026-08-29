@@ -19,6 +19,7 @@ from posthog.sync import database_sync_to_async
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     build_ai_subscription_report,
+    build_chart_image_urls,
     send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
@@ -32,6 +33,7 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
     strip_null_bytes,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -71,10 +73,6 @@ async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
 def _snapshot_report(snapshot: dict | None) -> str | None:
     report = snapshot.get(AI_REPORT_SNAPSHOT_KEY) if snapshot else None
     return report if isinstance(report, str) and report else None
-
-
-async def _load_ai_report(delivery_id: uuid.UUID) -> str | None:
-    return _snapshot_report(await _load_snapshot(delivery_id))
 
 
 @frozen
@@ -121,6 +119,7 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             AI_REPORT_SNAPSHOT_KEY: strip_null_bytes(result.markdown),
             AI_REPORT_DIAGNOSTICS_KEY: strip_null_bytes([dataclasses.asdict(d) for d in result.diagnostics]),
             AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
+            AI_REPORT_CHARTS_KEY: strip_null_bytes([dataclasses.asdict(chart) for chart in result.charts]),
             # prompt is None for non-AI subs; "" if cleared — omit either.
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
         }
@@ -332,7 +331,8 @@ async def _deliver_ai_subscription(
         raise ApplicationError(f"AI delivery for subscription {subscription.id} has no delivery_id", non_retryable=True)
 
     delivery_id = inputs.delivery_id
-    markdown = await _load_ai_report(delivery_id)
+    snapshot = await _load_snapshot(delivery_id)
+    markdown = _snapshot_report(snapshot)
     if markdown is None:
         # Generation persists the report before delivery is scheduled, so a missing report
         # means the row was lost. Non-retryable: re-running *delivery* can't regenerate the
@@ -341,6 +341,10 @@ async def _deliver_ai_subscription(
             f"AI report missing for subscription {subscription.id} (delivery {inputs.delivery_id})",
             non_retryable=True,
         )
+
+    chart_images = await database_sync_to_async(build_chart_image_urls, thread_sensitive=False)(
+        (snapshot or {}).get(AI_REPORT_CHARTS_KEY) or [], team_id=subscription.team_id
+    )
 
     if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
         # Dedup key for MessagingRecord: stable across this run's retries, unique per run so a re-test re-sends.
@@ -355,6 +359,7 @@ async def _deliver_ai_subscription(
                 markdown=markdown,
                 delivery_run_id=workflow_run_id,
                 delivery_id=delivery_id,
+                charts=chart_images,
             )
 
         return await deliver_email(subscription, inputs, recipient_results, _send_email)
@@ -363,7 +368,11 @@ async def _deliver_ai_subscription(
             subscription,
             recipient_results,
             lambda integration: send_slack_ai_subscription_report(
-                subscription=subscription, markdown=markdown, integration=integration, delivery_id=delivery_id
+                subscription=subscription,
+                markdown=markdown,
+                integration=integration,
+                delivery_id=delivery_id,
+                charts=chart_images,
             ),
         )
     # `validate_subscription_for_delivery` auto-disables unsupported targets up front,

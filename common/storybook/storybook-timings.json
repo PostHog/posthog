@@ -19,7 +19,7 @@
         "chromium": 11.882,
         "webkit": 2.322
     },
-    "frontend/src/layout/FeaturePreviews/FeaturePreviews.stories.tsx": {
+    "frontend/src/lib/components/FeaturePreviews/FeaturePreviews.stories.tsx": {
         "chromium": 8.528,
         "webkit": 1.752
     },
@@ -30,10 +30,6 @@
     "frontend/src/layout/navigation/ImpersonationNotice/ImpersonationReasonModal.stories.tsx": {
         "chromium": 11.725,
         "webkit": 1.981
-    },
-    "frontend/src/layout/navigation/SelfReadOnlyNotice/SelfReadOnlyNotice.stories.tsx": {
-        "chromium": 5.614,
-        "webkit": 1.513
     },
     "frontend/src/layout/panel-layout/InstallationStatusNavButton.stories.tsx": {
         "chromium": 28.015,

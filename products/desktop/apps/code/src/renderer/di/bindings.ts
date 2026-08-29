@@ -97,16 +97,6 @@ import {
   type ResolveSkillBundleDependencies,
 } from "@posthog/core/sessions/cloudArtifactIdentifiers";
 import {
-  LOCAL_HANDOFF_DIALOG,
-  LOCAL_HANDOFF_HOST,
-  LOCAL_HANDOFF_NOTIFIER,
-  LOCAL_HANDOFF_SERVICE,
-  type LocalHandoffDialog,
-  type LocalHandoffHost,
-  type LocalHandoffNotifier,
-  type LocalHandoffService,
-} from "@posthog/core/sessions/localHandoffService";
-import {
   SESSION_SERVICE,
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
@@ -328,10 +318,6 @@ export interface RendererBindings {
   [TASK_SERVICE]: TaskService;
   [WORKSPACE_SETUP_SAGA]: WorkspaceSetupSaga;
   [SESSION_SERVICE]: SessionService;
-  [LOCAL_HANDOFF_HOST]: LocalHandoffHost;
-  [LOCAL_HANDOFF_DIALOG]: LocalHandoffDialog;
-  [LOCAL_HANDOFF_NOTIFIER]: LocalHandoffNotifier;
-  [LOCAL_HANDOFF_SERVICE]: LocalHandoffService;
   [GIT_WRITE_CLIENT]: IGitWriteClient;
   [GIT_INTERACTION_EFFECTS]: GitInteractionEffects;
   [GIT_INTERACTION_SERVICE]: GitInteractionService;

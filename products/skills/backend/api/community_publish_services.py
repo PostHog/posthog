@@ -192,9 +192,10 @@ def render_skill_md(
         raise CommunitySkillPublishValidationError("Skill name must be one line, with no line breaks.")
     if not description.strip():
         raise CommunitySkillPublishValidationError("Skill description is required to publish.")
-    # LLMSkill.description holds 4096, and the Agent Skills spec stops at 1024. A longer one
-    # publishes, syncs and installs, and then validate_for_export refuses the installed skill, so the
-    # publisher hands someone a skill they can never export.
+    # The LLMSkill.description column holds 4096, and the Agent Skills spec stops at 1024. New writes
+    # cap at 1024, but a legacy row can still exceed it. A longer one publishes, syncs and installs,
+    # and then validate_for_export refuses the installed skill, so the publisher hands someone a skill
+    # they can never export.
     if len(description.strip()) > SPEC_DESCRIPTION_MAX_LENGTH:
         raise CommunitySkillPublishValidationError(
             f"Skill description must be {SPEC_DESCRIPTION_MAX_LENGTH} characters or fewer to publish."
@@ -378,8 +379,9 @@ def _parent_directories(path: str) -> list[str]:
 PUBLISHER_TOKEN_PERMISSIONS = {"contents": "write", "pull_requests": "write", "metadata": "read"}
 # Statuses that mean the App isn't installed here or its credentials are rejected: unauthenticated,
 # not permitted, or no such installation. Rate limits never reach this set — the transport raises
-# them, including the 403 spellings.
-PUBLISHER_NOT_CONFIGURED_STATUSES = frozenset({401, 403, 404})
+# them, including the 403 spellings. 422 joins them because GitHub answers a mint asking for
+# permissions the installation does not grant that way, and only an admin can change that.
+PUBLISHER_NOT_CONFIGURED_STATUSES = frozenset({401, 403, 404, 422})
 
 
 def _publisher_token_request_body() -> dict[str, Any]:

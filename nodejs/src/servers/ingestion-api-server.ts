@@ -1,6 +1,3 @@
-import { Message } from 'node-rdkafka'
-import { Counter, Gauge, Histogram } from 'prom-client'
-
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
@@ -51,7 +48,6 @@ import {
     FlushBatchStoresOutputs,
     createGroupProducePromises,
 } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
-import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
 import {
     JoinedIngestionPipelineConfig,
@@ -72,8 +68,6 @@ import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { FeedOrderSentinel } from '../ingestion/api/feed-order-sentinel'
 import { WorkerIngestServer } from '../ingestion/api/grpc-server'
-import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
-import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
 import { createFeatureFlagCalledDedupService } from '../ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { createFlagEvaluationsService } from '../ingestion/common/flag-evaluations/flag-evaluations-service'
@@ -130,69 +124,16 @@ export type IngestionApiServerConfig = BaseServerConfig &
         | 'KAFKA_HEALTHCHECK_SECONDS'
     >
 
-const batchesProcessed = new Counter({
-    name: 'ingestion_api_batches_processed_total',
-    help: 'Total number of batches processed by the ingestion API',
-})
-
-const batchProcessingDuration = new Histogram({
-    name: 'ingestion_api_batch_processing_duration_ms',
-    help: 'Duration of batch processing in milliseconds',
-    buckets: [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000],
-})
-
-const messagesProcessed = new Counter({
-    name: 'ingestion_api_messages_processed_total',
-    help: 'Total number of messages processed by the ingestion API',
-})
-
-const batchErrors = new Counter({
-    name: 'ingestion_api_batch_errors_total',
-    help: 'Total number of batch processing errors',
-})
-
-const batchCapacityRejections = new Counter({
-    name: 'ingestion_api_batch_capacity_rejections_total',
-    help: 'Total number of batches rejected because the pipeline was at concurrent batch capacity',
-})
-
-const batchesInFlight = new Gauge({
-    name: 'ingestion_api_batches_in_flight',
-    help: 'Number of accepted batches currently being processed by the ingestion API (concurrent batches)',
-})
-
-// Companion to `batchesInFlight`, and the one to autoscale on: batch sizes vary
-// several-fold with consumer batching and routing, so a batch count says little
-// about how much work a pod is holding. Events in flight is invariant to how the
-// consumer slices a batch, which keeps a scaling target stable across dispatcher
-// tuning changes.
-const eventsInFlight = new Gauge({
-    name: 'ingestion_api_events_in_flight',
-    help: 'Number of events in accepted batches currently being processed by the ingestion API',
-})
-
-// The integral of `eventsInFlight` over time, accumulated one batch at a time:
-// a batch holding N events for T seconds contributes N*T. Because
-// integral(in_flight dt) equals sum(events * time in flight), rate() over this
-// counter is the exact time-weighted mean events in flight for the interval,
-// where the gauge above only reports whatever instant the scrape happened to
-// land on. In-flight turns over on a sub-second timescale and scrapes are tens
-// of seconds apart, so the gauge is far too noisy to autoscale on directly.
-// Same relationship as container_cpu_usage_seconds_total and CPU utilization.
-const eventSecondsInFlight = new Counter({
-    name: 'ingestion_api_event_seconds_in_flight_total',
-    help: 'Cumulative event-seconds spent in flight; rate() gives mean events in flight',
-})
-
 /**
- * Ingestion API server that exposes the ingestion pipeline as an HTTP endpoint.
+ * Ingestion API server that exposes the ingestion pipeline over the
+ * `WorkerIngest` gRPC stream.
  *
- * Used as a sidecar alongside a Rust Kafka consumer — the consumer reads from
- * Kafka, routes messages by distinct_id, and dispatches sub-batches to this
- * server via POST /ingest.
+ * Paired with the Rust Kafka consumer: the consumer reads from Kafka, routes
+ * messages by key, and sends each worker's sub-batches on one ordered stream.
+ * The HTTP server only serves health and metrics.
  *
  * Infrastructure setup mirrors IngestionGeneralServer. The difference is that
- * instead of subscribing to Kafka, this server accepts batches over HTTP.
+ * instead of subscribing to Kafka, this server accepts batches over the stream.
  */
 export class IngestionApiServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
@@ -214,9 +155,6 @@ export class IngestionApiServer implements NodeServer {
     // (moved to caller-side production so create and flush share one path).
     private ingestionOutputs?: FlushBatchStoresOutputs
 
-    private httpPipeline!: ReturnType<
-        typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
-    >
     private grpcServer?: WorkerIngestServer
     private promiseScheduler = new PromiseScheduler()
     private hogTransformer!: HogTransformerService
@@ -225,7 +163,7 @@ export class IngestionApiServer implements NodeServer {
     private feedOrderSentinel?: FeedOrderSentinel
 
     // Latched on the first unexpected pipeline error. The pipeline is a single
-    // long-lived instance shared across all requests; a throw can leave it
+    // long-lived instance shared across all streams; a throw can leave it
     // permanently poisoned (e.g. a group exhausted retries), so we mirror the
     // Kafka consumer's contract of crashing and rebuilding rather than serving
     // a wedged pipeline forever.
@@ -509,49 +447,41 @@ export class IngestionApiServer implements NodeServer {
             groupTypeManager,
             topHog: this.topHog,
         }
-        // 8. Register the ingest transports. HTTP always serves; gRPC is
-        // additive behind its flag, so consumers can migrate gradually.
+        // 8. Serve the WorkerIngest stream.
         if (this.config.INGESTION_API_FEED_ORDER_SENTINEL_ENABLED) {
             this.feedOrderSentinel = new FeedOrderSentinel(this.config.INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS)
         }
-        this.httpPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
-        this.lifecycle.expressApp.post('/ingest', async (req, res) => {
-            await this.handleIngestRequest(req, res)
-        })
-        if (this.config.INGESTION_API_GRPC_ENABLED) {
-            // Own pipeline instance: sharing httpPipeline would let an HTTP
-            // handler's next() consume a gRPC batch's completion (and its ack).
-            const grpcPipeline = createJoinedIngestionPipeline<
-                JoinedIngestionPipelineInput,
-                JoinedIngestionPipelineContext,
-                GrpcBatchContext
-            >(joinedPipelineConfig, joinedPipelineDeps)
-            this.grpcServer = new WorkerIngestServer(
-                {
-                    port: this.config.INGESTION_API_GRPC_PORT,
-                    maxConcurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
-                    maxStreams: this.config.INGESTION_API_GRPC_MAX_STREAMS,
-                    maxSessions: this.config.INGESTION_API_GRPC_MAX_SESSIONS,
-                    maxStreamsPerSession: this.config.INGESTION_API_GRPC_MAX_STREAMS_PER_SESSION,
-                    sessionMemoryMb: this.config.INGESTION_API_GRPC_SESSION_MEMORY_MB,
-                    sessionIdleTimeoutMs: this.config.INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS,
-                    readMaxBytes: this.config.INGESTION_API_GRPC_READ_MAX_BYTES,
-                    drainTimeoutMs: this.config.INGESTION_API_GRPC_DRAIN_TIMEOUT_MS,
+        const grpcPipeline = createJoinedIngestionPipeline<
+            JoinedIngestionPipelineInput,
+            JoinedIngestionPipelineContext,
+            GrpcBatchContext
+        >(joinedPipelineConfig, joinedPipelineDeps)
+        this.grpcServer = new WorkerIngestServer(
+            {
+                port: this.config.INGESTION_API_GRPC_PORT,
+                maxConcurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
+                maxStreams: this.config.INGESTION_API_GRPC_MAX_STREAMS,
+                maxSessions: this.config.INGESTION_API_GRPC_MAX_SESSIONS,
+                maxStreamsPerSession: this.config.INGESTION_API_GRPC_MAX_STREAMS_PER_SESSION,
+                sessionMemoryMb: this.config.INGESTION_API_GRPC_SESSION_MEMORY_MB,
+                sessionIdleTimeoutMs: this.config.INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS,
+                readMaxBytes: this.config.INGESTION_API_GRPC_READ_MAX_BYTES,
+                drainTimeoutMs: this.config.INGESTION_API_GRPC_DRAIN_TIMEOUT_MS,
+            },
+            {
+                driver: new GrpcStreamIngestDriver(grpcPipeline, this.promiseScheduler),
+                feedOrderSentinel: this.feedOrderSentinel,
+                onFatal: (error) => {
+                    // A poisoned pipeline is rebuilt by the supervisor, not
+                    // served: latch unhealthy and shut down once.
+                    if (!this.fatalError) {
+                        this.fatalError = error
+                        void this.stop(error)
+                    }
                 },
-                {
-                    driver: new GrpcStreamIngestDriver(grpcPipeline, this.promiseScheduler),
-                    feedOrderSentinel: this.feedOrderSentinel,
-                    onFatal: (error) => {
-                        // Same crash-and-rebuild contract as the HTTP path.
-                        if (!this.fatalError) {
-                            this.fatalError = error
-                            void this.stop(error)
-                        }
-                    },
-                }
-            )
-            await this.grpcServer.start()
-        }
+            }
+        )
+        await this.grpcServer.start()
 
         const service: PluginServerService = {
             id: 'ingestion-api',
@@ -564,115 +494,6 @@ export class IngestionApiServer implements NodeServer {
             healthcheck: () => this.isHealthy(),
         }
         this.lifecycle.services.push(service)
-    }
-
-    private async handleIngestRequest(
-        req: { body: IngestBatchRequest },
-        res: {
-            status: (code: number) => { json: (body: IngestBatchResponse) => void }
-        }
-    ): Promise<void> {
-        const { batch_id, messages: serializedMessages, consumer_id, replay } = req.body
-
-        if (!serializedMessages || serializedMessages.length === 0) {
-            res.status(400).json({ batch_id: batch_id ?? '', status: 'error', accepted: 0, error: 'Empty batch' })
-            return
-        }
-
-        const startTime = Date.now()
-
-        // Event count and acceptance time of this batch once accepted, or null
-        // while it is not. Holding both (rather than a bool) makes the `finally`
-        // credit exactly what was counted, even if `messages` is out of scope.
-        let inFlight: { events: number; acceptedAt: number } | null = null
-
-        try {
-            const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
-
-            const batch = messages.map((message) =>
-                createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
-            )
-            // Per-key order check, synchronously adjacent to feed() so check
-            // order equals feed order across concurrent requests. The grouping
-            // stage processes each key in feed order, so this measures the
-            // "processed in order per distinct_id" invariant.
-            this.feedOrderSentinel?.check(serializedMessages, consumer_id ?? 'unknown', replay ?? false)
-            const feedResult = await this.httpPipeline.feed(batch, {})
-            if (!feedResult.ok) {
-                // Capacity rejection should not happen under correct consumer
-                // behavior — the Rust consumer holds a per-worker Semaphore
-                // sized to INGESTION_WORKER_CONCURRENT_BATCHES and is supposed
-                // to wait (natural backpressure) before sending a batch that
-                // would exceed the worker's capacity. If we land here, the
-                // consumer's tracking is wrong or its env-var value disagrees
-                // with ours. Respond 503 so the consumer surfaces it as a
-                // distinct error (TransportError::WorkerBusy) and the alarm is
-                // visible in `ingestion_api_batch_capacity_rejections_total`.
-                // Use the typed `kind` discriminator (not the human-readable
-                // `reason` string) so a future BatchingPipeline message tweak
-                // can't silently downgrade us to a fall-through 500 — which
-                // the Rust transport treats as retriable.
-                if (feedResult.kind === 'at_capacity') {
-                    batchCapacityRejections.inc()
-                    res.status(503).json({
-                        batch_id: batch_id ?? '',
-                        status: 'error',
-                        accepted: 0,
-                        error: feedResult.reason,
-                    })
-                    return
-                }
-                throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
-            }
-
-            // Batch accepted into the pipeline — it now occupies a concurrent
-            // slot until processing completes below.
-            batchesInFlight.inc()
-            eventsInFlight.inc(messages.length)
-            inFlight = { events: messages.length, acceptedAt: Date.now() }
-
-            // The pipeline handles its own side effects (scheduling them on
-            // the promise scheduler), so draining results is all that's left
-            // to do.
-            let result = await this.httpPipeline.next()
-            while (result !== null) {
-                result = await this.httpPipeline.next()
-            }
-
-            // Wait for all side effects — the HTTP response is the ACK to the
-            // Rust consumer, so all work must finish before responding. The hog
-            // transformer drain is scheduled as a side effect by the pipeline's
-            // afterBatch flush step, so it's covered by waitForAll().
-            await this.promiseScheduler.waitForAll()
-
-            batchesProcessed.inc()
-            messagesProcessed.inc(messages.length)
-            batchProcessingDuration.observe(Date.now() - startTime)
-
-            res.status(200).json({ batch_id, status: 'ok', accepted: messages.length })
-        } catch (err) {
-            batchErrors.inc()
-            const error = err instanceof Error ? err : new Error(String(err))
-            logger.error('💥', 'Ingestion API batch processing failed', { batch_id, error: error.message })
-            // A throw here can leave the shared pipeline permanently poisoned, so
-            // mirror the Kafka consumer's crash-and-rebuild contract. Respond 500
-            // (the Rust transport treats it as retriable and redelivers), mark the
-            // server unhealthy, and shut down so the supervisor rebuilds a fresh
-            // pipeline instead of serving a wedged one. Trigger the shutdown once:
-            // concurrent in-flight requests can all fail on the same poisoned
-            // pipeline, but only the first should start teardown.
-            if (!this.fatalError) {
-                this.fatalError = error
-                void this.stop(error)
-            }
-            res.status(500).json({ batch_id, status: 'error', accepted: 0, error: error.message })
-        } finally {
-            if (inFlight !== null) {
-                batchesInFlight.dec()
-                eventsInFlight.dec(inFlight.events)
-                eventSecondsInFlight.inc((inFlight.events * (Date.now() - inFlight.acceptedAt)) / 1000)
-            }
-        }
     }
 
     private isHealthy(): HealthCheckResult {

@@ -534,31 +534,6 @@ export const getGithubIssueOutput = githubRefSchema.nullable();
 export const getGithubPullRequestInput = getGithubIssueInput;
 export const getGithubPullRequestOutput = getGithubIssueOutput;
 
-export const handoffLocalGitStateSchema = z.object({
-  head: z.string().nullable(),
-  branch: z.string().nullable(),
-  upstreamHead: z.string().nullable(),
-  upstreamRemote: z.string().nullable(),
-  upstreamMergeRef: z.string().nullable(),
-});
-
-export type HandoffLocalGitState = z.infer<typeof handoffLocalGitStateSchema>;
-
-export const readHandoffLocalGitStateInput = z.object({
-  directoryPath: z.string(),
-});
-export const readHandoffLocalGitStateOutput = handoffLocalGitStateSchema;
-
-export const cleanupAfterCloudHandoffInput = z.object({
-  directoryPath: z.string(),
-  branchName: z.string().nullable(),
-});
-export const cleanupAfterCloudHandoffOutput = z.object({
-  stashed: z.boolean(),
-  switched: z.boolean(),
-  defaultBranch: z.string().nullable(),
-});
-
 export const gitStatusOutput = z.object({
   installed: z.boolean(),
   version: z.string().nullable(),
