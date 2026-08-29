@@ -146,5 +146,20 @@ describe('passkeyLogic', () => {
                 ])
                 .toNotHaveDispatchedActions(['startPasskeyAuthenticationFailure'])
         })
+
+        it('rethrows a non-OperationError DOMException so it stays reportable', async () => {
+            // A NotSupportedError signals a browser or configuration defect, not an OperationError the
+            // user must simply retry. It must reach the loader failure path, which is where the global
+            // reporter captures it, rather than be swallowed like OperationError.
+            ;(startAuthentication as jest.Mock).mockRejectedValue(
+                new DOMException('The requested operation is not supported', 'NotSupportedError')
+            )
+
+            logic.actions.beginPasskeyLogin()
+
+            await expectLogic(logic)
+                .toDispatchActions(['startPasskeyAuthenticationFailure'])
+                .toNotHaveDispatchedActions(['passkeyAuthenticationFailed'])
+        })
     })
 })

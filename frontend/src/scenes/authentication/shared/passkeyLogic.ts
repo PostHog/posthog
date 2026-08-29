@@ -197,12 +197,14 @@ export const passkeyLogic = kea<passkeyLogicType>([
                             return null
                         }
                         actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
-                        if (e instanceof DOMException) {
-                            // A DOMException here comes from the authenticator, not our backend. It has
-                            // no HTTP status, so the global reporter would file it as a fatal exception
-                            // the user cannot act on. The message above tells the user to retry or use a
-                            // password. So report nothing here. A backend failure keeps its HTTP status
-                            // and still throws below, so it stays reportable.
+                        if (e instanceof DOMException && e.name === 'OperationError') {
+                            // OperationError means the authenticator could not complete the passkey. It
+                            // has no HTTP status, so the global reporter would file it as a fatal
+                            // exception the user cannot act on, even though the message above already
+                            // tells the user to retry or use a password. So suppress only this one. Every
+                            // other error still throws below and stays reportable, including a backend
+                            // failure (which keeps its HTTP status) and other DOMException values such as
+                            // a malformed server challenge, which are real defects worth tracking.
                             actions.passkeyAuthenticationFailed()
                             return null
                         }
