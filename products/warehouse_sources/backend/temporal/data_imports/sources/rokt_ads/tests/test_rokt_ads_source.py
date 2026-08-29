@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.rokt_ads import RoktAdsResumeConfig
@@ -15,6 +15,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.s
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.source"
+
+
+def _input_field(name: str) -> SourceFieldInputConfig:
+    field = next(f for f in RoktAdsSource().get_source_config.fields if f.name == name)
+    assert isinstance(field, SourceFieldInputConfig)
+    return field
 
 
 def _config(**overrides):
@@ -52,13 +58,12 @@ class TestSourceIdentity:
     def test_config_collects_the_credentials_the_query_api_needs(self):
         fields = {field.name: field for field in RoktAdsSource().get_source_config.fields}
         assert {"app_id", "app_secret", "account_id"} <= set(fields)
-        assert fields["app_secret"].secret is True
-        assert fields["app_id"].required and fields["account_id"].required
+        assert _input_field("app_secret").secret is True
+        assert _input_field("app_id").required and _input_field("account_id").required
 
     def test_optional_report_settings_are_not_required(self):
-        fields = {field.name: field for field in RoktAdsSource().get_source_config.fields}
-        assert fields["timezone_variation"].required is False
-        assert fields["currency_code"].required is False
+        assert _input_field("timezone_variation").required is False
+        assert _input_field("currency_code").required is False
 
     def test_api_docs_url_points_at_the_query_api(self):
         assert RoktAdsSource.api_docs_url.startswith("https://")

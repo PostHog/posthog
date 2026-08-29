@@ -1,10 +1,11 @@
 import base64
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 from requests import Session
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -23,7 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.s
 TOKEN_EXPIRY_MARGIN_SECONDS = 300
 
 
-@dataclasses.dataclass
+@frozen
 class RoktAdsResumeConfig:
     next_start_date: str
 
