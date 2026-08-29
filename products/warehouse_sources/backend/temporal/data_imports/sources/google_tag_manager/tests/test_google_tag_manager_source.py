@@ -93,7 +93,7 @@ def _validate(config: GoogleTagManagerSourceConfig, probe: Any) -> tuple[bool, s
         mock.patch.object(GoogleTagManagerSource, "get_oauth_integration", return_value=integration),
         mock.patch(f"{SOURCE_MODULE}.google_tag_manager_session"),
         mock.patch(
-            f"{SOURCE_MODULE}.get_accounts_probe",
+            f"{SOURCE_MODULE}.get_accessible_account_ids",
             **({"side_effect": probe} if isinstance(probe, Exception) else {"return_value": probe}),
         ),
     ):
@@ -142,33 +142,30 @@ def test_validate_credentials_maps_token_refresh_error():
 
 
 def test_validate_credentials_rejects_empty_account_list():
-    ok, message = _validate(_config(), {"account": []})
+    ok, message = _validate(_config(), (set(), True))
 
     assert ok is False
     assert "doesn't have access to any Tag Manager accounts" in (message or "")
 
 
 def test_validate_credentials_rejects_inaccessible_account_ids():
-    payload = {"account": [{"accountId": "1"}, {"accountId": "2"}]}
-    ok, message = _validate(_config(account_ids="2, 3, 4"), payload)
+    ok, message = _validate(_config(account_ids="2, 3, 4"), ({"1", "2"}, True))
 
     assert ok is False
     assert "3, 4" in (message or "")
 
 
-def test_validate_credentials_skips_filter_check_when_paginated():
-    # With more account pages the missing IDs may be on a later page, so the probe must not
-    # reject the filter from a partial listing.
-    payload = {"account": [{"accountId": "1"}], "nextPageToken": "t1"}
-    ok, message = _validate(_config(account_ids="3"), payload)
+def test_validate_credentials_skips_filter_check_when_listing_capped():
+    # When the probe hit its defensive page cap the listing is incomplete, so a missing ID
+    # is unproven and must not reject the filter.
+    ok, message = _validate(_config(account_ids="3"), ({"1"}, False))
 
     assert ok is True
     assert message is None
 
 
 def test_validate_credentials_succeeds_with_matching_filter():
-    payload = {"account": [{"accountId": "1"}, {"accountId": "2"}]}
-    ok, message = _validate(_config(account_ids="1"), payload)
+    ok, message = _validate(_config(account_ids="1"), ({"1", "2"}, True))
 
     assert ok is True
     assert message is None

@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GoogleTagManagerSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_tag_manager.google_tag_manager import (
-    get_accounts_probe,
+    get_accessible_account_ids,
     google_tag_manager_session,
     google_tag_manager_source,
     parse_account_ids,
@@ -132,8 +132,11 @@ class GoogleTagManagerSource(SimpleSource[GoogleTagManagerSourceConfig], OAuthMi
         except Exception as e:
             return False, f"Could not load Google Tag Manager credentials: {e}"
 
+        account_ids = parse_account_ids(config.account_ids)
         try:
-            payload = get_accounts_probe(google_tag_manager_session(refresh_token))
+            accessible_ids, listed_all = get_accessible_account_ids(
+                google_tag_manager_session(refresh_token), account_ids
+            )
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
             if status in (401, 403):
@@ -156,7 +159,6 @@ class GoogleTagManagerSource(SimpleSource[GoogleTagManagerSourceConfig], OAuthMi
         except Exception as e:
             return False, f"Failed to list Google Tag Manager accounts: {e}"
 
-        accessible_ids = {account.get("accountId") for account in payload.get("account") or []}
         if not accessible_ids:
             return (
                 False,
@@ -164,10 +166,10 @@ class GoogleTagManagerSource(SimpleSource[GoogleTagManagerSourceConfig], OAuthMi
                 "Connect a Google user with at least read access to the accounts you want to sync.",
             )
 
-        # Only enforce the filter when the probe saw the full account list; with more pages the
-        # missing IDs may simply be on a later page.
-        account_ids = parse_account_ids(config.account_ids)
-        if account_ids is not None and not payload.get("nextPageToken"):
+        # Only reject filter IDs proven absent: the probe pages through the account list until
+        # every filter ID is found or the list ends, and skips the check in the (defensively
+        # capped) case where the listing stopped early.
+        if account_ids is not None and listed_all:
             missing = sorted(account_ids - accessible_ids)
             if missing:
                 return (

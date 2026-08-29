@@ -62,7 +62,10 @@ def google_tag_manager_session(refresh_token: str) -> AuthorizedSession:
     # retry=Retry(total=0) opts out of the adapter's built-in 429/5xx retries: `_list_page` is the
     # single retry layer, since it must also treat quota 403s as transient and each compounded
     # retry would spend more of the tiny shared GTM quota.
-    adapter = make_tracked_adapter(retry=Retry(total=0))
+    # capture=False keeps GTM responses out of HTTP sample capture: custom HTML/JavaScript tags
+    # and constant variables routinely embed credentials in generic `parameter[].value` fields
+    # that name-based redaction can't recognize. Requests stay metered and logged.
+    adapter = make_tracked_adapter(retry=Retry(total=0), capture=False)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     return session
@@ -235,11 +238,31 @@ def _iter_parent_paths(
             )
 
 
-def get_accounts_probe(session: AuthorizedSession) -> dict[str, Any]:
-    """First page of accounts.list, the cheapest call that proves the token grants GTM read access."""
-    response = session.get(f"{GTM_API_BASE}/accounts")
-    response.raise_for_status()
-    return response.json()
+def get_accessible_account_ids(
+    session: AuthorizedSession, required_ids: set[str] | None, max_pages: int = 20
+) -> tuple[set[str], bool]:
+    """Walk accounts.list and return (account IDs seen, whether the listing was exhaustive).
+
+    Stops after the first page when `required_ids` is None (credential validation only needs
+    proof of access), and as soon as every required ID has been seen otherwise, so a large
+    account list isn't paged through unnecessarily. Deliberately avoids the sync path's
+    quota-retry loop: this runs inside a synchronous API request, so a quota blip should
+    fail fast to the user rather than back off for minutes.
+    """
+    ids: set[str] = set()
+    page_token: str | None = None
+    for _ in range(max_pages):
+        params = {"pageToken": page_token} if page_token else {}
+        response = session.get(f"{GTM_API_BASE}/accounts", params=params)
+        response.raise_for_status()
+        payload = response.json()
+        ids.update(str(account["accountId"]) for account in payload.get("account") or [] if account.get("accountId"))
+        page_token = payload.get("nextPageToken")
+        if not page_token:
+            return ids, True
+        if required_ids is None or required_ids <= ids:
+            return ids, False
+    return ids, False
 
 
 def google_tag_manager_source(

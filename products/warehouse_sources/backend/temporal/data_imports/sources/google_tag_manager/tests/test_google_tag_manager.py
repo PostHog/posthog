@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_tag
     _backoff_seconds,
     _is_quota_error,
     _list_page,
+    get_accessible_account_ids,
     google_tag_manager_source,
     parse_account_ids,
 )
@@ -274,6 +275,60 @@ def test_container_versions_request_includes_deleted_param():
     assert [row["containerVersionId"] for row in rows] == ["3"]
     version_call = next(call for call in session.calls if call[0].endswith("version_headers"))
     assert version_call[1]["includeDeleted"] == "true"
+
+
+def test_account_probe_walks_pages_until_filter_ids_found():
+    pages: dict[tuple[str, str | None], dict[str, Any]] = {
+        ("accounts", None): {"account": [{"accountId": "1"}], "nextPageToken": "t1"},
+        ("accounts", "t1"): {"account": [{"accountId": "3"}], "nextPageToken": "t2"},
+    }
+    session = _fake_session(pages)
+
+    ids, listed_all = get_accessible_account_ids(session, required_ids={"3"})
+
+    assert ids == {"1", "3"}
+    # Early exit on the found ID leaves page t2 unfetched, so the listing is not exhaustive.
+    assert listed_all is False
+    assert len(session.calls) == 2
+
+
+def test_account_probe_reports_exhaustive_listing():
+    pages: dict[tuple[str, str | None], dict[str, Any]] = {
+        ("accounts", None): {"account": [{"accountId": "1"}], "nextPageToken": "t1"},
+        ("accounts", "t1"): {"account": [{"accountId": "2"}]},
+    }
+
+    ids, listed_all = get_accessible_account_ids(_fake_session(pages), required_ids={"9"})
+
+    assert ids == {"1", "2"}
+    assert listed_all is True
+
+
+def test_account_probe_stops_after_first_page_without_filter():
+    pages: dict[tuple[str, str | None], dict[str, Any]] = {
+        ("accounts", None): {"account": [{"accountId": "1"}], "nextPageToken": "t1"},
+    }
+    session = _fake_session(pages)
+
+    ids, listed_all = get_accessible_account_ids(session, required_ids=None)
+
+    assert ids == {"1"}
+    assert listed_all is False
+    assert len(session.calls) == 1
+
+
+def test_account_probe_respects_page_cap():
+    pages: dict[tuple[str, str | None], dict[str, Any]] = {
+        ("accounts", None): {"account": [{"accountId": "1"}], "nextPageToken": "t1"},
+        ("accounts", "t1"): {"account": [{"accountId": "2"}], "nextPageToken": "t2"},
+    }
+    session = _fake_session(pages)
+
+    ids, listed_all = get_accessible_account_ids(session, required_ids={"9"}, max_pages=2)
+
+    assert ids == {"1", "2"}
+    assert listed_all is False
+    assert len(session.calls) == 2
 
 
 def test_source_response_primary_key_is_path():
