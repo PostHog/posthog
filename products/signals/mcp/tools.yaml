@@ -203,6 +203,10 @@ tools:
             inbox-report-artefacts-create. Report lifecycle is pipeline-managed — don't try to drive it: act on `ready`
             reports; `pending_input` means the report is waiting on human input, so surface it to a human rather than
             acting on it yourself.
+        param_overrides:
+            id:
+                aliases:
+                    - report_id
         agent_note:
             "If you do ANY work connected to this report — even pure research or investigation — always first associate
             your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own
