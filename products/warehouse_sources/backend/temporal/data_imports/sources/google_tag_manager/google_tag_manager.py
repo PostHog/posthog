@@ -8,6 +8,7 @@ import requests
 import structlog
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
@@ -58,7 +59,10 @@ def google_tag_manager_session(refresh_token: str) -> AuthorizedSession:
         scopes=GTM_OAUTH_SCOPES,
     )
     session = AuthorizedSession(credentials)
-    adapter = make_tracked_adapter()
+    # retry=Retry(total=0) opts out of the adapter's built-in 429/5xx retries: `_list_page` is the
+    # single retry layer, since it must also treat quota 403s as transient and each compounded
+    # retry would spend more of the tiny shared GTM quota.
+    adapter = make_tracked_adapter(retry=Retry(total=0))
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     return session
