@@ -94,10 +94,8 @@ describe('api-error', () => {
             ['a 502', { status: 502 }, false],
             ['a 503', { status: 503 }, false],
             ['a 504', { status: 504 }, false],
-            // Only the listed codes are excused: a 403 the app does not recover from is still a
-            // signal, and read-only mode is dropped later by its own `before_send` filter.
+            // Only the listed codes are excused: a 403 the app does not recover from is still a signal.
             ['a 403 with no code', { status: 403 }, true],
-            ['a read-only-mode 403', { status: 403, code: 'read_only_blocked' }, true],
             ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],

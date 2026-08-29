@@ -1,0 +1,98 @@
+{% extends "admin/change_form.html" %}
+
+{% block after_field_sets %}
+    {{ block.super }}
+    <fieldset class="module aligned">
+        <h2>Schemas{% if schema_page %} ({{ schema_page.paginator.count }} total){% endif %}</h2>
+        {% if schema_page and schema_page.object_list %}
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f5f5f5;">
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Schema ID</th>
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Name</th>
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Status</th>
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Sync enabled</th>
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Sync type</th>
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Frequency</th>
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Last synced at</th>
+                    <th style="padding: 8px; text-align: right; border-bottom: 2px solid #ddd;">Table rows</th>
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Table</th>
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Latest error</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for schema in schema_page %}
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 8px; font-family: monospace; font-size: 12px;">
+                        <a href="{% url 'admin:warehouse_sources_externaldataschema_change' schema.pk %}">{{ schema.id }}</a>
+                    </td>
+                    <td style="padding: 8px;">
+                        {{ schema.name }}
+                        {% if schema.deleted %}<span style="color: red; font-size: 11px;">(deleted)</span>{% endif %}
+                    </td>
+                    <td style="padding: 8px;">
+                        {% if schema.status == "Running" %}
+                            <span style="color: blue;">Running</span>
+                        {% elif schema.status == "Completed" %}
+                            <span style="color: green;">Completed</span>
+                        {% elif schema.status == "Failed" %}
+                            <span style="color: red;">Failed</span>
+                        {% elif schema.status == "BillingLimitReached" %}
+                            <span style="color: orange;">Billing limit reached</span>
+                        {% elif schema.status == "BillingLimitTooLow" %}
+                            <span style="color: orange;">Billing limit too low</span>
+                        {% elif schema.status %}
+                            <span>{{ schema.status }}</span>
+                        {% else %}
+                            &mdash;
+                        {% endif %}
+                    </td>
+                    <td style="padding: 8px;">{% if schema.should_sync %}Yes{% else %}No{% endif %}</td>
+                    <td style="padding: 8px;">{{ schema.sync_type|default:"&mdash;" }}</td>
+                    <td style="padding: 8px;">{{ schema.sync_frequency_interval|default:"&mdash;" }}</td>
+                    <td style="padding: 8px;">{% if schema.last_synced_at %}{{ schema.last_synced_at|date:"Y-m-d H:i:s" }}{% else %}&mdash;{% endif %}</td>
+                    <td style="padding: 8px; text-align: right;">{% if schema.table and schema.table.row_count is not None %}{{ schema.table.row_count }}{% else %}&mdash;{% endif %}</td>
+                    <td style="padding: 8px;">
+                        {% if schema.table %}
+                            <a href="{% url 'admin:warehouse_sources_datawarehousetable_change' schema.table.pk %}">{{ schema.table.name }}</a>
+                        {% else %}
+                            &mdash;
+                        {% endif %}
+                    </td>
+                    <td style="padding: 8px;">
+                        {% if schema.latest_error %}
+                            <span style="color: red; font-size: 12px;" title="{{ schema.latest_error }}">
+                                {{ schema.latest_error|truncatechars:80 }}
+                            </span>
+                        {% else %}
+                            &mdash;
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% if schema_page.paginator.num_pages > 1 %}
+        <div style="padding: 10px; text-align: center; border-top: 1px solid #ddd;">
+            {% if schema_page.has_previous %}
+                <a href="{{ page_link_prefix }}1">&laquo; First</a>
+                <a href="{{ page_link_prefix }}{{ schema_page.previous_page_number }}" style="margin-left: 8px;">&lsaquo; Previous</a>
+            {% endif %}
+
+            <span style="margin: 0 12px;">
+                Page {{ schema_page.number }} of {{ schema_page.paginator.num_pages }}
+            </span>
+
+            {% if schema_page.has_next %}
+                <a href="{{ page_link_prefix }}{{ schema_page.next_page_number }}">Next &rsaquo;</a>
+                <a href="{{ page_link_prefix }}{{ schema_page.paginator.num_pages }}" style="margin-left: 8px;">Last &raquo;</a>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% else %}
+            <div class="form-row" style="padding: 10px; color: #666;">No schemas found for this source.</div>
+        {% endif %}
+    </fieldset>
+{% endblock %}

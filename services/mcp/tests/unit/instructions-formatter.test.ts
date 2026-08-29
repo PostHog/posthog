@@ -354,33 +354,24 @@ describe('InstructionsFormatter', () => {
             },
         ]
 
-        it.each(surfaces)(
-            '$name puts gated metric routing before generic analytics guidance',
-            ({ render, mustPrecede }) => {
-                const formatter = new InstructionsFormatter()
-                const flagOn = render(formatter, { ...fullCtx, dataCatalogEnabled: true })
-                const metricRoutingPosition = flagOn.indexOf('#### Metric discovery (semantic layer)')
-                expect(metricRoutingPosition).toBeGreaterThanOrEqual(0)
-                expect(flagOn).toContain('system.information_schema.metrics')
-                expect(flagOn).toContain('data-catalog-metric-run')
-                for (const genericGuidance of mustPrecede) {
-                    expect(metricRoutingPosition).toBeLessThan(flagOn.indexOf(genericGuidance))
-                }
-
-                // Flag-off must be byte-identical to a context without the field, so orgs
-                // without the catalog are never steered at a table that doesn't exist.
-                const flagOff = render(formatter, { ...fullCtx, dataCatalogEnabled: false })
-                expect(flagOff).not.toContain('#### Metric discovery')
-                expect(flagOff).toBe(render(formatter, fullCtx))
-            }
-        )
-
-        it('advertises governed metrics in the analytics topic description only when the catalog exists', () => {
+        it.each(surfaces)('$name puts metric routing before generic analytics guidance', ({ render, mustPrecede }) => {
             const formatter = new InstructionsFormatter()
-            const analyticsDescription = (ctx: InstructionsContext): string =>
-                formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.description
-            expect(analyticsDescription({ ...fullCtx, dataCatalogEnabled: true })).toContain('governed metrics')
-            expect(analyticsDescription(fullCtx)).toBe('Query or analyze PostHog data, metrics, and events.')
+            const rendered = render(formatter, fullCtx)
+            const metricRoutingPosition = rendered.indexOf('#### Metric discovery (semantic layer)')
+            expect(metricRoutingPosition).toBeGreaterThanOrEqual(0)
+            expect(rendered).toContain('system.information_schema.metrics')
+            expect(rendered).toContain('data-catalog-metric-run')
+            for (const genericGuidance of mustPrecede) {
+                expect(metricRoutingPosition).toBeLessThan(rendered.indexOf(genericGuidance))
+            }
+        })
+
+        it('advertises governed metrics in the analytics topic description', () => {
+            const formatter = new InstructionsFormatter()
+            const analyticsEntry = formatter
+                .buildClaudeExecHelpEntries(fullCtx)
+                .find((entry) => entry.id === 'analytics')!
+            expect(analyticsEntry.description).toContain('governed metrics')
         })
     })
 

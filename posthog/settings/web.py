@@ -1,5 +1,6 @@
 # Web app specific settings/middleware/apps setup
 import os
+import json
 from datetime import timedelta
 
 import structlog
@@ -357,16 +358,8 @@ SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "s
 # off in the test suite (like AXES_ENABLED) so its per-request feature-flag check doesn't run during
 # tests that assert posthoganalytics.feature_enabled call counts.
 SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=str_to_bool)
-# Kill switch for the real-time signup enrichment workflow (products/growth/backend/enrichment).
-# Off by default: it must stay off until the launch fill-rate/failure alert is in place. Also the
-# de facto per-region toggle, since it is the only region-specific control — dispatch itself is
-# open to both US and EU (see get_instance_region gate in signup_enrichment/trigger.py), so a
-# region stays enrichment-free only by leaving this unset there. Fire-and-forget from signup, so
-# this only gates whether the workflow is dispatched at all.
-GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
-# Max orgs the daily ICP re-enrichment sweep re-fetches per run — the Harmonic spend/rate
-# bound for products/growth/backend/temporal/signup_enrichment/reenrichment.py.
-GROWTH_ICP_REENRICH_DAILY_CAP = get_from_env("GROWTH_ICP_REENRICH_DAILY_CAP", 500, type_cast=int)
+# GROWTH_SIGNUP_ENRICHMENT_ENABLED and GROWTH_ICP_REENRICH_DAILY_CAP are instance settings
+# (dynamic_settings.py): the env var seeds the default, the DB row is the value every pod reads.
 # The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
 # against (products/growth/backend/enrichment). Region-defaulted to the deployment's own internal
 # project (the same team split the usage report uses), so enrichment lookups never touch another
@@ -445,21 +438,21 @@ if DEBUG:
     # a second source for 1300+ identical assets would make collectstatic warn about
     # duplicate destinations for no gain.
     STATICFILES_DIRS.append(os.path.join(BASE_DIR, "frontend/public"))
+
+# WhiteNoise serves precompressed files when present, so this only controls collectstatic output.
+if TEST:
+    _staticfiles_storage_backend = "django.contrib.staticfiles.storage.StaticFilesStorage"
+elif get_from_env("STATIC_PRECOMPRESS", True, type_cast=str_to_bool):
+    _staticfiles_storage_backend = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+else:
+    _staticfiles_storage_backend = "whitenoise.storage.ManifestStaticFilesStorage"
+
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        # CompressedManifest: collectstatic pre-generates .br and .gz (brotli is
-        # already a dependency) so WhiteNoise serves compressed bytes from disk and
-        # the envoy edge — which otherwise gzips static per request (Contour's
-        # default compression filter) — skips recompression since Content-Encoding
-        # is already set. Same Manifest base class: hashed names unchanged.
-        "BACKEND": (
-            "django.contrib.staticfiles.storage.StaticFilesStorage"
-            if TEST
-            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
-        ),
+        "BACKEND": _staticfiles_storage_backend,
     },
 }
 # Never emit .map.gz/.map.br: the production image deletes *.map after the
@@ -524,6 +517,10 @@ if DEBUG:
 
 SPECTACULAR_SETTINGS = {
     "OAS_VERSION": "3.1.0",
+    "SERVERS": [
+        {"url": "https://us.posthog.com", "description": "PostHog Cloud US"},
+        {"url": "https://eu.posthog.com", "description": "PostHog Cloud EU"},
+    ],
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
     "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
@@ -597,6 +594,11 @@ SPECTACULAR_SETTINGS = {
         "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
         "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
+        # Shared by TaskCreate.origin_product and TaskWrite.origin_product. Needs naming because
+        # WarmTaskRequest.origin_product offers only the warmable subset, so "origin_product" alone
+        # no longer identifies one choice set. Keyed to the name the generator already produced
+        # (`OriginProductEnumApi`) so naming it doesn't rename the type its consumers import.
+        "OriginProductEnum": "products.tasks.backend.models.Task.OriginProduct",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "EmailChannelKindEnum": "products.conversations.backend.models.team_conversations_email_config.EmailChannelKind",
         "EmailThreadMessageDirectionEnum": "products.conversations.backend.models.email_thread.EmailThreadMessageDirection",
@@ -622,6 +624,8 @@ SPECTACULAR_SETTINGS = {
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
         "BillingAlertMetricEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.Metric",
         "BillingAlertStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
+        # Shared by ChangeRequest.state and ChangeRequestSummary.state (same choice set).
+        "ChangeRequestStateEnum": "products.approvals.backend.models.ChangeRequestState",
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
         # Shared by _LogsGroupByBody.groupBySource and _LogsGroupByDimension.source (labels == values).
@@ -694,6 +698,11 @@ SPECTACULAR_SETTINGS = {
         "LayoutCompactionEnum": ["vertical", "horizontal", "stable"],
         "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
         "PropertyGroupOperator": ["AND", "OR"],
+        # `mode` is a generic field name; name the Redshift batch-export mode set explicitly.
+        "RedshiftExportModeEnum": ["INSERT", "COPY"],
+        # `severity` is shared by a data quality check, its overview projection, and the severity a
+        # past run was judged at.
+        "DataQualityCheckSeverityEnum": ["error", "warn"],
         # `scope`/`state` are generic field names; one shared name for the canvas state scope set.
         "CanvasStateScopeEnum": ["user", "shared"],
         # `kind` is a generic field name; one shared name for the canvas kind set.
@@ -768,11 +777,17 @@ SPECTACULAR_SETTINGS = {
         # choice set (top-level column vs span attribute vs resource attribute).
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
         "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
+        # The AI observability instrumentation checklist exposes the same key set twice: as `key` on a
+        # graded check and as `check` on the dismiss/restore body. Mirrors CheckKey in
+        # products/ai_observability/backend/instrumentation_checklist/grading.py; a member added there
+        # changes the hash, so this warning comes back rather than drifting silently.
+        "AIObservabilityInstrumentationCheckEnum": ["sessions", "tool_calls", "user_identity", "trace_structure"],
         # LoopTriggerWrite.type and LoopPreviewRequest.trigger_type share the same
         # schedule/github/api choice set — pin them to a single named enum.
         "LoopTriggerTypeEnum": ["schedule", "github", "api"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
+            "link",
             "number",
             "currency",
             "percent",
@@ -915,6 +930,16 @@ SPECTACULAR_SETTINGS = {
         "TaskExecutionModeEnum": ["interactive", "background"],
         # Shared by ClaudeTaskRunCreateSchema and SandboxOpen (the conversations `open` body).
         "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
+        "TaskRunBootstrapCreateRequestInitialPermissionModeEnum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "bypassPermissions",
+            "auto",
+            "read-only",
+            "full-access",
+            None,
+        ],
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
         "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
@@ -1329,6 +1354,35 @@ AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 # secret for routing LLM calls through the gateway. Unset = direct to the provider.
 AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
 AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
+
+# Projected into gateway_credential.json: a JSON team_id -> tier map
+# ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.
+# Parsed defensively rather than with type_cast=json.loads: that runs at settings
+# import, so a malformed value takes every process down at boot, while the
+# consumer is written to degrade to no overrides.
+try:
+    AI_GATEWAY_TEAM_TIER_OVERRIDES = json.loads(get_from_env("AI_GATEWAY_TEAM_TIER_OVERRIDES", "{}"))
+except ValueError:
+    AI_GATEWAY_TEAM_TIER_OVERRIDES = {}
+
+# Wizard gateway-token mint. WIZARD_GATEWAY_MINT_KEY unset disables the endpoint
+# (404), which the CLI treats as "stay on the legacy gateway".
+WIZARD_GATEWAY_URL = get_from_env("WIZARD_GATEWAY_URL", "")
+WIZARD_GATEWAY_MINT_KEY = get_from_env("WIZARD_GATEWAY_MINT_KEY", "")
+# OAuth application client ids allowed to mint: llm_gateway:read is an internal
+# scope on every sandbox and agent token, so the scope alone does not identify the
+# wizard. Empty refuses every mint, and blanks are filtered because a list of
+# empty strings is truthy and would read as configured.
+WIZARD_GATEWAY_CLIENT_IDS = [
+    client_id for client_id in get_list(get_from_env("WIZARD_GATEWAY_CLIENT_IDS", "")) if client_id
+]
+WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20")
+# Wizard programs that may mint, each getting its own pinned product node and so
+# its own per-program budget and mint quota. The list is authoritative: a program
+# absent here is refused, not folded into a generic node, so listing a new program
+# is required rather than optional. Mirrors the CLI's PROGRAM_REGISTRY.
+WIZARD_GATEWAY_PROGRAM_IDS = get_list(get_from_env("WIZARD_GATEWAY_PROGRAM_IDS", ""))
+WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

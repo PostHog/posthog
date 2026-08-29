@@ -77,7 +77,7 @@ export function SignalSlackNotificationsSettings({
     <>
       <SettingsCardRow
         label="Notify me directly"
-        description="When you're a suggested reviewer, get pinged in your own channel instead of the team's default channel."
+        description="When you're a suggested reviewer, get pinged in your own channel instead of the team's default channel"
       >
         <SlackChannelCombobox
           integrationId={integrationId}
@@ -91,7 +91,7 @@ export function SignalSlackNotificationsSettings({
       </SettingsCardRow>
       <SettingsCardRow
         label="Minimum priority"
-        description="Only ping me for reports at or above this priority."
+        description="Only ping me for reports at or above this priority"
       >
         <SettingsOptionSelect
           value={minPriority ?? NOTIFY_ALL_VALUE}

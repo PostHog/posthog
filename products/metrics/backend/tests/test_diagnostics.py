@@ -140,6 +140,30 @@ class TestBucketDecomposition(ClickhouseTestMixin, APIBaseTest):
         # +20, then a restart whose post-reset reading is itself the increase.
         assert decomposition.reference_value == 25.0
 
+    def test_lone_cumulative_sample_has_no_increase_on_either_side(self) -> None:
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="bytes_total",
+            metric_type="sum",
+            aggregation_temporality="cumulative",
+            is_monotonic=True,
+            points=[(BUCKET, 100.0)],
+        )
+
+        decomposition = decompose_bucket(
+            team=self.team,
+            metric_name="bytes_total",
+            aggregation="increase",
+            bucket_start=BUCKET,
+            interval="minute_5",
+        )
+
+        # The sample's history is unknown, so both the reference and the chart
+        # return no value — a 0 on either side would fabricate a flat counter.
+        assert decomposition.reference_value is None
+        assert decomposition.actual_value is None
+        assert decomposition.agrees is True
+
     def test_empty_bucket_reports_no_series_rather_than_zero(self) -> None:
         decomposition = decompose_bucket(
             team=self.team,

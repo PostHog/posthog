@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+import structlog
 import temporalio.exceptions
 from temporalio import workflow
 
@@ -28,6 +29,8 @@ from posthog.temporal.ai_observability.trace_clustering.metrics import (
     record_noise_points,
 )
 from posthog.temporal.common.base import PostHogWorkflow
+
+logger = structlog.get_logger(__name__)
 
 
 @workflow.defn(name=SAMPLER_WORKFLOW_NAME)
@@ -181,7 +184,7 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
         )
 
         if compute_result.skip_reason or not compute_result.eval_ids:
-            workflow.logger.info(
+            logger.info(
                 "skipping eval clustering run",
                 reason=compute_result.skip_reason,
                 job_id=inputs.job_id,

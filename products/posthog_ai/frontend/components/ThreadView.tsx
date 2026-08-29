@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
@@ -59,6 +59,8 @@ interface ThreadViewProps {
     showContextUsage?: boolean
     /** Renders per-turn UI (e.g. feedback actions) at each completed turn's end. */
     renderTurnTrailer?: (trailer: TurnTrailer) => JSX.Element | null
+    /** Extra footer content below the thinking / PR / context-usage rows (e.g. the feedback prompt). */
+    footerExtra?: ReactNode
     className?: string
     listClassName?: string
     rowClassName?: string
@@ -79,6 +81,7 @@ export function ThreadView({
     virtualized = true,
     showContextUsage = false,
     renderTurnTrailer,
+    footerExtra,
     className,
     listClassName,
     rowClassName,
@@ -143,7 +146,7 @@ export function ThreadView({
     const showContextUsageFooter = showContextUsage && !isThinking && !!contextUsage
     const footer = useMemo(
         () =>
-            showThinking || pullRequestUrl || showContextUsageFooter || showConnectionStatus ? (
+            showThinking || pullRequestUrl || showContextUsageFooter || showConnectionStatus || footerExtra ? (
                 <VirtualizedThread.Row className={rowClassName}>
                     <ThreadFooter
                         showThinking={showThinking}
@@ -152,6 +155,7 @@ export function ThreadView({
                         prBranch={branch}
                         showContextUsage={showContextUsageFooter}
                         showConnectionStatus={showConnectionStatus}
+                        extra={footerExtra}
                     />
                 </VirtualizedThread.Row>
             ) : undefined,
@@ -162,6 +166,7 @@ export function ThreadView({
             branch,
             showContextUsageFooter,
             showConnectionStatus,
+            footerExtra,
             rowClassName,
         ]
     )
@@ -251,6 +256,7 @@ const ThreadFooter = memo(function ThreadFooter({
     prBranch,
     showContextUsage,
     showConnectionStatus,
+    extra,
 }: {
     showThinking: boolean
     thinkingPhase: 'thinking' | 'provisioning'
@@ -258,6 +264,7 @@ const ThreadFooter = memo(function ThreadFooter({
     prBranch?: string
     showContextUsage?: boolean
     showConnectionStatus?: boolean
+    extra?: ReactNode
 }): JSX.Element {
     // `runConnectionState` is self-subscribed here (like `currentProgress`) so the frequently-updating
     // reconnect attempt counter stays isolated to this leaf and never destabilizes `ThreadView`'s footer.
@@ -270,6 +277,7 @@ const ThreadFooter = memo(function ThreadFooter({
             {showThinking && <ThinkingIndicator progress={currentProgress} phase={thinkingPhase} />}
             {pullRequestUrl && <PullRequestCard prUrl={pullRequestUrl} branch={prBranch} />}
             {showContextUsage && <ContextUsageBar />}
+            {extra}
         </div>
     )
 })

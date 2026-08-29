@@ -31,6 +31,15 @@ class TestRepoWriterLock(SimpleTestCase):
         assert client.eval.called
 
 
+class TestRunGit(SimpleTestCase):
+    def test_missing_git_binary_raises_store_error(self) -> None:
+        with patch.object(
+            store.subprocess, "run", side_effect=FileNotFoundError(2, "No such file or directory", "git")
+        ):
+            with self.assertRaises(store.DependencyUnavailableError):
+                store._run_git(["status"], cwd=Path("/tmp"))
+
+
 class TestDreamPathGuard(SimpleTestCase):
     def test_allows_context_pages_and_rejects_server_owned_paths(self) -> None:
         assert store._dream_may_edit("org/strategy.md")

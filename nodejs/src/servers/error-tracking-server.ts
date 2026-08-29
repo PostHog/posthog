@@ -10,6 +10,8 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonHogConfig, createPersonHogClient } from '~/common/personhog'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
+import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
@@ -76,6 +78,7 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
     PersonHogConfig &
+    UsageIngestionConfig &
     CookielessServerConfig &
     Pick<
         CommonConfig,
@@ -194,6 +197,10 @@ export class ErrorTrackingServer implements NodeServer {
         // 3. Error tracking consumer
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
+        // One client for the process: the batch factory runs per batch, and each client owns a transport.
+        const usageClient = createUsageIngestionClient(this.config, 'exceptions')
+        const usageTeamMatcher = usageReportTeamMatcher(this.config)
+
         serviceLoaders.push(async () => {
             const consumer = new ErrorTrackingConsumer(
                 {
@@ -222,6 +229,8 @@ export class ErrorTrackingServer implements NodeServer {
                     cookielessManager: this.cookielessManager!,
                     redisPool: this.redisPool!,
                     personRepository,
+                    createEventUsageBatch: () =>
+                        new UsageRecordBatch(usageClient, { unit: 'events', isTeamEnabled: usageTeamMatcher }),
                 }
             )
             await consumer.start()

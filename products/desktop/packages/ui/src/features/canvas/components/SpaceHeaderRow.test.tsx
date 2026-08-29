@@ -29,6 +29,9 @@ vi.mock("@posthog/host-router/react", () => ({
   }),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/features/canvas/hooks/useSelectedCanvasId", () => ({
+  useSelectedCanvasId: () => undefined,
+}));
 vi.mock("@tanstack/react-router", () => ({
   // The route's own pane, which is where the header's writer lives.
   Outlet: () => <ActivityDetailPane />,
@@ -76,6 +79,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasks", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [{ id: "chan-1", name: "space" }] }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useInboxActivityPreview", () => ({
+  useInboxActivityPreview: () => ({ reports: [] }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
   useChannelStarMutations: () => ({ star: vi.fn(), unstar: vi.fn() }),

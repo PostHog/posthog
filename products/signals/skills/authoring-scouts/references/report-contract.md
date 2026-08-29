@@ -123,7 +123,8 @@ Reference each chart once: a repeated reference reads as pointing back at the ch
 Two references in one paragraph sit side by side, so put a pair you want compared in a paragraph of their own.
 A reference inside a code span, a table cell, or a heading has no room to draw — its chart falls to the end of the report instead.
 
-**The summary has to read without the charts.** A report can also be delivered to Slack, where nothing draws and each reference degrades to the plain label it was given.
+**The summary has to read without the charts.** A report can also be delivered to Slack, where each reference degrades to the plain label it was given and the charts follow the prose as images rather than sitting inline.
+Only `InsightVizNode` and `SavedInsightNode` charts render there, at most three per report with referenced charts first; a `DataVisualizationNode` chart shows only in the inbox.
 "Signups fell 60% over the week" survives that; "the chart below shows the drop" leaves a Slack reader with nothing.
 
 **Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then.
@@ -169,8 +170,11 @@ It's opt-in per report via three more `emit_report` fields; supply them only whe
 | `priority_explanation` | string      | Required when `priority` is set.                                                                                                                                                                                                                         |
 | `suggested_reviewers`  | list of obj | Reviewers to consider, each `{github_login?, user_uuid?}` (at least one per entry; see the section below). A PR opens only if at least one clears their autonomy threshold.                                                                              |
 
-Repo selection only runs when you signal PR intent — an explicit `repository`, or both `priority` and `suggested_reviewers`.
-A report that supplies none of these just surfaces in the inbox (no repo sandbox, no PR).
+Full repo selection only runs when you signal PR intent — an explicit `repository`, or both `priority` and `suggested_reviewers`.
+A report that supplies none of these just surfaces in the inbox: no repo sandbox, and no PR.
+It still gets a repo target when its own text links exactly one repository the team has connected on GitHub, so someone reading it can click Create PR.
+That inferred target is for a person to act on — it never opens a PR by itself, and rewriting the report's title or summary to link a different connected repository moves it.
+Adding a qualifying reviewer later is a person asking for the PR, so the report can open a draft one from then on.
 Autostart itself still no-ops unless the report is `immediately_actionable`, has a repo + priority, and a reviewer qualifies — so these fields are safe to omit for an informational report.
 
 ## Choosing `suggested_reviewers` — how a report gets assigned to a human

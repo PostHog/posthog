@@ -5,6 +5,7 @@ import { DELAY_TOO_LONG, FetchRunner, FetchRunnerOptions, HOPS_EXHAUSTED } from 
 import { FrontierPublisher, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
 import { ImageFetchOptions, ImageFetchResult, ImageFetcher } from './image-fetcher'
+import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 
 const NOW_MS = 1_700_000_000_000
@@ -37,6 +38,7 @@ function candidate(overrides: Partial<FetchCandidate> = {}): FetchCandidate {
 
 interface Harness {
     runner: FetchRunner
+    budget: HostBudget
     fetch: jest.Mock<Promise<ImageFetchResult>, [string, ImageFetchOptions]>
     check: jest.Mock<Promise<OriginPolicyDecision>, [string, Map<string, ConfigurationCacheItem>, number]>
     createPass: jest.Mock
@@ -93,7 +95,7 @@ function build(
         options,
         { createRepublishBatch, publishImage } as unknown as FrontierPublisher
     )
-    return { runner, fetch, check, createPass, republish, publishImage }
+    return { runner, budget, fetch, check, createPass, republish, publishImage }
 }
 
 describe('FetchRunner', () => {
@@ -124,11 +126,12 @@ describe('FetchRunner', () => {
             ],
         ])
 
-        await harness.runner.run([candidate()], stored)
+        await harness.runner.run([candidate({ sourcePartitions: [7, 42] })], stored)
 
         expect(harness.fetch.mock.calls[0][1]).toMatchObject({
             maxBytes: OPTIONS.maxBytes,
             maxRedirects: OPTIONS.maxRedirects,
+            sourcePartitions: [7, 42],
             cache,
             tdmrepReservation: true,
         })
@@ -179,7 +182,7 @@ describe('FetchRunner', () => {
         expect(harness.fetch).toHaveBeenCalledTimes(2)
     })
 
-    it('does not let one origin occupy every registrable-domain worker', async () => {
+    it('allocates sibling-origin workers by queue share', async () => {
         const harness = build({}, {}, 'queued', { ...OPTIONS, maxConcurrentPerRegistrableDomain: 2 })
         let releaseFirst: (() => void) | undefined
         let releaseSecond: (() => void) | undefined
@@ -213,6 +216,213 @@ describe('FetchRunner', () => {
         releaseSecond?.()
         await run
         expect(harness.fetch).toHaveBeenCalledTimes(3)
+    })
+
+    it('records initial capacity after live pod and registrable-domain limits', async () => {
+        const observeCapacity = jest
+            .spyOn(ImageFetchRequestMetrics, 'observeBatchSchedulableCapacity')
+            .mockImplementation()
+        const harness = build({}, {}, 'queued', {
+            ...OPTIONS,
+            maxConcurrentPerRegistrableDomain: 2,
+            maxInFlightRequests: 3,
+        })
+        const candidates = [
+            candidate(),
+            ...Array.from({ length: 2 }, (_, index) =>
+                candidate({
+                    originalRef: `imageurl:${String(index + 1).repeat(22)}`,
+                    currentUrl: `https://cdn.example.com/image-${index}.png`,
+                })
+            ),
+            ...Array.from({ length: 2 }, (_, index) =>
+                candidate({
+                    originalRef: `imageurl:${String(index + 3).repeat(22)}`,
+                    currentUrl: `https://origin-${index}.other.net/image.png`,
+                    host: `origin-${index}.other.net`,
+                    origin: `https://origin-${index}.other.net`,
+                    registrableDomain: 'other.net',
+                })
+            ),
+        ]
+        const grant = harness.budget.take('example.com', 'https://cdn.example.com', NOW_MS, NOW_MS + 10_000, true)
+        expect(grant).toMatchObject({ granted: true, waitMs: 0 })
+        expect(harness.budget.acquireConnection('example.com', 'https://cdn.example.com')).toBe(true)
+        harness.budget.markRequestStarted(
+            'example.com',
+            'https://cdn.example.com',
+            NOW_MS,
+            grant.granted ? grant.reservedStartAtMs : null,
+            'configuration'
+        )
+
+        await harness.runner.run(candidates, new Map())
+
+        expect(observeCapacity).toHaveBeenCalledWith(3, 3)
+        harness.budget.releaseConnection('example.com', 'https://cdn.example.com')
+    })
+
+    it('keeps one request slot on the largest origin queue', async () => {
+        const harness = build({}, {}, 'queued', {
+            ...OPTIONS,
+            maxConcurrentPerRegistrableDomain: 1,
+            maxInFlightRequests: 1,
+        })
+        const small = candidate({
+            currentUrl: 'https://small.example.com/a.png',
+            host: 'small.example.com',
+            origin: 'https://small.example.com',
+        })
+        const largeFirst = candidate({
+            originalRef: `imageurl:${'b'.repeat(22)}`,
+            currentUrl: 'https://large.example.com/a.png',
+            host: 'large.example.com',
+            origin: 'https://large.example.com',
+        })
+        const largeSecond = candidate({
+            originalRef: `imageurl:${'c'.repeat(22)}`,
+            currentUrl: 'https://large.example.com/b.png',
+            host: 'large.example.com',
+            origin: 'https://large.example.com',
+        })
+
+        await harness.runner.run([small, largeFirst, largeSecond], new Map())
+
+        expect(harness.fetch.mock.calls.map(([url]) => url)).toEqual([
+            largeFirst.currentUrl,
+            largeSecond.currentUrl,
+            small.currentUrl,
+        ])
+    })
+
+    it('processes a low-capacity tail instead of republishing it for more diversity', async () => {
+        const harness = build({}, {}, 'queued', {
+            ...OPTIONS,
+            maxInFlightRequests: 1,
+        })
+        const candidates = Array.from({ length: 4 }, (_, index) => {
+            const origin = `https://cdn-${index}.example.com`
+            return candidate({
+                originalRef: `imageurl:${index.toString().padStart(22, '0')}`,
+                currentUrl: `${origin}/${index}.png`,
+                host: `cdn-${index}.example.com`,
+                origin,
+            })
+        })
+
+        const attempts = await harness.runner.run(candidates, new Map())
+
+        expect(harness.fetch).toHaveBeenCalledTimes(4)
+        expect(harness.republish).not.toHaveBeenCalled()
+        expect(attempts).toHaveLength(4)
+    })
+
+    it('keeps the pod request limit across overlapping passes', async () => {
+        const observeCapacity = jest
+            .spyOn(ImageFetchRequestMetrics, 'observeBatchSchedulableCapacity')
+            .mockImplementation()
+        const harness = build({}, {}, 'queued', { ...OPTIONS, maxInFlightRequests: 1 })
+        const releases: Array<() => void> = []
+        let signalSecondFetchStarted: () => void = () => undefined
+        const secondFetchStarted = new Promise<void>((resolve) => {
+            signalSecondFetchStarted = resolve
+        })
+        harness.fetch.mockImplementation(
+            (url: string) =>
+                new Promise<ImageFetchResult>((resolve) => {
+                    releases.push(() => resolve({ outcome: 'ok', redirects: 0, currentUrl: url }))
+                    if (releases.length === 2) {
+                        signalSecondFetchStarted()
+                    }
+                })
+        )
+        const otherDomain = candidate({
+            originalRef: `imageurl:${'b'.repeat(22)}`,
+            currentUrl: 'https://cdn.other.net/b.png',
+            host: 'cdn.other.net',
+            origin: 'https://cdn.other.net',
+            registrableDomain: 'other.net',
+        })
+
+        const firstRun = harness.runner.run([candidate()], new Map())
+        const secondRun = harness.runner.run([otherDomain], new Map())
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(harness.fetch).toHaveBeenCalledTimes(1)
+        expect(observeCapacity.mock.calls).toEqual([
+            [1, 1],
+            [0, 1],
+        ])
+        releases[0]()
+        await secondFetchStarted
+        expect(harness.fetch).toHaveBeenCalledTimes(2)
+        releases[1]()
+        await Promise.all([firstRun, secondRun])
+    })
+
+    it('does not start a queued request after another worker aborts its pass', async () => {
+        const harness = build({}, {}, 'queued', { ...OPTIONS, maxInFlightRequests: 2 })
+        let releaseBlocker: () => void = () => undefined
+        let signalBlockerStarted: () => void = () => undefined
+        const blockerStarted = new Promise<void>((resolve) => {
+            signalBlockerStarted = resolve
+        })
+        harness.fetch.mockImplementation((url: string) => {
+            if (url.includes('blocker')) {
+                signalBlockerStarted()
+                return new Promise<ImageFetchResult>((resolve) => {
+                    releaseBlocker = () => resolve({ outcome: 'ok', redirects: 0, currentUrl: url })
+                })
+            }
+            if (url.includes('failure')) {
+                return Promise.reject(new Error('dependency unavailable'))
+            }
+            return Promise.resolve({ outcome: 'ok', redirects: 0, currentUrl: url })
+        })
+        const blocker = candidate({ currentUrl: 'https://blocker.example.com/a.png' })
+        const failure = candidate({
+            originalRef: `imageurl:${'b'.repeat(22)}`,
+            currentUrl: 'https://failure.example.com/b.png',
+            host: 'failure.example.com',
+            origin: 'https://failure.example.com',
+        })
+        const mustNotStart = candidate({
+            originalRef: `imageurl:${'c'.repeat(22)}`,
+            currentUrl: 'https://queued.example.com/c.png',
+            host: 'queued.example.com',
+            origin: 'https://queued.example.com',
+        })
+
+        const blockingRun = harness.runner.run([blocker], new Map())
+        await blockerStarted
+        const failingRun = harness.runner.run([failure, mustNotStart], new Map())
+
+        await expect(failingRun).rejects.toThrow('dependency unavailable')
+        expect(harness.fetch.mock.calls.map(([url]) => url)).toEqual([blocker.currentUrl, failure.currentUrl])
+        releaseBlocker()
+        await blockingRun
+    })
+
+    it('stops taking queue work after a fatal candidate error', async () => {
+        const harness = build({}, {}, 'queued', { ...OPTIONS, maxInFlightRequests: 1 })
+        harness.fetch.mockRejectedValueOnce(new Error('dependency unavailable'))
+        const second = candidate({ originalRef: `imageurl:${'b'.repeat(22)}` })
+
+        await expect(harness.runner.run([candidate(), second], new Map())).rejects.toThrow('dependency unavailable')
+
+        expect(harness.fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('deduplicates canonical refs before queue scheduling', async () => {
+        const harness = build()
+        const duplicate = candidate({ republishCount: 1, lastRepublishReason: 'retry' })
+
+        const attempts = await harness.runner.run([candidate(), duplicate], new Map())
+
+        expect(harness.fetch).toHaveBeenCalledTimes(1)
+        expect(attempts).toHaveLength(1)
+        expect(attempts[0].candidate).toMatchObject({ republishCount: 1, lastRepublishReason: 'retry' })
     })
 
     it('marks an image publish failure as lost after all candidate work settles', async () => {

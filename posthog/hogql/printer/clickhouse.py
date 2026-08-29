@@ -35,7 +35,7 @@ from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
-from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
+from posthog.hogql.restricted_properties import RESTRICTABLE_JSON_BLOB_COLUMNS, restricted_property_keys_for_table_type
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
@@ -583,10 +583,17 @@ class ClickHousePrinter(BasePrinter):
         # would incorrectly skip JSONDropKeys wrapping for the aliased ``properties`` column.
         # ``person_properties`` is the underlying DB column for ``EventsPersonSubTable.properties``
         # (PoE mode); it is also a JSON blob that must be stripped of restricted person-property keys.
-        if resolved_field.name not in ("properties", "person_properties"):
+        if resolved_field.name not in RESTRICTABLE_JSON_BLOB_COLUMNS:
             return field_sql
 
-        keys_to_drop = restricted_property_keys_for_table_type(type.table_type, self.context)
+        group_type_index = None
+        group_column_match = re.fullmatch(r"group(\d+)_properties", resolved_field.name)
+        if group_column_match:
+            group_type_index = int(group_column_match.group(1))
+
+        keys_to_drop = restricted_property_keys_for_table_type(
+            type.table_type, self.context, group_type_index=group_type_index
+        )
         if not keys_to_drop:
             return field_sql
 

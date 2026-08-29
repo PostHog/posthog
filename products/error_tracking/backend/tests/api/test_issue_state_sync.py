@@ -1,8 +1,7 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
-
-from ee.models.rbac.role import Role
 
 
 class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
