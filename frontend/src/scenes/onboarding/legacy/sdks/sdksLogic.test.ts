@@ -69,6 +69,13 @@ describe('sdksLogic', () => {
             expect(keysFor()).toEqual(['ios'])
         })
 
+        it('matches JavaScript server frameworks on the javascript alias', () => {
+            logic.actions.setSearchTerm('javascript')
+            const keys = keysFor()
+            expect(keys).toContain('nodejs')
+            expect(keys).toContain('nextjs')
+        })
+
         it('empties the grid when the tag and the search term exclude each other', () => {
             logic.actions.setSelectedTag(SDKTag.MOBILE)
             logic.actions.setSearchTerm('python')
