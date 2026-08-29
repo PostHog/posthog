@@ -203,6 +203,10 @@ const LEADER_CALL_CONCURRENCY: usize = 8;
 
 const STEPS_TOTAL: &str = "personhog_lifecycle_merge_steps_total";
 const OUTCOMES_TOTAL: &str = "personhog_lifecycle_merge_outcomes_total";
+/// Pre-flip aborts by refusal slug. The outcome counter records that sources
+/// were refused; only this says which refusal, which is what separates a
+/// leader misconfiguration from a corrupted mark without reading logs.
+const ABORTS_TOTAL: &str = "personhog_lifecycle_merge_aborts_total";
 
 fn record_transition(from: &str, to: &str) {
     common_metrics::inc(
@@ -1112,6 +1116,16 @@ impl MergeDriver {
             "leader definitively refused a pre-flip merge step; op aborted, releasing its fences"
         );
         record_transition(from_step.as_str(), STEP_ABORTED);
+        common_metrics::inc(
+            ABORTS_TOTAL,
+            &[(
+                "reason".to_string(),
+                personhog_common::grpc::semantic_refusal_reason(status)
+                    .unwrap_or("unknown")
+                    .to_string(),
+            )],
+            1,
+        );
         record_outcomes(&outcome);
         // Releases run only after the completing CAS committed: success
         // proves this driver still owned the op, so no stealer's flip
