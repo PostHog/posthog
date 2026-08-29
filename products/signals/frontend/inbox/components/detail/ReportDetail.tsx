@@ -36,6 +36,7 @@ import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
+import { CreatePrReportButton } from './CreatePrReportButton'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
 import { PrChecksSection } from './PrChecksSection'
@@ -312,6 +313,7 @@ export function InboxDetailFrame({
                     <ReportSummaryBody
                         summary={report.summary}
                         chartPlacements={chartPlacements}
+                        report={report}
                         createPrAction={createPrAction}
                         pullRequestNote={pullRequestNote}
                     />
@@ -487,17 +489,7 @@ export function InboxDetailFrame({
                 <div className="flex items-center gap-2">
                     {primaryAction}
                     {createPrAction && !summaryHasSolution && (
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            icon={createPrAction.icon}
-                            loading={createPrAction.loading}
-                            tooltip={createPrAction.disabledReason ? undefined : createPrAction.tooltip}
-                            disabledReason={createPrAction.disabledReason}
-                            onClick={createPrAction.onClick}
-                        >
-                            {createPrAction.label}
-                        </LemonButton>
+                        <CreatePrReportButton report={report} action={createPrAction} />
                     )}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />

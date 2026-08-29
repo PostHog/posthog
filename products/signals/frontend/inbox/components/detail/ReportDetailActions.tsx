@@ -55,11 +55,11 @@ export function canCreateImplementationPr(report: SignalReport): boolean {
 }
 
 /**
- * Detail-pane actions as data: Archive/Restore, Refund, and Create PR. Discuss is rendered
- * separately as a standalone dropdown button (`DiscussReportButton`) since it opens a question
- * popover rather than firing on click; rating a report lives at the end of the body
- * (`ReportFeedbackFooter`). Task creation is owned by `inboxTaskKickoffLogic`; archiving reuses the
- * shared `useReportArchive` dialog flow. Callers render these inline or inside a menu.
+ * Detail-pane actions as data: Archive/Restore, Refund, and Create PR. Discuss and Create PR are
+ * rendered separately as standalone dropdown buttons (`DiscussReportButton`, `CreatePrReportButton`)
+ * since they open a note popover rather than firing on click; rating a report lives at the end of the
+ * body (`ReportFeedbackFooter`). Task creation is owned by `inboxTaskKickoffLogic`; archiving reuses
+ * the shared `useReportArchive` dialog flow. Callers render these inline or inside a menu.
  */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const { isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)

@@ -1,11 +1,11 @@
 import { ReactNode, useCallback, useMemo } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
-
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
+import { SignalReport } from '../../types'
 import { ChartPlacements } from '../../utils/chartPlacement'
 import { parseReportSummary } from '../../utils/reportSummary'
+import { CreatePrReportButton } from './CreatePrReportButton'
 import { ReportChart } from './ReportChart'
 import { ReportDetailAction } from './ReportDetailActions'
 
@@ -41,6 +41,8 @@ function SummaryMarkdown({ markdown, sourceOffset, chartPlacements, className }:
 interface ReportSummaryBodyProps {
     summary: string
     chartPlacements: ChartPlacements
+    /** The report, needed by the Create PR button to start the implementation task. */
+    report: SignalReport
     /** The Create PR action, rendered under the Solution section when the report offers it. */
     createPrAction?: ReportDetailAction
     /**
@@ -57,6 +59,7 @@ interface ReportSummaryBodyProps {
 export function ReportSummaryBody({
     summary,
     chartPlacements,
+    report,
     createPrAction,
     pullRequestNote,
 }: ReportSummaryBodyProps): JSX.Element {
@@ -97,18 +100,11 @@ export function ReportSummaryBody({
                     {section.kind === 'solution' && pullRequestNote && <div className="mt-2">{pullRequestNote}</div>}
                     {section.kind === 'solution' && createPrAction && (
                         <div className="mt-2">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                icon={createPrAction.icon}
-                                loading={createPrAction.loading}
-                                tooltip={createPrAction.disabledReason ? undefined : createPrAction.tooltip}
-                                disabledReason={createPrAction.disabledReason}
-                                onClick={createPrAction.onClick}
+                            <CreatePrReportButton
+                                report={report}
+                                action={createPrAction}
                                 data-attr="inbox-report-solution-create-pr"
-                            >
-                                {createPrAction.label}
-                            </LemonButton>
+                            />
                         </div>
                     )}
                 </section>
