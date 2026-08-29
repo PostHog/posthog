@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
@@ -118,6 +119,29 @@ class StoriesSearchPaginator(BasePaginator):
             request.json["created_at_start"] = self._next_created_at_start
 
 
+def _dedupe_pages_by_id(pages: Iterable[Any], primary_key: str) -> Iterator[list[dict[str, Any]]]:
+    """Drop stories re-read across page boundaries so no id lands in the table twice.
+
+    The paginator advances `created_at_start` to the newest `created_at` seen, and that filter is
+    inclusive, so every story at the boundary timestamp comes back on the next page. Full refresh
+    appends without the merge's primary-key dedup (that runs only for incremental writes), so drop
+    the re-read rows here. Keyed on the unique story id, so it never drops a distinct story whatever
+    order the endpoint returns rows in. Holds the seen ids for one sync, bounded by the story count.
+    """
+    seen: set[Any] = set()
+    for page in pages:
+        fresh: list[dict[str, Any]] = []
+        for row in page:
+            key = row.get(primary_key)
+            if key is not None and key in seen:
+                continue
+            if key is not None:
+                seen.add(key)
+            fresh.append(row)
+        if fresh:
+            yield fresh
+
+
 def shortcut_source(
     api_token: str,
     endpoint: str,
@@ -171,9 +195,17 @@ def shortcut_source(
 
     resource = rest_api_resource(rest_config, team_id, job_id, None)
 
+    # stories/search re-reads its inclusive created_at boundary on every page, so dedupe on id
+    # before the rows reach the writer — the full-refresh append path never runs the merge's
+    # primary-key dedup. Flat GET endpoints return the whole collection in one page, no re-reads.
+    def items() -> Iterable[Any]:
+        if config.method == "POST":
+            return _dedupe_pages_by_id(resource, config.primary_key)
+        return resource
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,

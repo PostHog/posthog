@@ -205,6 +205,35 @@ class TestRequests:
         assert snaps[0]["json"] == {"created_at_start": STORY_SEARCH_EPOCH_START, "includes_description": True}
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stories_pagination_drops_boundary_duplicates(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Page 1 fills the cap, so the paginator advances the floor to the newest created_at and
+        # refetches. created_at_start is inclusive, so page 2 re-reads the two boundary stories.
+        boundary = "2026-02-01T00:00:00Z"
+        page1 = [{"id": i, "created_at": "2026-01-01T00:00:00Z"} for i in range(1, 999)] + [
+            {"id": 999, "created_at": boundary},
+            {"id": 1000, "created_at": boundary},
+        ]
+        # Page 2 re-reads 999 and 1000 at the boundary, plus two stories that sat past the cap at the
+        # same timestamp. Being under the cap, it stops paging.
+        page2 = [
+            {"id": 999, "created_at": boundary},
+            {"id": 1000, "created_at": boundary},
+            {"id": 1001, "created_at": boundary},
+            {"id": 1002, "created_at": boundary},
+        ]
+        _wire(session, [_response(page1), _response(page2)])
+
+        rows = _rows(shortcut_source("token", "stories", 1, "j"))
+
+        ids = [row["id"] for row in rows]
+        # No id is stored twice, yet the genuinely new stories past the boundary still land.
+        assert len(ids) == len(set(ids))
+        assert ids.count(1000) == 1
+        assert {1001, 1002}.issubset(set(ids))
+        assert len(rows) == 1002
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_list_yields_nothing(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response([])])
