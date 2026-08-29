@@ -48,7 +48,11 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
+import {
+    parseQueryTablesAndColumns,
+    queryUsesFiltersPlaceholder,
+    queryUsesVariablesPlaceholder,
+} from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
@@ -2175,6 +2179,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const candidates = resolveSaveCandidates()
                 const selectedRef = {
                     current: candidates.queries[candidates.initialIndex],
+                }
+
+                // Views cannot contain variables, so tell the user here instead of letting the
+                // request reach the backend and come back as a validation error.
+                if (queryUsesVariablesPlaceholder(selectedRef.current ?? values.queryInput ?? '')) {
+                    lemonToast.error('Variables are not allowed in views. Remove them from your query before saving.')
+                    return
                 }
 
                 // Checked once as the dialog opens rather than on every keystroke: it only depends

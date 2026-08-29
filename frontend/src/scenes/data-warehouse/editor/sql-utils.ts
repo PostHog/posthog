@@ -2,7 +2,10 @@ import { analyzeTablesAndColumns } from './hogqlParserWorkerManager'
 
 export { normalizeIdentifier } from './hogqlAst'
 
-export const queryUsesFiltersPlaceholder = (query: string | null): boolean => {
+// Scans the query for a `{<name>` placeholder, skipping strings and comments so a literal like
+// '{filters}' does not count. `name` is matched when followed by `}`, `.`, or `(`, which covers
+// the plain, field, and column-bound placeholder forms the backend rejects in views.
+const queryUsesPlaceholder = (query: string | null, name: string): boolean => {
     if (!query) {
         return false
     }
@@ -52,7 +55,7 @@ export const queryUsesFiltersPlaceholder = (query: string | null): boolean => {
             continue
         }
 
-        if (query.startsWith('{filters}', i) || query.startsWith('{filters.', i) || query.startsWith('{filters(', i)) {
+        if (query.startsWith(`{${name}}`, i) || query.startsWith(`{${name}.`, i) || query.startsWith(`{${name}(`, i)) {
             return true
         }
 
@@ -61,6 +64,10 @@ export const queryUsesFiltersPlaceholder = (query: string | null): boolean => {
 
     return false
 }
+
+export const queryUsesFiltersPlaceholder = (query: string | null): boolean => queryUsesPlaceholder(query, 'filters')
+
+export const queryUsesVariablesPlaceholder = (query: string | null): boolean => queryUsesPlaceholder(query, 'variables')
 
 export const parseQueryTablesAndColumns = async (
     queryInput: string | null
