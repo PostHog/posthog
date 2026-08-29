@@ -33,10 +33,9 @@ from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.facade.hogql import (
-    CLICKHOUSE_HOGQL_MAPPING,
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
-    clean_type,
+    hogql_type_name_for_clickhouse_type,
     reconstruct_ordered_columns,
     remove_named_tuples,
 )
@@ -439,7 +438,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         columns = {
             str(item[0]): {
-                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
                 "clickhouse": item[1],
                 "valid": True,
             }

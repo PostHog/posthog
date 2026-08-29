@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.models.util import (
     STR_TO_HOGQL_MAPPING,
     clean_type,
     get_view_or_table_by_name,
+    hogql_type_name_for_clickhouse_type,
     reconstruct_ordered_columns,
     remove_named_tuples,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "ExternalDataSource",
     "clean_type",
     "get_view_or_table_by_name",
+    "hogql_type_name_for_clickhouse_type",
     "hogql_fields_and_structure_for_columns",
     "reconstruct_ordered_columns",
     "remove_named_tuples",

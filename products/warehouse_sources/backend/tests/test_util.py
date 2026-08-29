@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import (
     get_view_or_table_by_name,
+    hogql_type_name_for_clickhouse_type,
     reconstruct_ordered_columns,
     validate_warehouse_table_url_pattern,
 )
@@ -42,6 +43,27 @@ class TestReconstructOrderedColumns(SimpleTestCase):
         assert [name for name, _value in result] == expected_order
         # values stay paired with their names
         assert dict(result) == columns
+
+
+class TestHogqlTypeNameForClickhouseType(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # A mapped type resolves to its HogQL field class.
+            ("string", "String", "StringDatabaseField"),
+            ("nullable_wrapper_stripped", "Nullable(Int64)", "IntegerDatabaseField"),
+            # Types added to close the gap that blocked saving views.
+            ("variant", "Variant(String, Int64)", "UnknownDatabaseField"),
+            ("json", "JSON", "StringJSONDatabaseField"),
+            ("dynamic", "Dynamic", "UnknownDatabaseField"),
+            ("enum16", "Enum16('a' = 1)", "StringDatabaseField"),
+            ("wide_int", "Int128", "IntegerDatabaseField"),
+            ("ipv6", "IPv6", "StringDatabaseField"),
+            # An unmapped type must fall back instead of raising KeyError.
+            ("unmapped", "SomeFutureType", "UnknownDatabaseField"),
+        ]
+    )
+    def test_resolves_clickhouse_type(self, _name: str, clickhouse_type: str, expected: str) -> None:
+        assert hogql_type_name_for_clickhouse_type(clickhouse_type) == expected
 
 
 @override_settings(

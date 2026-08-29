@@ -70,9 +70,8 @@ from products.data_warehouse.backend.presentation.views.column_annotation_base i
     upsert_annotation,
 )
 from products.warehouse_sources.backend.facade.hogql import (
-    CLICKHOUSE_HOGQL_MAPPING,
-    clean_type,
     get_view_or_table_by_name,
+    hogql_type_name_for_clickhouse_type,
 )
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
@@ -864,7 +863,7 @@ class DataWarehouseSavedQuerySerializer(
                 else:
                     columns = {
                         str(item[0]): {
-                            "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                            "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
                             "clickhouse": item[1],
                             "valid": True,
                         }
@@ -876,7 +875,7 @@ class DataWarehouseSavedQuerySerializer(
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
-                raise serializers.ValidationError("Failed to retrieve types for view")
+                raise serializers.ValidationError(f"Failed to retrieve types for view: {e}")
 
         with transaction.atomic():
             view.save()
@@ -1063,7 +1062,7 @@ class DataWarehouseSavedQuerySerializer(
                     else:
                         columns = {
                             str(item[0]): {
-                                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                                "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
                                 "clickhouse": item[1],
                                 "valid": True,
                             }
@@ -1077,7 +1076,7 @@ class DataWarehouseSavedQuerySerializer(
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to retrieve types for view %s", view.name)
-                    raise serializers.ValidationError("Failed to retrieve types for view")
+                    raise serializers.ValidationError(f"Failed to retrieve types for view: {e}")
 
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
