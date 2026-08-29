@@ -16846,9 +16846,9 @@ export namespace Schemas {
       table_id?: string;
       /** Warehouse view (saved query) id to certify. */
       saved_query_id?: string;
-      /** Table name; 409 with candidates if ambiguous. */
+      /** Queryable HogQL table name; 409 with candidates if ambiguous. */
       table_name?: string;
-      /** View name; 409 with candidates if ambiguous. */
+      /** Queryable HogQL view name; 409 with candidates if ambiguous. */
       view_name?: string;
       /** Why this mark exists. */
       notes?: string;
@@ -20945,7 +20945,7 @@ export namespace Schemas {
       readonly saved_query: string | null;
       /** Whether the marked target is a 'table' or a 'view'. */
       readonly target_type: string;
-      /** Name of the marked table or view. */
+      /** Queryable HogQL name of the marked table or view. */
       readonly target_name: string;
       /** proposed, certified (prefer this source), or deprecated (avoid this source). */
       readonly status: string;
@@ -28866,38 +28866,38 @@ export namespace Schemas {
       Selected: 'selected',
     } as const;
 
-    export interface MergeToDeployBucket {
+    export interface LeadTimeBucket {
       /** Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). Keyed on deploy time: a PR lands in the bucket its first post-merge deploy succeeded in. */
       bucket_start: string;
-      /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). */
+      /** PRs whose first post-merge successful deployment landed in this bucket (bots and drafts excluded; narrowed by github_team when given). The same population backs every lead-time series, so the stages compare bucket by bucket. */
       deployed_pr_count: number;
       /**
-         * Fastest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+         * Fastest duration for this stage in this bucket, in seconds. Null when nothing deployed.
          * @nullable
          */
       min_seconds: number | null;
       /**
-         * 25th percentile merge-to-deploy seconds. Null when nothing deployed.
+         * 25th percentile of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       p25_seconds: number | null;
       /**
-         * Median merge-to-deploy seconds. Null when nothing deployed.
+         * Median of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       p50_seconds: number | null;
       /**
-         * Mean merge-to-deploy seconds. Null when nothing deployed.
+         * Mean of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       mean_seconds: number | null;
       /**
-         * 75th percentile merge-to-deploy seconds. Null when nothing deployed.
+         * 75th percentile of the stage's duration, in seconds. Null when nothing deployed.
          * @nullable
          */
       p75_seconds: number | null;
       /**
-         * Slowest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
+         * Slowest duration for this stage in this bucket, in seconds. Null when nothing deployed.
          * @nullable
          */
       max_seconds: number | null;
@@ -28907,7 +28907,11 @@ export namespace Schemas {
       /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
       deployment_frequency_series: DeploymentFrequencyBucket[];
       /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
-      merge_to_deploy_series: MergeToDeployBucket[];
+      merge_to_deploy_series: LeadTimeBucket[];
+      /** Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series, so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time. Empty in the same cases as merge_to_deploy_series. */
+      open_to_merge_series: LeadTimeBucket[];
+      /** Open-to-deploy distribution over the same deployed PRs and buckets: the full open to first-successful-deploy span the two stages above compose into. Empty in the same cases as merge_to_deploy_series. */
+      open_to_deploy_series: LeadTimeBucket[];
       /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
       deploy_data_available: boolean;
       /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), an exact environment name (the one passed, or the busiest persistent environment when nothing is marked production), or 'persistent' (no persistent environment deployed in the window, so every non-transient one counts). Transient environments (ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in the scan window, so two different windows can resolve different scopes and are not always comparable. */
@@ -28982,7 +28986,7 @@ export namespace Schemas {
          * @nullable
          */
       latest_deploy_status_at: string | null;
-      /** Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'. */
+      /** Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'. */
       series_granularity: string;
     }
 
@@ -85151,6 +85155,61 @@ export namespace Schemas {
       summary: unknown;
     }
 
+    export interface TrunkQuarantineTeamDebt {
+      /** Owning team slug, or 'unowned'. */
+      owner_team: string;
+      /** Tests this team owns that Trunk currently quarantines. */
+      test_count: number;
+      /** Of those, tests quarantined longer than ttl_days. */
+      overdue_count: number;
+      /** Age in days of the team's oldest standing quarantine. */
+      oldest_age_days: number;
+    }
+
+    export interface TrunkQuarantinedTest {
+      /** Test runner: 'pytest' or 'jest'. */
+      runner: string;
+      /** Runner-native test id reconstructed from Trunk's (file, classname, name) key. */
+      nodeid: string;
+      /** Repo-relative path of the test file, as Trunk reports it. */
+      file: string;
+      /** Owning team slug from the per-test CI spans' emission-time stamp, or 'unowned' when no in-retention span carries one. */
+      owner_team: string;
+      /** Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'. */
+      status: string;
+      /** How the quarantine was applied in Trunk, e.g. 'AUTO_QUARANTINE'. */
+      quarantine_setting: string;
+      /** When Trunk quarantined the test. */
+      quarantined_at: string;
+      /** Whole days since the quarantine started. */
+      age_days: number;
+      /** True once age_days exceeds ttl_days: the quarantine has outlived the TTL. */
+      overdue: boolean;
+      /**
+         * The Trunk app's page for this test; null when the connected source has no organization slug or the row carries no test case id.
+         * @nullable
+         */
+      trunk_url: string | null;
+    }
+
+    export interface TrunkQuarantineDebt {
+      /** Per-team rollup, most indebted first: overdue count, then test count, then oldest age. */
+      teams: TrunkQuarantineTeamDebt[];
+      /** Every currently quarantined test, oldest first. */
+      tests: TrunkQuarantinedTest[];
+      /** False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error. */
+      available: boolean;
+      /** Days a quarantine may stand before it counts as overdue. */
+      ttl_days: number;
+      /** The 'owner/name' repository the debt was read for; test file paths are relative to it. */
+      repository: string;
+      /**
+         * The Trunk app's flaky-tests page for this repository; null when the connected source has no organization slug.
+         * @nullable
+         */
+      trunk_url: string | null;
+    }
+
     export interface UnquarantineQuery {
       /**
          * Snapshot identifier to unquarantine
@@ -91962,6 +92021,17 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsTrunkQuarantineParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsWorkflowHealthParams = {
     /**
      * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
@@ -97489,6 +97559,10 @@ export namespace Schemas {
     export type SurveysListParams = {
     archived?: boolean;
     /**
+     * Filter surveys by the ID of the user who created them.
+     */
+    created_by?: number;
+    /**
      * Multiple values may be separated by commas.
      */
     ids?: string[];
@@ -97505,6 +97579,14 @@ export namespace Schemas {
      */
     search?: string;
     /**
+     * Filter surveys by their current status.
+     *
+     * * `draft` - Draft
+     * * `running` - Running
+     * * `complete` - Complete
+     */
+    status?: SurveysListStatus;
+    /**
      * * `popover` - popover
      * * `widget` - widget
      * * `external_survey` - external survey
@@ -97512,6 +97594,15 @@ export namespace Schemas {
      */
     type?: SurveysListType;
     };
+
+    export type SurveysListStatus = typeof SurveysListStatus[keyof typeof SurveysListStatus];
+
+
+    export const SurveysListStatus = {
+      Complete: 'complete',
+      Draft: 'draft',
+      Running: 'running',
+    } as const;
 
     export type SurveysListType = typeof SurveysListType[keyof typeof SurveysListType];
 

@@ -181,7 +181,12 @@ log "asserting exec-daemon (hogpanion) env carries the container-style env"
 daemon_env_probe='set -eu
 pid=$(systemctl show hogpanion.service -p MainPID --value 2>/dev/null || echo 0)
 if [ -z "$pid" ] || [ "$pid" = "0" ]; then
-    echo "hogpanion has no running MainPID" >&2; exit 1
+    echo "hogpanion has no running MainPID" >&2
+    echo "--- hogpanion.service status ---" >&2
+    systemctl status hogpanion.service --no-pager >&2 2>&1 || true
+    echo "--- hogpanion journal (tail) ---" >&2
+    journalctl -u hogpanion.service --no-pager 2>&1 | tail -40 >&2 || true
+    exit 1
 fi
 environ=$(sudo cat "/proc/$pid/environ" | tr "\0" "\n")
 printf "%s\n" "$environ" | grep -qx "IS_SANDBOX=1" || { echo "daemon env missing IS_SANDBOX=1" >&2; exit 1; }
