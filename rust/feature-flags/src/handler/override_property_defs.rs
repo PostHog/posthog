@@ -14,6 +14,11 @@ use uuid::Uuid;
 
 use crate::metrics::consts::OVERRIDE_PROPERTY_DEF_WRITES_COUNTER;
 
+#[cfg(test)]
+use super::test_metrics::inc;
+#[cfg(not(test))]
+use common_metrics::inc;
+
 /// `PropertyDefinition.Type.PERSON` in Django.
 const PERSON_PROPERTY_TYPE: i16 = 2;
 
@@ -51,16 +56,19 @@ pub fn eligible_override_property_names<'a, I>(names: I) -> Vec<String>
 where
     I: IntoIterator<Item = &'a String>,
 {
-    let mut out = Vec::new();
-    for name in names {
-        if out.len() >= MAX_KEYS_PER_REQUEST {
-            break;
-        }
-        if name.is_empty() || name.len() > MAX_PROPERTY_NAME_LEN || name.starts_with('$') {
-            continue;
-        }
-        out.push(name.clone());
-    }
+    let mut out: Vec<String> = names
+        .into_iter()
+        .filter(|name| {
+            !name.is_empty()
+                && name.len() <= MAX_PROPERTY_NAME_LEN
+                && !name.starts_with('$')
+                && !name.contains('\0')
+        })
+        .cloned()
+        .collect();
+    out.sort();
+    out.dedup();
+    out.truncate(MAX_KEYS_PER_REQUEST);
     out
 }
 
@@ -77,37 +85,55 @@ pub async fn register_override_person_properties(
     project_id: i64,
     names: Vec<String>,
 ) {
-    let mut to_write = Vec::new();
+    let mut candidates = Vec::new();
     let seen = seen_override_keys();
     for name in names {
-        if name.is_empty() || name.len() > MAX_PROPERTY_NAME_LEN || name.starts_with('$') {
+        if name.is_empty()
+            || name.len() > MAX_PROPERTY_NAME_LEN
+            || name.starts_with('$')
+            || name.contains('\0')
+        {
             continue;
         }
         let cache_key = (project_id, name.clone());
         if seen.contains_key(&cache_key) {
             continue;
         }
-        match redis
-            .set_nx_ex(
-                debounce_key(project_id, &name),
+        candidates.push(name);
+    }
+
+    if candidates.is_empty() {
+        return;
+    }
+
+    let items: Vec<(String, String, usize)> = candidates
+        .iter()
+        .map(|name| {
+            (
+                debounce_key(project_id, name),
                 "1".to_string(),
-                DEBOUNCE_TTL_SECONDS,
+                DEBOUNCE_TTL_SECONDS as usize,
             )
-            .await
-        {
-            Ok(true) => {
-                seen.insert(cache_key, ());
-                to_write.push(name);
-            }
-            Ok(false) => {
-                seen.insert(cache_key, ());
-            }
-            Err(e) => {
-                warn!(
-                    error = %e,
-                    "Redis debounce check failed for override person property definition"
-                );
-            }
+        })
+        .collect();
+
+    let acquired = match redis.batch_set_nx_ex(items).await {
+        Ok(flags) => flags,
+        Err(e) => {
+            warn!(
+                error = %e,
+                "Redis debounce check failed for override person property definition"
+            );
+            return;
+        }
+    };
+
+    let mut to_write = Vec::new();
+    for (name, won) in candidates.into_iter().zip(acquired) {
+        let cache_key = (project_id, name.clone());
+        seen.insert(cache_key, ());
+        if won {
+            to_write.push(name);
         }
     }
 
@@ -115,7 +141,21 @@ pub async fn register_override_person_properties(
         return;
     }
 
-    insert_person_property_definitions(pg_writer, team_id, project_id, &to_write).await;
+    if !insert_person_property_definitions(pg_writer, team_id, project_id, &to_write).await {
+        let keys: Vec<String> = to_write
+            .iter()
+            .map(|name| debounce_key(project_id, name))
+            .collect();
+        if let Err(e) = redis.batch_del(keys).await {
+            warn!(
+                error = %e,
+                "Failed to roll back Redis debounce after override person property definition insert error"
+            );
+        }
+        for name in &to_write {
+            seen.invalidate(&(project_id, name.clone()));
+        }
+    }
 }
 
 /// Inserts person property definitions for `names`, skipping any that already exist.
@@ -128,16 +168,21 @@ pub async fn insert_person_property_definitions(
     team_id: i32,
     project_id: i64,
     names: &[String],
-) {
+) -> bool {
     let mut conn = match pg_writer.get_connection().await {
         Ok(conn) => conn,
         Err(e) => {
+            inc(
+                OVERRIDE_PROPERTY_DEF_WRITES_COUNTER,
+                &[("result".to_string(), "error".to_string())],
+                1,
+            );
             warn!(
                 team_id,
                 error = %e,
                 "Failed to acquire connection for override person property definitions"
             );
-            return;
+            return false;
         }
     };
 
@@ -162,17 +207,25 @@ pub async fn insert_person_property_definitions(
 
     match result {
         Ok(_) => {
-            metrics::counter!(OVERRIDE_PROPERTY_DEF_WRITES_COUNTER, &[("result", "success")])
-                .increment(1);
+            inc(
+                OVERRIDE_PROPERTY_DEF_WRITES_COUNTER,
+                &[("result".to_string(), "success".to_string())],
+                1,
+            );
+            true
         }
         Err(e) => {
-            metrics::counter!(OVERRIDE_PROPERTY_DEF_WRITES_COUNTER, &[("result", "error")])
-                .increment(1);
+            inc(
+                OVERRIDE_PROPERTY_DEF_WRITES_COUNTER,
+                &[("result".to_string(), "error".to_string())],
+                1,
+            );
             warn!(
                 team_id,
                 error = %e,
                 "Failed to write override person property definitions"
             );
+            false
         }
     }
 }
@@ -185,12 +238,12 @@ mod tests {
 
     const PERSON_TYPE: i16 = 2;
 
-    async fn count_person_definition(ctx: &TestContext, team_id: i32, name: &str) -> i64 {
+    async fn count_person_definition(ctx: &TestContext, project_id: i64, name: &str) -> i64 {
         let mut conn = ctx.get_non_persons_connection().await.unwrap();
         let row: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM posthog_propertydefinition WHERE team_id = $1 AND name = $2 AND type = $3",
+            "SELECT COUNT(*) FROM posthog_propertydefinition WHERE coalesce(project_id, team_id) = $1 AND name = $2 AND type = $3",
         )
-        .bind(team_id)
+        .bind(project_id)
         .bind(name)
         .bind(PERSON_TYPE)
         .fetch_one(&mut *conn)
@@ -205,6 +258,7 @@ mod tests {
         let names = vec![
             "$geoip_city_name".to_string(),
             "$lib".to_string(),
+            "plan\0evil".to_string(),
             String::new(),
             too_long,
             "plan_tier".to_string(),
@@ -242,7 +296,7 @@ mod tests {
         )
         .await;
 
-        assert_eq!(count_person_definition(&ctx, team.id, &name).await, 1);
+        assert_eq!(count_person_definition(&ctx, project_id, &name).await, 1);
 
         let mut conn = ctx.get_non_persons_connection().await.unwrap();
         let row: (Option<String>,) = sqlx::query_as(
@@ -274,7 +328,7 @@ mod tests {
             .await;
         }
 
-        assert_eq!(count_person_definition(&ctx, team.id, &name).await, 1);
+        assert_eq!(count_person_definition(&ctx, project_id, &name).await, 1);
     }
 
     #[tokio::test]
@@ -300,14 +354,15 @@ mod tests {
                 plan.clone(),
                 region.clone(),
                 "$geoip_city_name".to_string(),
+                "plan\0evil".to_string(),
             ],
         )
         .await;
 
-        assert_eq!(count_person_definition(&ctx, team.id, &plan).await, 1);
-        assert_eq!(count_person_definition(&ctx, team.id, &region).await, 1);
+        assert_eq!(count_person_definition(&ctx, project_id, &plan).await, 1);
+        assert_eq!(count_person_definition(&ctx, project_id, &region).await, 1);
         assert_eq!(
-            count_person_definition(&ctx, team.id, "$geoip_city_name").await,
+            count_person_definition(&ctx, project_id, "$geoip_city_name").await,
             0
         );
     }
@@ -332,7 +387,7 @@ mod tests {
         )
         .await;
 
-        assert_eq!(count_person_definition(&ctx, team.id, &name).await, 0);
+        assert_eq!(count_person_definition(&ctx, project_id, &name).await, 0);
     }
 
     #[tokio::test]
@@ -366,9 +421,74 @@ mod tests {
         let redis_calls = mock
             .get_calls()
             .into_iter()
-            .filter(|call| call.op == "set_nx_ex")
+            .filter(|call| call.op == "batch_set_nx_ex")
             .count();
         assert_eq!(redis_calls, 1);
-        assert_eq!(count_person_definition(&ctx, team.id, &name).await, 1);
+        assert_eq!(count_person_definition(&ctx, project_id, &name).await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_insert_scopes_on_project_id() {
+        let ctx = TestContext::new(None).await;
+        let team = ctx.insert_new_team(None).await.unwrap();
+        let other = ctx.insert_new_team(None).await.unwrap();
+        let project_id = i64::from(other.id);
+        let name = format!("plan_tier_project_{}", team.id);
+
+        insert_person_property_definitions(
+            ctx.non_persons_writer.clone(),
+            team.id,
+            project_id,
+            std::slice::from_ref(&name),
+        )
+        .await;
+
+        assert_eq!(count_person_definition(&ctx, project_id, &name).await, 1);
+        assert_eq!(
+            count_person_definition(&ctx, i64::from(team.id), &name).await,
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn test_register_retries_after_redis_error() {
+        let ctx = TestContext::new(None).await;
+        let team = ctx.insert_new_team(None).await.unwrap();
+        let project_id = i64::from(team.id);
+        let name = format!("plan_tier_redis_err_{}", team.id);
+        let key = debounce_key(project_id, &name);
+
+        let mock = MockRedisClient::new()
+            .set_nx_ex_ret(&key, Err(common_redis::CustomRedisError::Timeout));
+        let redis: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock.clone());
+
+        register_override_person_properties(
+            redis.clone(),
+            ctx.non_persons_writer.clone(),
+            team.id,
+            project_id,
+            vec![name.clone()],
+        )
+        .await;
+        assert_eq!(count_person_definition(&ctx, project_id, &name).await, 0);
+
+        let mock = MockRedisClient::new().set_nx_ex_ret(&key, Ok(true));
+        let redis: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock.clone());
+        register_override_person_properties(
+            redis,
+            ctx.non_persons_writer.clone(),
+            team.id,
+            project_id,
+            vec![name.clone()],
+        )
+        .await;
+        assert_eq!(count_person_definition(&ctx, project_id, &name).await, 1);
+        assert_eq!(
+            mock.get_calls()
+                .into_iter()
+                .filter(|call| call.op == "batch_set_nx_ex")
+                .count(),
+            1
+        );
     }
 }

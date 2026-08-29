@@ -266,7 +266,7 @@ async fn process_request_inner(
 
                 // Register request-time person property keys as taxonomy metadata so they
                 // appear in the flag release-condition picker. Does not write person profiles.
-                // Off the response path; Redis + an in-process cache debounce repeats.
+                // Spawned, so it does not block the response.
                 if !*context.state.config.skip_writes {
                     if let Some(person_properties) = request.person_properties.as_ref() {
                         let names = override_property_defs::eligible_override_property_names(

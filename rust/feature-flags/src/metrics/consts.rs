@@ -1,5 +1,4 @@
-// Best-effort writes of person property definitions harvested from request-time
-// `person_properties` overrides, so override-only keys show up in the release-condition picker.
+// Override property definition writes from request-time `person_properties`.
 // Labels: result="success" | "error".
 pub const OVERRIDE_PROPERTY_DEF_WRITES_COUNTER: &str = "flags_override_property_def_writes_total";
 
