@@ -219,6 +219,11 @@ export interface LeadTimeBucketApi {
      */
     min_seconds: number | null
     /**
+     * 5th percentile of the stage's duration, in seconds — the lower whisker when outliers are excluded. Null when nothing deployed.
+     * @nullable
+     */
+    p05_seconds: number | null
+    /**
      * 25th percentile of the stage's duration, in seconds. Null when nothing deployed.
      * @nullable
      */
@@ -239,6 +244,11 @@ export interface LeadTimeBucketApi {
      */
     p75_seconds: number | null
     /**
+     * 95th percentile of the stage's duration, in seconds — the upper whisker when outliers are excluded. Null when nothing deployed.
+     * @nullable
+     */
+    p95_seconds: number | null
+    /**
      * Slowest duration for this stage in this bucket, in seconds. Null when nothing deployed.
      * @nullable
      */
@@ -248,7 +258,7 @@ export interface LeadTimeBucketApi {
 export interface DoraOverviewApi {
     /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
     deployment_frequency_series: DeploymentFrequencyBucketApi[]
-    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
+    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p5/p25/p50/mean/p75/p95/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
     merge_to_deploy_series: LeadTimeBucketApi[]
     /** Open-to-merge distribution over the SAME deployed PRs and buckets as merge_to_deploy_series, so the two stages compare bucket by bucket. Not the all-merged-PRs cycle time. Empty in the same cases as merge_to_deploy_series. */
     open_to_merge_series: LeadTimeBucketApi[]

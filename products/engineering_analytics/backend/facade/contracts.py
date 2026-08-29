@@ -1247,12 +1247,15 @@ class LeadTimeBucket:
     # PRs whose first post-merge successful deployment landed in this bucket.
     deployed_pr_count: int
     # Distribution of the stage's duration, in seconds, over those PRs — the six-number
-    # summary a box plot draws (box p25→p75, median line, mean marker, whiskers).
+    # summary a box plot draws (box p25→p75, median line, mean marker, whiskers), plus
+    # p5/p95, the whisker pair the outlier-excluding view draws instead of min/max.
     min_seconds: float | None
+    p05_seconds: float | None
     p25_seconds: float | None
     p50_seconds: float | None
     mean_seconds: float | None
     p75_seconds: float | None
+    p95_seconds: float | None
     max_seconds: float | None
 
 

@@ -246,11 +246,13 @@ _LEAD_TIME_HEADLINE_SELECT = f"""
 
 
 def _box_stat_columns(column: str, prefix: str) -> str:
-    """The six-number box-plot summary of ``column``, aliased under ``prefix``."""
+    """The box-plot summary of ``column``, aliased under ``prefix``: the six-number summary
+    plus p5/p95, the whisker pair the outlier-excluding view draws instead of min/max."""
     return (
-        f"min({column}) AS {prefix}_min, quantile(0.25)({column}) AS {prefix}_p25, "
-        f"quantile(0.5)({column}) AS {prefix}_p50, avg({column}) AS {prefix}_mean, "
-        f"quantile(0.75)({column}) AS {prefix}_p75, max({column}) AS {prefix}_max"
+        f"min({column}) AS {prefix}_min, quantile(0.05)({column}) AS {prefix}_p05, "
+        f"quantile(0.25)({column}) AS {prefix}_p25, quantile(0.5)({column}) AS {prefix}_p50, "
+        f"avg({column}) AS {prefix}_mean, quantile(0.75)({column}) AS {prefix}_p75, "
+        f"quantile(0.95)({column}) AS {prefix}_p95, max({column}) AS {prefix}_max"
     )
 
 
@@ -258,7 +260,7 @@ def _box_stat_columns(column: str, prefix: str) -> str:
 # _LEAD_TIME_SERIES_SELECT. _lead_time_bucket's ``stage`` index walks this same list, so the
 # SQL column order and the Python row-slice order can't drift independently.
 _LEAD_TIME_STAGES = (("mtd", "lead_seconds"), ("otm", "open_to_merge_seconds"), ("otd", "open_to_deploy_seconds"))
-_STAGE_STAT_WIDTH = 6  # min, p25, p50, mean, p75, max
+_STAGE_STAT_WIDTH = 8  # min, p05, p25, p50, mean, p75, p95, max
 _STAGE_MERGE_TO_DEPLOY, _STAGE_OPEN_TO_MERGE, _STAGE_OPEN_TO_DEPLOY = range(len(_LEAD_TIME_STAGES))
 
 _LEAD_TIME_SERIES_SELECT = f"""
@@ -690,23 +692,27 @@ def _lead_time_bucket(bucket: datetime, stats: tuple[Any, ...] | None, *, stage:
             bucket_start=bucket,
             deployed_pr_count=0,
             min_seconds=None,
+            p05_seconds=None,
             p25_seconds=None,
             p50_seconds=None,
             mean_seconds=None,
             p75_seconds=None,
+            p95_seconds=None,
             max_seconds=None,
         )
     n = stats[0]
     offset = 1 + stage * _STAGE_STAT_WIDTH
-    min_s, p25, p50, mean, p75, max_s = stats[offset : offset + _STAGE_STAT_WIDTH]
+    min_s, p05, p25, p50, mean, p75, p95, max_s = stats[offset : offset + _STAGE_STAT_WIDTH]
     return LeadTimeBucket(
         bucket_start=bucket,
         deployed_pr_count=int(n or 0),
         min_seconds=opt_float(min_s),
+        p05_seconds=opt_float(p05),
         p25_seconds=opt_float(p25),
         p50_seconds=opt_float(p50),
         mean_seconds=opt_float(mean),
         p75_seconds=opt_float(p75),
+        p95_seconds=opt_float(p95),
         max_seconds=opt_float(max_s),
     )
 

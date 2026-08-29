@@ -230,6 +230,9 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert jan_13.deployed_pr_count == 2  # PRs 2 and 6, both deployed by d3
         assert jan_13.min_seconds == 9000.0
         assert jan_13.max_seconds == 97200.0
+        # ClickHouse quantile interpolates linearly between the two samples.
+        assert jan_13.p05_seconds == 13410.0
+        assert jan_13.p95_seconds == 92790.0
         empty = lead[datetime(2026, 1, 15)]
         assert empty.deployed_pr_count == 0
         assert empty.p50_seconds is None

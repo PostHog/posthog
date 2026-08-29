@@ -44,10 +44,12 @@ function leadTimeSeries(stats: (number[] | null)[]): DoraOverviewApi['merge_to_d
             bucket_start: `2026-07-${day}T00:00:00Z`,
             deployed_pr_count: bucket ? bucket[0] : 0,
             min_seconds: bucket ? bucket[1] : null,
+            p05_seconds: bucket ? (bucket[1] + bucket[2]) / 2 : null,
             p25_seconds: bucket ? bucket[2] : null,
             p50_seconds: bucket ? bucket[3] : null,
             mean_seconds: bucket ? bucket[4] : null,
             p75_seconds: bucket ? bucket[5] : null,
+            p95_seconds: bucket ? (bucket[5] + bucket[6]) / 2 : null,
             max_seconds: bucket ? bucket[6] : null,
         }
     })

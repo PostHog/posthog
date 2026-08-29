@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInputSelect, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInputSelect, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { TimeSeriesBarChart, useChartTheme, type TimeInterval } from '@posthog/quill-charts'
 
 import { dayjs } from 'lib/dayjs'
@@ -40,8 +40,10 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
         environmentOptions,
         githubTeamOptions,
         showAllLeadTimeStages,
+        excludeOutliers,
     } = useValues(doraLogic)
-    const { setEnvironments, setGithubTeam, setGranularity, toggleLeadTimeStages, loadDora } = useActions(doraLogic)
+    const { setEnvironments, setExcludeOutliers, setGithubTeam, setGranularity, toggleLeadTimeStages, loadDora } =
+        useActions(doraLogic)
     const chartTheme = useChartTheme()
     const frequencySeries = useMemo(
         () => [{ key: 'deployments', label: 'Deployments', data: frequencyCounts }],
@@ -236,7 +238,17 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                 <Section
                     id="merge-to-deploy"
                     title="Lead time distributions"
-                    note="Box per bucket: whisker min to max, box p25 to p75, line at the median, dot at the mean. Buckets key on deploy time."
+                    note={`Box per bucket: whisker ${excludeOutliers ? 'p5 to p95' : 'min to max'}, box p25 to p75, line at the median, dot at the mean. Buckets key on deploy time.`}
+                    right={
+                        <LemonSwitch
+                            size="small"
+                            bordered
+                            label="Exclude outliers"
+                            checked={excludeOutliers}
+                            onChange={setExcludeOutliers}
+                            data-attr="engineering-analytics-dora-exclude-outliers"
+                        />
+                    }
                     busy={doraLoading && !!dora}
                 >
                     {firstLoad ? (
@@ -258,6 +270,7 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                                             seriesLabel={stage.seriesLabel}
                                             buckets={stage.buckets}
                                             formatSeconds={compactAgeLabel}
+                                            excludeOutliers={excludeOutliers}
                                             dataAttr={stage.dataAttr}
                                         />
                                     </div>

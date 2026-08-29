@@ -18,10 +18,12 @@ function toBoxPlotBuckets(series: LeadTimeSeriesApi | undefined, granularity: st
         label: formatBucket(bucket.bucket_start, granularity as WorkflowGranularity),
         count: bucket.deployed_pr_count,
         minSeconds: bucket.min_seconds,
+        p05Seconds: bucket.p05_seconds,
         p25Seconds: bucket.p25_seconds,
         p50Seconds: bucket.p50_seconds,
         meanSeconds: bucket.mean_seconds,
         p75Seconds: bucket.p75_seconds,
+        p95Seconds: bucket.p95_seconds,
         maxSeconds: bucket.max_seconds,
     }))
 }
@@ -47,6 +49,7 @@ export interface doraLogicValues {
     environmentOptions: string[]
     environments: string[]
     environmentScopeLabel: string
+    excludeOutliers: boolean
     frequencyCounts: number[]
     frequencyIsoLabels: string[]
     githubTeam: string | null
@@ -76,6 +79,9 @@ export interface doraLogicActions {
     }
     setEnvironments: (environments: string[]) => {
         environments: string[]
+    }
+    setExcludeOutliers: (excludeOutliers: boolean) => {
+        excludeOutliers: boolean
     }
     setGithubTeam: (githubTeam: string | null) => {
         githubTeam: string | null
@@ -116,6 +122,7 @@ export const doraLogic = kea<doraLogicType>([
 
     actions({
         setEnvironments: (environments: string[]) => ({ environments }),
+        setExcludeOutliers: (excludeOutliers: boolean) => ({ excludeOutliers }),
         setGithubTeam: (githubTeam: string | null) => ({ githubTeam }),
         setGranularity: (granularity: DoraGranularity | null) => ({ granularity }),
         toggleLeadTimeStages: true,
@@ -171,6 +178,12 @@ export const doraLogic = kea<doraLogicType>([
             false,
             {
                 toggleLeadTimeStages: (state: boolean) => !state,
+            },
+        ],
+        excludeOutliers: [
+            false,
+            {
+                setExcludeOutliers: (_: boolean, { excludeOutliers }: { excludeOutliers: boolean }) => excludeOutliers,
             },
         ],
         githubTeam: [

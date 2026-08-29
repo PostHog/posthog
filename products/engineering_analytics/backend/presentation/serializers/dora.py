@@ -40,6 +40,11 @@ class LeadTimeBucketSerializer(DataclassSerializer):
                 "help_text": "Fastest duration for this stage in this bucket, in seconds. Null when nothing deployed.",
                 "allow_null": True,
             },
+            "p05_seconds": {
+                "help_text": "5th percentile of the stage's duration, in seconds — the lower whisker when "
+                "outliers are excluded. Null when nothing deployed.",
+                "allow_null": True,
+            },
             "p25_seconds": {
                 "help_text": "25th percentile of the stage's duration, in seconds. Null when nothing deployed.",
                 "allow_null": True,
@@ -54,6 +59,11 @@ class LeadTimeBucketSerializer(DataclassSerializer):
             },
             "p75_seconds": {
                 "help_text": "75th percentile of the stage's duration, in seconds. Null when nothing deployed.",
+                "allow_null": True,
+            },
+            "p95_seconds": {
+                "help_text": "95th percentile of the stage's duration, in seconds — the upper whisker when "
+                "outliers are excluded. Null when nothing deployed.",
                 "allow_null": True,
             },
             "max_seconds": {
@@ -72,8 +82,8 @@ class DoraOverviewSerializer(DataclassSerializer):
     merge_to_deploy_series = LeadTimeBucketSerializer(
         many=True,
         help_text="Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot "
-        "series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, "
-        "or when github_team was passed without membership data synced.",
+        "series (min/p5/p25/p50/mean/p75/p95/max seconds per bucket). Empty when the deploy tables aren't "
+        "synced, or when github_team was passed without membership data synced.",
     )
     open_to_merge_series = LeadTimeBucketSerializer(
         many=True,
