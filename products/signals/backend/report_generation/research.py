@@ -649,26 +649,14 @@ def build_report_presentation_prompt(
     previous_title: str | None = None,
     previous_summary: str | None = None,
     previous_charts: list[ReportChart] | None = None,
-    charts_enabled: bool = False,
 ) -> str:
-    schema_dict = ReportPresentationOutput.model_json_schema()
-    if not charts_enabled:
-        # Emit a chart-free schema when the team isn't opted in: drop the `charts` field (and the
-        # now-unreferenced chart type defs) so the model is never shown — let alone told to fill —
-        # a field whose description mentions authoring `chart:` links. Combined with the caller
-        # dropping any charts anyway, an un-opted report can never carry one.
-        schema_dict.get("properties", {}).pop("charts", None)
-        schema_dict.pop("$defs", None)
-    schema = json.dumps(schema_dict, indent=2)
+    schema = json.dumps(ReportPresentationOutput.model_json_schema(), indent=2)
     previous_presentation_context = _render_previous_presentation_context(previous_title, previous_summary)
 
-    # The charts guidance (and any previous-charts context) is rendered only when the team is opted in.
-    charts_sections = ""
-    if charts_enabled:
-        previous_charts_context = _render_previous_charts_context(previous_charts or [])
-        charts_sections = "\n\n" + _REPORT_CHARTS_GUIDANCE
-        if previous_charts_context:
-            charts_sections += "\n\n" + previous_charts_context
+    charts_sections = "\n\n" + _REPORT_CHARTS_GUIDANCE
+    previous_charts_context = _render_previous_charts_context(previous_charts or [])
+    if previous_charts_context:
+        charts_sections += "\n\n" + previous_charts_context
 
     return f"""Now write the final **report title and summary** based on your research across all {total_signals} signal(s).
 
@@ -752,7 +740,6 @@ async def run_multi_turn_research(
     has_business_knowledge: bool = False,
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
-    charts_enabled: bool = False,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
     from products.tasks.backend.facade import api as tasks_facade
@@ -912,7 +899,6 @@ async def run_multi_turn_research(
             previous_title=title or (previous_report_research.title if previous_report_research else None),
             previous_summary=summary or (previous_report_research.summary if previous_report_research else None),
             previous_charts=previous_report_research.charts if previous_report_research else None,
-            charts_enabled=charts_enabled,
         )
         presentation_result = await session.send_followup(
             presentation_prompt,
@@ -936,10 +922,7 @@ async def run_multi_turn_research(
     return ReportResearchOutput(
         title=presentation_result.title,
         summary=presentation_result.summary,
-        # Only carry charts for an opted-in team, regardless of what the model returned — a redundant
-        # guard alongside the gated schema/guidance, so the capability can't leak even if a future
-        # change reintroduces the field into a disabled prompt.
-        charts=presentation_result.charts if charts_enabled else [],
+        charts=presentation_result.charts,
         research_task_id=str(session.task.id),
         old_artefacts=old_artefacts,
         new_artefacts=new_artefacts,
