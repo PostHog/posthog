@@ -51,6 +51,13 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ROKTADS
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # The host is fixed, but `account_id` picks the account the stored app secret is spent
+        # against. Retargeting it would let an editor who cannot read the secret pull another
+        # account the credentials reach, so changing it must force credential re-entry.
+        return ["account_id"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url": "Rokt rejected these credentials. Please regenerate the app ID and app secret in One Platform and reconnect.",

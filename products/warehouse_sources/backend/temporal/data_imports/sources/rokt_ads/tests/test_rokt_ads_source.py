@@ -48,6 +48,10 @@ class TestSourceIdentity:
     def test_source_type(self):
         assert RoktAdsSource().source_type == ExternalDataSourceType.ROKTADS
 
+    def test_connection_host_fields_force_secret_reentry(self):
+        # `account_id` picks the account the stored app secret is spent against.
+        assert RoktAdsSource().connection_host_fields == ["account_id"]
+
     def test_config_is_an_advertising_source_with_alpha_release_status(self):
         config = RoktAdsSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ADVERTISING
