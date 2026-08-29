@@ -465,14 +465,17 @@ jobs:
 
             - name: Compute schema cache key from merge-base
               id: schema-key
-              if: github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
-                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
-                  # The fetch-depth:1000 checkout + base-ref fetch above ensure the
-                  # full ancestry needed to find the divergence point is available.
-                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+                      MERGE_BASE="$GITHUB_SHA"
+                  else
+                      # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                      # The fetch-depth:1000 checkout + base-ref fetch above ensure the
+                      # full ancestry needed to find the divergence point is available.
+                      MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  fi
                   if [ -z "$MERGE_BASE" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "migrations_key=" >> $GITHUB_OUTPUT
@@ -500,7 +503,7 @@ jobs:
                   # and the migrate top-ups only apply forward, so they cannot repair a
                   # dump that is newer than the code.
                   HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
-                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                  if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
                   # Shared key: hash merge-base schema inputs, not PR head, so PR migrations still
@@ -861,7 +864,7 @@ jobs:
               run: bin/ci-wait-for-docker wait objectstorage
 
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
+              if: ${{ needs.turbo-discover.outputs.schema_cache_key != '' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -879,7 +882,6 @@ jobs:
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
               id: prime-schema
-              if: ${{ github.event_name == 'pull_request' }}
               run: |
                   echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
@@ -895,13 +897,13 @@ jobs:
                   fi
 
             - name: Migrate test_posthog from scratch
-              # Any run without a restored schema cache (master, dispatches, PR cache
-              # misses) replays the full migration chain here, in a process that exits
+              # Any run without a restored schema cache replays the full migration chain
+              # here, in a process that exits
               # before tests: the executor's memory high-water stays resident in
               # whichever process runs it, and pytest must not carry it through the
               # test phase. pytest --reuse-db adopts the DB like the PR prime above;
               # any failure falls back to the in-pytest migrate.
-              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              if: ${{ steps.prime-schema.outputs.restored != 'true' }}
               env:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: |
@@ -2952,7 +2954,7 @@ jobs:
               run: bin/ci-wait-for-docker wait
 
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
+              if: ${{ needs.turbo-discover.outputs.schema_cache_key != '' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -2970,7 +2972,6 @@ jobs:
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
               id: prime-schema
-              if: ${{ github.event_name == 'pull_request' }}
               run: |
                   echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
@@ -2986,13 +2987,13 @@ jobs:
                   fi
 
             - name: Migrate test_posthog from scratch
-              # Any run without a restored schema cache (master, dispatches, PR cache
-              # misses) replays the full migration chain here, in a process that exits
+              # Any run without a restored schema cache replays the full migration chain
+              # here, in a process that exits
               # before tests: the executor's memory high-water stays resident in
               # whichever process runs it, and pytest must not carry it through the
               # test phase. pytest --reuse-db adopts the DB like the PR prime above;
               # any failure falls back to the in-pytest migrate.
-              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              if: ${{ steps.prime-schema.outputs.restored != 'true' }}
               env:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: |
