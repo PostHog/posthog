@@ -184,3 +184,13 @@ export function findLatestDiscussionTask(
     t.startedAt > latest.startedAt ? t : latest,
   ).task;
 }
+
+export function findPendingStartedTaskId(
+  reportTasks: ReportTaskData[] | undefined,
+  startedTaskId: string | null,
+): string | null {
+  if (!startedTaskId) return null;
+  return reportTasks?.some(({ task }) => task.id === startedTaskId)
+    ? null
+    : startedTaskId;
+}

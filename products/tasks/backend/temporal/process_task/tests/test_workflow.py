@@ -527,7 +527,7 @@ class TestSandboxRotation:
 
         async def provision_replacement():
             state = wf.context.state or {}
-            resume_flags_at_provision["value"] = (state.get("handoff_resumed"), state.get("handoff_resume_idle"))
+            resume_flags_at_provision["value"] = (state.get("same_run_resume"), state.get("same_run_resume_idle"))
             return self._replacement()
 
         monkeypatch.setattr(wf, "_get_sandbox_for_repository", provision_replacement)
@@ -650,6 +650,43 @@ class TestSandboxRotation:
 
         assert output.jwt_kid == "kid-provisioned"
         assert wf._sandbox_jwt_kid == "kid-provisioned"
+
+    @pytest.mark.parametrize("sized, expected", [(True, True), (False, False)])
+    async def test_preview_stays_enabled_only_when_the_sandbox_was_sized_for_it(self, monkeypatch, sized, expected):
+        wf = self._workflow(monkeypatch)
+        wf._sandbox_jwt_kid = None
+        wf._dev_stack_preview_enabled = True
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog-js",
+            github_token="",
+            branch=None,
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id=None,
+            used_snapshot=True,
+            should_create_snapshot=False,
+            shallow_clone=False,
+            image_source="base_image",
+            image_source_label="published sandbox base image",
+            sandbox_creation_timeout_seconds=30 * 60,
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sb-provisioned",
+            sandbox_url="https://provisioned.example",
+            connect_token="provisioned-token",
+            used_snapshot=True,
+            dev_stack_preview_sized=sized,
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", AsyncMock(return_value=prepared))
+        monkeypatch.setattr(wf, "_run_sandbox_creation_activity", AsyncMock(return_value=created))
+        monkeypatch.setattr(wf, "_record_sandbox_deadline", Mock())
+        monkeypatch.setattr(wf, "_emit_progress", AsyncMock())
+
+        output = await wf._get_sandbox_for_repository()
+
+        assert output.dev_stack_preview_sized is sized
+        assert wf._dev_stack_preview_enabled is expected
 
     @pytest.mark.parametrize(
         "snapshot_invalidated, expected_saved",
@@ -2819,6 +2856,7 @@ class TestContinueAsNew:
         wf._ci_resume_snapshot_created = True
         wf._first_user_message_received = True
         wf._is_agent_design_enabled = True
+        wf._dev_stack_preview_enabled = True
         wf._last_active_time = datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
         wf._agent_active = False
         wf._end_of_turn_received = True
@@ -2845,6 +2883,7 @@ class TestContinueAsNew:
         assert restored._ci_resume_snapshot_created is True
         assert restored._first_user_message_received is True
         assert restored._is_agent_design_enabled is True
+        assert restored._dev_stack_preview_enabled is True
         # The datetime survives the ISO round-trip.
         assert restored._last_active_time == datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
         assert restored._agent_active is False

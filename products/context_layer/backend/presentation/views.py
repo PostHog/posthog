@@ -59,6 +59,11 @@ def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
             {"detail": "The change violates the wiki structure.", "errors": error.errors},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    if isinstance(error, facade.DependencyUnavailableError):
+        return Response(
+            {"detail": "The context layer is temporarily unavailable. Try again later."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
     raise error
 
 
