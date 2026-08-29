@@ -73,6 +73,9 @@ class TestMarketingQuerySettings(BaseTest):
         # The settings travel beside the SQL rather than inside it, so a snapshot of the printed
         # query cannot show whether they were passed at all.
         date_range = DateRange(date_from="2023-01-01", date_to="2023-01-31")
+        query: (
+            MarketingAnalyticsTableQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsAttributionQuery
+        )
         if runner_class is MarketingAnalyticsTableQueryRunner:
             query = MarketingAnalyticsTableQuery(dateRange=date_range, properties=[], select=[])
         elif runner_class is MarketingAnalyticsAttributionPathsQueryRunner:
@@ -99,5 +102,5 @@ class TestMarketingQuerySettings(BaseTest):
                 runner.calculate()
 
         settings = captured.get("settings")
-        self.assertIsNotNone(settings, f"{name} passed no settings to ClickHouse")
+        assert settings is not None, f"{name} passed no settings to ClickHouse"
         self.assertEqual(settings.max_bytes_before_external_group_by, MARKETING_SPILL_AFTER_BYTES)
