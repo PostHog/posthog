@@ -172,7 +172,7 @@ export function ScoutConfigForm({
                     size="small"
                     value={config.network_access}
                     options={[
-                        { value: ScoutConfigNetworkAccessEnumApi.Trusted, label: 'Trusted domains only' },
+                        { value: ScoutConfigNetworkAccessEnumApi.Trusted, label: 'Trusted domains' },
                         { value: ScoutConfigNetworkAccessEnumApi.Full, label: 'Full access' },
                     ]}
                     // Editable while the scout is disabled, unlike the schedule controls: a newly
