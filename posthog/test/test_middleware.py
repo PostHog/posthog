@@ -1914,6 +1914,27 @@ class TestCSPMiddleware(APIBaseTest):
         assert 'default="https://us.i.posthog.com/report/' in header
         assert "distinct_id" not in header
 
+    @override_settings(CSP_REPORT_ENDPOINT="")
+    def test_no_report_endpoint_still_sends_the_policy_but_asks_for_no_reports(self):
+        # Self-hosted installs default to no endpoint. They must not report to PostHog, and the
+        # policy itself must survive, so dropping it here would silently remove a security control.
+        response = self.client.get("/")
+        policy = response["Content-Security-Policy-Report-Only"]
+        assert "default-src 'self'" in policy
+        assert "report-uri" not in policy
+        assert "report-to" not in policy
+        assert "Reporting-Endpoints" not in response
+
+    @override_settings(CSP_REPORT_ENDPOINT="https://posthog.example.com/report/")
+    def test_report_endpoint_is_configurable(self):
+        # An operator can point reporting at their own install, so nothing may hardcode ours.
+        response = self.client.get("/")
+        policy = response["Content-Security-Policy-Report-Only"]
+        assert "report-uri https://posthog.example.com/report/?sample_rate=0.1" in policy
+        header = response["Reporting-Endpoints"]
+        assert "us.i.posthog.com" not in header
+        assert f"distinct_id={self.user.distinct_id}" in header
+
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
