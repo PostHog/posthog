@@ -139,7 +139,7 @@ def _fetch_text(url: str, *, deadline: float, budget: _RequestBudget) -> _Fetche
                 raise PublicUrlFetchError("read", "The site returned an invalid redirect.")
             current_url = strip_userinfo(urljoin(current_url, location))
             continue
-        if response.status_code >= 400:
+        if response.status_code < 200 or response.status_code >= 300:
             raise PublicUrlFetchError("read", "The site response could not be used.")
         return _FetchedText(text=response.body.decode("utf-8", errors="replace"), url=current_url)
     raise PublicUrlFetchError("read", "The site returned too many redirects.")
