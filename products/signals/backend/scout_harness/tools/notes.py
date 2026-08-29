@@ -3,8 +3,9 @@
 The inbound counterpart to `scratchpad.py` — the scratchpad is what the fleet
 learned (agent-authored, sandbox-write-only), a note is what the team wants the
 fleet to know (authored over the public MCP surface via `signal_scout:write`).
-A note targets one scout by `skill_name`, or the whole fleet when `skill_name`
-is blank; `list_notes` is what a run calls to pick up the notes addressed to it.
+A note targets one scout by `skill_name`, a pipeline stage by a reserved
+`pipeline:*` audience, or the whole fleet when `skill_name` is blank; `list_notes`
+is what a run calls to pick up the notes addressed to it.
 
 Most notes are left by hand through that surface. Three `origin`s are derived from
 inbox activity instead: `report_dismissal`, forwarded from the feedback someone
@@ -38,6 +39,19 @@ MAX_NOTES_LIST_LIMIT = 500
 # `content` is read verbatim into a run's context — cap it so one note can't dominate a
 # prompt. Deliberately tighter than the scratchpad cap: notes are pointers, not documents.
 MAX_NOTE_CONTENT_LENGTH = 10_000
+
+# Audiences that are a stage of the report pipeline rather than a scout. A stage is not an
+# `LLMSkill` row, so it cannot be named the way a scout is, but its notes want the same shape:
+# addressed to one reader, plus whatever the whole fleet was told. The pseudo-target therefore
+# rides the existing `skill_name` column under a `pipeline:` prefix that no scout name can
+# collide with (scouts are `signals-scout-*`), which needs no column and no migration. The read
+# side needs no change either: `list_notes` matches `skill_name` exactly, so a stage sees its own
+# notes plus the blank-target ones, and a scout never sees a pipeline note.
+PIPELINE_AUDIENCE_PREFIX = "pipeline:"
+PIPELINE_AUDIENCE_REPORT_RESEARCH = f"{PIPELINE_AUDIENCE_PREFIX}report-research"
+# Allowlisted, not free-form: an unrecognized `pipeline:*` target steers no one, which is the same
+# silent failure a typo'd scout name would cause. Add a stage here when it starts reading notes.
+PIPELINE_AUDIENCES: frozenset[str] = frozenset({PIPELINE_AUDIENCE_REPORT_RESEARCH})
 
 
 class InvalidNoteError(ValueError):
@@ -150,25 +164,41 @@ def delete_note(*, team_id: int, note_id: str) -> bool:
     return True
 
 
-def _validate_note(*, team_id: int, skill_name: str, content: str) -> None:
-    if not content or not content.strip():
-        raise InvalidNoteError("note content must be non-empty")
-    if len(content) > MAX_NOTE_CONTENT_LENGTH:
-        raise InvalidNoteError(f"note content length {len(content)} exceeds max {MAX_NOTE_CONTENT_LENGTH}")
+def validate_note_target(*, team_id: int, skill_name: str) -> None:
+    """Raise `InvalidNoteError` unless `skill_name` names an audience a note can reach.
+
+    Shared with the Django admin form so both write paths accept the same set of targets.
+    """
     # A typo'd target silently steers no one — the list filter is an exact match — so a targeted
-    # note must name a scout skill that actually exists on this project. Blank stays valid: it
-    # addresses the whole fleet.
+    # note must name a reader that exists. Blank stays valid: it addresses the whole fleet.
     if not skill_name:
+        return
+    if skill_name.startswith(PIPELINE_AUDIENCE_PREFIX):
+        if skill_name not in PIPELINE_AUDIENCES:
+            raise InvalidNoteError(
+                f"'{skill_name}' is not a pipeline audience — the reserved ones are "
+                f"{', '.join(sorted(PIPELINE_AUDIENCES))}"
+            )
         return
     if not skill_name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
         raise InvalidNoteError(
-            f"skill_name must be blank (a note for every scout) or start with '{SIGNALS_SCOUT_SKILL_PREFIX}'"
+            f"skill_name must be blank (a note for every scout), a scout skill name starting with "
+            f"'{SIGNALS_SCOUT_SKILL_PREFIX}', or a pipeline audience "
+            f"({', '.join(sorted(PIPELINE_AUDIENCES))})"
         )
     if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, deleted=False).exists():
         raise InvalidNoteError(
             f"no scout skill named '{skill_name}' exists on this project — check `scout-config-list` "
             "for the roster, or author the skill first"
         )
+
+
+def _validate_note(*, team_id: int, skill_name: str, content: str) -> None:
+    if not content or not content.strip():
+        raise InvalidNoteError("note content must be non-empty")
+    if len(content) > MAX_NOTE_CONTENT_LENGTH:
+        raise InvalidNoteError(f"note content length {len(content)} exceeds max {MAX_NOTE_CONTENT_LENGTH}")
+    validate_note_target(team_id=team_id, skill_name=skill_name)
 
 
 def _to_note(row: SignalScoutNote, *, content_max_chars: int | None = None) -> ScoutNote:
