@@ -1,7 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import * as featureFlagLogic from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 
 import { feedbackPromptLogic } from './feedbackPromptLogic'
@@ -9,21 +7,12 @@ import { runStreamLogic } from './runStreamLogic'
 
 const PROPS = { sessionId: 'session-1', streamKey: 'stream-1' }
 
-const DEFAULT_CONFIG = {
-    cooldownMs: 86400000,
-    messageInterval: 10,
-    samplingRate: 0.05,
-    retryThreshold: 2,
-    cancelThreshold: 3,
-}
-
 describe('feedbackPromptLogic (sandbox)', () => {
     let logic: ReturnType<typeof feedbackPromptLogic.build>
 
     beforeEach(() => {
         initKeaTests()
         localStorage.clear()
-        jest.spyOn(featureFlagLogic, 'getFeatureFlagPayload').mockReturnValue(DEFAULT_CONFIG)
         // Sampling would otherwise fire nondeterministically on every check.
         jest.spyOn(Math, 'random').mockReturnValue(0.9)
         logic = feedbackPromptLogic(PROPS)
@@ -38,7 +27,6 @@ describe('feedbackPromptLogic (sandbox)', () => {
 
     describe('checkShouldShowPrompt', () => {
         it.each([
-            ['no config', () => jest.spyOn(featureFlagLogic, 'getFeatureFlagPayload').mockReturnValue(null), 10],
             [
                 'cooldown active',
                 () => localStorage.setItem('posthog_ai_feedback_last_shown', Date.now().toString()),
