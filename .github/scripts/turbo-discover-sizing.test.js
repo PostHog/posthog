@@ -7,7 +7,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, productSplitShards, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
+const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, productSplitShards, productShardCount, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
 
 // A path that exists in every checkout, so the existence check is deterministic.
 const LIVE_FILE = '.github/scripts/turbo-discover.js'
@@ -156,6 +156,15 @@ test('the count never exceeds the tests there are to place', () => {
     const many = { work: 10000, heavyCount: 3, lightWork: 100, maxLight: 10, testCount: 5 }
 
     assert.equal(productSplitShards(many), 5)
+})
+
+test('warehouse-sources gets its measured shard correction', () => {
+    const shape = { work: 1000, heavyCount: 0, lightWork: 1000, maxLight: 10, testCount: 100 }
+
+    assert.deepEqual(
+        ['warehouse-sources', 'big-one'].map((product) => productShardCount(product, shape)),
+        [5, 4]
+    )
 })
 
 test('a product holding one test is never split', () => {

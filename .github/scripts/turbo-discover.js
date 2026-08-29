@@ -102,6 +102,10 @@ const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set([
 // dedicated runner, so a product belongs here only while its wall runs close
 // enough to the job timeout that a hang is a realistic outcome.
 const DEDICATED_BUCKET_PRODUCTS = new Set()
+// Some large suites have stable runtime costs that their stored per-test
+// durations cannot represent. Keep their measured correction local instead of
+// lowering the target and adding runners to every product.
+const PRODUCT_SHARD_MULTIPLIERS = new Map([['warehouse-sources', 1.2]])
 
 // --- Staleness detection for .test_durations ---
 // When a product's test files on disk significantly outnumber what .test_durations
@@ -960,6 +964,12 @@ function productSplitShards(shape) {
     return Math.max(Math.min(2, testCount), Math.min(DJANGO_MAX_SHARDS, wanted))
 }
 
+function productShardCount(product, shape) {
+    const base = productSplitShards(shape)
+    const multiplier = PRODUCT_SHARD_MULTIPLIERS.get(product) ?? 1
+    return Math.min(shape?.testCount ?? Infinity, DJANGO_MAX_SHARDS, Math.ceil(base * multiplier))
+}
+
 // Selector segment key -> Django matrix segment name.
 const MATRIX_NAME_BY_SEGMENT = { core: 'Core', poe: 'CorePOE', temporal: 'Temporal' }
 
@@ -1152,7 +1162,7 @@ function buildMatrix(products, durations, productsScaled = false) {
             )
         }
 
-        const shards = productSplitShards(sizing)
+        const shards = productShardCount(product, sizing)
         if (shards > 1) {
             console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
@@ -1221,6 +1231,7 @@ module.exports = {
     PRODUCT_JOB_OVERHEAD_SECONDS,
     PRODUCT_BUCKET_SAFETY_FACTOR,
     productSplitShards,
+    productShardCount,
     getProductShape,
     PRODUCTS_SCALED_MARKER,
     TARGET_WALL_SECONDS,
