@@ -1,5 +1,6 @@
 import math
 import datetime
+import contextlib
 
 import pytest
 
@@ -30,7 +31,15 @@ from products.signals.dags.inbox_ranking.training.examples import (
     holdout_mask,
 )
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, dismissed_as_wrong
-from products.signals.dags.inbox_ranking.training.promotion import AUC_TOLERANCE, decide_promotion
+from products.signals.dags.inbox_ranking.training.promotion import AUC_TOLERANCE, PromotionDecision, decide_promotion
+from products.signals.dags.inbox_ranking.training.telemetry import (
+    DISTINCT_ID,
+    HeadExampleCounts,
+    candidate_events,
+    capture_training_events,
+    examples_events,
+    promotion_event,
+)
 from products.signals.dags.inbox_ranking.training.train import _head_readable, booster_holdout_auc, train_head
 
 D0 = datetime.date(2026, 8, 10)
@@ -250,6 +259,13 @@ def test_train_head_learns_a_separable_signal_and_names_its_features():
     assert trained.metrics.readable
     assert trained.metrics.holdout_auc is not None and trained.metrics.holdout_auc > 0.9
     assert trained.metrics.null_auc is not None and abs(trained.metrics.null_auc - 0.5) < 0.15
+    assert trained.metrics.null_auc_std is not None and trained.metrics.null_auc_std < 0.15
+    assert trained.metrics.train_auc is not None and trained.metrics.train_auc > 0.9
+    assert trained.metrics.holdout_average_precision is not None and trained.metrics.holdout_average_precision > 0.9
+    assert trained.metrics.holdout_logloss is not None and trained.metrics.holdout_logloss < 0.5
+    assert trained.metrics.holdout_positive_rate == pytest.approx(
+        trained.metrics.holdout_positives / trained.metrics.holdout_rows
+    )
     booster = xgb.Booster()
     booster.load_model(bytearray(trained.booster_ubj))
     assert booster.feature_names == list(FEATURE_NAMES)
@@ -279,6 +295,78 @@ def test_train_head_returns_none_without_both_classes():
     for name in FEATURE_NAMES:
         examples[name] = 1.0
     assert train_head(examples, head, holdout_days=7) is None
+
+
+class _RecordingCapture:
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    def __call__(self, **kwargs):
+        self.calls.append(kwargs)
+
+
+def test_training_events_carry_the_dashboard_contract(monkeypatch):
+    # The per-head events are what the project-2 insights break down on; dropping the head
+    # property, the partition-day timestamp, or the person-profile opt-out breaks every chart.
+    metadata = {
+        "model_version": "2026-08-25",
+        "run_id": "run-1",
+        "dataset_version": "v1",
+        "feature_schema_version": 1,
+        "lookback_days": 60,
+        "holdout_days": 7,
+        "heads": [
+            {"head": "open", "holdout_auc": 0.67, "readable": True, "file": "open.ubj", "holdout_file": None},
+            {"head": "action", "holdout_auc": None, "readable": False, "file": "action.ubj", "holdout_file": None},
+        ],
+    }
+    events = [
+        *candidate_events(metadata),
+        *examples_events(
+            partition_key="2026-08-25",
+            run_id="run-1",
+            snapshots=20,
+            backfilled_rows=0,
+            per_head={"open": HeadExampleCounts(rows=10, positives=2)},
+        ),
+        promotion_event(
+            partition_key="2026-08-25",
+            run_id="run-1",
+            decision=PromotionDecision(promote=True, reason="no champion yet"),
+            promoted=False,
+            champion_version="none",
+            champion_aucs={"open": 0.6},
+        ),
+    ]
+    recorder = _RecordingCapture()
+
+    @contextlib.contextmanager
+    def fake_scoped_capture():
+        yield recorder
+
+    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.telemetry.ph_scoped_capture", fake_scoped_capture)
+    capture_training_events(dagster.build_asset_context(), "2026-08-25", events)
+
+    by_event: dict[str, list[dict]] = {}
+    for call in recorder.calls:
+        by_event.setdefault(call["event"], []).append(call)
+        assert call["distinct_id"] == DISTINCT_ID
+        assert call["timestamp"] == datetime.datetime(2026, 8, 25, 12, tzinfo=datetime.UTC)
+        assert call["properties"]["$process_person_profile"] is False
+        assert call["properties"]["model_version"] == "2026-08-25"
+    candidates = by_event["inbox_ranking_candidate_trained"]
+    assert [c["properties"]["head"] for c in candidates] == ["open", "action"]
+    assert candidates[0]["properties"]["holdout_auc"] == 0.67
+    assert candidates[0]["properties"]["lookback_days"] == 60
+    assert "file" not in candidates[0]["properties"]
+    examples_props = by_event["inbox_ranking_examples_built"][0]["properties"]
+    assert {"head": "open", "rows": 10, "positives": 2}.items() <= examples_props.items()
+    promotion_props = by_event["inbox_ranking_promotion_decided"][0]["properties"]
+    assert {
+        "would_promote": True,
+        "promoted": False,
+        "champion_open_auc_on_this_holdout": 0.6,
+    }.items() <= promotion_props.items()
 
 
 @pytest.mark.parametrize(

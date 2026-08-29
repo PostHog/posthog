@@ -57,6 +57,13 @@ from products.signals.dags.inbox_ranking.training.examples import (
 )
 from products.signals.dags.inbox_ranking.training.heads import HEADS, HEADS_BY_NAME
 from products.signals.dags.inbox_ranking.training.promotion import decide_promotion
+from products.signals.dags.inbox_ranking.training.telemetry import (
+    HeadExampleCounts,
+    candidate_events,
+    capture_training_events,
+    examples_events,
+    promotion_event,
+)
 from products.signals.dags.inbox_ranking.training.train import XGB_PARAMS, TrainedHead, booster_holdout_auc, train_head
 
 EXAMPLES_TABLE = "inbox_ranking_training_examples"
@@ -199,18 +206,33 @@ def inbox_ranking_training_examples(context: dagster.AssetExecutionContext) -> N
 
     key = partition_object_key(prefix, EXAMPLES_TABLE, partition_key)
     write_parquet(client, bucket, key, examples_table(examples), snapshot_date=partition_key)
+    counts = {
+        name: HeadExampleCounts(rows=len(frame), positives=int(frame["label"].sum()))
+        for name, frame in per_head.items()
+    }
     context.add_output_metadata(
         {
             "rows": dagster.MetadataValue.int(len(examples)),
             "snapshots": dagster.MetadataValue.int(len(snapshots)),
             "backfilled_state_rows_excluded": dagster.MetadataValue.int(backfilled_rows),
-            **{f"{name}_rows": dagster.MetadataValue.int(len(frame)) for name, frame in per_head.items()},
+            **{f"{name}_rows": dagster.MetadataValue.int(head_counts.rows) for name, head_counts in counts.items()},
             **{
-                f"{name}_positives": dagster.MetadataValue.int(int(frame["label"].sum()))
-                for name, frame in per_head.items()
+                f"{name}_positives": dagster.MetadataValue.int(head_counts.positives)
+                for name, head_counts in counts.items()
             },
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
+    )
+    capture_training_events(
+        context,
+        partition_key,
+        examples_events(
+            partition_key=partition_key,
+            run_id=context.run.run_id,
+            snapshots=len(snapshots),
+            backfilled_rows=backfilled_rows,
+            per_head=counts,
+        ),
     )
 
 
@@ -296,6 +318,7 @@ def inbox_ranking_model_candidate(context: dagster.AssetExecutionContext) -> Non
     stale = _delete_other_objects(client, bucket, model_object_key(prefix, partition_key, ""), written)
     if stale:
         context.log.warning(f"removed {len(stale)} stale objects from a previous run of dt={partition_key}")
+    capture_training_events(context, partition_key, candidate_events(metadata))
     context.add_output_metadata(
         {
             "stale_objects_removed": dagster.MetadataValue.int(len(stale)),
@@ -355,6 +378,7 @@ def inbox_ranking_model_champion(context: dagster.AssetExecutionContext) -> None
     elif decision.promote:
         context.log.info("INBOX_RANKING_AUTO_PROMOTE is off; candidate would have been promoted")
 
+    champion_version = partition_key if promoted else (champion or {}).get("model_version", "none")
     context.add_output_metadata(
         {
             "would_promote": dagster.MetadataValue.bool(decision.promote),
@@ -364,10 +388,22 @@ def inbox_ranking_model_champion(context: dagster.AssetExecutionContext) -> None
                 f"champion_{head}_auc_on_this_holdout": dagster.MetadataValue.float(auc)
                 for head, auc in champion_aucs.items()
             },
-            "champion_version": dagster.MetadataValue.text(
-                partition_key if promoted else (champion or {}).get("model_version", "none")
-            ),
+            "champion_version": dagster.MetadataValue.text(champion_version),
         }
+    )
+    capture_training_events(
+        context,
+        partition_key,
+        [
+            promotion_event(
+                partition_key=partition_key,
+                run_id=context.run.run_id,
+                decision=decision,
+                promoted=promoted,
+                champion_version=champion_version,
+                champion_aucs=champion_aucs,
+            )
+        ],
     )
 
 
