@@ -54,6 +54,8 @@ export function DashboardScenePanel(): JSX.Element | null {
         effectiveDashboardVariableOverrides,
         apiUrl,
         tiles,
+        itemsLoading,
+        dashboardFailedToLoad,
     } = useValues(dashboardLogic)
     const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
     const { downloadImage } = useActions(captureImageLogic)
@@ -74,8 +76,13 @@ export function DashboardScenePanel(): JSX.Element | null {
         screenshotKey: DASHBOARD_SCREENSHOT_KEY,
         name: dashboard?.name || undefined,
     }
-    // A browser capture takes whatever is on screen, so only offer it once the dashboard has tiles to render.
-    const captureDisabledReasons = { 'The dashboard has no tiles to capture': tiles.length === 0 }
+    // A browser capture takes whatever is on screen, so only offer it once the dashboard has finished
+    // loading and has tiles to render — otherwise it rasterizes spinners or empty cards.
+    const captureDisabledReasons = {
+        'Wait for the dashboard to finish loading': itemsLoading,
+        'The dashboard failed to load': dashboardFailedToLoad,
+        'The dashboard has no tiles to capture': !itemsLoading && !dashboardFailedToLoad && tiles.length === 0,
+    }
 
     return (
         <ScenePanel>

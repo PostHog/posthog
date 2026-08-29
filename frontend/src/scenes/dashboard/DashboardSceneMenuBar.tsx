@@ -79,6 +79,8 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
         tiles,
+        itemsLoading,
+        dashboardFailedToLoad,
     } = useValues(dashboardLogic)
     const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
     const { startExport } = useActions(exportsLogic)
@@ -111,8 +113,15 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         screenshotKey: DASHBOARD_SCREENSHOT_KEY,
         name: dashboard?.name || undefined,
     }
-    // A browser capture takes whatever is on screen, so only offer it once the dashboard has tiles to render.
-    const captureDisabledReason = tiles.length === 0 ? 'The dashboard has no tiles to capture' : undefined
+    // A browser capture takes whatever is on screen, so only offer it once the dashboard has finished
+    // loading and has tiles to render — otherwise it rasterizes spinners or empty cards.
+    const captureDisabledReason = itemsLoading
+        ? 'Wait for the dashboard to finish loading'
+        : dashboardFailedToLoad
+          ? 'The dashboard failed to load'
+          : tiles.length === 0
+            ? 'The dashboard has no tiles to capture'
+            : undefined
     const customerTemplateEditorAccess = userHasAccess(AccessControlResourceType.Dashboard, AccessControlLevel.Editor)
     const customerTemplateDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Dashboard,
