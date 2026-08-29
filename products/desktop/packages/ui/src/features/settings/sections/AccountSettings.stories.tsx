@@ -28,7 +28,7 @@ const meta: Meta<typeof AccountSettingsView> = {
   // Match the settings page content column so the card sizes realistically.
   decorators: [
     (Story) => (
-      <div style={{ maxWidth: 800, margin: "2rem auto", padding: "0 1.5rem" }}>
+      <div className="mx-auto my-8 max-w-[800px] px-6">
         <Story />
       </div>
     ),
