@@ -1691,7 +1691,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             // Changing type keeps the rest of the form: it spreads `current`, so an experiment
-            // prefill's name and query carry over untouched. Only the config is reset for the new type.
+            // prefill's name and query carry over untouched. Every type shares the prompt, so the
+            // prompt carries over too; only the type-specific config fields reset.
             setScannerType: ({ scannerType }) => {
                 const current = values.scanner
                 if (!current) {
@@ -1705,7 +1706,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     ...current,
                     name: keepsDefaultName ? defaultScannerName(teamName, scannerType) : current.name,
                     scanner_type: scannerType,
-                    scanner_config: defaultConfigForType(scannerType),
+                    scanner_config: {
+                        ...defaultConfigForType(scannerType),
+                        prompt: current.scanner_config?.prompt ?? '',
+                    },
                 } as ScannerFormValues)
                 persistDraft()
             },
