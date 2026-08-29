@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { SurveyQuestionType } from 'posthog-js'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
     LemonBanner,
@@ -53,7 +53,7 @@ export function QuickSurveyForm({ context, info, onCancel, showFollowupToggle }:
 
     const { currentTeam } = useValues(teamLogic)
     const { teamSdkVersions } = useValues(surveysSdkLogic)
-    const shouldShowSurveyToggle = useRef(!currentTeam?.surveys_opt_in).current
+    const shouldShowSurveyToggle = !currentTeam?.surveys_opt_in
 
     const warnings = useMemo(
         () => getSurveyWarnings(previewSurvey as Survey, teamSdkVersions),

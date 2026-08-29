@@ -95,7 +95,7 @@ function Surveys(): JSX.Element {
                     callback: (toolOutput) => handleMaxSurveyCreated(toolOutput, SURVEY_CREATED_SOURCE.MAX_AI),
                 }}
             />
-            <SurveysDisabledBanner />
+            {tab !== SurveysTabs.Settings && <SurveysDisabledBanner />}
             <LemonTabs
                 activeKey={tab}
                 onChange={(newTab) => setTab(newTab as SurveysTabs)}
