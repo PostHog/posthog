@@ -21,7 +21,7 @@ skip_with_icns_fallback() {
   # Drop any stale catalog so packaging falls back to the .icns icon
   rm -f "$OUTPUT_PATH"
   if [ -n "${CI:-}" ] && [ "$(uname -s)" = "Darwin" ]; then
-    echo "  macOS CI builds must ship the liquid-glass icon; point DEVELOPER_DIR at an Xcode 26 that runs on this host"
+    echo "  macOS CI builds must ship the liquid-glass icon; check the $ICON_PATH sources and that Xcode 26 is the active toolchain"
     exit 1
   fi
   echo "  Skipping compilation (app will use standard .icns icon)"
@@ -29,8 +29,7 @@ skip_with_icns_fallback() {
 }
 
 if [ ! -d "$ICON_PATH" ]; then
-  echo "⚠ $ICON_PATH not found - skipping liquid glass icon compilation"
-  exit 0
+  skip_with_icns_fallback "$ICON_PATH not found"
 fi
 
 # Check if Assets.car exists and is newer than every file in the icon bundle

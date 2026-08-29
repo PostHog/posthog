@@ -234,6 +234,10 @@ jobs:
                     echo "OK: codex-acp/$f"
                   done
 
+            - name: Install Rosetta for the x64 smoke test
+              if: matrix.arch == 'x64'
+              run: pgrep -xq oahd || sudo softwareupdate --install-rosetta --agree-to-license
+
             - name: Smoke test packaged app
               env:
                   CI: true
