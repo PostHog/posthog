@@ -73,7 +73,9 @@ describe("pendingTaskPromptStore", () => {
     // route recoverable instead of a permanent spinner.
     expect(pendingTaskPromptStoreApi.get("k1")?.interruptReason).toBe("failed");
     // A record already flagged by a live failure keeps its more precise reason.
-    expect(pendingTaskPromptStoreApi.get("k2")?.interruptReason).toBe("offline");
+    expect(pendingTaskPromptStoreApi.get("k2")?.interruptReason).toBe(
+      "offline",
+    );
   });
 
   it("returns every surviving entry newest-first for recovery", () => {
