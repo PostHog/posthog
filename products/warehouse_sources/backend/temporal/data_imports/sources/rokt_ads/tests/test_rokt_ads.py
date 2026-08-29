@@ -1,3 +1,4 @@
+import base64
 from datetime import date
 from typing import Any
 
@@ -229,8 +230,12 @@ class TestRoktAdsClient:
 
         kwargs = token_session.post.call_args.kwargs
         assert kwargs["data"] == {"grant_type": "client_credentials"}
-        # base64("app-id:app-secret")
-        assert kwargs["headers"]["Authorization"] == "Basic YXBwLWlkOmFwcC1zZWNyZXQ="
+
+        scheme, _, encoded = kwargs["headers"]["Authorization"].partition(" ")
+        assert scheme == "Basic"
+        # Decoded rather than compared against a pre-encoded literal: a hardcoded
+        # `Basic <base64>` string reads as a real credential to a secret scanner.
+        assert base64.b64decode(encoded).decode("ascii") == "app-id:app-secret"
 
     def test_token_is_reused_until_it_nears_expiry(self):
         token_session = MagicMock()
