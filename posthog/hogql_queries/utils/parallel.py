@@ -10,7 +10,11 @@ import threading
 import contextvars
 from collections.abc import Callable, Sequence
 
+import structlog
+
 from posthog.clickhouse.query_tagging import get_query_tags, query_tags
+
+logger = structlog.get_logger(__name__)
 
 
 def run_in_parallel_threads(work: Sequence[Callable[[], None]]) -> None:
@@ -29,15 +33,17 @@ def run_in_parallel_threads(work: Sequence[Callable[[], None]]) -> None:
     An exception raised by a work item no longer escapes to `threading`'s default exception hook
     (stderr) and vanishes — it is collected and re-raised in the caller once every thread has
     joined, so a raising item cannot leave the caller reading a partial result with no signal
-    anything went wrong.
+    anything went wrong. If more than one item raises, the caller sees whichever exception is
+    appended first — that is the first item to finish raising, not necessarily the first item in
+    `work` — and every other collected exception is logged rather than dropped.
     """
     errors: list[Exception] = []
 
     def run_item(item: Callable[[], None]) -> None:
-        # Rebind before running the item, not after: a worker's very first line of code could
-        # mutate the shared QueryTags object in place, so the copy has to exist before that.
-        query_tags.set(get_query_tags().model_copy())
         try:
+            # Rebind before running the item, not after: a worker's very first line of code could
+            # mutate the shared QueryTags object in place, so the copy has to exist before that.
+            query_tags.set(get_query_tags().model_copy())
             item()
         except Exception as e:
             errors.append(e)
@@ -58,4 +64,9 @@ def run_in_parallel_threads(work: Sequence[Callable[[], None]]) -> None:
             job.join()
 
     if errors:
+        # Surface every secondary error with its traceback before re-raising the first, so a
+        # concurrent failure doesn't disappear into the void. Matches funnels_query_runner's
+        # `_run_in_parallel`.
+        for dropped in errors[1:]:
+            logger.exception("parallel_work_secondary_error", exc_info=dropped)
         raise errors[0]
