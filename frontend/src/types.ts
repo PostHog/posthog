@@ -5556,6 +5556,7 @@ export const INTEGRATION_KINDS = [
     'google-calendar',
     'google-search-console',
     'google-sheets',
+    'google-tag-manager',
     'linkedin-ads',
     'snapchat',
     'stripe',

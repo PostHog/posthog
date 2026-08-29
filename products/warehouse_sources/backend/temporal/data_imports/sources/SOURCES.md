@@ -328,6 +328,7 @@ the row lists both.
 | google_pagespeed_insights        | HTTP                        | requests                                                        | ✅                          |
 | google_play_console              | HTTP                        | requests                                                        | ✅                          |
 | google_sheets                    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
+| google_tag_manager               | HTTP                        | requests (`AuthorizedSession` + `TrackedHTTPAdapter`)           | ✅                          |
 | google_webfonts                  | HTTP                        | requests                                                        | ✅                          |
 | grafana                          | HTTP                        | requests                                                        | ✅                          |
 | granola                          | HTTP                        | requests                                                        | ✅                          |
