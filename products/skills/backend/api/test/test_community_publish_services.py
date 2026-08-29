@@ -25,6 +25,7 @@ from products.skills.backend.api.community_publish_services import (
     render_skill_md,
 )
 from products.skills.backend.api.skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES, MAX_SKILL_FILE_COUNT
+from products.skills.backend.api.skill_template_services import parse_template_variables
 from products.skills.backend.marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 
 # Mirror of the community-skills repo's frontmatter parser (scripts/build_registry.py) so these
@@ -73,27 +74,30 @@ class TestRenderSkillMd:
         assert frontmatter["author_handle"] == "andymaguire"
 
     def test_renders_normalized_template_variables(self) -> None:
+        metadata = {
+            "owner": "internal-only",
+            "variables": [
+                {"name": "service", "prompt": "Service name", "required": True},
+                {"name": "environment", "prompt": "Target environment", "default": "staging"},
+            ],
+        }
         content = render_skill_md(
             name="Deploy service",
             description="Deploy a service to an environment.",
             body="Deploy {{ service }} to {{ environment }}.",
-            metadata={
-                "owner": "internal-only",
-                "variables": [
-                    {"name": "service", "prompt": "Service name", "required": True},
-                    {"name": "environment", "prompt": "Target environment", "default": "staging"},
-                ],
-            },
+            metadata=metadata,
         )
 
         frontmatter, _ = _parse(content)
 
         assert frontmatter["metadata"] == {
             "variables": [
-                {"name": "service", "prompt": "Service name", "required": True, "default": ""},
+                {"name": "service", "prompt": "Service name", "required": True},
                 {"name": "environment", "prompt": "Target environment", "required": False, "default": "staging"},
             ]
         }
+        # Install reads the schema back out of this frontmatter, so it must parse to the same variables.
+        assert parse_template_variables(frontmatter["metadata"]) == parse_template_variables(metadata)
 
     def test_rejects_undeclared_template_placeholder(self) -> None:
         with pytest.raises(CommunitySkillPublishValidationError, match="undeclared variable 'missing'"):

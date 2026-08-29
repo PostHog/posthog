@@ -196,6 +196,16 @@ def _validate_and_project(text: str, bindings: dict[str, str], binding_sizes: di
     return projected
 
 
+def validate_template_placeholders(text: str, variables: list[TemplateVariable]) -> None:
+    """Raise UnknownTemplatePlaceholderError when `text` references a variable not in `variables`.
+
+    For callers that check a template without rendering it, such as publishing. Only the declared
+    names matter here, so every variable is bound to the empty string.
+    """
+    bindings = {variable.name: "" for variable in variables}
+    _validate_and_project(text, bindings, dict.fromkeys(bindings, 0))
+
+
 def _substitute(text: str, bindings: dict[str, str]) -> str:
     return _PLACEHOLDER_RE.sub(lambda m: bindings[m.group(1)], text)
 

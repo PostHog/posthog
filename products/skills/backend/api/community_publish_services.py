@@ -35,7 +35,7 @@ from .skill_services import (
     check_allowed_tool_name,
     normalize_skill_file_path,
 )
-from .skill_template_services import TemplateRenderError, _validate_and_project, parse_template_variables
+from .skill_template_services import TemplateRenderError, parse_template_variables, validate_template_placeholders
 
 logger = structlog.get_logger(__name__)
 
@@ -230,19 +230,19 @@ def render_skill_md(
     if allowed_tools:
         frontmatter["allowed_tools"] = list(allowed_tools)
     template_variables = parse_template_variables(metadata)
-    bindings = {variable.name: "" for variable in template_variables}
     try:
-        _validate_and_project(body, bindings, dict.fromkeys(bindings, 0))
+        validate_template_placeholders(body, template_variables)
     except TemplateRenderError as err:
         raise CommunitySkillPublishValidationError(str(err)) from err
     if template_variables:
+        # `required` is always written, so an omitted `default` reads back the same as an empty one.
         frontmatter["metadata"] = {
             "variables": [
                 {
                     "name": variable.name,
                     "prompt": variable.prompt,
                     "required": variable.required,
-                    "default": variable.default,
+                    **({"default": variable.default} if variable.default else {}),
                 }
                 for variable in template_variables
             ]
@@ -279,8 +279,6 @@ def render_community_skill_files(
     _validate_slug(slug)
     _validate_entry_caps(body=body, files=files or [])
     template_variables = parse_template_variables(metadata)
-    bindings = {variable.name: "" for variable in template_variables}
-    binding_sizes = dict.fromkeys(bindings, 0)
     skill_root = f"{SKILLS_DIR}/{slug}"
 
     rendered: list[RenderedFile] = [
@@ -309,7 +307,7 @@ def render_community_skill_files(
         # rejects as a duplicate: the pull request merges and the skill never appears in the catalog.
         rel_path = _publishable_file_path(file["path"])
         try:
-            _validate_and_project(file["content"], bindings, binding_sizes)
+            validate_template_placeholders(file["content"], template_variables)
         except TemplateRenderError as err:
             raise CommunitySkillPublishValidationError(str(err)) from err
         path = f"{skill_root}/{rel_path}"
