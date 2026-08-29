@@ -67,18 +67,16 @@ function isBranchNode(node) {
     return ts.isBinaryExpression(node) && SHORT_CIRCUIT_OPERATORS.has(node.operatorToken.kind)
 }
 
+// Parent node kinds that hold the name a function expression is assigned to,
+// e.g. `const foo = () => {}`, `{ foo: () => {} }`, `class C { foo = () => {} }`.
+const NAME_HOLDER_CHECKS = [ts.isVariableDeclaration, ts.isPropertyAssignment, ts.isPropertyDeclaration]
+
 function functionName(node) {
     if (node.name && ts.isIdentifier(node.name)) {
         return node.name.text
     }
     const parent = node.parent
-    if (parent && ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
-        return parent.name.text
-    }
-    if (parent && ts.isPropertyAssignment(parent) && ts.isIdentifier(parent.name)) {
-        return parent.name.text
-    }
-    if (parent && ts.isPropertyDeclaration(parent) && ts.isIdentifier(parent.name)) {
+    if (parent && NAME_HOLDER_CHECKS.some((isNameHolder) => isNameHolder(parent)) && ts.isIdentifier(parent.name)) {
         return parent.name.text
     }
     if (node.kind === ts.SyntaxKind.Constructor) {
