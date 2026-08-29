@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
 
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
@@ -128,13 +129,13 @@ class TestSourceForPipeline:
         with patch(f"{SOURCE_MODULE}.RoktAdsClient"):
             return RoktAdsSource().source_for_pipeline(_config(), MagicMock(), _inputs(schema_name, **input_overrides))
 
-    @pytest.mark.parametrize("schema_name", SCHEMA_NAMES)
+    @parameterized.expand(SCHEMA_NAMES)
     def test_every_table_declares_its_primary_key(self, schema_name: str):
         response = self._response(schema_name)
         assert response.name == schema_name
         assert response.primary_keys == PRIMARY_KEYS[schema_name]
 
-    @pytest.mark.parametrize("schema_name", list(ENDPOINTS))
+    @parameterized.expand(list(ENDPOINTS))
     def test_report_primary_keys_include_the_day_and_every_grain_dimension(self, schema_name: str):
         primary_key = set(PRIMARY_KEYS[schema_name])
         assert "datetime" in primary_key
@@ -142,7 +143,7 @@ class TestSourceForPipeline:
         grain = set(ENDPOINTS[schema_name]["dimensions"]) - {"campaign_name", "creative_name", "campaign_objective"}
         assert grain <= primary_key
 
-    @pytest.mark.parametrize("schema_name", list(ENDPOINTS))
+    @parameterized.expand(list(ENDPOINTS))
     def test_reports_partition_by_the_stable_report_day(self, schema_name: str):
         response = self._response(schema_name)
         assert response.partition_mode == "datetime"

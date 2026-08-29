@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.rokt_ads.rokt_ads import (
     RoktAdsClient,
     RoktAdsError,
@@ -59,8 +61,7 @@ class TestResolveStartDate:
         resolved = resolve_start_date(None, today)
         assert (today - resolved).days == INITIAL_BACKFILL_DAYS
 
-    @pytest.mark.parametrize(
-        "cursor",
+    @parameterized.expand(
         ["2026-03-04T00:00:00Z", "2026-03-04T00:00:00+00:00", "2026-03-04"],
     )
     def test_parses_the_timestamp_shapes_the_report_returns(self, cursor: str):
