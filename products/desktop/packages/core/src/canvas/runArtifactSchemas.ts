@@ -1,12 +1,24 @@
 import { formatRelativeTimeLong } from "@posthog/shared";
 import { z } from "zod";
 
+export const postHogObjectArtifactMetadataSchema = z.object({
+  reference_type: z.literal("posthog_object"),
+  object_kind: z.string().min(1),
+  object_id: z.string().min(1),
+  source_message_ids: z.array(z.string()),
+  occurrence_count: z.number().int().positive(),
+});
+export type PostHogObjectArtifactMetadata = z.infer<
+  typeof postHogObjectArtifactMetadataSchema
+>;
+
 export const runArtifactSchema = z.object({
   id: z.string().optional(),
   name: z.string().optional(),
   type: z.string().optional(),
   size: z.number().optional(),
   content_type: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   storage_path: z.string().optional(),
   uploaded_at: z.string().optional(),
   uploaded_by: z.enum(["agent", "user"]).optional(),
@@ -14,6 +26,17 @@ export const runArtifactSchema = z.object({
   dismissed_at: z.string().nullish(),
 });
 export type RunArtifact = z.infer<typeof runArtifactSchema>;
+
+export function getPostHogObjectArtifactMetadata(artifact: {
+  type?: string;
+  metadata?: unknown;
+}): PostHogObjectArtifactMetadata | null {
+  if (artifact.type !== "reference") return null;
+  const parsed = postHogObjectArtifactMetadataSchema.safeParse(
+    artifact.metadata,
+  );
+  return parsed.success ? parsed.data : null;
+}
 
 /** Artifacts the agent hands back as deliverables, via the `upload_artifact` tool. */
 export const OUTPUT_ARTIFACT_TYPES = ["output"] as const;

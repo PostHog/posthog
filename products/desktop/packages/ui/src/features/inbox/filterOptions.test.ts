@@ -1,8 +1,8 @@
+import { filterInboxSourceOptions } from "@posthog/shared";
 import type { AvailableSuggestedReviewer } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
   buildSuggestedReviewerFilterOptions,
-  filterInboxSourceOptions,
   getSuggestedReviewerDisplayName,
   INBOX_SOURCE_OPTIONS,
 } from "./filterOptions";
@@ -65,7 +65,9 @@ describe("getSuggestedReviewerDisplayName", () => {
 
 describe("filterInboxSourceOptions", () => {
   const values = (enabled?: ReadonlySet<string>) =>
-    filterInboxSourceOptions(enabled, []).map((option) => option.value);
+    filterInboxSourceOptions(INBOX_SOURCE_OPTIONS, enabled, []).map(
+      (option) => option.value,
+    );
 
   it("keeps only the warehouse sources that are switched on", () => {
     expect(values(new Set(["github", "zendesk"]))).toEqual([
@@ -92,15 +94,15 @@ describe("filterInboxSourceOptions", () => {
   });
 
   it("keeps a selected source so an active filter stays visible", () => {
-    expect(filterInboxSourceOptions(new Set(), ["sentry"])).toContainEqual(
-      expect.objectContaining({ value: "sentry" }),
-    );
+    expect(
+      filterInboxSourceOptions(INBOX_SOURCE_OPTIONS, new Set(), ["sentry"]),
+    ).toContainEqual(expect.objectContaining({ value: "sentry" }));
   });
 
   it("hides nothing while the enabled set is unknown", () => {
-    expect(filterInboxSourceOptions(undefined, [])).toEqual(
-      INBOX_SOURCE_OPTIONS,
-    );
+    expect(
+      filterInboxSourceOptions(INBOX_SOURCE_OPTIONS, undefined, []),
+    ).toEqual(INBOX_SOURCE_OPTIONS);
   });
 });
 

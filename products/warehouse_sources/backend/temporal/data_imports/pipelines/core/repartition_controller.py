@@ -27,6 +27,9 @@ from posthog.utils import get_machine_id
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_transient_maintenance_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     measure_partition_bytes,
     select_coarsen_target,
@@ -576,6 +579,16 @@ async def maybe_flag_for_repartition(
             target_size=target.partition_size,
         )
     except Exception as e:
-        # Detection is best-effort; never fail post-load over it.
+        # Detection is best-effort; never fail post-load over it. `record_partition_measurement` and
+        # the other DB writes above can hit a transient app-DB blip (pgbouncer pooler drop, or its
+        # server_login_retry cooldown outliving retry_on_db_connection_drop's single retry) — the
+        # same class of noise `_maybe_flag_pre_extraction` (repartition_table.py) already filters
+        # out with this same classifier, so this best-effort detection function should too.
+        if is_transient_maintenance_error(e):
+            await logger.awarning(
+                f"repartition: detection failed with a transient infra error schema_id={schema.id}",
+                schema_id=str(schema.id),
+            )
+            return
         await logger.aexception(f"repartition: detection failed schema_id={schema.id}", schema_id=str(schema.id))
         capture_exception(e)

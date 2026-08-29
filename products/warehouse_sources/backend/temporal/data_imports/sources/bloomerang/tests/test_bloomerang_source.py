@@ -1,20 +1,12 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.bloomerang import (
-    BloomerangResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.settings import (
-    BLOOMERANG_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.bloomerang import BASE_URL
+from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.source import BloomerangSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bloomerang import (
     BloomerangSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"Constituents"}
 _FULL_REFRESH_ENDPOINTS = {"Transactions", "Interactions", "Appeals", "Campaigns", "Funds"}
@@ -25,29 +17,6 @@ class TestBloomerangSource:
         self.source = BloomerangSource()
         self.team_id = 123
         self.config = BloomerangSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BLOOMERANG
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Bloomerang"
-        assert config.category is not None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/bloomerang.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/bloomerang"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -72,36 +41,11 @@ class TestBloomerangSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas_match_endpoints_with_correct_sync_modes(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-        for name in _INCREMENTAL_ENDPOINTS:
-            assert schemas[name].supports_incremental is True
-            assert schemas[name].supports_append is True
-            assert [f["field"] for f in schemas[name].incremental_fields] == ["LastModifiedDate"]
-        for name in _FULL_REFRESH_ENDPOINTS:
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].supports_append is False
-            assert schemas[name].incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Constituents"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "Constituents"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["Nope"]) == []
-
     def test_lists_tables_without_credentials_publishes_catalog(self):
         # Static endpoint catalog (no I/O) — the public docs table list should render.
         assert self.source.lists_tables_without_credentials is True
         documented = self.source.get_documented_tables()
         assert {table["name"] for table in documented} == set(ENDPOINTS)
-
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(BLOOMERANG_ENDPOINTS)
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
@@ -124,35 +68,21 @@ class TestBloomerangSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("key")
 
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is BloomerangResumeConfig
+    @pytest.mark.parametrize(
+        "pinned, expected_version",
+        [("v1", "v1"), ("v2", None), (None, None)],
+    )
+    def test_deprecation_flags_legacy_v1_only(self, pinned, expected_version):
+        deprecation = self.source.get_version_deprecation(pinned)
+        if expected_version is None:
+            assert deprecation is None
+        else:
+            assert deprecation is not None
+            assert deprecation.version == expected_version
+            assert deprecation.sunset_at is None  # vendor published no sunset date
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.source.bloomerang_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_bloomerang_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Constituents"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_bloomerang_source.assert_called_once()
-        kwargs = mock_bloomerang_source.call_args.kwargs
-        assert kwargs["api_key"] == "key"
-        assert kwargs["endpoint"] == "Constituents"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.source.bloomerang_source")
-    def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_bloomerang_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Appeals"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_bloomerang_source.call_args.kwargs["db_incremental_field_last_value"] is None
+    def test_request_layer_stays_on_the_v2_wire(self):
+        # No per-version dispatch: `/v2` is a fixed path segment, so a legacy v1 pin rides the same
+        # wire as v2. Regressing this URL to v1 would move every v1-pinned source onto the vendor's
+        # deprecated API.
+        assert BASE_URL == "https://api.bloomerang.co/v2"

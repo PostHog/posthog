@@ -108,7 +108,7 @@ async def enrich_signup_organization_activity(
         return {"matched": False, "fields_filled": 0}
 
     try:
-        fields = await enrich_organization(
+        outcome = await enrich_organization(
             organization_id=inputs.organization_id,
             domain=inputs.domain,
             provider=HarmonicEnrichmentProvider(),
@@ -118,10 +118,15 @@ async def enrich_signup_organization_activity(
             geoip_country_code=inputs.geoip_country_code,
             distinct_id=inputs.distinct_id,
         )
+        fields, fit = outcome.provider_fields, outcome.fit
         filled = fields.to_dict() if fields else {}
         matched = fields is not None
 
-        if not is_recheck:
+        # No later backfill re-attempts this snapshot, so claiming it while fit scoring was
+        # skipped (fit is None — no active IcpScoringConfig row, or an unexpected scoring
+        # error; see EnrichmentOutcome) would permanently strand the org without an
+        # at-signup fit score.
+        if not is_recheck and fit is not None:
             deterministic = await sync_to_async(_deterministic_company_type)(inputs.organization_id)
             snapshot = SignupEnrichmentSnapshot(
                 company_type=(fields.company_type if fields else None) or deterministic,
@@ -132,6 +137,11 @@ async def enrich_signup_organization_activity(
                 founded_year=fields.founded_year if fields else None,
                 funding_stage=fields.funding_stage if fields else None,
                 is_yc_company=fields.is_yc_company if fields else None,
+                # A numeric fit score snapshots with its version; a score-less evaluation
+                # snapshots the status alone (see SignupEnrichmentSnapshot).
+                icp_fit_score=fit.score,
+                icp_fit_version=fit.version if fit.score is not None else None,
+                icp_fit_status=fit.status,
             )
             await sync_to_async(capture_signup_enrichment_snapshot)(
                 pha_client,
@@ -149,6 +159,7 @@ async def enrich_signup_organization_activity(
                         "upgraded": matched and not first_attempt_matched,
                         "fields_filled": len(filled),
                         "organization_id": inputs.organization_id,
+                        "icp_fit_status": fit.status if fit else None,
                     },
                     groups={"organization": inputs.organization_id},
                 )
@@ -156,7 +167,12 @@ async def enrich_signup_organization_activity(
                 pha_client.capture(
                     distinct_id=inputs.distinct_id,
                     event=ENRICHMENT_SIGNAL_EVENT,
-                    properties={"success": True, "matched": matched, "fields_filled": sorted(filled.keys())},
+                    properties={
+                        "success": True,
+                        "matched": matched,
+                        "fields_filled": sorted(filled.keys()),
+                        "icp_fit_status": fit.status if fit else None,
+                    },
                     groups={"organization": inputs.organization_id},
                 )
         logger.info("signup_enrichment_completed", matched=matched, fields_filled=len(filled))

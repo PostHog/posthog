@@ -2,11 +2,17 @@ import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccountsTableCustomPropertyOperator, type AccountsTableQuery } from '~/queries/schema/schema-general'
+import {
+    AccountsTableAccountField,
+    AccountsTableAccountFieldOperator,
+    AccountsTableCustomPropertyOperator,
+    type AccountsTableQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator, type UserBasicType, type UserType } from '~/types'
 
@@ -34,6 +40,7 @@ import {
 } from './accountsColumnConfigLogic'
 import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, savingRoleKey } from './accountsLogic'
+import { AccountsEvents } from './constants'
 
 const assignedToFilterOf = (query: AccountsTableQuery | null): number[] | undefined =>
     query?.filters?.find((filter) => filter.kind === 'assigned_to')?.userIds
@@ -182,7 +189,7 @@ describe('accountsLogic', () => {
                 display_type: 'currency',
             } as CustomPropertyDefinitionApi,
         ])
-        logic.actions.setCustomPropertyFilters([
+        logic.actions.updateAccountFilters([
             {
                 type: PropertyFilterType.AccountCustomProperty,
                 key: CSM_DEFINITION_ID,
@@ -191,8 +198,52 @@ describe('accountsLogic', () => {
             },
         ])
 
-        expect(logic.values.customPropertyFilters).toEqual([])
+        expect(logic.values.accountFilters).toEqual([])
         expect(logic.values.activeFilterCount).toBe(0)
+    })
+
+    it('adds native account filters to the query and shareable view state', () => {
+        logic.actions.updateAccountFilters([
+            {
+                type: PropertyFilterType.Account,
+                key: AccountsTableAccountField.IgnoredAt,
+                label: 'Ignored at',
+                operator: PropertyOperator.IsSet,
+                value: null,
+            },
+        ])
+
+        expect(logic.values.accountsQuerySource?.filters).toContainEqual({
+            kind: 'account_field',
+            field: AccountsTableAccountField.IgnoredAt,
+            operator: AccountsTableAccountFieldOperator.IsSet,
+            values: [],
+        })
+        expect(logic.values.viewUrlState.customProperties).toEqual(logic.values.accountFilters)
+    })
+
+    it('captures native filter shape without its field or value', () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+
+        logic.actions.updateAccountFilters([
+            {
+                type: PropertyFilterType.Account,
+                key: AccountsTableAccountField.ExternalId,
+                operator: PropertyOperator.Exact,
+                value: 'private-value',
+            },
+        ])
+
+        expect(capture).toHaveBeenCalledWith(AccountsEvents.FilterChanged, {
+            filter_type: 'account_field',
+            field_kind: 'account_field',
+            operator: PropertyOperator.Exact,
+            filter_count: 1,
+            is_cleared: false,
+            active_filter_count: 1,
+        })
+        expect(capture.mock.calls.at(-1)?.[1]).not.toHaveProperty('key')
+        expect(capture.mock.calls.at(-1)?.[1]).not.toHaveProperty('value')
     })
 
     it('setTagsFilter updates the reducer', () => {

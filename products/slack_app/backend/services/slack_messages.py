@@ -20,7 +20,9 @@ without one.
 """
 
 import re
+import json
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
@@ -308,14 +310,38 @@ def post_slack_thread_reply(
 _MISSING_THREAD_ERRORS = frozenset({"thread_not_found", "message_not_found"})
 
 
+def messages_at_or_before(messages: list[dict[str, str]], bound_ts: str) -> list[dict[str, str]]:
+    """Messages posted at or before ``bound_ts``.
+
+    Slack `ts` values are decimal strings, compared as Decimals rather than floats so
+    precision can't drop a message that sits on the bound. A message without a parseable
+    `ts` is dropped: callers use this to answer "what had been said by then", and a
+    message that can't be placed in time can't be part of that answer.
+    """
+
+    def at_or_before(ts: str) -> bool:
+        try:
+            return Decimal(ts) <= Decimal(bound_ts)
+        except InvalidOperation:
+            return False
+
+    return [message for message in messages if at_or_before(message.get("ts", ""))]
+
+
 def collect_thread_messages(
     slack: SlackIntegration,
     integration: Integration,
     channel: str,
     thread_ts: str,
     our_bot_id: str | None,
+    until_ts: str | None = None,
 ) -> list[dict[str, str]]:
     """Fetch thread messages, strip bot mentions, and resolve user display names.
+
+    ``until_ts`` clips the thread at a message, for a reader who forked the discussion
+    at a point in time: what was said afterwards was not what they were looking at.
+    Unbounded by default, which is what the mention path wants — it is answering the
+    thread as it stands.
 
     A thread whose root no longer exists — the user deleted the message that triggered
     us — comes back empty rather than raising. Callers read an empty thread as "nothing
@@ -333,6 +359,8 @@ def collect_thread_messages(
         logger.warning("slack_app_thread_message_deleted", channel=channel, thread_ts=thread_ts)
         return []
     raw_messages: list[dict] = thread_response.get("messages", [])
+    if until_ts:
+        raw_messages = messages_at_or_before(raw_messages, until_ts)
 
     user_cache: dict[str, str] = {}
 
@@ -519,6 +547,63 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     return context_block(" · ".join(segments))
 
 
+def fork_menu_actions_block(element: dict[str, Any]) -> dict[str, Any]:
+    """The fork menu as a standalone block, for replies with no section to hang it on.
+
+    A streamed answer arrives as markdown chunks and the chart delivery puts the answer
+    in the card message, so neither has a `section` whose accessory the menu could be.
+    Costs a line, which is why the plain-post path prefers the accessory.
+    """
+    return {"type": "actions", "elements": [element]}
+
+
+FORK_THREAD_ACTION_ID = "slack_app_fork_thread"
+
+
+def fork_menu_element(integration_id: int) -> dict[str, Any]:
+    """The overflow menu the footer carries as its accessory.
+
+    An overflow renders as a bare "…" with no label, which is as close to invisible as
+    an interactive element gets — the answer above it is what the reader came for. It
+    also has somewhere to put the next destination ("fork to a channel") without
+    growing a second control.
+
+    Returned as a bare element rather than wrapped in an `actions` block so it can be a
+    `section` accessory, which is what puts it on the footer's own line. Slack offers no
+    inline interactive element, so an accessory — right-aligned beside the text — is as
+    close to trailing the footer as Block Kit gets.
+
+    The option value carries the integration so the cross-region interactivity router
+    can tell whose click this is. Everything else the fork needs — the channel, and the
+    thread the reply is sitting in — rides on the `block_actions` payload.
+    """
+    return {
+        "type": "overflow",
+        "action_id": FORK_THREAD_ACTION_ID,
+        "options": [
+            {
+                "text": {"type": "plain_text", "text": "Fork to DM", "emoji": True},
+                "value": json.dumps({"integration_id": integration_id}),
+            }
+        ],
+    }
+
+
+def thread_permalink(slack: SlackIntegration, channel: str, thread_ts: str) -> str | None:
+    """Permalink for a thread, or `None` if Slack won't give us one.
+
+    Best-effort by design: a permalink is a convenience link on a task and a pointer in
+    a forked run's context, never something a run depends on.
+    """
+    try:
+        response = slack.client.chat_getPermalink(channel=channel, message_ts=thread_ts)
+        if response.get("ok"):
+            return response["permalink"]
+    except Exception:
+        logger.warning("slack_app_permalink_failed", channel=channel, thread_ts=thread_ts)
+    return None
+
+
 def context_block(text: str) -> dict[str, Any]:
     """A line of muted supporting text.
 
@@ -545,6 +630,20 @@ def app_home_url(integration: Integration) -> str | None:
     return f"slack://app?team={integration.integration_id}&id={app_id}&tab=home"
 
 
+def personal_integrations_url(team_id: int) -> str:
+    """Where someone connects their own GitHub, so @PostHog opens pull requests as them.
+
+    Connecting requires an authenticated PostHog session, so every surface that asks for it
+    deep-links to this settings page instead of starting an OAuth flow from Slack.
+    """
+    return _public_url(f"/project/{team_id}/settings/user-personal-integrations")
+
+
+def project_web_url(team_id: int) -> str:
+    """Absolute ``/project/<id>`` base for links into this project's PostHog app."""
+    return _public_url(f"/project/{team_id}")
+
+
 def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
     # `unfurl=false` asks our own link unfurler to leave this one alone: the footer already
     # says what the card would, right next to the link.
@@ -566,16 +665,6 @@ def _public_url(path: str) -> str:
     return absolute_uri(path)
 
 
-def workspace_org_ids(slack_team_id: str) -> set:
-    """Organizations connected to this Slack workspace — the scope a Slack identity may
-    resolve a PostHog user within."""
-    return set(
-        Integration.objects.filter(kind="slack", integration_id=slack_team_id).values_list(
-            "team__organization_id", flat=True
-        )
-    )
-
-
 def viewer_has_code_access(integration: Integration, slack_user_id: str | None) -> bool:
     """Whether the Slack identity reading this can open a PostHog Code link.
 
@@ -584,7 +673,7 @@ def viewer_has_code_access(integration: Integration, slack_user_id: str | None) 
     flag-service error means no link rather than one that dead-ends.
     """
     from products.slack_app.backend.services.slack_user_oauth import find_linked_posthog_user  # noqa: PLC0415
-    from products.tasks.backend.facade.access import has_tasks_access  # noqa: PLC0415
+    from products.tasks.backend.facade.access import get_desktop_access_decision  # noqa: PLC0415
 
     if not slack_user_id:
         return False
@@ -592,9 +681,11 @@ def viewer_has_code_access(integration: Integration, slack_user_id: str | None) 
         user = find_linked_posthog_user(
             slack_user_id=slack_user_id,
             slack_team_id=integration.integration_id,
-            candidate_org_ids=workspace_org_ids(integration.integration_id),
+            candidate_org_ids={integration.team.organization_id},
         )
-        return user is not None and has_tasks_access(user)
+        if user is None:
+            return False
+        return get_desktop_access_decision(user, integration.team.organization).allowed
     except Exception:
         logger.exception("slack_app_viewer_code_access_check_failed", integration_id=integration.id)
         return False

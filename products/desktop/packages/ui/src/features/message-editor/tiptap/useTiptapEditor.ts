@@ -888,6 +888,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
         type: chip.type,
         id: chip.id,
         label: chip.label,
+        objectKind: chip.objectKind,
         pastedText: false,
         chipId: chip.chipId,
         skillPath: chip.skillPath,

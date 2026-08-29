@@ -38,8 +38,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ProfoundSource(ResumableSource[ProfoundSourceConfig, ProfoundResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    # There is no version to select: `v1` on the organization lists and `v2` on the reports are
-    # per-resource path segments, not a version a caller can pin. The framework default applies.
+    # Profound versions purely by URL path segment (`/v1/...`, `/v2/...`) — no version header or
+    # account setting. The source already reads the newer v2 report surface (`/v2/reports/*`)
+    # alongside the org lists that only exist under `/v1/`, so the label is a pin recorded on the
+    # source, not a request-layer branch: every version resolves to the same requests (see
+    # settings.py). v2 is the default so new sources record the surface they actually sync.
+    supported_versions = ("v1", "v2")
+    default_version = "v2"
     api_docs_url = "https://docs.tryprofound.com/rest-api/introduction"
 
     @property

@@ -2,11 +2,11 @@ from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
 from posthog.settings import EE_AVAILABLE
 
-import products.alerts.backend.api.alert as alert
-from products.product_analytics.backend.api.insight import InsightViewSet
-from products.product_analytics.backend.api.insight_ee import EnterpriseInsightsViewSet
-from products.product_analytics.backend.api.insight_variable import InsightVariableViewSet
-from products.product_analytics.backend.api.paths_v2 import PathsV2ViewSet
+import products.alerts.backend.presentation.views.alert as alert
+from products.product_analytics.backend.presentation.insight import InsightViewSet
+from products.product_analytics.backend.presentation.insight_ee import EnterpriseInsightsViewSet
+from products.product_analytics.backend.presentation.insight_variable import InsightVariableViewSet
+from products.product_analytics.backend.presentation.paths_v2 import PathsV2ViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:

@@ -61,10 +61,12 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
 from products.feature_flags.backend.api.feature_flag import (
@@ -74,7 +76,7 @@ from products.feature_flags.backend.api.feature_flag import (
     assert_feature_flag_write_scope,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.responses import (
     SurveyRates,
@@ -1026,6 +1028,24 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if not isinstance(value, dict):
             raise serializers.ValidationError("Conditions must be an object")
+
+        return value
+
+    def validate_targeting_flag_filters(self, value):
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("targeting_flag_filters must be an object")
+
+        return value
+
+    def validate_form_content(self, value):
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("form_content must be an object")
 
         return value
 
@@ -2069,6 +2089,24 @@ class SurveyFilterSet(FilterSet):
         field_name="id",
         label="Filter to a comma-separated list of survey IDs. IDs that don't exist are silently omitted rather than erroring.",
     )
+    created_by = django_filters.NumberFilter(
+        field_name="created_by_id",
+        label="Filter surveys by the ID of the user who created them.",
+    )
+    status = django_filters.ChoiceFilter(
+        choices=[("draft", "Draft"), ("running", "Running"), ("complete", "Complete")],
+        method="filter_status",
+        label="Filter surveys by their current status.",
+    )
+
+    def filter_status(self, queryset: QuerySet, _name: str, value: str) -> QuerySet:
+        if value == "draft":
+            return queryset.filter(start_date__isnull=True)
+        if value == "running":
+            return queryset.filter(start_date__isnull=False, end_date__isnull=True)
+        if value == "complete":
+            return queryset.filter(end_date__isnull=False)
+        return queryset
 
     class Meta:
         model = Survey
@@ -3514,7 +3552,11 @@ def get_surveys_response(team: Team) -> dict[str, Any]:
         # external_survey case in their type enums at all.
         .exclude(type=Survey.SurveyType.EXTERNAL_SURVEY)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
-        .prefetch_related("actions"),
+        .prefetch_related("actions")
+        # SDKs display one popover at a time and break appearance-delay ties by payload
+        # order, so this ordering decides which of two colliding surveys a user sees.
+        # Launch order (oldest first) keeps that winner deterministic across cache rebuilds.
+        .order_by("start_date", "created_at", "id"),
         many=True,
     ).data
 

@@ -3,11 +3,13 @@ import {
   Check,
   Copy,
   FileText,
+  Robot,
   Scroll,
   ThumbsDown,
   ThumbsUp,
 } from "@phosphor-icons/react";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
+import { buildTurnRatingMetric } from "@posthog/core/analytics/aiFeedback";
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { useService } from "@posthog/di/react";
 import {
@@ -94,14 +96,20 @@ import { GitActionMessage } from "@posthog/ui/features/sessions/components/GitAc
 import { GitActionResult } from "@posthog/ui/features/sessions/components/GitActionResult";
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
 import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
+import { isPlanItem } from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
 import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
+import {
+  extractOnboardingBrief,
+  ONBOARDING_BRIEF_LABEL,
+} from "@posthog/ui/features/sessions/components/session-update/onboardingBrief";
 import {
   hasFileMentions,
   MentionChip,
   parseFileMentions,
 } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
+import { extractPeerAgentMessage } from "@posthog/ui/features/sessions/components/session-update/peerAgentMessage";
 import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
@@ -116,6 +124,7 @@ import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useCon
 import {
   useOptimisticItemsForTask,
   useSessionIsCloud,
+  useSessionSelector,
 } from "@posthog/ui/features/sessions/sessionStore";
 import {
   useSessionViewActions,
@@ -243,7 +252,7 @@ function stableRunItems(run: SessionUpdateItem[]): SessionUpdateItem[] {
   return run;
 }
 
-function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
+export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
   const out: ThreadItem[] = [];
   // The buffer holds the active run in order: tools, the thoughts between them, and any invisible
   // items interleaved with either.
@@ -267,6 +276,14 @@ function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
+      // A plan presented for approval renders as the full PlanApprovalView
+      // card — folded into a "N tool calls" chip, the plan the user is being
+      // asked to approve is invisible. Same exemption as buildThreadGroups.
+      if (isPlanItem(item)) {
+        flush();
+        out.push(item);
+        continue;
+      }
       buffer.push(item);
       toolCount++;
     } else if (isInvisibleItem(item) || isThoughtItem(item)) {
@@ -379,16 +396,23 @@ function TurnFeedback({
   sentiment: AgentTurnFeedbackSentiment | null;
 }) {
   const taskId = useSessionTaskId();
+  const taskRunId = useSessionSelector(
+    taskId ?? undefined,
+    (session) => session?.taskRunId,
+  );
   const { setTurnFeedback } = useSessionViewActions();
 
   const rate = (next: AgentTurnFeedbackSentiment) => {
     if (sentiment === next) return;
     setTurnFeedback(turnId, next);
-    track(ANALYTICS_EVENTS.AGENT_TURN_FEEDBACK, {
-      task_id: taskId,
-      turn_id: turnId,
-      sentiment: next,
-    });
+    track(
+      ANALYTICS_EVENTS.AI_METRIC,
+      buildTurnRatingMetric({
+        run: { taskId, taskRunId },
+        turnId,
+        sentiment: next,
+      }),
+    );
   };
 
   return (
@@ -496,13 +520,22 @@ function UserBubble({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const channelContext = useMemo(
-    () => extractChannelContext(content),
+  // A message relayed from another agent run renders as an incoming agent
+  // message (start-aligned, outlined, provenance chip) instead of masquerading
+  // as something this run's user typed. The envelope boilerplate never renders;
+  // only the sender-authored body flows into the normal pipeline below.
+  const peerAgentMessage = useMemo(
+    () => extractPeerAgentMessage(content),
     [content],
+  );
+  const baseContent = peerAgentMessage ? peerAgentMessage.body : content;
+  const channelContext = useMemo(
+    () => extractChannelContext(baseContent),
+    [baseContent],
   );
   const afterChannelContext = channelContext
     ? channelContext.stripped
-    : content;
+    : baseContent;
   const canvasInstructions = useMemo(
     () => extractCanvasInstructions(afterChannelContext),
     [afterChannelContext],
@@ -514,12 +547,24 @@ function UserBubble({
     () => extractCustomInstructions(afterCanvasInstructions),
     [afterCanvasInstructions],
   );
+  const afterCustomInstructions = customInstructions
+    ? customInstructions.stripped
+    : afterCanvasInstructions;
+  const onboardingBrief = useMemo(
+    () => extractOnboardingBrief(afterCustomInstructions),
+    [afterCustomInstructions],
+  );
   const displayContent = collapsePiSkillInvocation(
-    customInstructions ? customInstructions.stripped : afterCanvasInstructions,
+    onboardingBrief ? onboardingBrief.stripped : afterCustomInstructions,
   );
   const showChannelContextTag = !!channelContext && bluebirdEnabled;
   const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
-  const showHeaderChips = showChannelContextTag || showCanvasInstructionsTag;
+  // Provenance is never flag-gated: a peer message must not read as the user's.
+  const showHeaderChips =
+    !!peerAgentMessage ||
+    showChannelContextTag ||
+    showCanvasInstructionsTag ||
+    !!onboardingBrief;
   const taskId = useSessionTaskId();
   const openChannelContextInSplit = usePanelLayoutStore(
     (s) => s.openChannelContextInSplit,
@@ -551,10 +596,22 @@ function UserBubble({
 
   return (
     <MessageContextMenu value={displayContent}>
-      <ChatMessage align="end" className="group">
+      <ChatMessage align={peerAgentMessage ? "start" : "end"} className="group">
         <ChatMessageContent className="gap-1">
           {showHeaderChips && (
             <ChatMessageHeader className="flex-wrap gap-1">
+              {peerAgentMessage && (
+                <MentionChip
+                  icon={<Robot size={12} />}
+                  label={`From agent: ${peerAgentMessage.senderTaskTitle}`}
+                />
+              )}
+              {onboardingBrief && (
+                <MentionChip
+                  icon={<FileText size={12} />}
+                  label={ONBOARDING_BRIEF_LABEL}
+                />
+              )}
               {showChannelContextTag && channelContext && (
                 <MentionChip
                   icon={<FileText size={12} />}
@@ -590,53 +647,56 @@ function UserBubble({
               )}
             </ChatMessageHeader>
           )}
-          <ChatBubble
-            align="end"
-            variant="default"
-            className={cn(
-              "rounded-lg ring-(--gray-11) ring-0 ring-inset transition-shadow",
-              keyboardFocused && "ring-[3px]",
-            )}
-          >
-            <ChatBubbleContent>
-              <div
-                ref={textRef}
-                className={cn(
-                  "[&_p]:my-0",
-                  !isExpanded && "max-h-[5lh] overflow-hidden",
-                  // Fade the clamped text out at the bottom so it reads as "continues below". Only
-                  // when actually overflowing — a short collapsed message shouldn't fade. The mask is
-                  // paint-only, so it doesn't affect the overflow measurement above.
-                  !isExpanded &&
-                    isOverflowing &&
-                    "[mask-image:linear-gradient(to_bottom,black_45%,transparent)]",
-                )}
-              >
-                {containsFileMentions ? (
-                  parseFileMentions(displayContent)
-                ) : (
-                  <ChatMarkdown content={displayContent} />
-                )}
-              </div>
-              {attachments.length > 0 && !containsFileMentions && (
-                <div className="mt-1.5">
-                  <UserMessageAttachments attachments={attachments} />
-                </div>
+          {/* The brief is the whole message, so stripping it leaves nothing to put in a bubble. */}
+          {(!!displayContent || attachments.length > 0) && (
+            <ChatBubble
+              align={peerAgentMessage ? "start" : "end"}
+              variant={peerAgentMessage ? "outline" : "default"}
+              className={cn(
+                "rounded-lg ring-(--gray-11) ring-0 ring-inset transition-shadow",
+                keyboardFocused && "ring-[3px]",
               )}
-              {isOverflowing && (
-                <button
-                  type="button"
-                  onClick={() => setIsExpanded((v) => !v)}
-                  className="mt-1 flex items-center gap-0.5 text-muted-foreground text-sm hover:text-foreground"
+            >
+              <ChatBubbleContent>
+                <div
+                  ref={textRef}
+                  className={cn(
+                    "[&_p]:my-0",
+                    !isExpanded && "max-h-[5lh] overflow-hidden",
+                    // Fade the clamped text out at the bottom so it reads as "continues below". Only
+                    // when actually overflowing — a short collapsed message shouldn't fade. The mask is
+                    // paint-only, so it doesn't affect the overflow measurement above.
+                    !isExpanded &&
+                      isOverflowing &&
+                      "[mask-image:linear-gradient(to_bottom,black_45%,transparent)]",
+                  )}
                 >
-                  Show {isExpanded ? "less" : "more"}
-                  <CaretDown
-                    className={cn("size-3", isExpanded && "rotate-180")}
-                  />
-                </button>
-              )}
-            </ChatBubbleContent>
-          </ChatBubble>
+                  {containsFileMentions ? (
+                    parseFileMentions(displayContent)
+                  ) : (
+                    <ChatMarkdown content={displayContent} />
+                  )}
+                </div>
+                {attachments.length > 0 && !containsFileMentions && (
+                  <div className="mt-1.5">
+                    <UserMessageAttachments attachments={attachments} />
+                  </div>
+                )}
+                {isOverflowing && (
+                  <button
+                    type="button"
+                    onClick={() => setIsExpanded((v) => !v)}
+                    className="mt-1 flex items-center gap-0.5 text-muted-foreground text-sm hover:text-foreground"
+                  >
+                    Show {isExpanded ? "less" : "more"}
+                    <CaretDown
+                      className={cn("size-3", isExpanded && "rotate-180")}
+                    />
+                  </button>
+                )}
+              </ChatBubbleContent>
+            </ChatBubble>
+          )}
           {timestamp != null && (
             <ChatMessageFooter className="items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
               {formatTimestamp(timestamp)}

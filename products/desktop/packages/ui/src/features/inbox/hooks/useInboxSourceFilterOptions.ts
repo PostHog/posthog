@@ -1,6 +1,7 @@
+import { filterInboxSourceOptions } from "@posthog/shared";
 import type { SourceProduct } from "@posthog/shared/types";
 import {
-  filterInboxSourceOptions,
+  INBOX_SOURCE_OPTIONS,
   type InboxSourceOption,
 } from "@posthog/ui/features/inbox/filterOptions";
 import { useSignalSourceConfigs } from "@posthog/ui/features/inbox/hooks/useSignalSourceConfigs";
@@ -13,15 +14,22 @@ import { useMemo } from "react";
  */
 export function useInboxSourceFilterOptions(
   selected: SourceProduct[],
+  options?: { enabled?: boolean },
 ): InboxSourceOption[] {
-  const { data: configs } = useSignalSourceConfigs();
+  const { data: configs } = useSignalSourceConfigs(options);
 
   return useMemo(() => {
-    if (!configs) return filterInboxSourceOptions(undefined, selected);
+    if (!configs) {
+      return filterInboxSourceOptions(
+        INBOX_SOURCE_OPTIONS,
+        undefined,
+        selected,
+      );
+    }
     const enabled = new Set<string>();
     for (const config of configs) {
       if (config.enabled) enabled.add(config.source_product);
     }
-    return filterInboxSourceOptions(enabled, selected);
+    return filterInboxSourceOptions(INBOX_SOURCE_OPTIONS, enabled, selected);
   }, [configs, selected]);
 }

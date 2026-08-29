@@ -14,6 +14,8 @@ import type {
 import { featureRequestPriorityLabel, featureRequestStatusLabel } from './featureRequestOptions'
 
 type RelationSnapshot = { id: string; name: string }
+type EvidenceSnapshot = { id: string; account: RelationSnapshot }
+type ShowHistoryTarget = (accountId: string, evidenceId?: string) => void
 
 const FEATURE_REQUEST_STATUSES = new Set<string>(['requested', 'planned', 'completed', 'wont_fix', 'duplicate'])
 const FEATURE_REQUEST_PRIORITIES = new Set<string>(['high', 'medium', 'low'])
@@ -39,6 +41,14 @@ function accountSnapshotName(value: unknown): string {
         : 'No account'
 }
 
+function evidenceSnapshot(value: unknown): EvidenceSnapshot | null {
+    if (typeof value !== 'object' || value === null || !('id' in value) || typeof value.id !== 'string') {
+        return null
+    }
+    const account = 'account' in value ? relationSnapshot(value.account) : null
+    return account ? { id: value.id, account } : null
+}
+
 function relationSnapshots(value: unknown): RelationSnapshot[] {
     return Array.isArray(value)
         ? value.map(relationSnapshot).filter((snapshot): snapshot is RelationSnapshot => snapshot !== null)
@@ -57,10 +67,37 @@ function priorityName(value: unknown): string {
         : 'Unknown priority'
 }
 
-function scalarChange(label: string, before: string, after: string, isInitial: boolean): JSX.Element {
+function historyTargetLabel(
+    label: string,
+    target: { accountId: string; evidenceId?: string } | null,
+    onShowTarget: ShowHistoryTarget
+): JSX.Element {
+    if (!target) {
+        return <span className="font-medium">{label}:</span>
+    }
+    return (
+        <button
+            type="button"
+            onClick={() => onShowTarget(target.accountId, target.evidenceId)}
+            data-attr="feature-request-history-target"
+            className="m-0 cursor-pointer border-0 bg-transparent p-0 font-medium text-current hover:text-accent"
+        >
+            {label}:
+        </button>
+    )
+}
+
+function scalarChange(
+    label: string,
+    before: string,
+    after: string,
+    isInitial: boolean,
+    onShowTarget: ShowHistoryTarget,
+    target: { accountId: string; evidenceId?: string } | null = null
+): JSX.Element {
     return (
         <div>
-            <span className="font-medium">{label}:</span>{' '}
+            {historyTargetLabel(label, target, onShowTarget)}{' '}
             {isInitial ? (
                 after
             ) : (
@@ -89,6 +126,7 @@ function historyMarker(entry: FeatureRequestHistoryApi): ComponentType<{ classNa
         case 'priority':
             return IconFlag
         case 'account':
+        case 'accounts':
             return IconBuilding
         case 'product_areas':
             return IconFolder
@@ -97,44 +135,138 @@ function historyMarker(entry: FeatureRequestHistoryApi): ComponentType<{ classNa
     }
 }
 
-function describeChange(change: FeatureRequestHistoryChangeApi, isInitial: boolean): JSX.Element | null {
-    if (change.field === 'status') {
-        return scalarChange('Status', statusName(change.before), statusName(change.after), isInitial)
-    }
-    if (change.field === 'priority') {
-        return scalarChange('Priority', priorityName(change.before), priorityName(change.after), isInitial)
-    }
-    if (change.field === 'account') {
-        return scalarChange('Account', accountSnapshotName(change.before), accountSnapshotName(change.after), isInitial)
-    }
-    if (change.field === 'product_areas') {
-        const before = relationSnapshots(change.before)
-        const after = relationSnapshots(change.after)
-        if (isInitial) {
-            return (
-                <div>
-                    <span className="font-medium">Product areas:</span>{' '}
-                    {after.map((area) => area.name).join(', ') || 'None'}
-                </div>
-            )
-        }
-        const beforeIds = new Set(before.map((area) => area.id))
-        const afterIds = new Set(after.map((area) => area.id))
-        const added = after.filter((area) => !beforeIds.has(area.id)).map((area) => area.name)
-        const removed = before.filter((area) => !afterIds.has(area.id)).map((area) => area.name)
+function describeAccountChange(
+    change: FeatureRequestHistoryChangeApi,
+    isInitial: boolean,
+    onShowTarget: ShowHistoryTarget
+): JSX.Element {
+    const before = relationSnapshot(change.before)
+    const after = relationSnapshot(change.after)
+    const target = after ?? before
+    return scalarChange(
+        'Account',
+        accountSnapshotName(change.before),
+        accountSnapshotName(change.after),
+        isInitial,
+        onShowTarget,
+        target ? { accountId: target.id } : null
+    )
+}
+
+function describeAccountsChange(
+    change: FeatureRequestHistoryChangeApi,
+    isInitial: boolean,
+    onShowTarget: ShowHistoryTarget
+): JSX.Element {
+    const before = relationSnapshots(change.before)
+    const after = relationSnapshots(change.after)
+    const beforeIds = new Set(before.map((account) => account.id))
+    const afterIds = new Set(after.map((account) => account.id))
+    const added = after.filter((account) => !beforeIds.has(account.id))
+    const removed = before.filter((account) => !afterIds.has(account.id))
+    const target = added[0] ?? removed[0] ?? after[0] ?? before[0]
+    const label = historyTargetLabel('Accounts', target ? { accountId: target.id } : null, onShowTarget)
+
+    if (isInitial) {
         return (
             <div>
-                <span className="font-medium">Product areas:</span>{' '}
-                {[
-                    added.length ? `added ${added.join(', ')}` : null,
-                    removed.length ? `removed ${removed.join(', ')}` : null,
-                ]
-                    .filter(Boolean)
-                    .join('; ')}
+                {label} {after.map((account) => account.name).join(', ')}
             </div>
         )
     }
-    return null
+    return (
+        <div>
+            {label}{' '}
+            {[
+                added.length ? `added ${added.map((account) => account.name).join(', ')}` : null,
+                removed.length ? `removed ${removed.map((account) => account.name).join(', ')}` : null,
+            ]
+                .filter(Boolean)
+                .join('; ')}
+        </div>
+    )
+}
+
+function describeEvidenceChange(change: FeatureRequestHistoryChangeApi, onShowTarget: ShowHistoryTarget): JSX.Element {
+    const before = evidenceSnapshot(change.before)
+    const after = evidenceSnapshot(change.after)
+    const target = after ?? before
+    return (
+        <div>
+            {historyTargetLabel(
+                'Evidence',
+                target ? { accountId: target.account.id, evidenceId: target.id } : null,
+                onShowTarget
+            )}{' '}
+            {before && after
+                ? `updated for ${after.account.name}`
+                : after
+                  ? `added for ${after.account.name}`
+                  : `removed for ${before?.account.name ?? 'an account'}`}
+        </div>
+    )
+}
+
+function describeProductAreasChange(
+    change: FeatureRequestHistoryChangeApi,
+    isInitial: boolean,
+    onShowTarget: ShowHistoryTarget
+): JSX.Element {
+    const before = relationSnapshots(change.before)
+    const after = relationSnapshots(change.after)
+    const label = historyTargetLabel('Product areas', null, onShowTarget)
+
+    if (isInitial) {
+        return (
+            <div>
+                {label} {after.map((area) => area.name).join(', ') || 'None'}
+            </div>
+        )
+    }
+    const beforeIds = new Set(before.map((area) => area.id))
+    const afterIds = new Set(after.map((area) => area.id))
+    const added = after.filter((area) => !beforeIds.has(area.id)).map((area) => area.name)
+    const removed = before.filter((area) => !afterIds.has(area.id)).map((area) => area.name)
+    return (
+        <div>
+            {label}{' '}
+            {[
+                added.length ? `added ${added.join(', ')}` : null,
+                removed.length ? `removed ${removed.join(', ')}` : null,
+            ]
+                .filter(Boolean)
+                .join('; ')}
+        </div>
+    )
+}
+
+function describeChange(
+    change: FeatureRequestHistoryChangeApi,
+    isInitial: boolean,
+    onShowTarget: ShowHistoryTarget
+): JSX.Element | null {
+    switch (change.field) {
+        case 'status':
+            return scalarChange('Status', statusName(change.before), statusName(change.after), isInitial, onShowTarget)
+        case 'priority':
+            return scalarChange(
+                'Priority',
+                priorityName(change.before),
+                priorityName(change.after),
+                isInitial,
+                onShowTarget
+            )
+        case 'account':
+            return describeAccountChange(change, isInitial, onShowTarget)
+        case 'accounts':
+            return describeAccountsChange(change, isInitial, onShowTarget)
+        case 'evidence':
+            return describeEvidenceChange(change, onShowTarget)
+        case 'product_areas':
+            return describeProductAreasChange(change, isInitial, onShowTarget)
+        default:
+            return null
+    }
 }
 
 export interface FeatureRequestHistoryProps {
@@ -144,6 +276,7 @@ export interface FeatureRequestHistoryProps {
     showingAll: boolean
     onRetry: () => void
     onSetShowingAll: (showingAll: boolean) => void
+    onShowTarget: ShowHistoryTarget
 }
 
 export function FeatureRequestHistory({
@@ -153,6 +286,7 @@ export function FeatureRequestHistory({
     showingAll,
     onRetry,
     onSetShowingAll,
+    onShowTarget,
 }: FeatureRequestHistoryProps): JSX.Element {
     if (loading) {
         return (
@@ -208,7 +342,9 @@ export function FeatureRequestHistory({
                                 <LemonCard hoverEffect={false} className="w-full p-2 shadow-none">
                                     <div className="flex flex-col gap-1 text-secondary">
                                         {entry.changes.map((change) => (
-                                            <div key={change.field}>{describeChange(change, entry.is_initial)}</div>
+                                            <div key={change.field}>
+                                                {describeChange(change, entry.is_initial, onShowTarget)}
+                                            </div>
                                         ))}
                                     </div>
                                 </LemonCard>

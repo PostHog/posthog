@@ -23,7 +23,7 @@ use crate::{
     api::CaptureError,
     debug_or_info,
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
-    events::overflow_stamping::stamp_overflow_reason,
+    events::{ai_byte_limit::drop_ai_byte_limited, overflow_stamping::stamp_overflow_reason},
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     ingestion_warnings::{
         emit_distinct_id_truncated_warning, emit_rate_limit_warning,
@@ -33,7 +33,8 @@ use crate::{
     router, sinks,
     utils::uuid_v7_from_datetime,
     v0_request::{
-        DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
+        exceeds_max_ai_event_bytes, DataType, OverflowReason, ProcessedEvent,
+        ProcessedEventMetadata, ProcessingContext,
     },
 };
 
@@ -82,9 +83,6 @@ fn create_heatmap_redirect(
     historical_cfg: router::HistoricalConfig,
     context: &ProcessingContext,
 ) -> Result<Option<ProcessedEvent>, CaptureError> {
-    // The redirect is always a `$$heatmap` event, so AI routing can never
-    // apply to it; hardcode the flag off instead of threading it through.
-    let route_ai_events = false;
     let Some(distinct_id) = event.extract_distinct_id() else {
         return Ok(None);
     };
@@ -114,19 +112,14 @@ fn create_heatmap_redirect(
         set_once: None,
     };
 
-    process_single_event(&heatmap_event, historical_cfg, route_ai_events, context).map(Some)
+    process_single_event(&heatmap_event, historical_cfg, context).map(Some)
 }
 
 /// Process a single analytics event from RawEvent to ProcessedEvent.
-///
-/// `route_ai_events` is the deployment's `CaptureMode::routes_ai_events` (see
-/// `process_events`); when set, `$ai_*` events classify as
-/// `DataType::AiEvents` instead of the analytics main/historical lanes.
 #[instrument(skip_all, fields(event_name, request_id))]
 pub fn process_single_event(
     event: &RawEvent,
     historical_cfg: router::HistoricalConfig,
-    route_ai_events: bool,
     context: &ProcessingContext,
 ) -> Result<ProcessedEvent, CaptureError> {
     if event.event.is_empty() {
@@ -136,8 +129,7 @@ pub fn process_single_event(
     Span::current().record("is_mirror_deploy", context.is_mirror_deploy);
     Span::current().record("request_id", &context.request_id);
 
-    let data_type =
-        DataType::from_event_name(&event.event, context.historical_migration, route_ai_events);
+    let data_type = DataType::from_event_name(&event.event, context.historical_migration);
 
     // Redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if event.properties.contains_key("capture_internal") {
@@ -229,11 +221,11 @@ pub fn process_single_event(
 
 /// Process a batch of analytics events.
 ///
-/// All routing policy lives here: token dropping, `$ai_*` lane assignment
-/// (per `CaptureMode::routes_ai_events`, resolved into `DataType::AiEvents`
-/// at classification time), event restrictions, global
-/// rate limiting (per `token:distinct_id`), historical rerouting, and
-/// per-key overflow rerouting via [`OverflowLimiter`]. Overflow stamping
+/// All routing policy lives here: token dropping, AI lane assignment
+/// (resolved into `DataType::AiEvents` at classification time), event
+/// restrictions, the AI lane's per-project byte budget, global rate
+/// limiting (per `token:distinct_id`), historical rerouting, and per-key
+/// overflow rerouting via [`OverflowLimiter`]. Overflow stamping
 /// goes through the shared [`stamp_overflow_reason`] helper, which the AI
 /// (`ai_endpoint::ai_handler`) and OTEL (`otel::otel_handler`) paths also
 /// call so every `DataType::AnalyticsMain` event gets identical limiter
@@ -254,6 +246,7 @@ pub async fn process_events(
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
+    ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
 ) -> Result<(), CaptureError> {
     // The whole request fails on the first hard error, so the abort warning
     // charges the full batch, matching what the endpoint's
@@ -274,6 +267,7 @@ pub async fn process_events(
         ingestion_warning_emitter,
         events,
         context,
+        ai_byte_rate_limiter,
     )
     .await;
 
@@ -295,6 +289,7 @@ async fn process_events_inner(
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
+    ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
 ) -> Result<(), CaptureError> {
     let chatty_debug_enabled = context.chatty_debug_enabled;
 
@@ -320,12 +315,6 @@ async fn process_events_inner(
         return Ok(());
     }
 
-    // Whether `$ai_*` events divert to the dedicated AI topic is a deployment
-    // property, mirroring v1's `process_batch`. The flag feeds
-    // `DataType::from_event_name` via `process_single_event`; the kafka sink
-    // maps the resulting `DataType::AiEvents` to `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`.
-    let route_ai_events = context.capture_mode.routes_ai_events();
-
     // Build the processed batch one raw event at a time so we can split a
     // heatmap-carrying event into a stripped original + a `$$heatmap`
     // redirect *before* serialization happens inside `process_single_event`.
@@ -343,38 +332,23 @@ async fn process_events_inner(
                 .retain(|key, _| !key.starts_with(crate::gateway_provenance::GATEWAY_PREFIX));
         }
         if raw.event == "$$heatmap" || !has_heatmap_data(&raw) {
-            events.push(process_single_event(
-                &raw,
-                historical_cfg,
-                route_ai_events,
-                context,
-            )?);
+            events.push(process_single_event(&raw, historical_cfg, context)?);
             continue;
         }
         let mut redirect = match create_heatmap_redirect(&raw, historical_cfg, context) {
             Ok(Some(redirect)) => redirect,
             Ok(None) => {
-                events.push(process_single_event(
-                    &raw,
-                    historical_cfg,
-                    route_ai_events,
-                    context,
-                )?);
+                events.push(process_single_event(&raw, historical_cfg, context)?);
                 continue;
             }
             Err(err) => {
                 error!("failed to create heatmap redirect: {err:#}");
-                events.push(process_single_event(
-                    &raw,
-                    historical_cfg,
-                    route_ai_events,
-                    context,
-                )?);
+                events.push(process_single_event(&raw, historical_cfg, context)?);
                 continue;
             }
         };
         raw.properties.remove("$heatmap_data");
-        let mut processed = process_single_event(&raw, historical_cfg, route_ai_events, context)?;
+        let mut processed = process_single_event(&raw, historical_cfg, context)?;
         processed.metadata.skip_heatmap_processing = true;
         events.push(processed);
         counter!("capture_heatmap_redirects_created").increment(1);
@@ -386,6 +360,57 @@ async fn process_events_inner(
     }
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "created ProcessedEvents batch");
+
+    // capture-ai serves only the AI paths and loads only AI restrictions (see
+    // `Pipeline::for_capture_mode`), so an event on any other lane would run
+    // ungoverned there. Reject the batch rather than dropping the offender: a
+    // client sending non-AI events to an AI endpoint is misconfigured, and a
+    // silent drop would hide that until someone went looking for the data. The
+    // abort path emits an `invalid_ai_event` ingestion warning alongside the
+    // 400, so the project owner sees it too.
+    //
+    // Lane membership is the `AI_EVENT_NAMES` allowlist, not an `$ai_` prefix,
+    // so a prefixed-but-unlisted name is rejected here too — the Node AI
+    // pipeline would DLQ it anyway.
+    if context.capture_mode == crate::config::CaptureMode::Ai {
+        if let Some(offender) = events
+            .iter()
+            .find(|e| e.metadata.data_type != DataType::AiEvents)
+        {
+            return Err(CaptureError::NonAiEventOnAiLane(
+                offender.metadata.event_name.clone(),
+            ));
+        }
+    }
+
+    // Reject an AI-lane event past the deployment's ceiling before it can reach
+    // the sink, where the producer's own cap would refuse it anyway — after
+    // capture had read and processed the whole request. The whole request is
+    // refused, matching how every other oversize check on this path behaves.
+    //
+    // The drop isn't counted here. The abort reaches the endpoint, which charges
+    // the whole batch under this error's own `ai_event_too_big` tag; counting
+    // locally too would report one more drop than the batch held, and split one
+    // rejection across two `cause` labels.
+    //
+    // The uuid says which event to fix, since a batch can carry several of the
+    // same name. It is only a handle for clients that send their own; the rest
+    // get the one `process_single_event` minted, which identifies nothing they
+    // can look up. The non-AI-event rejection above deliberately omits it: its
+    // offender may be the `$$heatmap` event capture itself synthesized, and
+    // naming a uuid the client never issued would misdirect them.
+    if let Some(offender) = events.iter().find(|e| {
+        e.metadata.data_type == DataType::AiEvents
+            && exceeds_max_ai_event_bytes(e.event.data.len(), context.ai_max_event_bytes)
+    }) {
+        return Err(CaptureError::AiEventTooBig(format!(
+            "AI event {} (uuid {}) is {} bytes, over the {}-byte limit",
+            offender.metadata.event_name,
+            offender.event.uuid,
+            offender.event.data.len(),
+            context.ai_max_event_bytes
+        )));
+    }
 
     events.retain(|e| {
         if dropper.should_drop(&e.event.token, &e.event.distinct_id) {
@@ -451,6 +476,13 @@ async fn process_events_inner(
         events = filtered_events;
         debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by event_restrictions");
     }
+
+    // Charge the AI lane's per-project byte budget. This runs after event
+    // restrictions so an event a `DropEvent` discards never spends the
+    // project's budget on a send that was never going to happen. Events that
+    // survive to here are charged whether or not the budget then sheds them:
+    // those bytes crossed the wire either way.
+    drop_ai_byte_limited(&mut events, ai_byte_rate_limiter.as_ref()).await;
 
     // Per-(token, distinct_id) global rate limiting: skip person processing for
     // hot distinct_ids and reroute AnalyticsMain events to overflow. Import mode
@@ -652,6 +684,7 @@ mod tests {
             historical_migration: false,
             chatty_debug_enabled: false,
             capture_mode: crate::config::CaptureMode::Events,
+            ai_max_event_bytes: 0,
             sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
         }
     }
@@ -699,6 +732,7 @@ mod tests {
         overflow_limiter: Option<Arc<OverflowLimiter>>,
         ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
         ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+        ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     }
 
     impl Default for PipelineOptions {
@@ -711,6 +745,7 @@ mod tests {
                 overflow_limiter: None,
                 ai_events_overflow_limiter: None,
                 ingestion_warning_emitter: None,
+                ai_byte_rate_limiter: None,
             }
         }
     }
@@ -732,6 +767,7 @@ mod tests {
             options.ingestion_warning_emitter,
             events,
             context,
+            options.ai_byte_rate_limiter,
         )
         .await
     }
@@ -758,13 +794,9 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        let processed = process_single_event(
-            &event,
-            router::HistoricalConfig::new(false, 1),
-            false,
-            &context,
-        )
-        .unwrap();
+        let processed =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context)
+                .unwrap();
 
         let expected_millis = processed
             .metadata
@@ -799,13 +831,9 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        let processed = process_single_event(
-            &event,
-            router::HistoricalConfig::new(false, 1),
-            false,
-            &context,
-        )
-        .unwrap();
+        let processed =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context)
+                .unwrap();
 
         // The event keeps its pre-epoch timestamp, but the uuid floors to the epoch rather than wrapping to garbage.
         assert!(
@@ -827,12 +855,8 @@ mod tests {
 
         let context = create_test_context(now, None);
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
-        let result = process_single_event(
-            &event,
-            router::HistoricalConfig::new(false, 1),
-            false,
-            &context,
-        );
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -857,12 +881,8 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:59:55Z".to_string()), None, None);
 
-        let result = process_single_event(
-            &event,
-            router::HistoricalConfig::new(false, 1),
-            false,
-            &context,
-        );
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -885,12 +905,8 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, Some(true));
 
-        let result = process_single_event(
-            &event,
-            router::HistoricalConfig::new(false, 1),
-            false,
-            &context,
-        );
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -912,12 +928,8 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let result = process_single_event(
-            &event,
-            router::HistoricalConfig::new(false, 1),
-            false,
-            &context,
-        );
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -937,12 +949,8 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let result = process_single_event(
-            &event,
-            router::HistoricalConfig::new(false, 1),
-            false,
-            &context,
-        );
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -1319,8 +1327,8 @@ mod tests {
         );
     }
 
-    /// The `$ai_*` lane assignment holds across capture modes: `Events` and
-    /// `Import` both divert every `$ai_*` event (only the AI lane has AI
+    /// The AI lane assignment holds across capture modes: `Events` and
+    /// `Import` both divert every allowlisted AI event (only the AI lane has AI
     /// processing, so imports must divert too), winning over historical.
     /// Non-AI events stay on their normal route in every mode. The topic
     /// itself is resolved in the kafka sink from `DataType::AiEvents`, not
@@ -1408,7 +1416,474 @@ mod tests {
         assert_eq!(pageview.metadata.redirect_to_topic, None);
     }
 
-    /// A diverted `$ai_*` event is governed by ai-scoped restrictions (the
+    /// End-to-end: `process_events` drops the over-budget `$ai_generation` and keeps the small one.
+    #[tokio::test]
+    async fn ai_events_over_byte_budget_are_dropped_end_to_end() {
+        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::producer::MockKafkaProducer;
+
+        // 800-byte budget: the enveloped small event (~672 B) fits, and the
+        // large one takes the running total past it.
+        let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(800)));
+
+        let producer = MockKafkaProducer::new();
+        let sink = Arc::new(KafkaSinkBase::with_producer(
+            producer.clone(),
+            test_topics(),
+        ));
+
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let small_event = create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        let mut oversized_event = create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        oversized_event
+            .properties
+            .insert("$ai_input".to_string(), json!("x".repeat(500)));
+
+        process_events(
+            sink,
+            Arc::new(TokenDropper::default()),
+            None,
+            router::HistoricalConfig::new(false, 1),
+            None,
+            None,
+            None,
+            None,
+            vec![small_event, oversized_event],
+            &context,
+            limiter,
+        )
+        .await
+        .expect("process_events must accept the batch even though one event is dropped");
+
+        let records = producer.get_records();
+        assert_eq!(
+            records.len(),
+            1,
+            "only the under-budget AI event must reach the sink"
+        );
+        let topics = test_topics();
+        let ai_topic = topics.topic_for(&crate::sinks::registry::Output::AiMain);
+        assert_eq!(
+            records[0].topic, ai_topic,
+            "the surviving record must be on the AI lane"
+        );
+    }
+
+    /// An AI event past the deployment's ceiling refuses the whole request, so
+    /// no part of it reaches the sink. The legacy path already answers 413 for
+    /// every other oversize condition, and the producer would refuse this event
+    /// anyway once the request had been read in full.
+    #[tokio::test]
+    async fn oversize_ai_events_refuse_the_request_end_to_end() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.ai_max_event_bytes = 700;
+
+        let sink = Arc::new(MockSink::new());
+        let mut oversized = create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        oversized
+            .properties
+            .insert("$ai_input".to_string(), json!("x".repeat(800)));
+        // A client-supplied uuid: the case where the uuid in the message is a
+        // handle the sender can match against its own outbox.
+        let offender_uuid = Uuid::parse_str("018f2c6e-0000-7000-8000-00000000beef").unwrap();
+        oversized.uuid = Some(offender_uuid);
+
+        let err = run_pipeline(
+            sink.clone(),
+            vec![
+                create_test_event_with_name(
+                    "$ai_generation",
+                    Some("2023-01-01T11:00:00Z".to_string()),
+                    None,
+                    None,
+                ),
+                oversized,
+            ],
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .expect_err("an oversize AI event must refuse the batch");
+
+        assert!(matches!(err, CaptureError::AiEventTooBig(_)), "got {err:?}");
+        // The offender's uuid, not the batch's first event: a batch can carry
+        // several events of one name, so the name alone doesn't say which to fix.
+        assert!(
+            err.to_string().contains(&offender_uuid.to_string()),
+            "the message must name the offending event's uuid, got {err}"
+        );
+        assert!(
+            sink.get_events().is_empty(),
+            "no event may reach the sink once the request is refused"
+        );
+    }
+
+    /// The ceiling governs the AI lane only: an analytics event of the same
+    /// size passes, so a deployment sized for its AI topic's broker does not
+    /// start refusing ordinary analytics traffic.
+    #[tokio::test]
+    async fn the_ai_size_ceiling_leaves_analytics_events_alone() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.ai_max_event_bytes = 700;
+
+        let sink = Arc::new(MockSink::new());
+        let mut oversized = create_test_event_with_name(
+            "$pageview",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        oversized
+            .properties
+            .insert("big".to_string(), json!("x".repeat(800)));
+
+        run_pipeline(
+            sink.clone(),
+            vec![oversized],
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .expect("an oversize analytics event must not be refused");
+
+        assert_eq!(sink.get_events().len(), 1);
+    }
+
+    /// A `DropEvent` restriction discards its event before the byte budget is
+    /// charged, so the budget still has room for the events that survive it.
+    /// Charging first would let a restricted event shed a legitimate one
+    /// behind it.
+    #[tokio::test]
+    async fn restriction_dropped_ai_events_do_not_spend_the_byte_budget() {
+        // 800-byte budget against two ~670 B enveloped events: whichever is
+        // charged first is admitted, and a second charge exceeds the budget.
+        let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(800)));
+
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let service = EventRestrictionService::new(
+            vec![Pipeline::Analytics, Pipeline::Ai],
+            Duration::from_secs(300),
+        );
+        let mut manager = RestrictionManager::new();
+        let mut filters = RestrictionFilters::default();
+        filters.event_names.insert("$ai_generation".to_string());
+        manager.insert_restrictions(
+            Pipeline::Ai,
+            "test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::Filtered(filters),
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        let sink = Arc::new(MockSink::new());
+        let events = vec![
+            create_test_event_with_name(
+                "$ai_generation",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            ),
+            create_test_event_with_name(
+                "$ai_span",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            ),
+        ];
+
+        run_pipeline(
+            sink.clone(),
+            events,
+            &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ai_byte_rate_limiter: limiter,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(
+            captured.len(),
+            1,
+            "the restricted event must not spend budget the surviving event needs"
+        );
+        assert_eq!(captured[0].event.event, "$ai_span");
+    }
+
+    /// capture-ai loads only AI restrictions, so anything off the AI lane must
+    /// not reach the pipeline there. Each case sends a two-event batch whose
+    /// second event is the one under test.
+    struct AiLaneGateCase {
+        second_event: &'static str,
+        rejected: bool,
+    }
+
+    #[rstest]
+    #[case::analytics_event_is_rejected(AiLaneGateCase {
+        second_event: "$pageview",
+        rejected: true,
+    })]
+    // Lane membership is the AI_EVENT_NAMES allowlist, not an `$ai_` prefix.
+    // A prefixed-but-unlisted name resolves to AnalyticsMain, so it must be
+    // rejected too -- the Node AI pipeline would DLQ it downstream anyway.
+    #[case::prefixed_but_unlisted_name_is_rejected(AiLaneGateCase {
+        second_event: "$ai_call",
+        rejected: true,
+    })]
+    #[case::exception_is_rejected(AiLaneGateCase {
+        second_event: "$exception",
+        rejected: true,
+    })]
+    #[case::second_allowlisted_event_passes(AiLaneGateCase {
+        second_event: "$ai_span",
+        rejected: false,
+    })]
+    #[tokio::test]
+    async fn ai_mode_rejects_a_batch_carrying_anything_off_the_ai_lane(
+        #[case] case: AiLaneGateCase,
+    ) {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.capture_mode = crate::config::CaptureMode::Ai;
+
+        let events = vec![
+            create_test_event_with_name("$ai_generation", None, None, None),
+            create_test_event_with_name(case.second_event, None, None, None),
+        ];
+
+        let sink = Arc::new(MockSink::new());
+        let collector = Arc::new(CollectingEmitter::new());
+        let result = run_pipeline(
+            sink.clone(),
+            events,
+            &context,
+            PipelineOptions {
+                ingestion_warning_emitter: Some(collector.clone()),
+                ..Default::default()
+            },
+        )
+        .await;
+
+        if !case.rejected {
+            result.expect("an all-AI batch must be accepted");
+            assert_eq!(sink.get_events().len(), 2);
+            assert!(collector.emitted().is_empty());
+            return;
+        }
+
+        let err = result.expect_err("the batch must be rejected");
+        assert!(
+            matches!(&err, CaptureError::NonAiEventOnAiLane(name) if name == case.second_event),
+            "the error must name the offending event, got {err:?}"
+        );
+        // Rejecting the request means the whole batch is refused, including the
+        // valid AI event ahead of the offender.
+        assert!(sink.get_events().is_empty());
+
+        // The 400 reaches the caller; the warning reaches the project owner.
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::InvalidAiEvent);
+    }
+
+    /// The gate is scoped to capture-ai. On capture-analytics the same mixed
+    /// batch is ordinary traffic: both events are accepted, each on its lane.
+    #[tokio::test]
+    async fn events_mode_accepts_a_batch_the_ai_lane_would_reject() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let events = vec![
+            create_test_event_with_name("$ai_generation", None, None, None),
+            create_test_event_with_name("$pageview", None, None, None),
+        ];
+
+        let sink = Arc::new(MockSink::new());
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .expect("capture-analytics must accept a mixed batch");
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 2);
+        assert_eq!(
+            captured
+                .iter()
+                .filter(|e| e.metadata.data_type == DataType::AiEvents)
+                .count(),
+            1
+        );
+    }
+
+    /// Capture mode no longer changes which lane an AI event lands on: under `Ai`
+    /// it diverts to `AiEvents` and the AI topic, exactly as under `Events`.
+    #[tokio::test]
+    async fn ai_mode_routes_ai_events_to_the_ai_lane_end_to_end() {
+        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::producer::MockKafkaProducer;
+
+        // 800-byte budget: the small event fits, the large one takes the
+        // running total past it.
+        let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(800)));
+
+        let producer = MockKafkaProducer::new();
+        let sink = Arc::new(KafkaSinkBase::with_producer(
+            producer.clone(),
+            test_topics(),
+        ));
+
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.capture_mode = crate::config::CaptureMode::Ai;
+
+        let small_event = create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        let mut oversized_event = create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        oversized_event
+            .properties
+            .insert("$ai_input".to_string(), json!("x".repeat(500)));
+
+        process_events(
+            sink,
+            Arc::new(TokenDropper::default()),
+            None,
+            router::HistoricalConfig::new(false, 1),
+            None,
+            None,
+            None,
+            None,
+            vec![small_event, oversized_event],
+            &context,
+            limiter,
+        )
+        .await
+        .expect("process_events must accept the batch even though one event is dropped");
+
+        let records = producer.get_records();
+        assert_eq!(
+            records.len(),
+            1,
+            "only the under-budget event must reach the sink under Ai mode"
+        );
+        let topics = test_topics();
+        let ai_topic = topics.topic_for(&crate::sinks::registry::Output::AiMain);
+        assert_eq!(
+            records[0].topic, ai_topic,
+            "an allowlisted AI event diverts to the AI lane under Ai mode too"
+        );
+    }
+
+    /// Under `Events` mode, only the diverted `AiEvents` lane is limited:
+    /// AI traffic past the budget drops while same-sized `$pageview`s stay
+    /// untouched however far over that budget the token already is.
+    #[tokio::test]
+    async fn events_mode_leaves_analytics_main_untouched_end_to_end() {
+        let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(300)));
+
+        let sink = Arc::new(MockSink::new());
+
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let oversized_ai_event = || {
+            let mut event = create_test_event_with_name(
+                "$ai_generation",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            );
+            event
+                .properties
+                .insert("$ai_input".to_string(), json!("x".repeat(500)));
+            event
+        };
+        let mut oversized_pageview = create_test_event_with_name(
+            "$pageview",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        oversized_pageview
+            .properties
+            .insert("$current_url".to_string(), json!("x".repeat(500)));
+
+        process_events(
+            sink.clone(),
+            Arc::new(TokenDropper::default()),
+            None,
+            router::HistoricalConfig::new(false, 1),
+            None,
+            None,
+            None,
+            None,
+            vec![oversized_ai_event(), oversized_pageview],
+            &context,
+            limiter,
+        )
+        .await
+        .expect("process_events must accept the batch even though one event is dropped");
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1, "the over-budget AI event must drop");
+        assert_eq!(
+            captured[0].metadata.data_type,
+            DataType::AnalyticsMain,
+            "the same-sized $pageview must survive"
+        );
+    }
+
+    /// A diverted AI event is governed by ai-scoped restrictions (the
     /// same slice the dedicated AI endpoints consult), not analytics ones:
     /// an ai-scoped DropEvent drops it, an analytics-scoped one must not
     /// cross pipelines into the AI lane.
@@ -1480,7 +1955,7 @@ mod tests {
         }
     }
 
-    /// An ai-scoped RedirectToTopic applies to a diverted `$ai_*` event: the
+    /// An ai-scoped RedirectToTopic applies to a diverted AI event: the
     /// event keeps its AI lane, but the stamped redirect beats the data type
     /// in the sink so operators can reroute an AI token's traffic ad hoc,
     /// matching v1 where the restriction overwrites `Destination::AiEvents`
@@ -1931,7 +2406,7 @@ mod tests {
         expected_reason: Option<OverflowReason>,
     }
 
-    /// End-to-end gate for the AI overflow valve: a diverted `$ai_*` event
+    /// End-to-end gate for the AI overflow valve: a diverted AI event
     /// is overflow-stamped only when the AI limiter is wired (setup builds
     /// it exactly when `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
     /// configured), and keeps its AI lane either way.

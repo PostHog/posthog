@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -92,16 +93,6 @@ describe('metricsUsageTrackingLogic', () => {
             () => metricsViewerLogic.actions.setAggregation('p95'),
             { aggregation: 'p95' },
         ],
-        [
-            'metrics viewer view mode changed',
-            () => metricsViewerLogic.actions.setViewMode('stat'),
-            { view_mode: 'stat' },
-        ],
-        [
-            'metrics viewer stat summary changed',
-            () => metricsViewerLogic.actions.setStatSummary('total'),
-            { stat_summary: 'total' },
-        ],
         ['metrics viewer live toggled', () => metricsViewerLogic.actions.setLiveRefresh(true), { enabled: true }],
         [
             'metrics viewer date range changed',
@@ -164,6 +155,24 @@ describe('metricsUsageTrackingLogic', () => {
 
         metricsViewerLogic.actions.setMetricName('')
         expect(captures('metrics viewer metric selected')).toHaveLength(1)
+    })
+
+    // Restoring a shared /metrics link replays the viewer setters; counting those dispatches
+    // as interactions would inflate the usage tiles on every link open or refresh.
+    it('a URL restore captures no viewer interactions', async () => {
+        await expectLogic(logic, () => {
+            router.actions.push('/metrics', {
+                metricName: SECRET_METRIC,
+                aggregation: 'p95',
+                dateFrom: '-24h',
+                groupBy: '["env"]',
+            })
+        }).toFinishAllListeners()
+
+        expect(captures('metrics viewer metric selected')).toHaveLength(0)
+        expect(captures('metrics viewer aggregation changed')).toHaveLength(0)
+        expect(captures('metrics viewer date range changed')).toHaveLength(0)
+        expect(captures('metrics viewer group by changed')).toHaveLength(0)
     })
 
     // Selecting a metric auto-applies its recommended aggregation; counting that dispatch as a

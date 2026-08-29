@@ -82,6 +82,7 @@ _DUCKGRES_REGISTER_WORKER_OPTIONS = "-c duckgres.worker_cpu=4 -c duckgres.worker
 # the original CALL.
 _REGISTER_COPY_START_TO_CLOSE = dt.timedelta(hours=4)
 _SOURCE_JOB_STATE_PATCH_ID = "ducklake-register-source-job-state-2026-08"
+_CLEANUP_FINALIZER_PATCH_ID = "ducklake-register-cleanup-finalizer-2026-08"
 
 
 def _register_source_job_update(
@@ -209,11 +210,21 @@ class DuckLakeRegisterDataImportsMetadata:
     ducklake_table_name: str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DuckLakeRegisterDataImportsActivityInputs:
     team_id: int
     job_id: str
     metadata: DuckLakeRegisterDataImportsMetadata
+    # None only for histories recorded before the workflow minted the names;
+    # those fall back to activity-local names (which the workflow cannot clean up).
+    registration_table_names: RegistrationTableNames | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class DuckLakeRegisterCleanupInputs:
+    team_id: int
+    schema_name: str
+    table_names: list[str]
 
 
 class _StalePreparedGenerationError(Exception):
@@ -650,7 +661,7 @@ def _register_prepared_parquet_files(
 ) -> int:
     schema_name = inputs.metadata.ducklake_schema_name
     table_name = inputs.metadata.ducklake_table_name
-    registration_names = _new_registration_table_names()
+    registration_names = inputs.registration_table_names or _new_registration_table_names()
     landing_uri = _generation_scoped_landing_uri(
         inputs.metadata.landing_uri,
         job_id=inputs.job_id,
@@ -766,34 +777,153 @@ def _register_prepared_parquet_files(
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class _RegistrationTableNames:
+class RegistrationTableNames:
     shadow_name: str
     previous_name: str
 
 
-def _new_registration_table_names() -> _RegistrationTableNames:
-    attempt_token = uuid.uuid4().hex
-    return _RegistrationTableNames(
+def registration_table_names_from_token(attempt_token: str) -> RegistrationTableNames:
+    return RegistrationTableNames(
         shadow_name=f"__ph_register_{attempt_token}",
         previous_name=f"__ph_previous_{attempt_token}",
     )
 
 
+def _new_registration_table_names() -> RegistrationTableNames:
+    return registration_table_names_from_token(uuid.uuid4().hex)
+
+
+_CLEANUP_DROP_ATTEMPTS = 3
+_CLEANUP_DROP_RETRY_SECONDS = 2.0
+
+
+def _drop_registration_table(conn: psycopg.Connection, schema_name: str, table_name: str) -> None:
+    conn.execute(
+        psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
+            psql.Identifier(schema_name),
+            psql.Identifier(table_name),
+        )
+    )
+
+
 def _cleanup_registration_tables(conn: psycopg.Connection, schema_name: str, table_names: list[str]) -> None:
+    # Best-effort: this runs in the register `finally`, so raising here would mask
+    # the in-flight exception. A table left behind is picked up by the workflow's
+    # cleanup finalizer activity, which retries with a fresh connection.
+    #
+    # A dead connection cannot recover, so retrying the drop or reporting the
+    # failure adds no value: the register activity already failed on the transport,
+    # and the finalizer retries the drop with a fresh connection.
+    if conn.closed:
+        LOGGER.warning(
+            "Skipped DuckLake registration cleanup on a closed connection; the workflow cleanup finalizer will retry",
+            schema_name=schema_name,
+        )
+        return
     for table_name in table_names:
-        try:
-            conn.execute(
-                psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
-                    psql.Identifier(schema_name),
-                    psql.Identifier(table_name),
+        for attempt in range(1, _CLEANUP_DROP_ATTEMPTS + 1):
+            try:
+                _drop_registration_table(conn, schema_name, table_name)
+                break
+            except (psycopg.OperationalError, psycopg.InterfaceError):
+                LOGGER.warning(
+                    "Aborted DuckLake registration cleanup on a broken connection; the workflow cleanup finalizer will retry",
+                    table_name=f"{schema_name}.{table_name}",
                 )
-            )
-        except Exception:
-            LOGGER.warning(
-                "Failed to clean up DuckLake registration table",
-                table_name=f"{schema_name}.{table_name}",
-                exc_info=True,
-            )
+                return
+            except Exception as error:
+                if attempt == _CLEANUP_DROP_ATTEMPTS:
+                    LOGGER.error(
+                        "Failed to clean up DuckLake registration table; the workflow cleanup finalizer will retry",
+                        table_name=f"{schema_name}.{table_name}",
+                        exc_info=True,
+                    )
+                    capture_exception(error)
+                else:
+                    time.sleep(_CLEANUP_DROP_RETRY_SECONDS * attempt)
+
+
+# A registration attempt's tables can live at most 4h (the copy activity's
+# start_to_close) plus ~25min of finalizer retries; anything older under the
+# registration naming pattern is an orphan from a path no finalizer could reach
+# (workflow terminate, pre-patch histories, cleanup retry exhaustion). The
+# missing-snapshot rule below additionally requires every deployment's snapshot
+# retention to exceed this age, or an in-flight attempt's table could be swept.
+_SWEEP_MIN_AGE = dt.timedelta(hours=6)
+# Each drop is its own catalog commit; the batch is sized so a full sweep fits
+# comfortably inside the finalizer's start_to_close on a contended catalog.
+# Every registration run sweeps again, so a backlog drains across runs.
+_SWEEP_BATCH_LIMIT = 15
+_REGISTRATION_TABLE_REGEX = "^__ph_(register|previous)_[0-9a-f]{32}$"
+
+
+def _sweep_query(schema_name: str) -> psql.Composed:
+    # A missing snapshot row means the table's creation snapshot already expired,
+    # so it is strictly older than any age guard: treat it as stale, not unknown.
+    return psql.SQL(
+        "SELECT t.table_name "
+        "FROM __ducklake_metadata_ducklake.ducklake_table t "
+        "JOIN __ducklake_metadata_ducklake.ducklake_schema s "
+        "  ON s.schema_id = t.schema_id AND s.end_snapshot IS NULL "
+        "LEFT JOIN __ducklake_metadata_ducklake.ducklake_snapshot sn "
+        "  ON sn.snapshot_id = t.begin_snapshot "
+        "WHERE t.end_snapshot IS NULL "
+        "  AND s.schema_name = {} "
+        "  AND t.table_name ~ {} "
+        # DuckDB does not infer intervals from bare string literals; the
+        # explicit CAST is what makes the age guard bind at all.
+        "  AND (sn.snapshot_id IS NULL OR CAST(sn.snapshot_time AS TIMESTAMPTZ) < now() - CAST({} AS INTERVAL)) "
+        "LIMIT {}"
+    ).format(
+        psql.Literal(schema_name),
+        psql.Literal(_REGISTRATION_TABLE_REGEX),
+        psql.Literal(f"{int(_SWEEP_MIN_AGE.total_seconds())} seconds"),
+        psql.Literal(_SWEEP_BATCH_LIMIT),
+    )
+
+
+def _sweep_stale_registration_tables(conn: psycopg.Connection, schema_name: str) -> list[str]:
+    rows = conn.execute(_sweep_query(schema_name)).fetchall()
+    swept: list[str] = []
+    for (table_name,) in rows:
+        _drop_registration_table(conn, schema_name, table_name)
+        swept.append(table_name)
+    return swept
+
+
+@activity.defn
+def cleanup_ducklake_registration_tables_activity(inputs: DuckLakeRegisterCleanupInputs) -> None:
+    """Drop this attempt's registration tables, however the register activity ended.
+
+    Runs as a workflow-level finalizer so a worker crash, OOM, or activity timeout
+    cannot orphan the shadow/previous tables: the workflow replays and re-schedules
+    this activity until the drops land. Attempt-scoped uuid names plus
+    ``DROP TABLE IF EXISTS`` make it idempotent and collision-free with any other
+    registration attempt. Afterwards it sweeps stale registration tables in the
+    same schema, so each run that reaches registration also disposes of orphans
+    no finalizer could reach; the age guard keeps concurrent attempts' young
+    tables safe.
+    """
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind(schema_name=inputs.schema_name)
+    if not settings.TEST:
+        close_old_connections()
+
+    with _connect_to_duckgres_for_team(inputs.team_id) as conn:
+        setup_duckgres_session(conn, extensions=("ducklake",))
+        for table_name in inputs.table_names:
+            _drop_registration_table(conn, inputs.schema_name, table_name)
+        logger.info("Cleaned up DuckLake registration tables", table_names=inputs.table_names)
+        try:
+            swept = _sweep_stale_registration_tables(conn, inputs.schema_name)
+        except Exception as error:
+            # The sweep is opportunistic: this attempt's own tables are already
+            # dropped, and the next registration in this schema sweeps again.
+            logger.warning("Stale registration table sweep failed", error=str(error))
+            capture_exception(error)
+        else:
+            if swept:
+                logger.info("Swept stale DuckLake registration tables", table_names=swept)
 
 
 def _hive_partition_columns(landing_uri: str, landing_paths: list[str]) -> list[str]:
@@ -868,18 +998,55 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                 logger.info("Prepared Parquet generation is stale; nothing to register")
                 return
 
+            # Minting the names in the workflow puts them in history, so the cleanup
+            # finalizer can drop them even when the register activity's process dies
+            # before its own finally runs and leaves the shadow/previous tables behind.
+            registration_table_names: RegistrationTableNames | None = None
+            if workflow.patched(_CLEANUP_FINALIZER_PATCH_ID):
+                registration_table_names = registration_table_names_from_token(workflow.uuid4().hex)
+
             activity_inputs = DuckLakeRegisterDataImportsActivityInputs(
                 team_id=inputs.team_id,
                 job_id=inputs.job_id,
                 metadata=metadata,
+                registration_table_names=registration_table_names,
             )
-            copy_applied = await workflow.execute_activity(
-                copy_and_register_ducklake_data_imports_activity,
-                activity_inputs,
-                start_to_close_timeout=_REGISTER_COPY_START_TO_CLOSE,
-                heartbeat_timeout=dt.timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
+            try:
+                copy_applied = await workflow.execute_activity(
+                    copy_and_register_ducklake_data_imports_activity,
+                    activity_inputs,
+                    start_to_close_timeout=_REGISTER_COPY_START_TO_CLOSE,
+                    heartbeat_timeout=dt.timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            finally:
+                if registration_table_names is not None:
+                    try:
+                        await workflow.execute_activity(
+                            cleanup_ducklake_registration_tables_activity,
+                            DuckLakeRegisterCleanupInputs(
+                                team_id=inputs.team_id,
+                                schema_name=metadata.ducklake_schema_name,
+                                table_names=[
+                                    registration_table_names.shadow_name,
+                                    registration_table_names.previous_name,
+                                ],
+                            ),
+                            start_to_close_timeout=dt.timedelta(minutes=2),
+                            # Patient on purpose: the drops are idempotent and a leaked
+                            # table is permanent, so ~25 minutes of retries rides out a
+                            # duckgres outage (the correlated cause of cleanup failing).
+                            retry_policy=RetryPolicy(
+                                maximum_attempts=10,
+                                initial_interval=dt.timedelta(seconds=5),
+                                backoff_coefficient=2.0,
+                                maximum_interval=dt.timedelta(minutes=5),
+                            ),
+                        )
+                    except Exception:
+                        # Cleanup failure must not mask the register outcome; leftover
+                        # tables are visible via the __ph_register_/__ph_previous_ naming.
+                        logger.exception("DuckLake registration table cleanup failed after retries")
             if not copy_applied:
                 status = "stale"
                 if track_source_job_state:

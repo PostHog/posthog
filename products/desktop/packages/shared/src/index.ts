@@ -1,4 +1,15 @@
 export * from "./adapter";
+export {
+  type AgentAction,
+  agentActionSchema,
+  buildActionUrl,
+  labelSchema,
+  openAgentActionInput,
+  type ShowAction,
+  type ShowActionButton,
+  showActionSchema,
+  splitShowAction,
+} from "./agent-actions";
 export type {
   AgentAudioContent,
   AgentBlobResource,
@@ -38,20 +49,23 @@ export {
   isBinaryFile,
 } from "./binary";
 export {
-  activeTabIsBlank,
   type CloseTabResult,
   closeTab,
   closeTabs,
+  DEFAULT_TAB_HREF,
   decideTabNavigation,
-  newBlankTab,
+  ensureWindowHasTab,
+  type NewTabOptions,
   type OpenTabResult,
-  openOrFocusTab,
+  openTab,
   POSITION_GAP,
   primaryWindow,
-  primaryWindowHasNoTabs,
+  resetTabs,
   setTabOrder,
   setTabTarget,
   setWindowActiveTab,
+  type TabIdentity,
+  type TabLocation,
   type TabNavDecision,
   type TabTarget,
 } from "./browser-tabs";
@@ -60,8 +74,12 @@ export {
   type BrowserWindow,
   browserTabSchema,
   browserWindowSchema,
+  type RailVisit,
+  railVisitSchema,
   type TabsSnapshot,
+  type TabViewState,
   tabsSnapshotSchema,
+  tabViewStateSchema,
   type WindowBounds,
   windowBoundsSchema,
 } from "./browser-tabs-schemas";
@@ -95,6 +113,7 @@ export {
   isCloudflareModel,
   isCloudflareModelId,
   isDeepseekModelId,
+  isGlm53FlashModelId,
   isGlm53ModelId,
   isGlmModelId,
   isModalModel,
@@ -133,15 +152,22 @@ export {
   type CloudTaskSnapshotUpdate,
   type CloudTaskStatusUpdate,
   type CloudTaskUpdatePayload,
+  isSkillBundleArtifactMetadata,
   isTerminalStatus,
+  type PendingFollowupMessage,
+  type PostHogObjectArtifactMetadata,
+  readPendingFollowupMessages,
   type SignalReportPriority,
   type Task,
   type TaskRun,
   type TaskRunArtifact,
   type TaskRunArtifactMetadata,
   type TaskRunEnvironment,
+  type TaskRunState,
+  type TaskRunStateField,
   type TaskRunStatus,
   TERMINAL_STATUSES,
+  taskRunStateSchema,
 } from "./domain-types";
 export * from "./enrichment";
 export {
@@ -168,16 +194,8 @@ export {
 } from "./execution-modes";
 export * from "./flags";
 export * from "./git-domain";
-export type { GitHandoffCheckpoint, HandoffLocalGitState } from "./git-handoff";
 export * from "./git-naming";
 export type { GitFileStatus } from "./git-types";
-export type {
-  HandoffApiContext,
-  HandoffChangedFile,
-  HandoffHost,
-  HandoffReconnectParams,
-  HandoffResumeStateResult,
-} from "./handoff-host";
 export {
   ALLOWED_IMAGE_MIME_TYPES,
   buildImageDataUrl,
@@ -210,16 +228,19 @@ export type {
 export {
   EXTERNAL_INBOX_SOURCE_BY_PRODUCT,
   EXTERNAL_INBOX_SOURCES,
+  filterInboxSourceOptions,
   sourceNeedsFullRefresh,
 } from "./inbox-types";
 export { EXTERNAL_LINKS } from "./links";
 export type {
+  AcpMcpServer,
   CloudMcpServerRelayDesignation,
   LocalMcpServerDescriptor,
   LocalMcpServerScope,
   LocalMcpTransport,
   McpServerConnection,
 } from "./local-mcp-domain";
+export { toAcpMcpServers } from "./local-mcp-domain";
 export {
   MCP_TOOL_PERMISSION_OPTIONS,
   type McpToolApprovalState,
@@ -291,6 +312,7 @@ export {
 } from "./regions";
 export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
+export { rewriteSavedLocation } from "./route-migrations";
 export { Saga, type SagaLogger, type SagaResult, type SagaStep } from "./saga";
 export { scoutSkillNameFromSlug, scoutSkillSlug } from "./scout-naming";
 export {
@@ -323,6 +345,8 @@ export {
   type SessionStatus,
   sendableQueuePrefixLength,
   sessionSupportsNativeSteer,
+  sessionSupportsSideQuestion,
+  TRANSCRIPT_TAIL_WINDOW,
 } from "./sessions";
 export type {
   SignalReportOrderingField,
@@ -351,8 +375,10 @@ export type {
   TaskCreationOutput,
 } from "./task-creation-domain";
 export {
+  formatAbsoluteDateTime,
   formatClockTime,
   formatDaySeparatorLabel,
+  formatRelativeAge,
   formatRelativeTimeLong,
   formatRelativeTimeShort,
   formatShortDayLabel,

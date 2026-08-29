@@ -92,8 +92,31 @@ export class ArchiveService {
 
   private readonly log: ScopedLogger;
   private recoveryStarted = false;
+  private readonly inFlightArchives = new Map<string, Promise<ArchivedTask>>();
 
-  async archiveTask(input: ArchiveTaskInput): Promise<ArchivedTask> {
+  /**
+   * Idempotent: an already-archived task returns its existing record, so a
+   * caller that asks twice isn't left with a failure it can't act on.
+   *
+   * Overlapping requests join the running one, because the existing-record
+   * check can't see them: it runs before the awaited teardown and the archive
+   * row lands after, so both requests pass it, and the loser's rollback would
+   * delete the checkpoint the winner's restore point points at.
+   */
+  archiveTask(input: ArchiveTaskInput): Promise<ArchivedTask> {
+    const inFlight = this.inFlightArchives.get(input.taskId);
+    if (inFlight) {
+      this.log.info(`Joining the archive already running for ${input.taskId}`);
+      return inFlight;
+    }
+    const run = this.runArchive(input).finally(() => {
+      this.inFlightArchives.delete(input.taskId);
+    });
+    this.inFlightArchives.set(input.taskId, run);
+    return run;
+  }
+
+  private async runArchive(input: ArchiveTaskInput): Promise<ArchivedTask> {
     this.log.info(`Archiving task ${input.taskId}`);
 
     const rollbacks: RollbackFn[] = [];
@@ -137,7 +160,7 @@ export class ArchiveService {
       // `getArchivedTaskIds` never reports it and the row reappears on refetch.
       const existing = this.taskMetadataRepo.findByTaskId(taskId);
       if (existing?.archivedAt) {
-        throw new Error(`Task ${taskId} is already archived`);
+        return this.toRowlessArchivedTask(existing);
       }
       const archivedAt = new Date().toISOString();
       await step(
@@ -169,7 +192,7 @@ export class ArchiveService {
 
     const existingArchive = this.archiveRepo.findByWorkspaceId(workspace.id);
     if (existingArchive) {
-      throw new Error(`Task ${taskId} is already archived`);
+      return this.toArchivedTask(workspace, existingArchive);
     }
 
     const suspension = this.suspensionRepo.findByWorkspaceId(workspace.id);
@@ -513,30 +536,10 @@ export class ArchiveService {
       const workspace = this.workspaceRepo.findById(
         archive.workspaceId,
       ) as Workspace;
-      const worktree = this.worktreeRepo.findByWorkspaceId(workspace.id);
-      return this.toArchivedTask(
-        workspace,
-        archive,
-        worktree?.name ?? null,
-        worktree?.path ?? null,
-      );
+      return this.toArchivedTask(workspace, archive);
     });
-    const rowless = this.rowlessArchived().map(
-      (meta): ArchivedTask => ({
-        taskId: meta.taskId,
-        // `rowlessArchived` only returns rows with a non-null `archivedAt`.
-        archivedAt: meta.archivedAt as string,
-        folderId: "",
-        mode: "cloud",
-        worktreeName: null,
-        branchName: null,
-        checkpointId: null,
-        title:
-          meta.archivedTitle ?? `Unknown task (${meta.taskId.slice(0, 8)})`,
-        taskCreatedAt: meta.archivedTaskCreatedAt ?? meta.createdAt,
-        repository: meta.archivedRepository,
-        recoveryPending: !meta.archivedTitle,
-      }),
+    const rowless = this.rowlessArchived().map((meta) =>
+      this.toRowlessArchivedTask(meta),
     );
     return [...fromWorkspaces, ...rowless];
   }
@@ -685,12 +688,9 @@ export class ArchiveService {
     this.log.info(`Deleted archived task ${taskId}`);
   }
 
-  private toArchivedTask(
-    workspace: Workspace,
-    archive: Archive,
-    worktreeName: string | null,
-    worktreePath: string | null,
-  ): ArchivedTask {
+  private toArchivedTask(workspace: Workspace, archive: Archive): ArchivedTask {
+    const worktree = this.worktreeRepo.findByWorkspaceId(workspace.id);
+    const worktreeName = worktree?.name ?? null;
     const repository =
       !archive.repository && workspace.repositoryId
         ? this.repositoryRepo.findById(workspace.repositoryId)
@@ -711,8 +711,27 @@ export class ArchiveService {
           worktreeName,
         ),
       taskCreatedAt: archive.taskCreatedAt ?? workspace.createdAt,
-      repository: archive.repository ?? repository?.path ?? worktreePath,
+      repository:
+        archive.repository ?? repository?.path ?? worktree?.path ?? null,
       recoveryPending: !archive.title,
+    };
+  }
+
+  private toRowlessArchivedTask(meta: TaskMetadataRow): ArchivedTask {
+    return {
+      taskId: meta.taskId,
+      // Only reached for rows with a non-null `archivedAt`.
+      archivedAt: meta.archivedAt as string,
+      folderId: "",
+      mode: "cloud",
+      worktreeName: null,
+      branchName: null,
+      checkpointId: null,
+      title:
+        meta.archivedTitle ?? this.unknownTaskTitle(meta.taskId, null, null),
+      taskCreatedAt: meta.archivedTaskCreatedAt ?? meta.createdAt,
+      repository: meta.archivedRepository,
+      recoveryPending: !meta.archivedTitle,
     };
   }
 

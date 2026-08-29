@@ -18,9 +18,11 @@ slice the same `$web_vitals` data:
   origin/CDN distance, not page code.
 - **By `$browser`** — a regression isolated to one engine is often a polyfill, a CSS
   feature, or a JS API doing extra work there.
-- **For a regression, date the onset** with a daily p75 series and line it up against
-  `advanced-activity-logs-list`. "Stepped on {day}, consistent with a deploy" is the most actionable
-  framing — but you usually can't see their releases, so frame it as correlation to confirm.
+- **For a regression, date the onset** with a daily p75 series, then narrow it to a
+  sub-hour boundary and name what landed inside it — the deploy marker or the flag rollout.
+  [`onset-correlation.md`](onset-correlation.md) has that procedure; "stepped at
+  {time} UTC, matching {change}, confirmed by the variant split" is the most actionable
+  framing there is, and it's usually reachable.
 
 A regression that holds across every device/region/browser slice is a real shared cause
 (a deploy, a CDN/edge change, a global third-party tag). A "regression" that lives in one

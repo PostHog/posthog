@@ -39,6 +39,7 @@ import {
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { ScoutsFleetSection } from "@posthog/ui/features/scouts/components/ScoutsFleetSection";
 import { SettingsSubsection } from "@posthog/ui/features/settings/components/SettingsSubsection";
+import { DailyReportLimitSettings } from "@posthog/ui/features/settings/sections/DailyReportLimitSettings";
 import { GitHubIntegrationSection } from "@posthog/ui/features/settings/sections/GitHubIntegrationSection";
 import { SlackInboxNotificationsSettings } from "@posthog/ui/features/settings/sections/SlackInboxNotificationsSettings";
 import {
@@ -83,6 +84,9 @@ export function ConfigureAgentsSection() {
     handleSetup,
     handleSetupComplete,
     handleSetupCancel,
+    teamConfig,
+    teamConfigLoading,
+    handleUpdateMaxReportsPerDay,
     userAutonomyConfig,
     userAutonomyConfigLoading,
   } = useSignalSourceManager();
@@ -139,7 +143,7 @@ export function ConfigureAgentsSection() {
         description={
           <>
             Scheduled agents that sweep this project on a cadence and emit
-            signals to your inbox.{" "}
+            signals to Self-driving.{" "}
             {/* Placeholder docs link until a dedicated scouts page exists. */}
             <a
               href="https://posthog.com/blog/self-driving-product"
@@ -193,6 +197,11 @@ export function ConfigureAgentsSection() {
             </Box>
           </Tooltip>
         )}
+        <DailyReportLimitSettings
+          config={teamConfig}
+          onSave={handleUpdateMaxReportsPerDay}
+          isLoading={teamConfigLoading}
+        />
       </SettingsSubsection>
 
       <SettingsSubsection
@@ -202,7 +211,6 @@ export function ConfigureAgentsSection() {
         <SlackInboxNotificationsSettings
           isLoading={isLoadingSlack}
           showHeader={false}
-          showTopBorder={false}
         />
       </SettingsSubsection>
 

@@ -189,6 +189,29 @@ describe('Error Display', () => {
         expect(result.level).toEqual('fatal')
     })
 
+    // Mobile SDKs report the platform in $os_name and leave $os unset, so reading $os alone left
+    // iOS, Android, and React Native errors with no OS anywhere in the UI.
+    // Non-string values must resolve to undefined: they reach PropertyIcon, whose lowercase lookup
+    // would throw and take down the whole exception card.
+    it.each([
+        ['$os_name only', { $os_name: 'iOS' }, 'iOS'],
+        ['$os only', { $os: 'Windows' }, 'Windows'],
+        ['both keys', { $os_name: 'iPadOS', $os: 'Mac OS X' }, 'iPadOS'],
+        ['neither key', {}, undefined],
+        ['an empty $os_name', { $os_name: '', $os: 'Windows' }, 'Windows'],
+        ['a non-string $os_name', { $os_name: 42, $os: 'Windows' }, 'Windows'],
+        ['non-string values in both keys', { $os_name: 42, $os: {} }, undefined],
+    ])('resolves os from %s', (_name, properties, expected) => {
+        expect(getExceptionAttributes(properties).os).toEqual(expected)
+    })
+
+    it.each([
+        ['a string $browser', { $browser: 'Chrome' }, 'Chrome'],
+        ['a non-string $browser', { $browser: 42 }, undefined],
+    ])('resolves browser from %s', (_name, properties, expected) => {
+        expect(getExceptionAttributes(properties).browser).toEqual(expected)
+    })
+
     // A non-string $session_id (e.g. a numeric timestamp from a misbehaving SDK) must not leak
     // through as a number — it used to crash the issue scene via a ts-pattern exhaustive match.
     it.each([

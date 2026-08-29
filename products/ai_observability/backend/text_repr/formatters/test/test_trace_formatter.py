@@ -38,6 +38,13 @@ class TestFormatHelpers:
         assert _format_cost(1.23456) == "$1.2346"
         assert _format_cost(0) == "$0.0000"
 
+    def test_coerces_string_valued_metrics(self):
+        """A string latency or cost must not raise `Unknown format code 'f'`."""
+        assert _format_latency("1.5") == "1.50s"
+        assert _format_cost("0.02") == "$0.0200"
+        # Non-numeric strings fall back to the raw value rather than crashing.
+        assert _format_latency("n/a") == "n/a"
+
 
 class TestGetEventSummary:
     """Test event summary generation for tree display."""

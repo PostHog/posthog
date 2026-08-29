@@ -28,6 +28,8 @@ It is exercised locally via management commands, and it is also used by the prod
   - Called after the artefact write commits (via `transaction.on_commit` where a transaction is open), never in-transaction: the research activity (`source="pipeline"`), scout report creation and reviewer edits (`"scout"` / `"scout_edit"`), custom-agent persistence (`"custom_agent"`), the app reviewers PUT (`"user_edit"`), and the artefacts POST (`"api"`).
   - Best-effort: failures are logged and never break report generation.
   - Delivery is at-least-once (activity retries re-fire an identical payload) and reviewer edits legitimately re-fire with the new list, so consumers read report state as the latest event per `report_id`, never by counting raw events.
+  - Also emits `signals_suggested_reviewers_unresolved` when a pipeline run resolves no reviewers at all (nothing is persisted for an empty list, so this is the only record of why): the `outcome` (`no_repository`, `no_commit_hashes`, `no_github_integration`, `github_rate_limited`, `no_commit_authors`, `only_bot_authors`, `no_candidates`) plus lookup counters from `ReviewerResolutionDiagnostics` in `resolve_reviewers.py`. Same latest-per-`report_id` read contract, which is why a re-promotion that resolves nobody stays silent when the report's previous reviewers remain its live set.
+  - Two outcomes read narrower than they are: `no_github_integration` also covers an access probe that failed transiently, and `no_repository` never reaches this event (the summary workflow bails to `repo_selection_required` before research runs) — see the comment on `ReviewerResolutionOutcome`.
 - `fixtures/analyze_report_funnel_research_output.json`
   Saved previous research output used by local `update` testing.
 - `fixtures/insight_scene_logic_mode_property_bug.json`
@@ -69,6 +71,16 @@ The presentation step can also author `charts` — query nodes the inbox draws o
 - **Not safety-judged.** The pipeline's safety judge screens the input signals before research runs, so it never sees research-authored charts — the same as it never sees research-authored title/summary. Charts are agent output derived from already-screened signals, consistent with that model. (This differs from the scout emit path, where charts and prose are judged together.)
 
 The caller activity passes `has_business_knowledge=True` when the team's business knowledge product is both feature-flagged on and has at least one READY source (via `products.business_knowledge.backend.logic.is_available_for_team`). When true, the research prompt includes a `## Business knowledge` block that instructs the agent to search the team's curated knowledge base via MCP tools.
+
+### Fleet steering
+
+The caller activity also passes `steering_section`, resolved by `report_steering.load_research_steering` from the notes the team left the scout fleet. `build_initial_research_prompt` renders it verbatim under the research protocol, and renders nothing when it is empty, so a team with no notes pays no tokens for a heading.
+
+Why this stage needs it: dismissing, discussing, or rating an inbox report leaves the person's text as a scout note, and until this landed only scheduled scout runs read those. Research is the stage that produces the findings, actionability, priority, and title, so a reviewer's "this is expected, it's the approval flow" shaped the scout and not the judgment it was actually about.
+
+The research variant includes **every** note origin, unlike the implementation run, which reads `HUMAN` notes only. See the `report_steering` module docstring for the reasoning on both sides. The section itself carries the untrusted-input rule, says that most notes will not apply to this report and that a note counts only when it speaks to the same behavior, entity, or area the signals describe, and asks the run to name the note in the explanation of any assessment it changed, so a reviewer can see their feedback land.
+
+`signals_research_steering_attached` fires once per run with `notes_attached`, `dismissal_notes_attached`, and `scratchpad_available`. Join it to `signal_report_completed` on `report_id` to read whether steering moved the outcome; there is deliberately no self-reported "steering applied" artefact, because the agent's own claim is weaker evidence than that join.
 
 ## Local debug commands
 

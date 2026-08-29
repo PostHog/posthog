@@ -13,7 +13,7 @@
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
-      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
       count() AS conversion_0
     FROM
     (
@@ -120,15 +120,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -175,7 +175,7 @@
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
-      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
       count() AS conversion_0
     FROM
     (
@@ -282,15 +282,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -337,7 +337,7 @@
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
-      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
       count() AS conversion_0
     FROM
     (
@@ -444,15 +444,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -499,7 +499,7 @@
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
-      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
       count() AS conversion_0
     FROM
     (
@@ -606,15 +606,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -663,7 +663,7 @@
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
-      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
       count() AS conversion_0,
       0 AS conversion_1,
       0 AS conversion_2
@@ -772,15 +772,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -810,7 +810,7 @@
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
-      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
       0 AS conversion_0,
       count() AS conversion_1,
       0 AS conversion_2
@@ -919,15 +919,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -957,7 +957,7 @@
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
-      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
       0 AS conversion_0,
       0 AS conversion_1,
       count() AS conversion_2
@@ -1066,15 +1066,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -1122,7 +1122,7 @@
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
-      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
       count() AS conversion_0,
       0 AS conversion_1
     FROM
@@ -1230,15 +1230,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -1268,7 +1268,7 @@
     SELECT
       if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
       if(notEmpty(campaign_id), campaign_id, '-') AS id,
-      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic')))), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, if(notEmpty(gclid_name), 'google', if(notEmpty(gad_source_name), 'google', 'organic'))))))) AS source,
       0 AS conversion_0,
       count() AS conversion_1
     FROM
@@ -1376,15 +1376,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT

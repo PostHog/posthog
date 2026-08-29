@@ -11,7 +11,7 @@
 
 set -e
 
-ICON_PATH="build/icon.icon"
+ICON_PATH="build/Icon.icon"
 OUTPUT_PATH="build/Assets.car"
 TEMP_DIR=$(mktemp -d)
 
@@ -20,8 +20,8 @@ if [ ! -d "$ICON_PATH" ]; then
   exit 0
 fi
 
-# Check if Assets.car exists and is newer than source
-if [ -f "$OUTPUT_PATH" ] && [ "$OUTPUT_PATH" -nt "$ICON_PATH/icon.json" ]; then
+# Check if Assets.car exists and is newer than every file in the icon bundle
+if [ -f "$OUTPUT_PATH" ] && [ -z "$(find "$ICON_PATH" -type f -newer "$OUTPUT_PATH")" ]; then
   echo "✓ Assets.car is up to date"
   exit 0
 fi
@@ -32,6 +32,8 @@ echo "Compiling liquid glass icon..."
 if ! command -v actool &> /dev/null; then
   echo "⚠ actool not found - Xcode is required to compile liquid glass icons"
   echo "  Skipping compilation (app will use standard .icns icon)"
+  # Drop any stale catalog so packaging falls back to the .icns icon
+  rm -f "$OUTPUT_PATH"
   exit 0
 fi
 
@@ -53,6 +55,8 @@ if ! actool "$ICON_PATH" \
   echo "⚠ actool failed - Xcode is required to compile liquid glass icons"
   echo "  Skipping compilation (app will use standard .icns icon)"
   rm -rf "$TEMP_DIR"
+  # Drop any stale catalog so packaging falls back to the .icns icon
+  rm -f "$OUTPUT_PATH"
   exit 0
 fi
 
@@ -62,6 +66,8 @@ if [ -f "$TEMP_DIR/Assets.car" ]; then
   echo "✓ Compiled Assets.car to $OUTPUT_PATH"
 else
   echo "⚠ Assets.car not generated - skipping"
+  # Drop any stale catalog so packaging falls back to the .icns icon
+  rm -f "$OUTPUT_PATH"
 fi
 
 # Clean up

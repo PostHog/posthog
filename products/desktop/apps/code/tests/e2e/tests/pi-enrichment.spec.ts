@@ -222,14 +222,18 @@ test.describe("Pi enrichment", () => {
       );
       client = createPiRpcClient({
         cliPath: rpcHostPath,
-        cwd: workspace,
+        taskContext: {
+          taskId: "pi-enrichment-e2e",
+          cwd: workspace,
+          projectId: 1,
+          apiHost: "https://us.posthog.com",
+          environment: "local",
+        },
         model: "claude-haiku-4-5",
-        projectTrusted: false,
         providerOptions: { apiKey: "gateway-test-key", baseUrl },
         enrichment: {
           apiUrl: baseUrl,
           publicApiUrl: "https://us.posthog.com",
-          enableObjectReferences: true,
           projectId: 1,
           apiKey: "posthog-test-key",
         },

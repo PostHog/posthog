@@ -1,6 +1,5 @@
 import { IconInfo } from '@posthog/icons'
 
-import { INBOX_FLAT_TAB_LIST_PARAMS } from '../../logics/reportListLogic'
 import { ReportCard } from '../cards/ReportCard'
 import { InboxReportList } from '../InboxReportList'
 
@@ -13,7 +12,6 @@ export function NotActionableTab(): JSX.Element {
     return (
         <InboxReportList
             tabKey="not-actionable"
-            listParams={INBOX_FLAT_TAB_LIST_PARAMS['not-actionable']}
             Card={ReportCard}
             emptyState={{
                 icon: <IconInfo className="text-2xl" />,

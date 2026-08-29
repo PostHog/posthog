@@ -8,6 +8,7 @@ import { LemonButton, LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -25,9 +26,9 @@ import { BillingNoAccess } from './BillingNoAccess'
 import { billingUsageLogic } from './billingUsageLogic'
 
 export function BillingUsage(): JSX.Element {
-    const { minimumBillingAccessLevel } = useValues(billingLogic)
+    const { minimumUsageSpendReadAccessLevel } = useValues(billingLogic)
     const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: minimumBillingAccessLevel,
+        minimumAccessLevel: minimumUsageSpendReadAccessLevel,
         scope: RestrictionScope.Organization,
     })
     const logic = billingUsageLogic({ syncWithUrl: true })
@@ -38,6 +39,7 @@ export function BillingUsage(): JSX.Element {
         dateFrom,
         dateTo,
         billingUsageResponseLoading,
+        billingUsageError,
         dateOptions,
         excludeEmptySeries,
         finalHiddenSeries,
@@ -206,6 +208,8 @@ export function BillingUsage(): JSX.Element {
                         </div>
                     </div>
                 </div>
+
+                {billingUsageError && <LemonBanner type="warning">{billingUsageError.detail}</LemonBanner>}
 
                 {showSeries && (
                     <BillingLineGraph

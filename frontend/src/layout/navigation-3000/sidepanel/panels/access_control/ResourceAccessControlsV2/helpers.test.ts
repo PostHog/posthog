@@ -70,6 +70,14 @@ describe('helpers', () => {
             ])
         })
 
+        it('keeps only the picked tools, and drops the project tag, while the Tool filter has a selection', () => {
+            const visibleResources = new Set<APIScopeObject>(['dashboard', 'tracing', 'insight'])
+            const filteredResources = new Set<APIScopeObject>(['tracing'])
+            expect(getAccessSummaryTags(roleEntry, visibleResources, filteredResources)).toEqual([
+                { resource: 'tracing', level: AccessControlLevel.Viewer },
+            ])
+        })
+
         it('omits the project tag when there is no effective project access', () => {
             const entry = { ...roleEntry, project: makeEffectiveEntry(null) }
             const visibleResources = new Set<APIScopeObject>(['dashboard'])

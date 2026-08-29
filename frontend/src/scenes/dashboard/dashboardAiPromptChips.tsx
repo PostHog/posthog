@@ -20,7 +20,7 @@ export type DashboardAiPromptChipsProps = {
     dataAttrPrefix: string
     className?: string
     maxChips?: number
-    /** Defaults to empty-dashboard copy. */
+    title?: string
     description?: string
 }
 
@@ -32,6 +32,7 @@ export function DashboardAiPromptChips({
     dataAttrPrefix,
     className,
     maxChips,
+    title = 'Try PostHog AI',
     description = 'Pick a topic below. PostHog AI does the work so you can look at the data you care about quickly.',
 }: DashboardAiPromptChipsProps): JSX.Element {
     const { reportDashboardEmptyAiPromptClicked } = useActions(eventUsageLogic)
@@ -43,7 +44,7 @@ export function DashboardAiPromptChips({
             <div className="rounded-xl border-2 border-[var(--color-ai)] bg-bg-surface-primary p-4">
                 <div className="flex items-center gap-2 mb-1">
                     <IconSparkles className="text-ai size-4 shrink-0" />
-                    <span className="text-sm font-semibold">Try PostHog AI</span>
+                    <span className="text-sm font-semibold">{title}</span>
                 </div>
                 <p className="text-sm text-secondary m-0 mb-3">{description}</p>
                 <div className="flex flex-wrap gap-2">
@@ -56,7 +57,7 @@ export function DashboardAiPromptChips({
                                 disabledReason={chipDisabledReason || undefined}
                                 data-attr={`${dataAttrPrefix}-${chip.id}`}
                                 onClick={() => {
-                                    reportDashboardEmptyAiPromptClicked(chip.label, dashboardId)
+                                    reportDashboardEmptyAiPromptClicked(chip.label, dashboardId, 'starter_question')
                                     onOpenAiWithPrompt(chip.prompt)
                                 }}
                             >

@@ -19,7 +19,7 @@ from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCal
 
 from posthog.exceptions_capture import capture_exception
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.core.node import AssistantNode

@@ -80,6 +80,7 @@ const meta = {
       useSidebarStore.setState({
         organizeMode: "chronological",
         sortMode: "updated",
+        listItemMetadataFields: [],
       });
       return (
         <div className="h-[460px] w-72 overflow-hidden rounded-lg border border-gray-6 bg-gray-1 p-2">
@@ -102,6 +103,7 @@ const meta = {
     onTaskTogglePin: fn(),
     onTaskEditSubmit: fn(),
     onTaskEditCancel: fn(),
+    creatorNameByTaskId: new Map(),
     hasMore: false,
   },
 } satisfies Meta<typeof TaskListView>;

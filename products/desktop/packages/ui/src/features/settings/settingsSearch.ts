@@ -143,6 +143,32 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["billing", "credits", "spend", "subscription"],
   },
   {
+    category: "cost-management",
+    label: "Cost management",
+    keywords: ["cost", "spend", "budget", "savings", "recommendations"],
+  },
+  {
+    category: "cost-management",
+    label: "Spend limits",
+    keywords: [
+      "budget",
+      "warning",
+      "stop line",
+      "daily spend",
+      "monthly spend",
+    ],
+  },
+  {
+    category: "cost-management",
+    label: "Default model",
+    keywords: ["cheaper model", "multiplier", "model cost", "switch model"],
+  },
+  {
+    category: "cost-management",
+    label: "Custom sandbox image",
+    keywords: ["image", "tools", "ripgrep", "cloud runs", "setup"],
+  },
+  {
     category: "workspaces",
     label: "Workspaces",
     keywords: ["repos", "folders", "projects", "directories"],
@@ -216,11 +242,6 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     category: "discord",
     label: "Discord",
     keywords: ["presence", "integration"],
-  },
-  {
-    category: "sidebar",
-    label: "Sidebar",
-    keywords: ["nav", "customize", "reorder"],
   },
 
   {

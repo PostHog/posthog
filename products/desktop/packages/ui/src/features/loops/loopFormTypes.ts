@@ -51,6 +51,7 @@ export interface LoopFormValues {
    * unrelated change never drops a loop's other repository associations.
    */
   repositories: LoopSchemas.LoopRepositoryEntry[];
+  sandboxEnvironmentId: string | null;
   triggers: LoopTriggerDraft[];
   behaviors: LoopSchemas.LoopBehaviors;
   notifications: LoopSchemas.LoopNotifications;
@@ -240,6 +241,7 @@ export function emptyLoopFormValues(): LoopFormValues {
     model: "",
     reasoningEffort: null,
     repositories: [],
+    sandboxEnvironmentId: null,
     triggers: [defaultLoopScheduleTrigger()],
     behaviors: defaultLoopBehaviors(),
     notifications: defaultLoopNotifications(),
@@ -280,6 +282,7 @@ export function loopToFormValues(loop: LoopSchemas.Loop): LoopFormValues {
     model: loop.model,
     reasoningEffort: loop.reasoning_effort,
     repositories: [...loop.repositories],
+    sandboxEnvironmentId: loop.sandbox_environment_id,
     triggers: loop.triggers.map((trigger) => ({
       key: trigger.id,
       id: trigger.id,
@@ -313,6 +316,7 @@ export function formValuesToLoopWrite(
     model: values.model.trim(),
     reasoning_effort: values.reasoningEffort,
     repositories: values.repositories,
+    sandbox_environment: values.sandboxEnvironmentId,
     triggers: values.triggers.map((trigger) => ({
       id: trigger.id,
       type: trigger.type,

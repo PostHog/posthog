@@ -53,10 +53,10 @@ describe("buildAbandonedProps", () => {
   it("captures the last step and duration", () => {
     expect(
       buildAbandonedProps({
-        lastStepId: "welcome",
+        lastStepId: "project-select",
         flowStartedAtMs: 0,
         nowMs: 2000,
       }),
-    ).toEqual({ last_step_id: "welcome", duration_seconds: 2 });
+    ).toEqual({ last_step_id: "project-select", duration_seconds: 2 });
   });
 });

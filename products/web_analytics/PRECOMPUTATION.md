@@ -291,6 +291,12 @@ Accepted semantic differences vs vanilla trends (the tiles align with the overvi
 
 The Active Hours path is stricter than the trend tiles: it falls back to the live heatmap for teams that track both `$pageview` and `$screen` (the buckets carry no event dimension, and the live heatmap filters exactly to the requested event), for teams aggregating by distinct ID, and for date bounds that are not hour-aligned in UTC (explicit sub-hour ranges, fractional-offset timezones).
 
+### Web Vitals tab timeseries
+
+The Web Vitals tab's timeseries tile sends a `WebVitalsQuery` wrapper whose `source` is a TrendsQuery of four `$web_vitals` percentile series. With the `web-analytics-vitals-precompute` flag (locally evaluated, fails closed) on for the team, dispatch routes it to `WebVitalsQueryRunner`, which merges the per-path quantile states of the `web_vitals_paths_preaggregated` buckets into per-day tab-level percentiles — the same buckets the path-breakdown tile on the same tab keeps warm, so the inner ensure hashes to the sibling tile's job family and both tiles share one set of jobs. With the flag off the kind has no runner branch and `process_query_model` unwraps to the source TrendsQuery, the pre-existing live path.
+
+Servable shapes: the canonical four-series tab query with a shared p75/p90/p99 percentile, day-aligned ranges, and day/week/month intervals (buckets are team-tz daily, so hour interval falls back). p95, compare, breakdowns, formulas, per-series filters, per-series math multipliers, and conversion goals fall back. Only the line-graph display is servable; any other display (total-value, cumulative, and the displays with dedicated runners — calendar heatmap, box plot, slope graph) unwraps to its source TrendsQuery so the source's own dispatch handles it. Accepted semantic difference vs the live path: events with a NULL `$pathname` are absent from the buckets, so they are excluded from the served percentiles.
+
 ## Related code
 
 - `products/web_analytics/backend/hogql_queries/web_overview.py` — runner

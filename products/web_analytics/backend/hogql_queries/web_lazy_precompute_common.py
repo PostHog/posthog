@@ -15,8 +15,10 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.utils import timezone as django_timezone
 
 import structlog
 import posthoganalytics
@@ -353,8 +355,9 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     runner = kwargs.pop("runner", None)
     family = kwargs.pop("family", None)
     background = is_background_warming_request()
+    forced = is_forced_refresh_request()
     if "stale_while_revalidate_seconds" not in kwargs:
-        if is_forced_refresh_request():
+        if forced:
             # An explicit user-initiated force refresh must never be handed a
             # complete-but-stale row — that is exactly the state the user is trying
             # to clear (the reported bug: repeated Reload clicks kept serving the
@@ -402,6 +405,30 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
             schedule = parse_ttl_schedule(existing, team.timezone, settling_period_seconds=SESSION_SETTLING_SECONDS)
         if pinned:
             schedule = replace(schedule, max_window_days=OOM_PIN_WINDOW_DAYS)
+        if forced and not background:
+            # A within-TTL current-day bucket can still be hours behind (the
+            # today band is 4h), which on an hourly graph reads as missing
+            # recent data. Disabling the grace above cannot help there because
+            # the bucket is not stale, just coarse. Treat the windows covering
+            # the current team-local day as expired for this read only: the
+            # ensure reports a miss, the read falls through to the live query,
+            # and the SWR enqueue rebuilds the bucket in the background.
+            # Jobs split on UTC day boundaries, so the cutoff is the UTC-day
+            # floor of team-local midnight; a cutoff at local midnight itself
+            # sits after the window start for teams behind UTC and would never
+            # match today's window. Background builds are excluded because the
+            # same schedule sets the insert TTL, and the revalidation task runs
+            # under the forced execution mode, so it would persist the rebuilt
+            # bucket with a 1-second expiry that every ambient read then
+            # misses. `rules` are first-match by descending cutoff, so
+            # prepending wins over the normal today band.
+            today_start_local = (
+                django_timezone.now()
+                .astimezone(ZoneInfo(team.timezone))
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+            )
+            forced_cutoff = floor_utc_day(today_start_local.astimezone(UTC))
+            schedule = replace(schedule, rules=[(forced_cutoff, 1), *schedule.rules])
         kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
     if not result.ready and not background and runner is not None and family is not None:

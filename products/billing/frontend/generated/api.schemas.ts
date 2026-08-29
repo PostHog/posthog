@@ -205,8 +205,8 @@ export interface BillingAlertDestinationCreateDataApi {
 
 export interface BillingAlertDestinationChangesApi {
     /**
-     * @items.minItems 4
-     * @items.maxItems 4
+     * @items.minItems 1
+     * @items.maxItems 100
      */
     delete?: string[][]
     create?: BillingAlertDestinationCreateDataApi[]
@@ -632,8 +632,8 @@ export interface BillingAlertDestinationResponseApi {
 export interface BillingAlertDeleteDestinationApi {
     /**
      * HogFunction IDs to delete as one atomic destination group.
-     * @minItems 4
-     * @maxItems 4
+     * @minItems 1
+     * @maxItems 100
      */
     hog_function_ids: string[]
 }
@@ -666,7 +666,7 @@ export type BillingSpendRetrieveParams = {
      */
     start_date?: string | null
     /**
-     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all teams in the organization.
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.
      * @nullable
      */
     team_ids?: string | null
@@ -696,7 +696,7 @@ export type BillingUsageRetrieveParams = {
      */
     start_date?: string | null
     /**
-     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all teams in the organization.
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.
      * @nullable
      */
     team_ids?: string | null

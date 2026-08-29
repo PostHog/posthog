@@ -19,7 +19,9 @@ import {
 import type { Task } from "@posthog/shared/domain-types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { showOfflineToast } from "@posthog/ui/features/connectivity/connectivityToast";
+import { isSignalReportTaskCapError } from "@posthog/ui/features/inbox/hooks/inboxCloudTaskErrors";
 import { resolveDefaultModel } from "@posthog/ui/features/inbox/hooks/resolveDefaultModel";
+import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useUserRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -46,6 +48,8 @@ export interface InboxCloudTaskCopy {
   signedOut: string;
   /** Error description when no model can be resolved. */
   missingModel: string;
+  /** Error description when this report already has an implementation task. */
+  existingImplementationTask?: string;
   /**
    * Title for the success toast shown when `redirectOnSuccess` is false and the
    * runner stays in place instead of navigating to the task. Defaults to
@@ -270,7 +274,25 @@ export function useInboxCloudTaskRunner({
         toast.dismiss(toastId);
         // Usage-limit blocks already show the upgrade modal; don't double-toast.
         if (!isUsageLimitResult(result)) {
-          toastError(copy.errorTitle, result.error);
+          if (
+            reportId &&
+            copy.existingImplementationTask &&
+            isSignalReportTaskCapError(result.error)
+          ) {
+            await Promise.all([
+              queryClient.invalidateQueries({
+                queryKey: ["inbox", "report-tasks", reportId],
+              }),
+              queryClient.invalidateQueries({
+                queryKey: reportKeys.artefacts(reportId),
+              }),
+            ]);
+            toast.error(copy.errorTitle, {
+              description: copy.existingImplementationTask,
+            });
+          } else {
+            toastError(copy.errorTitle, result.error);
+          }
           log.error("Cloud-task creation failed", {
             failedStep: result.failedStep,
             error: result.error,

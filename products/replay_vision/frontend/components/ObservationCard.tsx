@@ -19,7 +19,7 @@ import {
     scannerTypeLabel,
 } from '../replay_scanners/types'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
-import { readReasoning } from '../utils/observation'
+import { readReasoning, scannerLabel } from '../utils/observation'
 import { ObservationProgressBar } from './ObservationProgressBar'
 import { ObservationRetryButton } from './ObservationRetryButton'
 
@@ -423,7 +423,7 @@ export function ObservationDockCard({
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                     <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
-                    <span className="font-semibold text-sm truncate">{snapshot?.name || 'Scanner'}</span>
+                    <span className="font-semibold text-sm truncate">{scannerLabel(observation)}</span>
                     {scannerType && <span className="text-muted text-xs">{scannerTypeLabel(scannerType)}</span>}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
