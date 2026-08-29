@@ -76,13 +76,18 @@ Price it as a difference:
 
 ```text
 daily_step     = latest_day − same_weekday_median
+days_observed  = complete days the step has already held (one, on the day you first see it)
 days_remaining = days from the latest complete day to billing_period.current_period_end
-impact         = price(projected_usage + daily_step × days_remaining) − price(projected_usage − daily_step × days_observed)
+with_step      = projected_usage
+without_step   = max(0, projected_usage − daily_step × (days_observed + days_remaining))
+impact         = price(with_step) − price(without_step)
 ```
 
-where `price(units)` walks the tier schedule and charges each tier's `unit_amount_usd` for the units falling inside it (plus any `flat_amount_usd`), `projected_usage` is the product's own forecast from the overview, and `days_observed` is how many complete days the step has already held (one, on the day you first see it).
+where `price(units)` walks the tier schedule and charges each tier's `unit_amount_usd` for the units falling inside it (plus any `flat_amount_usd`), and `projected_usage` is the product's own forecast from the overview.
 
-**A falling meter has a negative `daily_step`, and the arithmetic has to survive it.** Clamp both counterfactuals at zero units — a negative unit count is not a quantity `price()` can charge — and test the **absolute** impact against the materiality floor, keeping the sign in the report. Otherwise a meter going dark produces a negative impact, fails a positive floor, and the capture-outage shape this scout promises to surface is silently suppressed.
+**Both scenarios hang off the same forecast — do not add the step back on top of it.** `projected_usage` extrapolates period-to-date usage, which already contains the step, so adding `daily_step × days_remaining` to it counts the step twice and slides _both_ endpoints up the tier curve together. The unit gap between them stays right, but its placement does not: a real 900 → 1,100 forecast priced as 1,000 → 1,200 charges 200 units above a 1,000-unit free threshold instead of 100, and manufactures invoice impact out of the shift alone. Take the service's forecast as the with-step endpoint and remove the step from it for every day it covers, observed and remaining.
+
+**A falling meter has a negative `daily_step`, and the arithmetic has to survive it.** Clamp the without-step counterfactual at zero units — a negative unit count is not a quantity `price()` can charge — and test the **absolute** impact against the materiality floor, keeping the sign in the report. Otherwise a meter going dark produces a negative impact, fails a positive floor, and the capture-outage shape this scout promises to surface is silently suppressed.
 This prices the move the way the report frames it — what the invoice does if the step persists — and the tier walk means a delta that crosses a boundary is charged at each tier's own rate. Then adjust in this order:
 
 1. **Discount.** Apply `discount_percent`. At 100% the impact is $0 no matter how large the usage move — real, and a legitimate reason not to report.

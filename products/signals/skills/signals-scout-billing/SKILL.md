@@ -129,8 +129,11 @@ Advancing the cursor past a date you skipped retires it: once the delayed batch 
 
 ### Lane 1 — the step (every run)
 
-For each usage type on this project, score the latest complete day against the **median of the same weekday over the trailing 4 weeks**.
+For each usage type on this project, score **every complete day after your cursor**, oldest first, each against the **median of its own weekday over the trailing 4 weeks**.
+On the daily cadence that is one day. After a run failed, was skipped, or the schedule slipped, it is the whole gap — and scoring only the newest bucket retires every day in between unscored, so a one-day spike or a meter that went dark and came back inside the gap is missed permanently.
+Cap the catch-up at **7 days**: past that, score the 7 most recent and record the unscored span in `pattern:billing:cursor` rather than paging back through a month of series. Dates held in `pattern:billing:lag` rejoin this set once they fill.
 Same-weekday matters: most PostHog meters have a hard weekday/weekend shape, and comparing Monday to Sunday flags a fifth of all days.
+**Report the episode, not the day.** Consecutive scored days of the same step on one meter are one finding, dated from the first day that cleared the gates — catching up on a gap must not file a report per day.
 
 **The band, stated so two runs reach the same verdict on the same data.** These are defaults; a `pattern:billing:band:<usage_type>` memory entry may tighten one for a project that proves noisier.
 
@@ -139,6 +142,7 @@ Same-weekday matters: most PostHog meters have a hard weekday/weekend shape, and
 - **New meter.** When the baseline median is 0, relative change is undefined too. Treat it as an onset rather than a step: flag when the latest value clears the volume floor and the materiality gate, and describe it as a meter starting rather than one moving.
 - **Volume floor.** Skip a meter only when **both** its baseline median and its latest value are under **100 units/day**. Flooring on the baseline alone would discard the cold-start instrumentation loop this scout most wants to catch — a meter going from a handful of units to a large paid spike has a tiny baseline and a real invoice impact. Small numbers on both sides produce meaningless percentages: 1 → 3 units is not a billing event.
 - **Concentration tolerance.** The move is concentrated when every _other_ meter **family** with a non-zero baseline stayed within **±20%** of its own median, **and** no other family started from zero on the same day. Two or more families outside that, or several meters switching on together, is a traffic or onboarding story — a project enabling three paid products at once is one event, not three reports.
+  **Only families that clear the volume floor count as comparison.** A family sitting under the floor on both sides turns a 1 → 0 wobble into a 100% move and rejects a concentrated, material candidate on noise the floor already told you to ignore. The same floor governs the started-from-zero clause: an onset breaks concentration only when it clears the floor itself.
 - **Materiality floor.** The move's projected impact on this period's invoice must clear **the greater of $20 and 2% of the last complete period's invoice** — so a small org still hears about small dollars and a large one is not paged over rounding.
   The last period's invoice comes from summing `billing-spend-get` over the previous `billing_period` window, or from a cached `pattern:billing:period-actual`. When neither is available yet, use the $20 floor alone and say so in the memory entry.
 
@@ -220,12 +224,13 @@ The billing judgment on top:
   These are decisions about someone's spend, not code fixes: `actionability=requires_human_input`, and leave `priority` / `repository` unset.
   **Do not attach `charts`.** Billing series come from a REST tool, not HogQL, so there is no query node that reproduces them — put the numbers in the prose, where a Slack reader gets them too.
   **Write for a project-wide audience.** Reports and scratchpad entries are team-scoped, so anyone who can read the inbox reads your billing numbers whether or not the billing pages would let them in — a report is not a place to restate the organization's billing state.
-  Carry only what the finding needs: the meter that moved, its volumes, and **the dollar delta this move is worth**. Keep out the organization's absolute invoice and projected totals, per-unit tier prices, plan and discount detail, and any other product's spend — say "roughly $180 above last period on this meter", not what the bill is. Point at the billing pages for the totals, where the permission check is.
+  Carry only what the finding needs: the meter that moved, its volumes, and **the dollar delta this move is worth**. Keep out the organization's absolute invoice and projected totals, per-unit tier prices, plan and discount detail, and any other product's spend — say "adds roughly $180 to this period on this meter", not what the bill is. Point at the billing pages for the totals, where the permission check is.
+  **Say what that number actually is.** The step's impact is a within-period counterfactual — what this period bills with the step against what it bills without — not a comparison against last period's invoice. Unrelated usage may have fallen since, so a step worth $180 can sit on a projected invoice that still lands under last period. Writing it as "$180 above last period" states a period-over-period rise the number does not support. "Above last period" belongs to the trajectory lane, which compares the two periods for real.
 - **Edit** when a live report already tracks the meter. A meter still elevated is an `append_note` with the fresh window and the running dollar total, not a second report. Check the matched report is still live first — appending to a resolved or suppressed one buries a relapse.
 - **Remember** when it is suggestive but fails a gate, and always when you rule something out. A recorded backfill saves a future run the whole investigation.
 - **Skip** when `noise:` / `addressed:` / `dedupe:` or a live report covers **this episode**. A `dedupe:` key belongs to one episode of one meter, not to the meter forever — when the report closes and the meter returns to baseline, retire the key with the closing date in the `addressed:` entry. A fresh step on the same meter weeks later is a new report, which is what the report contract requires of a genuine relapse.
 
-Title shape: `Logs ingestion up 9× since Aug 12 — projects ~$180 above last period`.
+Title shape: `Logs ingestion up 9× since Aug 12 — adds ~$180 to this period`.
 
 **Reviewer routing, and when to leave it empty.** Nothing available at run time names the person who owns the bill: `scout-members-list` returns members with their GitHub logins but no organization role or billing permission, and the overview tool strips `account_owner` from its response.
 So resolve in this order, and **never guess**: a cached `reviewer:billing:owner`; then the reviewer on a prior billing report via `inbox-reports-list` / `-retrieve`; then a reviewer correction a human already made on one of your reports, which the project profile surfaces as `recent_reviewer_corrections` and which is the strongest ownership evidence there is.
