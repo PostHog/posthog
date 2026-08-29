@@ -638,15 +638,15 @@ jobs:
         # runner (ubuntu-latest and depot-ubuntu-24.04-4 alike). Peak tracks the type graph,
         # not parallelism or lib checking: skipLibCheck is already on, GOMAXPROCS and
         # declaration:false change nothing, and dropping all of products/ from include removes
-        # only 891 of 13703 files because imports pull them back in. Both runners below give
-        # the job 32 GB. Talk to #team-devex before changing.
+        # only 891 of 13703 files because imports pull them back in. 32 GB is the next rung
+        # on Depot's ladder. Talk to #team-devex before changing.
         #
-        # Forks get a GitHub-hosted larger runner instead of Depot: this job runs
-        # `pnpm install`, so a fork PR controls lifecycle scripts, and Depot runners inject
-        # shared cache credentials ambiently (see _rust-build-images.yml, which skips sccache
-        # creds for the same reason). GitHub warns against exposing a larger runner with a
-        # static IP range to fork pull requests, so keep this runner's group off static IPs.
-        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-24.04-8core' }}
+        # Fork PRs use this runner too. GitHub-hosted runners for public repos top out at
+        # 16 GB, and a larger-runner label that no org admin has provisioned queues forever.
+        # Forks already run `pnpm install` on Depot in ci-storybook.yml and ci-backend.yml,
+        # and Depot Cache is repository-scoped with no branch isolation on every label, so
+        # this job exposes nothing those jobs do not.
+        runs-on: depot-ubuntu-24.04-8
         # Kea typegen invalidates on changes to any logic plus everything that depends on it.
         # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is
         # large, so the budget must fit a cache miss on top of the baseline build.
