@@ -38,6 +38,9 @@ export function FeedbackSurveyButton({
         <LemonButton
             size="small"
             data-attr={dataAttr}
+            // Without this, LemonButton copies the string tooltip into aria-label, so the
+            // accessible name would be the tooltip instead of the visible label.
+            aria-label={label}
             tooltip="Have any questions or feedback?"
             disabledReason={surveysLoaded ? undefined : 'Feedback is unavailable right now'}
             onClick={() =>
