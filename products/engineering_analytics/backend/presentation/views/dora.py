@@ -23,6 +23,10 @@ _ENVIRONMENT = OpenApiParameter(
     many=True,
     location=OpenApiParameter.QUERY,
     required=False,
+    # Explicit explode: the generated client only emits repeated `environment=` keys for params the
+    # spec marks explode, and Django's getlist needs repeated keys — a comma-joined value matches no
+    # environment.
+    explode=True,
     description="Deploy environment(s) to scope to, repeatable (from the response's `environments` list). Omit "
     "to scope to the busiest environment GitHub marks production, falling back to the busiest persistent "
     "(non-transient) environment when none are marked production.",
