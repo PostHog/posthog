@@ -111,6 +111,8 @@ interface InsightMetaProps extends Pick<
     onCreateAlert?: () => void
     onEditAlert?: (alertId: AlertType['id']) => void
     onCreateAnomalyAlert?: () => void
+    /** The card shows a blocking empty/error state instead of the chart, so there is nothing to capture. */
+    hasBlockingEmptyState?: boolean
 }
 
 export function InsightMeta({
@@ -145,6 +147,7 @@ export function InsightMeta({
     onCreateAlert,
     onEditAlert,
     onCreateAnomalyAlert,
+    hasBlockingEmptyState,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
@@ -202,8 +205,16 @@ export function InsightMeta({
         screenshotKey: 'insight-tile',
         name: name || insight.derived_name || undefined,
     }
+    // The capture anchor lives inside the results card; a blocking empty/error state renders instead of it,
+    // so a browser capture would dead-end on a missing target. Disable it and say why.
     const captureDisabledReason =
-        loading || loadingQueued ? 'Wait for the tile to finish loading' : isCapturing ? 'Copying…' : undefined
+        loading || loadingQueued
+            ? 'Wait for the tile to finish loading'
+            : hasBlockingEmptyState
+              ? 'The insight has no results to capture'
+              : isCapturing
+                ? 'Copying…'
+                : undefined
     const showCompactHeading = !showCompactTile || !isSqlInsight
 
     const ignoresDashboardFilters = !!tileFiltersOverride?.ignoreDashboardFilters

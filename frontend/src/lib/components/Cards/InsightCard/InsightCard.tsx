@@ -461,6 +461,7 @@ function InsightCardInternal(
                         refresh={refresh}
                         loadingQueued={loadingQueued}
                         loading={loading}
+                        hasBlockingEmptyState={!!BlockingEmptyState}
                         rename={rename}
                         duplicate={duplicate}
                         setOverride={setOverride}
