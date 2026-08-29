@@ -132,8 +132,8 @@ export const doraLogic = kea<doraLogicType>([
         dora: [
             null as DoraOverviewApi | null,
             {
-                loadDora: async (): Promise<DoraOverviewApi> =>
-                    await engineeringAnalyticsDora(projectId(), {
+                loadDora: async (_, breakpoint): Promise<DoraOverviewApi> => {
+                    const response = await engineeringAnalyticsDora(projectId(), {
                         date_from: values.dateFrom ?? undefined,
                         date_to: values.dateTo ?? undefined,
                         environment: values.environments.length ? values.environments : undefined,
@@ -141,7 +141,12 @@ export const doraLogic = kea<doraLogicType>([
                         granularity: values.granularity ?? undefined,
                         source_id: values.sourceId ?? undefined,
                         repo: values.scopeRepo ?? undefined,
-                    }),
+                    })
+                    // Guard against an older request's response landing after a newer one's,
+                    // which would otherwise overwrite `dora` with stale data.
+                    breakpoint()
+                    return response
+                },
             },
         ],
     })),
