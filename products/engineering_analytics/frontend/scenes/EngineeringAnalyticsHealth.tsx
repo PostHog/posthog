@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBanner, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInputSelect, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 import { TimeSeriesBarChart, useChartTheme, type TimeInterval } from '@posthog/quill-charts'
 
 import { dayjs } from 'lib/dayjs'
@@ -12,6 +12,12 @@ import { LeadTimeBoxPlot } from '../components/LeadTimeBoxPlot'
 import { MetricTile, percentChange, pointChange } from '../components/MetricTile'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section } from '../components/Section'
+import {
+    changeFailureBenchmark,
+    deploymentFrequencyBenchmark,
+    leadTimeBenchmark,
+    restoreTimeBenchmark,
+} from '../lib/doraBenchmark'
 import { compactAgeLabel } from '../lib/format'
 import { doraLogic } from './doraLogic'
 
@@ -21,8 +27,9 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
         dora,
         doraLoading,
         doraFailed,
-        environment,
+        environments,
         githubTeam,
+        granularity,
         boxPlotBuckets,
         openToMergeBuckets,
         openToDeployBuckets,
@@ -32,7 +39,7 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
         environmentOptions,
         githubTeamOptions,
     } = useValues(doraLogic)
-    const { setEnvironment, setGithubTeam, loadDora } = useActions(doraLogic)
+    const { setEnvironments, setGithubTeam, setGranularity, loadDora } = useActions(doraLogic)
     const chartTheme = useChartTheme()
     const frequencySeries = useMemo(
         () => [{ key: 'deployments', label: 'Deployments', data: frequencyCounts }],
@@ -87,12 +94,28 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                 </div>
             ) : (
                 <div className="flex flex-wrap items-center gap-2">
+                    <div className="min-w-60" data-attr="engineering-analytics-dora-environment-select">
+                        <LemonInputSelect
+                            size="small"
+                            mode="multiple"
+                            value={environments}
+                            onChange={setEnvironments}
+                            options={environmentOptions.map((name) => ({ key: name, label: name }))}
+                            placeholder={`Default environment (${environmentScopeLabel})`}
+                            allowCustomValues={false}
+                        />
+                    </div>
                     <LemonSelect
                         size="small"
-                        value={environment}
-                        onChange={setEnvironment}
-                        options={environmentOptions}
-                        data-attr="engineering-analytics-dora-environment-select"
+                        value={granularity}
+                        onChange={setGranularity}
+                        options={[
+                            { value: null, label: 'Group automatically' },
+                            { value: 'hour' as const, label: 'Group by hour' },
+                            { value: 'day' as const, label: 'Group by day' },
+                            { value: 'week' as const, label: 'Group by week' },
+                        ]}
+                        data-attr="engineering-analytics-dora-granularity-select"
                     />
                     {dora?.has_membership_data && (
                         <LemonSelect
@@ -118,84 +141,95 @@ export function EngineeringAnalyticsHealth(): JSX.Element {
                     )}
                 </div>
             )}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <MetricTile
-                    label="Deployment frequency"
-                    tooltip={`Successful deployments per day in the ${environmentScopeLabel} scope: ${dora?.deployment_count ?? 0} in this window.`}
-                    value={dora?.deployments_per_day != null ? `${dora.deployments_per_day.toFixed(1)}/day` : '—'}
-                    delta={{ value: percentChange(dora?.deployments_per_day, dora?.deployments_per_day_prev) }}
-                    sub={
-                        dora && dora.deploy_data_available && dora.deployment_count === 0
-                            ? 'No successful deployments in this window.'
-                            : undefined
-                    }
-                    loading={firstLoad}
-                />
-                <MetricTile
-                    label="Open to deploy"
-                    tooltip={`Median from a PR's open to the first successful deployment containing it, over ${dora?.deployed_pr_count ?? 0} deployed PRs (bots and drafts excluded). The full lead time: the box plots below split it into open to merge and merge to deploy.`}
-                    value={
-                        dora?.median_open_to_deploy_seconds != null
-                            ? compactAgeLabel(dora.median_open_to_deploy_seconds)
-                            : '—'
-                    }
-                    delta={{
-                        value: percentChange(
-                            dora?.median_open_to_deploy_seconds,
-                            dora?.median_open_to_deploy_seconds_prev
-                        ),
-                        goodWhenDown: true,
-                    }}
-                    sub={
-                        dora && dora.median_open_to_deploy_seconds == null
-                            ? 'No PRs were deployed in this window.'
-                            : undefined
-                    }
-                    loading={firstLoad}
-                />
-                <MetricTile
-                    label="Failed deployment share"
-                    tooltip={`Deployments with a failure or error status over deployments that reached an outcome (${dora?.failed_deployment_count ?? 0} failed here). A change failure proxy: deploys that succeeded but broke production aren't counted, because no incident data is linked.`}
-                    value={
-                        dora?.failed_deployment_share != null
-                            ? `${(dora.failed_deployment_share * 100).toFixed(1)}%`
-                            : '—'
-                    }
-                    delta={{
-                        value: pointChange(dora?.failed_deployment_share, dora?.failed_deployment_share_prev),
-                        unit: 'pt',
-                        goodWhenDown: true,
-                    }}
-                    sub={
-                        dora && dora.failed_deployment_share == null
-                            ? 'No deployments reached an outcome in this window.'
-                            : undefined
-                    }
-                    loading={firstLoad}
-                />
-                <MetricTile
-                    label="Failed deploy to next success"
-                    tooltip="Median wait from a deployment's first failure status to the next successful deployment in the same environment. A time to restore proxy: recovery by anything other than a deploy is invisible, and unrecovered failures are excluded."
-                    value={
-                        dora?.median_failed_deploy_to_next_success_seconds != null
-                            ? compactAgeLabel(dora.median_failed_deploy_to_next_success_seconds)
-                            : '—'
-                    }
-                    delta={{
-                        value: percentChange(
-                            dora?.median_failed_deploy_to_next_success_seconds,
-                            dora?.median_failed_deploy_to_next_success_seconds_prev
-                        ),
-                        goodWhenDown: true,
-                    }}
-                    sub={
-                        dora && dora.median_failed_deploy_to_next_success_seconds == null
-                            ? 'No failed deployment recovered in this window.'
-                            : undefined
-                    }
-                    loading={firstLoad}
-                />
-            </div>
+            <Section
+                id="dora-metrics"
+                title="DORA metrics"
+                note="Each chip is the DORA report band the window lands in; hover it for the ladder."
+                busy={doraLoading && !!dora}
+            >
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <MetricTile
+                        label="Deployment frequency"
+                        tooltip={`Successful deployments per day in the ${environmentScopeLabel} scope: ${dora?.deployment_count ?? 0} in this window.`}
+                        value={dora?.deployments_per_day != null ? `${dora.deployments_per_day.toFixed(1)}/day` : '—'}
+                        delta={{ value: percentChange(dora?.deployments_per_day, dora?.deployments_per_day_prev) }}
+                        benchmark={deploymentFrequencyBenchmark(dora?.deployments_per_day)}
+                        sub={
+                            dora && dora.deploy_data_available && dora.deployment_count === 0
+                                ? 'No successful deployments in this window.'
+                                : undefined
+                        }
+                        loading={firstLoad}
+                    />
+                    <MetricTile
+                        label="Open to deploy"
+                        tooltip={`Median from a PR's open to the first successful deployment containing it, over ${dora?.deployed_pr_count ?? 0} deployed PRs (bots and drafts excluded). The full lead time: the box plots below split it into open to merge and merge to deploy.`}
+                        value={
+                            dora?.median_open_to_deploy_seconds != null
+                                ? compactAgeLabel(dora.median_open_to_deploy_seconds)
+                                : '—'
+                        }
+                        delta={{
+                            value: percentChange(
+                                dora?.median_open_to_deploy_seconds,
+                                dora?.median_open_to_deploy_seconds_prev
+                            ),
+                            goodWhenDown: true,
+                        }}
+                        benchmark={leadTimeBenchmark(dora?.median_open_to_deploy_seconds)}
+                        sub={
+                            dora && dora.median_open_to_deploy_seconds == null
+                                ? 'No PRs were deployed in this window.'
+                                : undefined
+                        }
+                        loading={firstLoad}
+                    />
+                    <MetricTile
+                        label="Failed deployment share"
+                        tooltip={`Deployments with a failure or error status over deployments that reached an outcome (${dora?.failed_deployment_count ?? 0} failed here). A change failure proxy: deploys that succeeded but broke production aren't counted, because no incident data is linked.`}
+                        value={
+                            dora?.failed_deployment_share != null
+                                ? `${(dora.failed_deployment_share * 100).toFixed(1)}%`
+                                : '—'
+                        }
+                        delta={{
+                            value: pointChange(dora?.failed_deployment_share, dora?.failed_deployment_share_prev),
+                            unit: 'pt',
+                            goodWhenDown: true,
+                        }}
+                        benchmark={changeFailureBenchmark(dora?.failed_deployment_share)}
+                        sub={
+                            dora && dora.failed_deployment_share == null
+                                ? 'No deployments reached an outcome in this window.'
+                                : undefined
+                        }
+                        loading={firstLoad}
+                    />
+                    <MetricTile
+                        label="Failed deploy to next success"
+                        tooltip="Median wait from a deployment's first failure status to the next successful deployment in the same environment. A time to restore proxy: recovery by anything other than a deploy is invisible, and unrecovered failures are excluded."
+                        value={
+                            dora?.median_failed_deploy_to_next_success_seconds != null
+                                ? compactAgeLabel(dora.median_failed_deploy_to_next_success_seconds)
+                                : '—'
+                        }
+                        delta={{
+                            value: percentChange(
+                                dora?.median_failed_deploy_to_next_success_seconds,
+                                dora?.median_failed_deploy_to_next_success_seconds_prev
+                            ),
+                            goodWhenDown: true,
+                        }}
+                        benchmark={restoreTimeBenchmark(dora?.median_failed_deploy_to_next_success_seconds)}
+                        sub={
+                            dora && dora.median_failed_deploy_to_next_success_seconds == null
+                                ? 'No failed deployment recovered in this window.'
+                                : undefined
+                        }
+                        loading={firstLoad}
+                    />
+                </div>
+            </Section>
             <Section
                 id="merge-to-deploy"
                 title="Lead time distributions"

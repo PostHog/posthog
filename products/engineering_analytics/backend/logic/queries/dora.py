@@ -304,10 +304,13 @@ def _date_to_clause(date_to: datetime | None, column: str) -> str:
 
 @frozen
 class _EnvironmentScope:
-    # 'production', 'persistent', or the exact environment the caller passed (see DoraOverview).
+    # 'persistent', or the exact environment name(s) the scope resolved to (see DoraOverview).
     scope: str
     # The trusted SQL predicate variant for the deploys CTE.
     predicate: str
+    # The exact environment names the predicate matches, bound as the {environments} placeholder;
+    # None for the predicate variants that match by flag rather than by name.
+    values: list[str] | None
 
 
 @frozen
@@ -333,23 +336,34 @@ class _DoraScan:
         return window_buckets(self.date_from, self.date_to, self.granularity)
 
 
-def _resolve_environment_scope(environment: str | None, environments: list[tuple[str, bool]]) -> _EnvironmentScope:
-    """Pick the deploy population: the caller's exact environment when given; otherwise the
-    deployments GitHub marks production; otherwise the single busiest persistent environment,
-    so a repo that never sets the production flag still gets numbers instead of a false zero.
-    Busiest-single, not every-persistent: a multi-region repo deploys each merge to several
-    persistent environments (and to dev, package registries, ...), which would multiply every
-    deploy count and hand lead time to whichever region deploys first. 'persistent' survives
-    only when the window has no persistent environment at all. Transient environments never
-    join a default scope: they are ephemeral per-PR previews, and on this repo they outnumber
-    real deploys by an order of magnitude."""
-    if environment:
-        return _EnvironmentScope(scope=environment, predicate="d.environment = {environment}")
-    if any(is_production for _, is_production in environments):
-        return _EnvironmentScope(scope="production", predicate="d.is_production_environment")
+def _resolve_environment_scope(
+    environments_filter: list[str] | None, environments: list[tuple[str, bool]]
+) -> _EnvironmentScope:
+    """Pick the deploy population: the caller's exact environment(s) when given; otherwise the
+    single busiest environment GitHub marks production; otherwise the single busiest persistent
+    environment, so a repo that never sets the production flag still gets numbers instead of a
+    false zero. Busiest-single, not every-matching: a multi-region repo deploys each merge to
+    several production and persistent environments (and to dev, package registries, ...), which
+    would multiply every deploy count and hand lead time to whichever region deploys first.
+    'persistent' survives only when the window has no persistent environment at all. Transient
+    environments never join a default scope: they are ephemeral per-PR previews, and on this
+    repo they outnumber real deploys by an order of magnitude."""
+    if environments_filter:
+        return _EnvironmentScope(
+            scope=", ".join(environments_filter),
+            predicate="d.environment IN {environments}",
+            values=environments_filter,
+        )
+    production = [name for name, is_production in environments if is_production]
+    if production:
+        return _EnvironmentScope(
+            scope=production[0], predicate="d.environment IN {environments}", values=[production[0]]
+        )
     if environments:
-        return _EnvironmentScope(scope=environments[0][0], predicate="d.environment = {environment}")
-    return _EnvironmentScope(scope="persistent", predicate="NOT d.is_transient_environment")
+        return _EnvironmentScope(
+            scope=environments[0][0], predicate="d.environment IN {environments}", values=[environments[0][0]]
+        )
+    return _EnvironmentScope(scope="persistent", predicate="NOT d.is_transient_environment", values=None)
 
 
 def _empty_overview(
@@ -574,10 +588,11 @@ def query_dora_overview(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-    environment: str | None = None,
+    environments_filter: list[str] | None = None,
     github_team: str | None = None,
+    granularity: Granularity | None = None,
 ) -> DoraOverview:
-    granularity = pick_granularity(date_from, date_to)
+    granularity = granularity or pick_granularity(date_from, date_to)
     deploy_sources = curated.deploy_sources()
     members_source = curated.members_source()
     has_membership_data = members_source is not None
@@ -586,7 +601,7 @@ def query_dora_overview(
     if deploy_sources is None:
         return _empty_overview(
             deploy_data_available=False,
-            environment_scope=environment or "persistent",
+            environment_scope=", ".join(environments_filter) if environments_filter else "persistent",
             environments=[],
             has_membership_data=has_membership_data,
             github_teams=github_teams,
@@ -612,11 +627,11 @@ def query_dora_overview(
         placeholders=placeholders,
         date_to_filter=_date_to_clause(date_to, "d.created_at"),
     )
-    env_scope = _resolve_environment_scope(environment, environments)
-    # The busiest-environment fallback binds the same placeholder as an explicit filter: either
-    # way the scope string IS the environment the predicate matches.
-    if "{environment}" in env_scope.predicate:
-        placeholders["environment"] = ast.Constant(value=env_scope.scope)
+    env_scope = _resolve_environment_scope(environments_filter, environments)
+    # The busiest-environment fallbacks bind the same placeholder as an explicit filter: either
+    # way ``values`` holds exactly the environment names the predicate matches.
+    if env_scope.values is not None:
+        placeholders["environments"] = ast.Tuple(exprs=[ast.Constant(value=name) for name in env_scope.values])
 
     scan = _DoraScan(
         curated=curated,

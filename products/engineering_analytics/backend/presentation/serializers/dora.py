@@ -96,12 +96,13 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "selected repo; every other field is then empty or null, never a fake zero."
             },
             "environment_scope": {
-                "help_text": "What the environment filter resolved to: 'production' (deployments GitHub marks "
-                "production_environment), an exact environment name (the one passed, or the busiest persistent "
-                "environment when nothing is marked production), or 'persistent' (no persistent environment "
-                "deployed in the window, so every non-transient one counts). Transient environments (ephemeral "
-                "per-PR previews) never join a default scope. The scope resolves from deployments in the scan "
-                "window, so two different windows can resolve different scopes and are not always comparable."
+                "help_text": "What the environment filter resolved to: the exact environment name(s) it matches "
+                "(the caller's picks, comma-joined when several; by default the busiest production-marked "
+                "environment, falling back to the busiest persistent one), or 'persistent' (no persistent "
+                "environment deployed in the window, so every non-transient one counts). Transient environments "
+                "(ephemeral per-PR previews) never join a default scope. The scope resolves from deployments in "
+                "the scan window, so two different windows can resolve different scopes and are not always "
+                "comparable."
             },
             "environments": {
                 "help_text": "Distinct persistent environments deployed to in the scan window, most-deployed "
@@ -199,6 +200,7 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "series_granularity": {
-                "help_text": "Bucket width of every series, chosen to fit the window: 'hour', 'day', or 'week'."
+                "help_text": "Bucket width of every series: the granularity param when given, else chosen to "
+                "fit the window: 'hour', 'day', or 'week'."
             },
         }

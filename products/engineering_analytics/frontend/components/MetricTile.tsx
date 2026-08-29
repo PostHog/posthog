@@ -4,7 +4,7 @@
 
 import { ReactNode } from 'react'
 
-import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag, Tooltip, type LemonTagType } from '@posthog/lemon-ui'
 import { MetricCard, type MetricChange } from '@posthog/quill-charts'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -118,11 +118,27 @@ function deltaToChange(delta: TileDelta | undefined): MetricChange | null {
     return { value: rounded, label: `${display}${delta.unit ?? '%'}` }
 }
 
+export interface TileBenchmark {
+    /** The band name the chip shows (e.g. 'Elite'). */
+    label: string
+    band: 'elite' | 'high' | 'medium' | 'low'
+    /** The full benchmark ladder, shown on chip hover. */
+    tooltip: string
+}
+
+const BENCHMARK_TAG_TYPE: Record<TileBenchmark['band'], LemonTagType> = {
+    elite: 'success',
+    high: 'primary',
+    medium: 'warning',
+    low: 'danger',
+}
+
 export function MetricTile({
     label,
     tooltip,
     value,
     delta,
+    benchmark,
     sub,
     loading = false,
     className,
@@ -133,6 +149,8 @@ export function MetricTile({
     /** Pre-formatted headline value; '—' for no data. */
     value: string
     delta?: TileDelta
+    /** Where the value lands against a published benchmark ladder, shown as a chip by the caption. */
+    benchmark?: TileBenchmark | null
     /** Visible caption — only for an answer worth a glance (what's failing, why there's no value). */
     sub?: ReactNode
     /** Backend load in flight: skeleton the value so it doesn't flash a stale/zero number. Only for a
@@ -169,7 +187,20 @@ export function MetricTile({
                     change={deltaToChange(delta)}
                     goodDirection={delta?.goodWhenDown ? 'down' : 'up'}
                     changeTooltip={delta ? (delta.vs ?? 'vs the previous window') : undefined}
-                    subtitle={sub}
+                    subtitle={
+                        benchmark ? (
+                            <span className="flex items-center gap-1.5">
+                                <Tooltip title={benchmark.tooltip}>
+                                    <LemonTag type={BENCHMARK_TAG_TYPE[benchmark.band]} size="small">
+                                        {benchmark.label}
+                                    </LemonTag>
+                                </Tooltip>
+                                {sub}
+                            </span>
+                        ) : (
+                            sub
+                        )
+                    }
                 />
             )}
         </LemonCard>
