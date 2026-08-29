@@ -273,10 +273,11 @@ export class PersonMergeService {
             eventUuid: this.context.event.uuid,
             allowIdentifiedSources: this.context.event.event === '$merge_dangerously',
             mergeMode: this.context.mergeMode,
-            // The saga rejects a negative created_at, and events stamped
-            // before 1970 exist; get-or-create accepts them, so a clamp here
-            // keeps such a person mergeable instead of failing every merge.
-            createdAtMs: Math.max(0, timestamp.toMillis()),
+            // Passed as the event stated it, pre-epoch values included: what a
+            // backend can store is the backend's constraint, and clamping here
+            // would rewrite the created_at Postgres records for a person born
+            // from a merge.
+            createdAtMs: timestamp.toMillis(),
         }
     }
 
