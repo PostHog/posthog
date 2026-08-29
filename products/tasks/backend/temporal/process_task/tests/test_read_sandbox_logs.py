@@ -50,3 +50,20 @@ def test_returns_terminated_message_on_mid_capture_termination():
         result = _run("sb-race")
 
     assert result == SANDBOX_TERMINATED_MESSAGE
+
+
+def test_returns_agent_server_logs_when_audit_output_is_malformed():
+    # First execute returns the agent-server logs, later diagnostic fetches return unparseable audit output.
+    sandbox = MagicMock()
+    sandbox.is_running.return_value = True
+    sandbox.execute.side_effect = [
+        MagicMock(stdout="agent server log line"),
+        MagicMock(stdout=""),
+        MagicMock(stdout="not json"),
+    ]
+
+    with patch(_SANDBOX_PATH) as mock_sandbox_cls:
+        mock_sandbox_cls.return_value.get_by_id.return_value = sandbox
+        result = _run("sb-bad-audit")
+
+    assert result == "agent server log line"
