@@ -65,6 +65,13 @@ jobs:
               with:
                   node-version: 22
 
+            # pnpm installs native optional packages for the host CPU only, and the x64
+            # build runs on an Apple silicon runner.
+            - name: Install x64 native packages on the arm64 runner
+              if: matrix.arch == 'x64'
+              run: |
+                  printf '\nsupportedArchitectures:\n    cpu: [x64, arm64]\n' >> pnpm-workspace.yaml
+
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
 
