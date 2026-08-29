@@ -17,12 +17,14 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.testing._activity import ActivityEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
 from products.batch_exports.backend.service import (
     AwsS3BatchExportInputs,
     BackfillDetails,
+    BatchExportField,
     BatchExportModel,
     BatchExportSchema,
     S3BatchExportInputs,
@@ -172,6 +174,122 @@ async def assert_metrics_in_clickhouse(
         )
 
 
+@frozen
+class _ModelQueryParams:
+    """Parameters extracted from a batch export model to query expected records."""
+
+    model_name: str
+    fields: list[BatchExportField] | None
+    filters: list[dict[str, t.Any]] | None
+    extra_query_parameters: dict[str, t.Any] | None
+
+
+def _resolve_model_query_params(
+    batch_export_model: BatchExportModel | BatchExportSchema | None,
+) -> _ModelQueryParams:
+    """Extract the query parameters for the given batch export model."""
+    if batch_export_model is None:
+        return _ModelQueryParams(model_name="events", fields=None, filters=None, extra_query_parameters=None)
+
+    if isinstance(batch_export_model, BatchExportModel):
+        schema = batch_export_model.schema
+        return _ModelQueryParams(
+            model_name=batch_export_model.name,
+            fields=schema["fields"] if schema is not None else None,
+            filters=batch_export_model.filters,
+            extra_query_parameters=schema["values"] if schema is not None else None,
+        )
+
+    return _ModelQueryParams(
+        model_name="custom",
+        fields=batch_export_model["fields"],
+        filters=None,
+        extra_query_parameters=batch_export_model["values"],
+    )
+
+
+def _resolve_schema_column_names(
+    batch_export_model: BatchExportModel | BatchExportSchema | None,
+    fields: list[BatchExportField] | None,
+) -> list[str]:
+    """Determine the column names expected in the exported records."""
+    if fields is not None:
+        schema_column_names = [field["alias"] for field in fields]
+    elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
+        schema_column_names = [
+            "team_id",
+            "distinct_id",
+            "person_id",
+            "properties",
+            "person_version",
+            "person_distinct_id_version",
+            "_inserted_at",
+            "created_at",
+            "is_deleted",
+        ]
+    else:
+        schema_column_names = [field["alias"] for field in s3_default_fields()]
+
+    if "_inserted_at" not in schema_column_names:
+        schema_column_names.append("_inserted_at")
+
+    return schema_column_names
+
+
+async def _fetch_expected_records(
+    params: _ModelQueryParams,
+    team_id: int,
+    data_interval_start: dt.datetime,
+    data_interval_end: dt.datetime,
+    json_columns: tuple[str, ...],
+    exclude_events: list[str] | None,
+    include_events: list[str] | None,
+    backfill_details: BackfillDetails | None,
+) -> list[dict[str, t.Any]]:
+    """Read the records expected to be exported from ClickHouse."""
+    queue = RecordBatchQueue()
+    if params.model_name == "sessions":
+        producer = ClickHouseTestProducer(model=SessionsRecordBatchModel(team_id))
+    else:
+        producer = ClickHouseTestProducer()
+    producer_task = await producer.start(
+        queue=queue,
+        model_name=params.model_name,
+        team_id=team_id,
+        full_range=(data_interval_start, data_interval_end),
+        done_ranges=[],
+        fields=params.fields,
+        filters=params.filters,
+        destination_default_fields=s3_default_fields(),
+        exclude_events=exclude_events,
+        include_events=include_events,
+        is_backfill=backfill_details is not None,
+        backfill_details=backfill_details,
+        extra_query_parameters=params.extra_query_parameters,
+        order_columns=None,
+    )
+
+    expected_records = []
+    while not queue.empty() or not producer_task.done():
+        record_batch = await get_record_batch_from_queue(queue, producer_task)
+        if record_batch is None:
+            break
+
+        for record in record_batch.to_pylist():
+            expected_record = {}
+            for k, v in record.items():
+                if k in json_columns and v is not None:
+                    expected_record[k] = json.loads(v)
+                elif isinstance(v, dt.datetime):
+                    expected_record[k] = v.isoformat()
+                else:
+                    expected_record[k] = v
+
+            expected_records.append(expected_record)
+
+    return expected_records
+
+
 async def assert_clickhouse_records_in_s3(
     s3_compatible_client,
     clickhouse_client: ClickHouseClient,
@@ -218,84 +336,19 @@ async def assert_clickhouse_records_in_s3(
         json_columns=json_columns,
     )
 
-    if batch_export_model is not None:
-        if isinstance(batch_export_model, BatchExportModel):
-            model_name = batch_export_model.name
-            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
-            filters = batch_export_model.filters
-            extra_query_parameters = (
-                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
-            )
-        else:
-            model_name = "custom"
-            fields = batch_export_model["fields"]
-            filters = None
-            extra_query_parameters = batch_export_model["values"]
-    else:
-        model_name = "events"
-        extra_query_parameters = None
-        fields = None
-        filters = None
+    params = _resolve_model_query_params(batch_export_model)
+    schema_column_names = _resolve_schema_column_names(batch_export_model, params.fields)
 
-    if fields is not None:
-        schema_column_names = [field["alias"] for field in fields]
-    elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
-        schema_column_names = [
-            "team_id",
-            "distinct_id",
-            "person_id",
-            "properties",
-            "person_version",
-            "person_distinct_id_version",
-            "_inserted_at",
-            "created_at",
-            "is_deleted",
-        ]
-    else:
-        schema_column_names = [field["alias"] for field in s3_default_fields()]
-
-    if "_inserted_at" not in schema_column_names:
-        schema_column_names.append("_inserted_at")
-
-    expected_records = []
-
-    queue = RecordBatchQueue()
-    if model_name == "sessions":
-        producer = ClickHouseTestProducer(model=SessionsRecordBatchModel(team_id))
-    else:
-        producer = ClickHouseTestProducer()
-    producer_task = await producer.start(
-        queue=queue,
-        model_name=model_name,
+    expected_records = await _fetch_expected_records(
+        params=params,
         team_id=team_id,
-        full_range=(data_interval_start, data_interval_end),
-        done_ranges=[],
-        fields=fields,
-        filters=filters,
-        destination_default_fields=s3_default_fields(),
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        json_columns=json_columns,
         exclude_events=exclude_events,
         include_events=include_events,
-        is_backfill=backfill_details is not None,
         backfill_details=backfill_details,
-        extra_query_parameters=extra_query_parameters,
-        order_columns=None,
     )
-    while not queue.empty() or not producer_task.done():
-        record_batch = await get_record_batch_from_queue(queue, producer_task)
-        if record_batch is None:
-            break
-
-        for record in record_batch.to_pylist():
-            expected_record = {}
-            for k, v in record.items():
-                if k in json_columns and v is not None:
-                    expected_record[k] = json.loads(v)
-                elif isinstance(v, dt.datetime):
-                    expected_record[k] = v.isoformat()
-                else:
-                    expected_record[k] = v
-
-            expected_records.append(expected_record)
 
     if "team_id" in schema_column_names:
         assert all(record["team_id"] == team_id for record in s3_data)
