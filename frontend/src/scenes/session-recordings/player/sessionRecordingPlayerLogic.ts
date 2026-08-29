@@ -2731,6 +2731,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             cache._inSeekToTimestamp = true
 
+            // A top-level seek supersedes any deferred follow-up. Drop the pending seekChainTimer, or
+            // it lingers after firing and the disposables plugin replays its stale (timestamp,
+            // forcePlay) on the next hidden→visible transition, jumping the playhead back.
+            cache.disposables.dispose('seekChainTimer')
+
             try {
                 // If the data before `timestamp` definitively has no FullSnapshot to render from (e.g. lost at capture time), clamp the seek forward to the first renderable position instead of sticking on an unrenderable frame.
                 // Despite the action's typing, some callers forward currentTimestamp while it still holds its initial null, which seekRenderability would coerce to 0 and clamp every normal recording to its first FullSnapshot.

@@ -1009,6 +1009,23 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.currentTimestamp).toBe(seekTarget)
             expect(logic.values.currentSegment?.kind).toBe('gap')
         })
+
+        it('drops the deferred skip seek when a newer seek supersedes it', () => {
+            seedGappedRecording()
+            // Playing is what lets setCurrentSegment defer an instant skip, so mirror mid-playback.
+            logic.actions.setPlay()
+
+            // Seeking into the gap while playing defers a skip seek to the gap end, leaving a pending
+            // seekChainTimer disposable.
+            logic.actions.seekToTimestamp(START + 60000)
+            expect(logic.cache.disposables.registry.has('seekChainTimer')).toBe(true)
+
+            // A newer top-level seek must drop that deferral. Otherwise the disposable lingers and the
+            // plugin replays the stale seek on the next hidden→visible transition, jumping the playhead
+            // back.
+            logic.actions.seekToTimestamp(START + 61000)
+            expect(logic.cache.disposables.registry.has('seekChainTimer')).toBe(false)
+        })
     })
 
     describe('delete session recording', () => {
