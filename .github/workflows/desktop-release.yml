@@ -53,9 +53,10 @@ jobs:
                 include:
                     - arch: arm64
                       runner: macos-26
-                    # The macOS 26 Intel image cannot code sign: electron-builder's temporary
-                    # keychain rejects `security set-key-partition-list`, so the build stops
-                    # before packaging. macOS 15 signs, and its Xcode 26 compiles the icon.
+                    # Intel stays on macOS 15, whose Xcode 26 compiles the icon and whose
+                    # `security` accepts electron-builder's keychain setup. macOS 26.6 rejects it
+                    # without patches/app-builder-lib@26.15.3.patch, so move Intel to macOS 26
+                    # only after a build test passes there with the patch in place.
                     - arch: x64
                       runner: macos-15-intel
         runs-on: ${{ matrix.runner }}
