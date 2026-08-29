@@ -9,6 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.team import Team
 from posthog.redis import get_async_client
@@ -203,7 +204,15 @@ def _truncate_section(text: str, budget: int) -> str:
     return text[:keep] + GENERATION_SECTION_TRUNCATION_MARKER
 
 
-def _split_section_budget(input_block: str, output_block: str, budget: int) -> tuple[str, str]:
+@frozen
+class _BudgetedSections:
+    """A generation's input and output blocks after sharing the character budget."""
+
+    input_block: str
+    output_block: str
+
+
+def _split_section_budget(input_block: str, output_block: str, budget: int) -> _BudgetedSections:
     """Split `budget` characters between the input and output blocks.
 
     A block that already fits gives its slack to the other, so the full budget is used. When both
@@ -212,13 +221,19 @@ def _split_section_budget(input_block: str, output_block: str, budget: int) -> t
     clustering and search.
     """
     if len(input_block) + len(output_block) <= budget:
-        return input_block, output_block
+        return _BudgetedSections(input_block=input_block, output_block=output_block)
     half = budget // 2
     if len(input_block) <= half:
-        return input_block, _truncate_section(output_block, budget - len(input_block))
+        return _BudgetedSections(
+            input_block=input_block, output_block=_truncate_section(output_block, budget - len(input_block))
+        )
     if len(output_block) <= half:
-        return _truncate_section(input_block, budget - len(output_block)), output_block
-    return _truncate_section(input_block, half), _truncate_section(output_block, budget - half)
+        return _BudgetedSections(
+            input_block=_truncate_section(input_block, budget - len(output_block)), output_block=output_block
+        )
+    return _BudgetedSections(
+        input_block=_truncate_section(input_block, half), output_block=_truncate_section(output_block, budget - half)
+    )
 
 
 def _format_generation_text_repr(generation_data: dict, max_length: int | None = None) -> str:
@@ -269,8 +284,8 @@ def _format_generation_text_repr(generation_data: dict, max_length: int | None =
     # `overhead` is the header, section markers, and blank lines, so the split budgets only the
     # two content blocks and the reassembled text stays within `max_length`.
     overhead = len(text_repr) - len(input_block) - len(output_block)
-    input_block, output_block = _split_section_budget(input_block, output_block, max(max_length - overhead, 0))
-    return assemble(input_block, output_block)
+    sections = _split_section_budget(input_block, output_block, max(max_length - overhead, 0))
+    return assemble(sections.input_block, sections.output_block)
 
 
 @temporalio.activity.defn
