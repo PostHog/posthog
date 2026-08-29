@@ -187,12 +187,18 @@ jobs:
             # diff because the pre-existing violation backlog keeps C901 off repo-wide.
             # HEAD is the PR merge commit, so a two-dot diff against the base sha is
             # exactly the PR's changes — content merged in from master sits on both sides.
+            # Skip on an unrebased branch: the `lint:complexity` hogli command may not
+            # be registered yet.
             - name: Check cyclomatic complexity of changed files
               if: github.event_name == 'pull_request'
               shell: bash
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
+                  if [ ! -f tools/hogli-commands/hogli_commands/complexity_lint.py ]; then
+                      echo "hogli lint:complexity not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
                   git fetch --no-tags --filter=blob:none --depth=1 origin "$BASE_SHA"
                   git diff --name-only --diff-filter=d -z "$BASE_SHA" HEAD -- 'posthog/*.py' 'ee/*.py' 'products/*.py' \
                       | xargs -0 -r ./bin/hogli lint:complexity

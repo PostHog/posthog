@@ -377,11 +377,16 @@ jobs:
             # warning, >15 fails. Scoped to the PR's own diff — no repo-wide baseline.
             # HEAD is the PR merge commit, so a two-dot diff against the base sha is
             # exactly the PR's changes — content merged in from master sits on both sides.
+            # Skip on an unrebased branch: bin/lint-complexity.mjs may not exist yet.
             - name: Check cyclomatic complexity of changed files
               if: github.event_name == 'pull_request'
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
+                  if [ ! -f bin/lint-complexity.mjs ]; then
+                      echo "bin/lint-complexity.mjs not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
                   git fetch --no-tags --filter=blob:none --depth=1 origin "$BASE_SHA"
                   git diff --name-only --diff-filter=d -z "$BASE_SHA" HEAD \
                       -- 'frontend/*.ts' 'frontend/*.tsx' 'ee/*.ts' 'ee/*.tsx' 'products/*.ts' 'products/*.tsx' \
