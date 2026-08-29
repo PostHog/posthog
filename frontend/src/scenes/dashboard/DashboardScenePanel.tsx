@@ -59,6 +59,7 @@ export function DashboardScenePanel(): JSX.Element | null {
     } = useValues(dashboardLogic)
     const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
     const { downloadImage } = useActions(captureImageLogic)
+    const { isCapturing } = useValues(captureImageLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
@@ -82,6 +83,8 @@ export function DashboardScenePanel(): JSX.Element | null {
         'Wait for the dashboard to finish loading': itemsLoading,
         'The dashboard failed to load': dashboardFailedToLoad,
         'The dashboard has no tiles to capture': !itemsLoading && !dashboardFailedToLoad && tiles.length === 0,
+        // Match SceneCopyImageButton so the Export item also blocks a second capture while one is running.
+        'Copying…': isCapturing,
     }
 
     return (
