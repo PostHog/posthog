@@ -65,6 +65,9 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                         locks: [],
                     },
                 ],
+                '/api/organizations/:organization_id/desktop_beta_terms/': {
+                    is_desktop_beta_terms_accepted: false,
+                },
                 '/api/environments/:team_id/conversations/': { results: [] },
                 '/api/user_home_settings/@me/': {},
                 '/api/organizations/:organization_id/proxy_records': {
@@ -112,6 +115,11 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                     // bounce the setting back as is
                     const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as object) }
                     return [200, newTeamSettings]
+                },
+            },
+            post: {
+                '/api/organizations/:organization_id/desktop_beta_terms/': {
+                    is_desktop_beta_terms_accepted: true,
                 },
             },
         }),

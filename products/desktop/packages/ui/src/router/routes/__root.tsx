@@ -43,7 +43,6 @@ import { useNewTaskDeepLink } from "@posthog/ui/features/deep-links/useNewTaskDe
 import { useOpenTargetDeepLink } from "@posthog/ui/features/deep-links/useOpenTargetDeepLink";
 import { useTaskDeepLink } from "@posthog/ui/features/deep-links/useTaskDeepLink";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useSpacesTabs } from "@posthog/ui/features/feature-flags/useSpacesTabs";
 import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepLink";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
@@ -65,7 +64,7 @@ import { TourOverlay } from "@posthog/ui/features/tour/components/TourOverlay";
 import { UpdateAvailableModal } from "@posthog/ui/features/updates/UpdateAvailableModal";
 import { WhatsNewModal } from "@posthog/ui/features/updates/WhatsNewModal";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
-import LogosLandscape from "@posthog/ui/primitives/Logo";
+import { AnimatedLogo } from "@posthog/ui/primitives/AnimatedLogo";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
@@ -207,10 +206,6 @@ function RootLayout() {
   // The new channels layout has exactly one gate: its feature flag (no
   // sidebar toggle). When on it subsumes the channels alpha entirely.
   const channelsLayout = useChannelsLayout();
-  // Tabs exist in the legacy layout already; the flag gates only bringing them
-  // into the spaces layout.
-  const spacesTabs = useSpacesTabs();
-  const showTabStrip = channelsLayout ? spacesTabs : true;
   const { hasSidebar } = useRailSurface();
   // When the sidebar is collapsed (Cmd+B) the title bar's left block shrinks to
   // fit its own controls so the tab strip flushes left with the content pane.
@@ -371,9 +366,7 @@ function RootLayout() {
             }}
           >
             <Flex align="center" gap="2" className="no-drag">
-              <Box className="h-[14px] w-[30px] overflow-hidden [&>svg]:h-[14px] [&>svg]:w-auto">
-                <LogosLandscape code={false} />
-              </Box>
+              <AnimatedLogo size={26} animate="hover" />
               <Button
                 size="icon-sm"
                 aria-label="Toggle sidebar"
@@ -416,7 +409,7 @@ function RootLayout() {
               moved to the rail to make room for it (see NavRail). The strip is
               also the only global owner of Cmd+W, so the fallback has to hold
               that key wherever the strip isn't mounted. */}
-          {showTabStrip ? <BrowserTabStrip /> : <TabShortcutFallback enabled />}
+          <BrowserTabStrip />
           {/* Gated so an empty right-side group can't claim a no-drag rect
               in the title bar for nothing — every pixel without controls
               should drag the window. */}

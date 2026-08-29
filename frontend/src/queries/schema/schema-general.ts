@@ -157,6 +157,7 @@ export enum NodeKind {
     MarketingAnalyticsAggregatedQuery = 'MarketingAnalyticsAggregatedQuery',
     MarketingAnalyticsAttributionQuery = 'MarketingAnalyticsAttributionQuery',
     MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
+    MarketingAnalyticsRetentionQuery = 'MarketingAnalyticsRetentionQuery',
     NonIntegratedConversionsTableQuery = 'NonIntegratedConversionsTableQuery',
 
     // Experiment queries
@@ -238,6 +239,7 @@ export type AnyDataNode =
     | MarketingAnalyticsAggregatedQuery
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
+    | MarketingAnalyticsRetentionQuery
     | NonIntegratedConversionsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
@@ -352,6 +354,7 @@ export type QuerySchema =
     | MarketingAnalyticsAggregatedQuery
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
+    | MarketingAnalyticsRetentionQuery
     | NonIntegratedConversionsTableQuery
 
     // Interface nodes
@@ -1393,6 +1396,7 @@ export interface ChartSettings {
     showXAxisBorder?: boolean
     showYAxisBorder?: boolean
     showLegend?: boolean
+    showAnnotations?: boolean
     showValuesOnSeries?: boolean
     // Deprecated: superseded by `pie.showTotal`. Retained so pre-existing pie-chart insights still
     // validate (ChartSettings is `extra="forbid"`). Read as a fallback in the pie chart components.
@@ -3512,16 +3516,40 @@ export interface MCPToolQualityRowItem {
     last_seen: string
 }
 
+export type MCPToolQualitySortColumn =
+    | 'total_calls'
+    | 'error_rate_pct'
+    | 'p50_duration_ms'
+    | 'p95_duration_ms'
+    | 'p99_duration_ms'
+    | 'users'
+    | 'sessions'
+    | 'last_seen'
+
+export type MCPToolQualitySortDirection = 'ASC' | 'DESC'
+
 export interface MCPToolQualityRowsQueryResponse extends AnalyticsQueryResponseBase {
     results: MCPToolQualityRowItem[]
+    /** Number of tools matching the date, category, and search filters. */
+    totalCount: integer
 }
 
-/** One row per $mcp_tool_name — call volume, error rate, latency percentiles, and reach — over the window. */
+/** One row per effective MCP tool name, with server-side search, sorting, and pagination. */
 export interface MCPToolQualityRowsQuery extends DataNode<MCPToolQualityRowsQueryResponse> {
     kind: NodeKind.MCPToolQualityRowsQuery
     dateRange?: DateRange
     /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
     categories?: string[]
+    /** Case-insensitive substring search on the effective tool name. */
+    search?: string
+    /** Aggregate column used to order tools. Defaults to total_calls. */
+    sortColumn?: MCPToolQualitySortColumn
+    /** Sort direction. Defaults to DESC. */
+    sortDirection?: MCPToolQualitySortDirection
+    /** Page size. The server defaults to 50 and caps this at 100. */
+    limit?: integer
+    /** Number of matching tools to skip. */
+    offset?: integer
 }
 
 export type CachedMCPToolQualityRowsQueryResponse = CachedQueryResponse<MCPToolQualityRowsQueryResponse>
@@ -5011,10 +5039,6 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     sceneKeys?: string[]
     /** Product key(s) that generate interest in this item when intent is triggered */
     intents?: ProductKey[]
-    /** Reason for custom product suggestion (from UserProductList) */
-    reason?: UserProductListReason
-    /** Custom reason text for custom product suggestion (from UserProductList) */
-    reasonText?: string | null
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
 }
@@ -7205,7 +7229,8 @@ export interface MarketingAnalyticsAggregatedQuery extends Omit<
 }
 
 /**
- * Row dimension for the Attribution table. String values match MarketingAnalyticsDrillDownLevel for the
+ * Dimension a session is sliced by, shared by the Attribution table and the Retention explorer. String
+ * values match MarketingAnalyticsDrillDownLevel for the
  * levels they share, so both surfaces speak the same vocabulary. It's a separate enum because
  * `ad_group`/`ad` can't be attributed to events at all (no ad identifier reaches the events table), while
  * `referring_domain`/`landing_page` have no cost-side expression and so don't belong in the drill-down.
@@ -7381,6 +7406,94 @@ export interface MarketingAnalyticsAttributionPathsQueryResponse extends Analyti
 
 export type CachedMarketingAnalyticsAttributionPathsQueryResponse =
     CachedQueryResponse<MarketingAnalyticsAttributionPathsQueryResponse>
+
+/**
+ * Cohort and column period for the Retention explorer. Narrower than IntervalType, because hour and
+ * minute grains produce a matrix nobody can read.
+ */
+export enum MarketingAnalyticsRetentionInterval {
+    Day = 'day',
+    Week = 'week',
+    Month = 'month',
+}
+
+/**
+ * The omitted fields are ones this runner ignores, so leaving them settable would let a caller ask for
+ * something that does nothing. `interval` goes because `retentionInterval` shadows it, and
+ * `conversionGoal` because this table counts return visits rather than conversions.
+ */
+export interface MarketingAnalyticsRetentionQuery extends Omit<
+    WebAnalyticsQueryBase<MarketingAnalyticsRetentionQueryResponse>,
+    'orderBy' | 'compareFilter' | 'interval' | 'conversionGoal' | 'doPathCleaning' | 'sampling' | 'samplingFactor'
+> {
+    kind: NodeKind.MarketingAnalyticsRetentionQuery
+    /** Cohort dimension, read off each person's first session. Defaults to channel. */
+    breakdownBy?: MarketingAnalyticsAttributionBreakdown
+    /** Period for both the cohort rows and the return columns. Defaults to week. */
+    retentionInterval?: MarketingAnalyticsRetentionInterval
+    /** Return columns, counting period 0. Defaults to 8, clamped to 40. */
+    totalIntervals?: integer
+    /** Drop direct sessions when deciding first touch, mirroring the attribution explorer. */
+    excludeDirectTraffic?: boolean
+    /** Drop persons whose first session names nothing for the current breakdown. */
+    excludeUnattributed?: boolean
+    /**
+     * Only count persons with no session before the range, so a channel's cohorts are not inflated by
+     * users it acquired long ago. Defaults to true.
+     */
+    onlyNewUsers?: boolean
+    /** How far back to look for a prior session. Defaults to 90, clamped to 365. */
+    newUserLookbackDays?: integer
+    /** Breakdown values kept before the rest roll into 'Other'. Defaults to 20. */
+    breakdownLimit?: integer
+}
+
+/** One cohort's activity in one period since acquisition. */
+export interface MarketingAnalyticsRetentionCell {
+    /** Distinct persons from this cohort active in this period. */
+    count: integer
+    /** count / cohortSize. Null when the cohort is empty. */
+    rate: number | null
+    /**
+     * False when this period has not fully elapsed within the queried range, so a low cell reads as
+     * unfinished instead of as churn.
+     */
+    complete: boolean
+}
+
+export interface MarketingAnalyticsRetentionRow {
+    breakdownValue: string
+    /** Start of the cohort's period, in the team's timezone. @format date-time */
+    cohortDate: string
+    /** 0-based position of this cohort from the range start. */
+    cohortIndex: integer
+    /** Persons acquired in this period under this breakdown value. The denominator for every cell. */
+    cohortSize: integer
+    /** One per column, index = periods since the cohort started. Always intervalCount long. */
+    values: MarketingAnalyticsRetentionCell[]
+}
+
+export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsRetentionRow[]
+    /** Column count. Every row's values array has this length. */
+    intervalCount: integer
+    interval: MarketingAnalyticsRetentionInterval
+    /** Column headers, e.g. ['Week 0', 'Week 1', ...]. */
+    labels: string[]
+    /** How many breakdown values were folded into 'Other', so the table can say so. */
+    otherBreakdownCount: integer
+    /**
+     * Older cohorts dropped to bound the matrix. Non-zero means the table covers less than the date
+     * range the filter bar shows, so the table has to say so.
+     */
+    truncatedCohorts: integer
+    /** Distinct persons acquired across every cohort and breakdown value. */
+    totalCohortSize: integer
+    hogql?: string
+}
+
+export type CachedMarketingAnalyticsRetentionQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsRetentionQueryResponse>
 
 /** Columns for non-integrated conversions table */
 export enum NonIntegratedConversionsColumnsSchemaNames {
@@ -9288,6 +9401,9 @@ export const externalDataSources = [
     'Tana',
     'Zenchef',
     'Lovable',
+    'Anvil',
+    'Coolify',
+    'SocialPilot',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -9718,24 +9834,10 @@ export interface ProductsData {
     metadata: ProductItem[]
 }
 
-export enum UserProductListReason {
-    DEFAULT = 'default',
-    ONBOARDING = 'onboarding',
-    PRODUCT_INTENT = 'product_intent',
-    USED_BY_COLLEAGUES = 'used_by_colleagues',
-    USED_SIMILAR_PRODUCTS = 'used_similar_products',
-    USED_ON_SEPARATE_TEAM = 'used_on_separate_team',
-    NEW_PRODUCT = 'new_product',
-    SALES_LED = 'sales_led',
-    ONBOARDING_DELEGATED = 'onboarding_delegated',
-}
-
 export interface UserProductListItem {
     id: string
     product_path: string
     enabled: boolean
-    reason: UserProductListReason
-    reason_text: string | null
     created_at: string
     updated_at: string
 }
