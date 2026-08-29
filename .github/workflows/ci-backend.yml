@@ -2582,10 +2582,11 @@ jobs:
                           CORE_POE_SHARDS=0
                       fi
 
-                      # JSON events-schema Core runs have a higher measured tail than
-                      # legacy-schema Core. Give only that lane 20% more shards instead
-                      # of lowering the target for every backend lane.
+                      # JSON events-schema Core and Temporal runs have a higher measured
+                      # tail than their legacy-schema lanes. Give only those lanes 20%
+                      # more shards instead of lowering the target for every backend lane.
                       CORE_NEW_EVENTS_SCHEMA_SHARDS=$(( (CORE_SHARDS * 6 + 4) / 5 ))
+                      TEMPORAL_NEW_EVENTS_SCHEMA_SHARDS=$(( (TEMPORAL_SHARDS * 6 + 4) / 5 ))
 
                       core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
                         [range(1; $shards + 1) | {
@@ -2657,7 +2658,7 @@ jobs:
                         }]
                       ')
 
-                      temporal_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$TEMPORAL_SHARDS" '
+                      temporal_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$TEMPORAL_NEW_EVENTS_SCHEMA_SHARDS" '
                         [range(1; $shards + 1) | {
                           segment: "Temporal",
                           "person-on-events": false,
