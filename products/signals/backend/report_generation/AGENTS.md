@@ -78,7 +78,7 @@ The caller activity also passes `steering_section`, resolved by `report_steering
 
 Why this stage needs it: dismissing, discussing, or rating an inbox report leaves the person's text as a scout note, and until this landed only scheduled scout runs read those. Research is the stage that produces the findings, actionability, priority, and title, so a reviewer's "this is expected, it's the approval flow" shaped the scout and not the judgment it was actually about.
 
-The research variant includes **every** note origin, unlike the implementation run, which reads `HUMAN` notes only. See the `report_steering` module docstring for the reasoning on both sides. The section itself carries the untrusted-input rule and asks the run to name the note in the explanation of any assessment it changed, so a reviewer can see their feedback land.
+The research variant includes **every** note origin, unlike the implementation run, which reads `HUMAN` notes only. See the `report_steering` module docstring for the reasoning on both sides. The section itself carries the untrusted-input rule, says that most notes will not apply to this report and that a note counts only when it speaks to the same behavior, entity, or area the signals describe, and asks the run to name the note in the explanation of any assessment it changed, so a reviewer can see their feedback land.
 
 `signals_research_steering_attached` fires once per run with `notes_attached`, `dismissal_notes_attached`, and `scratchpad_available`. Join it to `signal_report_completed` on `report_id` to read whether steering moved the outcome; there is deliberately no self-reported "steering applied" artefact, because the agent's own claim is weaker evidence than that join.
 
