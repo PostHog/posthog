@@ -185,8 +185,6 @@ jobs:
 
             # Complexity 11-15 annotates a warning, >15 fails; scoped to the PR's own
             # diff because the pre-existing violation backlog keeps C901 off repo-wide.
-            # HEAD is the PR merge commit, so a two-dot diff against the base sha is
-            # exactly the PR's changes — content merged in from master sits on both sides.
             # Skip on an unrebased branch: the `lint:complexity` hogli command may not
             # be registered yet.
             - name: Check cyclomatic complexity of changed files
@@ -198,6 +196,13 @@ jobs:
                   if [ ! -f tools/hogli-commands/hogli_commands/complexity_lint.py ]; then
                       echo "hogli lint:complexity not present on this branch yet — skipping (rebase to pick it up)"
                       exit 0
+                  fi
+                  # HEAD is the PR merge commit; prefer its first parent over the event's
+                  # base.sha as the diff base. The merge ref is rebuilt against current
+                  # master, so a stale base.sha would blame files master changed after the
+                  # event fired — the parent is the exact base snapshot HEAD contains.
+                  if [ "$(git cat-file commit HEAD | grep -c '^parent ')" = "2" ]; then
+                      BASE_SHA=$(git cat-file commit HEAD | awk '/^parent /{print $2; exit}')
                   fi
                   git fetch --no-tags --filter=blob:none --depth=1 origin "$BASE_SHA"
                   git diff --name-only --diff-filter=d -z "$BASE_SHA" HEAD -- 'posthog/*.py' 'ee/*.py' 'products/*.py' \
