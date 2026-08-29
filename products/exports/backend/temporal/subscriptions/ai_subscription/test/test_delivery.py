@@ -13,6 +13,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
     SLACK_MRKDWN_SECTION_LIMIT,
@@ -28,12 +29,18 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     send_slack_ai_subscription_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
+    InsightReportEvidence,
     ReportContextEvidence,
     compute_report_context_fingerprint,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    AiReportContexts,
+    AiReportInsightContext,
+    AiReportResult,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import ReportWindow
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
 
@@ -476,6 +483,37 @@ class TestPersistAiQueryPlanRaceGuard(APIBaseTest):
         sub.refresh_from_db()
         assert sub.ai_query_plan == (plan if written else None)
 
+    def test_real_selected_context_mutation_prevents_stale_plan_persistence(self) -> None:
+        sub = Subscription.objects.create(
+            team=self.team,
+            prompt="original prompt?",
+            target_type="email",
+            target_value="a@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        first = Insight.objects.create(team=self.team, created_by=self.user, name="First", query={})
+        second = Insight.objects.create(team=self.team, created_by=self.user, name="Second", query={})
+        selected = SubscriptionContext.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            subscription=sub,
+            insight=first,
+        )
+        plan = {
+            "version": 1,
+            "plan": {},
+            "context_fingerprint": compute_report_context_fingerprint(dashboard_ids=[], insight_ids=[first.id]),
+        }
+
+        selected.insight = second
+        selected.save(update_fields=["insight"])
+        written = _persist_ai_query_plan(sub.id, self.team.id, sub.prompt, plan)
+
+        sub.refresh_from_db()
+        assert written is False
+        assert sub.ai_query_plan is None
+
 
 class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
     def _delivery(
@@ -581,9 +619,17 @@ class TestFreezePlanPersistence:
 
     def _report_context(self) -> ReportContextEvidence:
         return ReportContextEvidence(
-            fingerprint=compute_report_context_fingerprint(dashboard_ids=[], insight_ids=[]),
+            fingerprint=compute_report_context_fingerprint(dashboard_ids=[], insight_ids=[321]),
             dashboards=(),
-            insights=(),
+            insights=(
+                InsightReportEvidence(
+                    id=321,
+                    name="Signup trend",
+                    events=("user signed up",),
+                    status="success",
+                    content="Signup result: 12",
+                ),
+            ),
         )
 
     async def test_first_run_persists_freshly_generated_plan(self) -> None:
@@ -617,9 +663,19 @@ class TestFreezePlanPersistence:
         mock_persist.assert_called_once_with(sub.id, sub.team_id, sub.prompt, fresh_plan)
         mock_report_context.assert_awaited_once_with(sub)
         assert mock_gen.await_args is not None
-        assert mock_gen.await_args.kwargs["formatted_context"] == ""
-        assert mock_gen.await_args.kwargs["context_event_names"] == ()
+        assert mock_gen.await_args.kwargs["formatted_context"] == "Signup result: 12"
+        assert mock_gen.await_args.kwargs["context_event_names"] == ("user signed up",)
         assert mock_gen.await_args.kwargs["context_fingerprint"] == self._report_context().fingerprint
+        assert mock_gen.await_args.kwargs["context_provenance"] == AiReportContexts(
+            insights=(
+                AiReportInsightContext(
+                    id=321,
+                    name="Signup trend",
+                    events=("user signed up",),
+                    status="success",
+                ),
+            )
+        )
 
     async def test_persist_failure_does_not_abort_the_delivery(self) -> None:
         # The report is already generated when the freeze write runs; a transient DB error must not

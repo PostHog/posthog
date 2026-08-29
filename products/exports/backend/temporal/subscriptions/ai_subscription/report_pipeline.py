@@ -328,7 +328,7 @@ async def generate_ai_report(
     user: Optional[User],
     prompt: Optional[str],
     window: ReportWindow,
-    ai_query_plan: Optional[dict] = None,
+    ai_query_plan: object | None = None,
     formatted_context: str = "",
     context_event_names: Sequence[str] = (),
     context_fingerprint: str = EMPTY_REPORT_CONTEXT_FINGERPRINT,
@@ -434,7 +434,7 @@ async def generate_ai_report(
         slo.tag(
             total_steps=total_steps,
             failed_steps=failed_count,
-            query_coverage=(total_steps - failed_count) / total_steps if total_steps else 0.0,
+            query_coverage=(total_steps - failed_count) / total_steps if total_steps else 1.0,
             degraded=bool(failed_count),
             charts_requested=len(charts),
             charts_rendered=len(rendered_charts),
@@ -468,6 +468,7 @@ async def generate_ai_report(
             context_fingerprint=context_fingerprint,
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_spec_failures,
+            has_computed_context=bool(spec.formatted_context),
         )
         return AiReportResult(
             markdown=report,
@@ -514,6 +515,7 @@ def _plan_to_freeze(
     inferred_events: Sequence[str] = (),
     context_fingerprint: str = EMPTY_REPORT_CONTEXT_FINGERPRINT,
     chart_failure_count: int = 0,
+    has_computed_context: bool = False,
 ) -> Optional[dict]:
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
     # Never freeze a plan the next delivery is better off re-planning: a plan with any failed step would
@@ -539,6 +541,8 @@ def _plan_to_freeze(
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_failure_count,
         )
+        return None
+    if not plan.steps and not has_computed_context:
         return None
     if not all(any(token in step.hogql for token in WINDOW_PLACEHOLDERS) for step in plan.steps):
         logger.warning(
@@ -591,7 +595,7 @@ async def _spec_from_frozen_plan(
     team: Team,
     prompt: Optional[str],
     window: ReportWindow,
-    ai_query_plan: dict,
+    ai_query_plan: object,
     formatted_context: str = "",
     context_event_names: Sequence[str] = (),
     context_fingerprint: str = EMPTY_REPORT_CONTEXT_FINGERPRINT,
@@ -677,8 +681,9 @@ def _compose_synthesis_human_message(spec: EnrichedPromptSpec, rendered_results:
     results_block = "\n".join(rendered_results) if rendered_results else "_No query results were available._"
     # planner output from user-controlled context — strip framing markers so it can't inject
     safe_intent = strip_llm_framing_markers(spec.plan.overall_intent, max_len=500)
+    safe_formatted_context = strip_llm_framing_markers(spec.formatted_context, max_len=len(spec.formatted_context))
     computed_context_block = (
-        f"<computed_context>\n{spec.formatted_context}\n</computed_context>\n\n" if spec.formatted_context else ""
+        f"<computed_context>\n{safe_formatted_context}\n</computed_context>\n\n" if safe_formatted_context else ""
     )
     return (
         f"<user_prompt>\n{spec.cleaned_prompt}\n</user_prompt>\n\n"
@@ -697,6 +702,8 @@ async def _run_steps(
     trace_correlation_id: Optional[Union[int, str]],
     charts_enabled_for_team: bool = False,
 ) -> PlanExecution:
+    if not spec.plan.steps:
+        return PlanExecution(rendered=[], failed_count=0, diagnostics=[], charts=[])
     executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
     # Cap simultaneous ClickHouse scans per report; excess steps queue until a slot frees.
     step_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_STEPS)
