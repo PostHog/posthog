@@ -1,10 +1,14 @@
+import threading
 import contextvars
 from functools import partial
+
+import pytest
 
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags, tag_queries
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 
 _probe: contextvars.ContextVar[str] = contextvars.ContextVar("parallel_test_probe", default="unset")
@@ -50,3 +54,39 @@ def test_workers_read_the_callers_context_and_cannot_rebind_it() -> None:
         assert _probe.get() == "from_caller"
     finally:
         _probe.reset(token)
+
+
+def test_exception_from_a_work_item_is_reraised_to_the_caller() -> None:
+    def boom() -> None:
+        raise ValueError("boom")
+
+    def noop() -> None:
+        pass
+
+    with pytest.raises(ValueError, match="boom"):
+        run_in_parallel_threads([noop, boom])
+
+
+def test_worker_mutating_query_tags_in_place_cannot_reach_a_sibling_or_the_caller() -> None:
+    reset_query_tags()
+    tag_queries(team_id=1)
+    # Forces the read to happen strictly after the mutation, so the assertion is deterministic
+    # regardless of thread scheduling: without the per-worker rebind, the mutation below would
+    # reach every reader because all workers would still share the caller's QueryTags object.
+    mutated = threading.Event()
+    seen: list[int | None] = []
+
+    def mutate_without_tag_queries() -> None:
+        # Mutates the object in place instead of going through `tag_queries`, which is exactly
+        # the pattern the per-worker rebind in run_in_parallel_threads has to guard against.
+        get_query_tags().team_id = 999
+        mutated.set()
+
+    def read_team_id_after_mutation() -> None:
+        mutated.wait(timeout=5)
+        seen.append(get_query_tags().team_id)
+
+    run_in_parallel_threads([mutate_without_tag_queries, read_team_id_after_mutation])
+
+    assert seen == [1]
+    assert get_query_tags().team_id == 1
