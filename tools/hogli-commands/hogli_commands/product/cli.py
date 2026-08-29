@@ -6,7 +6,8 @@ import click
 
 from .baseline import regenerate_baseline as do_regenerate_baseline
 from .lint import lint_all_products, lint_owners, lint_product
-from .maturity import generate_codegen_report, generate_detail, generate_report, score_all_products, score_product
+from .maturity.report import generate_codegen_report, generate_detail, generate_report
+from .maturity.scoring import score_all_products, score_product
 from .scaffold import bootstrap_product
 
 
