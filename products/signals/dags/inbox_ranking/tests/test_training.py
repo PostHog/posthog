@@ -1,5 +1,6 @@
 import math
 import datetime
+from typing import Any
 
 import pytest
 
@@ -282,6 +283,43 @@ def test_train_head_learns_a_separable_signal_and_names_its_features():
     assert booster_holdout_auc(other_ubj, examples, head, holdout_days=7) is None
 
 
+def test_train_head_keeps_logloss_on_a_single_class_holdout():
+    # Only the newest reports fall in the holdout, and they are all negatives: AUC is undefined
+    # there but logloss is not, and the head must still train and ship.
+    head = HEADS_BY_NAME["open"]
+    rng = np.random.default_rng(1)
+    n = 400
+    created = pd.to_datetime("2026-07-01", utc=True) + pd.to_timedelta(rng.integers(0, 40, n), unit="D")
+    signal_count = rng.integers(1, 50, n)
+    rows = pd.DataFrame(
+        {
+            "signal_count": signal_count,
+            "total_weight": rng.random(n),
+            "run_count": 1,
+            "title_chars": 40,
+            "summary_chars": 400,
+            "priority": "P2",
+            "actionability": None,
+            "age_hours": 12.0,
+        }
+    )
+    examples = feature_frame(rows)
+    examples.insert(0, "head", head.name)
+    examples.insert(1, "report_id", [f"r{i}" for i in range(n)])
+    examples.insert(2, "snapshot_date", D0)
+    examples.insert(3, "report_created_at", created)
+    in_holdout = holdout_mask(examples, 7).to_numpy()
+    examples["label"] = ((signal_count > 25) & ~in_holdout).astype(int)
+
+    trained = train_head(examples, head, holdout_days=7)
+    assert trained is not None
+    assert trained.metrics.holdout_positives == 0
+    assert trained.metrics.holdout_auc is None
+    assert trained.metrics.holdout_average_precision is None
+    assert trained.metrics.holdout_logloss is not None and trained.metrics.holdout_logloss > 0
+    assert not trained.metrics.readable
+
+
 def test_train_head_returns_none_without_both_classes():
     head = HEADS_BY_NAME["open"]
     examples = pd.DataFrame(
@@ -299,14 +337,14 @@ def test_train_head_returns_none_without_both_classes():
 
 
 class _FakeClient:
-    def __init__(self):
-        self.calls: list[dict] = []
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
         self.shutdowns = 0
 
-    def capture(self, **kwargs):
+    def capture(self, **kwargs: Any) -> None:
         self.calls.append(kwargs)
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         self.shutdowns += 1
 
 
@@ -356,6 +394,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             {"head": "open", "holdout_auc": 0.67, "readable": True, "file": "open.ubj", "holdout_file": None},
             {"head": "action", "holdout_auc": None, "readable": False, "file": "action.ubj", "holdout_file": None},
         ],
+        "skipped_heads": ["dismiss_wrong"],
     }
     events = [
         *candidate_events(metadata),
@@ -372,6 +411,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             decision=PromotionDecision(promote=True, reason="no champion yet"),
             promoted=False,
             champion_version="none",
+            incumbent_champion_version="none",
             champion_aucs={"open": 0.6},
         ),
     ]
@@ -386,16 +426,20 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         assert call["properties"]["$process_person_profile"] is False
         assert call["properties"]["model_version"] == "2026-08-25"
     candidates = by_event["inbox_ranking_candidate_trained"]
-    assert [c["properties"]["head"] for c in candidates] == ["open", "action"]
+    assert [c["properties"]["head"] for c in candidates] == ["open", "action", "dismiss_wrong"]
     assert candidates[0]["properties"]["holdout_auc"] == 0.67
     assert candidates[0]["properties"]["lookback_days"] == 60
+    assert candidates[0]["properties"]["trained"] is True
     assert "file" not in candidates[0]["properties"]
+    # A head with nothing to fit still reports, so the readability alert sees a bad day, not a gap.
+    assert {"trained": False, "readable": False}.items() <= candidates[2]["properties"].items()
     examples_props = by_event["inbox_ranking_examples_built"][0]["properties"]
     assert {"head": "open", "rows": 10, "positives": 2}.items() <= examples_props.items()
     promotion_props = by_event["inbox_ranking_promotion_decided"][0]["properties"]
     assert {
         "would_promote": True,
         "promoted": False,
+        "incumbent_champion_version": "none",
         "champion_open_auc_on_this_holdout": 0.6,
     }.items() <= promotion_props.items()
 

@@ -159,7 +159,8 @@ def train_head(examples: pd.DataFrame, head: Head, *, holdout_days: int, seed: i
         holdout_average_precision=(
             float(average_precision_score(y_test, holdout_scores)) if holdout_auc is not None else None
         ),
-        holdout_logloss=float(log_loss(y_test, holdout_scores, labels=[0, 1])) if holdout_auc is not None else None,
+        # Logloss is defined on a single-class holdout, unlike AUC and average precision.
+        holdout_logloss=float(log_loss(y_test, holdout_scores, labels=[0, 1])) if len(y_test) else None,
         holdout_positive_rate=float(y_test.mean()) if len(y_test) else None,
     )
     # Refit on everything before shipping: the holdout only exists to grade the recipe.

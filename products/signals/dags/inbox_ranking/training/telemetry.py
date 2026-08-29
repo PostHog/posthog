@@ -56,15 +56,29 @@ class HeadExampleCounts:
 
 
 def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
-    """One event per trained head: the head's metrics plus the candidate context."""
+    """One event per head: the head's metrics plus the candidate context. A head the candidate
+    could not fit still gets an event (`trained` false, `readable` false), so a per-head alert sees
+    a bad day instead of a missing one."""
     context = {key: metadata.get(key) for key in _CANDIDATE_CONTEXT_KEYS}
-    return [
+    trained = [
         TrainingEvent(
             event=CANDIDATE_TRAINED_EVENT,
-            properties={**context, **{key: value for key, value in head.items() if key not in _HEAD_FILE_KEYS}},
+            properties={
+                **context,
+                "trained": True,
+                **{key: value for key, value in head.items() if key not in _HEAD_FILE_KEYS},
+            },
         )
         for head in metadata.get("heads", [])
     ]
+    skipped = [
+        TrainingEvent(
+            event=CANDIDATE_TRAINED_EVENT,
+            properties={**context, "head": head, "trained": False, "readable": False, "skip_reason": "nothing to fit"},
+        )
+        for head in metadata.get("skipped_heads", [])
+    ]
+    return [*trained, *skipped]
 
 
 def examples_events(
@@ -100,8 +114,11 @@ def promotion_event(
     decision: PromotionDecision,
     promoted: bool,
     champion_version: str,
+    incumbent_champion_version: str,
     champion_aucs: Mapping[str, float],
 ) -> TrainingEvent:
+    """`champion_aucs` were scored by the incumbent on this candidate's holdout; after a promotion
+    `champion_version` is the candidate, so the incumbent is carried separately."""
     return TrainingEvent(
         event=PROMOTION_DECIDED_EVENT,
         properties={
@@ -111,6 +128,7 @@ def promotion_event(
             "promoted": promoted,
             "reason": decision.reason,
             "champion_version": champion_version,
+            "incumbent_champion_version": incumbent_champion_version,
             **{f"champion_{head}_auc_on_this_holdout": auc for head, auc in champion_aucs.items()},
         },
     )
