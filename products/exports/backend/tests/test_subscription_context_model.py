@@ -1,5 +1,6 @@
 from posthog.test.base import BaseTest
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -80,6 +81,13 @@ class TestSubscriptionContextModel(BaseTest):
         )
 
         self.assertEqual(list(SubscriptionContext.objects.for_team(self.team.id)), [mine])
+
+    def test_rejects_a_target_from_another_team(self) -> None:
+        other_team = self.organization.teams.create(name="other")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="Other dashboard", created_by=self.user)
+
+        with self.assertRaisesRegex(ValidationError, "target must belong"):
+            self._create_context(dashboard=other_dashboard)
 
     def test_unscoped_read_fails_closed(self) -> None:
         self._create_context()

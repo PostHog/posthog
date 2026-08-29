@@ -31,6 +31,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
     InsightReportEvidence,
     ReportContextEvidence,
+    ReportContextSelection,
     compute_report_context_fingerprint,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
@@ -613,8 +614,10 @@ class TestFreezePlanPersistence:
         return SubscriptionReportContext(
             team=MagicMock(),
             user=MagicMock(),
+            prompt=sub.prompt,
             window=window,
             ai_query_plan=sub.ai_query_plan,
+            context_selection=ReportContextSelection(),
         )
 
     def _report_context(self) -> ReportContextEvidence:
@@ -661,7 +664,7 @@ class TestFreezePlanPersistence:
 
         # The plan generated on the first delivery is frozen onto the (id, team_id)-scoped subscription.
         mock_persist.assert_called_once_with(sub.id, sub.team_id, sub.prompt, fresh_plan)
-        mock_report_context.assert_awaited_once_with(sub)
+        mock_report_context.assert_awaited_once_with(sub, ReportContextSelection())
         assert mock_gen.await_args is not None
         assert mock_gen.await_args.kwargs["formatted_context"] == "Signup result: 12"
         assert mock_gen.await_args.kwargs["context_event_names"] == ("user signed up",)
@@ -676,6 +679,38 @@ class TestFreezePlanPersistence:
                 ),
             )
         )
+
+    async def test_all_failed_context_is_not_forwarded_as_computed_evidence(self) -> None:
+        sub = self._subscription(ai_query_plan=None)
+        failed_context = ReportContextEvidence(
+            fingerprint=compute_report_context_fingerprint(dashboard_ids=[], insight_ids=[321]),
+            dashboards=(),
+            insights=(
+                InsightReportEvidence(
+                    id=321,
+                    name="Unavailable insight",
+                    events=(),
+                    status="failed",
+                    content="Insight context unavailable.",
+                ),
+            ),
+        )
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock(return_value=failed_context)),
+            patch(
+                f"{_DELIVERY}.generate_ai_report",
+                new=AsyncMock(
+                    return_value=AiReportResult(
+                        markdown="# R", diagnostics=(), window_end_utc="2026-06-29T16:00:00+00:00"
+                    )
+                ),
+            ) as mock_gen,
+        ):
+            await build_ai_subscription_report(sub)
+
+        assert mock_gen.await_args is not None
+        assert mock_gen.await_args.kwargs["formatted_context"] == ""
 
     async def test_persist_failure_does_not_abort_the_delivery(self) -> None:
         # The report is already generated when the freeze write runs; a transient DB error must not

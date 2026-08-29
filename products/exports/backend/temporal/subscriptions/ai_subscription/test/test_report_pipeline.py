@@ -675,7 +675,7 @@ async def test_unfrozen_run_returns_plan_to_persist(
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}.AssistantQueryExecutor")
 @patch(f"{_RP}.build_enriched_prompt")
-async def test_computed_context_can_ship_and_freeze_without_supplemental_queries(
+async def test_computed_context_can_ship_without_freezing_a_stale_plan(
     mock_bep: MagicMock,
     mock_executor_cls: MagicMock,
     mock_chat: MagicMock,
@@ -690,13 +690,15 @@ async def test_computed_context_can_ship_and_freeze_without_supplemental_queries
         prompt="weekly report",
         window=_test_window(),
         formatted_context="COMPUTED_CONTEXT_RESULT",
+        context_provenance=AiReportContexts(
+            insights=(AiReportInsightContext(id=1, name="Signups", events=(), status="success"),)
+        ),
     )
 
     assert result.markdown == "# Context report"
     assert result.diagnostics == ()
     assert result.charts == ()
-    assert result.plan_to_persist is not None
-    assert result.plan_to_persist["plan"]["steps"] == []
+    assert result.plan_to_persist is None
     assert _slo_completed(mock_capture)["query_coverage"] == 1.0
     mock_executor_cls.assert_not_called()
     (messages,) = mock_chat.return_value.invoke.call_args.args

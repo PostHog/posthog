@@ -85,6 +85,7 @@ const AI_WINDOW_MODE_OPTIONS = [
 interface AiPromptFieldsProps {
     compactAnalysisWindow?: boolean
     contexts: SubscriptionContextApi[]
+    contextsEnabled: boolean
     prompt?: string | null
     windowMode?: AIWindowConfigApi['mode']
     consentBanner?: ReactNode
@@ -101,6 +102,7 @@ function shouldShowAiPromptExamples(prompt?: string | null): boolean {
 export function AiPromptFields({
     compactAnalysisWindow = false,
     contexts,
+    contextsEnabled,
     prompt,
     windowMode,
     consentBanner,
@@ -119,12 +121,14 @@ export function AiPromptFields({
                     {consentBanner}
                 </LemonBanner>
             ) : null}
-            <div className="flex flex-col gap-1 min-w-0">
-                <LemonLabel info="Add up to three dashboards or insights to focus this report. With no context, the report uses project-wide data.">
-                    Context
-                </LemonLabel>
-                <SubscriptionContextPicker contexts={contexts} onAdd={onAddContext} onRemove={onRemoveContext} />
-            </div>
+            {contextsEnabled ? (
+                <div className="flex flex-col gap-1 min-w-0">
+                    <LemonLabel info="Add up to three dashboards or insights to focus this report. Without context, the report chooses relevant project data based on your prompt.">
+                        Context
+                    </LemonLabel>
+                    <SubscriptionContextPicker contexts={contexts} onAdd={onAddContext} onRemove={onRemoveContext} />
+                </div>
+            ) : null}
             <LemonField
                 name="prompt"
                 label="What do you want to know?"

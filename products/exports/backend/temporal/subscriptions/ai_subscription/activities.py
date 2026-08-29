@@ -24,6 +24,9 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
+    creator_can_access_report_context,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from products.exports.backend.temporal.subscriptions.delivery_common import (
@@ -69,6 +72,20 @@ async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
         return snapshot if isinstance(snapshot, dict) else None
 
     return await _read()
+
+
+def _creator_can_access_delivery_context(subscription: Subscription, delivery_id: uuid.UUID) -> bool:
+    try:
+        dashboard_ids, insight_ids = SubscriptionDelivery.objects.values_list(
+            "context_dashboard_ids", "context_insight_ids"
+        ).get(pk=delivery_id)
+    except SubscriptionDelivery.DoesNotExist:
+        return False
+    return creator_can_access_report_context(
+        subscription,
+        dashboard_ids=dashboard_ids,
+        insight_ids=insight_ids,
+    )
 
 
 def _snapshot_report(snapshot: dict | None) -> str | None:
@@ -125,7 +142,14 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             # prompt is None for non-AI subs; "" if cleared — omit either.
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
         }
-        delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+        delivery.context_dashboard_ids = [dashboard.id for dashboard in result.context.contexts.dashboards]
+        delivery.context_insight_ids = [
+            *(insight.id for dashboard in result.context.contexts.dashboards for insight in dashboard.insights),
+            *(insight.id for insight in result.context.contexts.insights),
+        ]
+        delivery.save(
+            update_fields=["content_snapshot", "context_dashboard_ids", "context_insight_ids", "last_updated_at"]
+        )
 
     await _write()
 
@@ -309,7 +333,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
         )
 
-    await _persist_ai_report(inputs.delivery_id, report_result, subscription.prompt)
+    await _persist_ai_report(inputs.delivery_id, report_result, report_result.prompt)
     counts = _report_diagnostic_counts(report_result)
     return GenerateAIReportResult(
         aborted=False,
@@ -341,6 +365,13 @@ async def _deliver_ai_subscription(
         # report, so retrying just burns attempts — fail loud rather than ship an empty report.
         raise ApplicationError(
             f"AI report missing for subscription {subscription.id} (delivery {inputs.delivery_id})",
+            non_retryable=True,
+        )
+    if not await database_sync_to_async(_creator_can_access_delivery_context, thread_sensitive=False)(
+        subscription, delivery_id
+    ):
+        raise ApplicationError(
+            f"AI report context is no longer accessible for subscription {subscription.id}",
             non_retryable=True,
         )
 

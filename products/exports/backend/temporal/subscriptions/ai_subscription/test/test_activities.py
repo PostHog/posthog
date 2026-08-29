@@ -61,6 +61,11 @@ def _snapshot(delivery_id) -> dict:
     return SubscriptionDelivery.objects.values_list("content_snapshot", flat=True).get(pk=delivery_id)
 
 
+@sync_to_async
+def _context_ids(delivery_id) -> tuple[list[int], list[int]]:
+    return SubscriptionDelivery.objects.values_list("context_dashboard_ids", "context_insight_ids").get(pk=delivery_id)
+
+
 async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(team, user) -> None:
     delivery = await _create_delivery(team, user)
 
@@ -144,6 +149,7 @@ async def test_persist_ai_report_writes_only_compact_context_provenance(team, us
     await _persist_ai_report(delivery.id, result, prompt="full report prompt that must stay outside context")
 
     snapshot = await _snapshot(delivery.id)
+    assert await _context_ids(delivery.id) == ([123], [987, 456])
     assert snapshot["ai_report_context"] == {
         "contexts": {
             "dashboards": [

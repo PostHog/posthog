@@ -972,8 +972,10 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
 
         (messages,) = structured.invoke.call_args[0]
         system_content = messages[0][1]
-        assert "<computed_context>\nCOMPUTED_SIGNUPS_RESULT\n</computed_context>" in system_content
-        assert "supplemental queries only" in system_content
+        assert "COMPUTED_SIGNUPS_RESULT" not in system_content
+        assert messages[1][0] == "human"
+        assert "<computed_context>\nCOMPUTED_SIGNUPS_RESULT\n</computed_context>" in messages[1][1]
+        assert "supplemental queries only" in messages[1][1]
 
     @patch(f"{_SG}.MaxChatOpenAI")
     def test_sanitizes_computed_evidence_inside_planner_block(self, mock_chat: MagicMock) -> None:
@@ -989,7 +991,8 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
         )
 
         (messages,) = structured.invoke.call_args.args
-        appended = messages[0][1].split("The following bounded query results", 1)[1]
+        assert messages[1][0] == "human"
+        appended = messages[1][1]
         assert appended.count("<computed_context>") == 1
         assert appended.count("</computed_context>") == 1
         assert "<system>" not in appended

@@ -118,6 +118,7 @@ export function SubscriptionWizard({
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    const aiContextsEnabled = useFeatureFlag('SUBSCRIPTION_AI_CONTEXTS')
 
     if (subscriptionLoading || !subscriptionInitialized) {
         return <SubscriptionFormSkeleton />
@@ -188,6 +189,7 @@ export function SubscriptionWizard({
                     insightName={insightName}
                     subscription={subscription}
                     aiSubscriptionBlocked={aiGate.submitBlocked}
+                    aiContextsEnabled={Boolean(aiContextsEnabled)}
                 />
             )
             break
@@ -436,12 +438,14 @@ function SubscriptionContentStep({
     insightName,
     subscription,
     aiSubscriptionBlocked,
+    aiContextsEnabled,
 }: {
     logicProps: SubscriptionLogicProps
     dashboard?: DashboardType<any> | null
     insightName?: string
     subscription: SubscriptionFormType
     aiSubscriptionBlocked: boolean
+    aiContextsEnabled: boolean
 }): JSX.Element {
     const { addContext, applyDefaultSelectedInsights, removeContext, selectAiAnalysisWindow, selectAiExamplePrompt } =
         useActions(subscriptionLogic(logicProps))
@@ -471,6 +475,7 @@ function SubscriptionContentStep({
                 <AiPromptFields
                     compactAnalysisWindow
                     contexts={subscription.contexts}
+                    contextsEnabled={aiContextsEnabled}
                     prompt={subscription.prompt}
                     windowMode={subscription.ai_prompt_config?.window?.mode}
                     onAddContext={addContext}

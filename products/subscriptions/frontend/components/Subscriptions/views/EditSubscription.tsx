@@ -282,6 +282,7 @@ function EditSubscriptionForm({
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    const aiContextsEnabled = useFeatureFlag('SUBSCRIPTION_AI_CONTEXTS')
 
     const emailDisabled = !preflight?.email_service_available
     const isAiPrompt = subscription?.resource_type === SubscriptionResourceTypes.AiPrompt
@@ -453,6 +454,7 @@ function EditSubscriptionForm({
                                 <AiPromptSubscriptionIntroduction />
                                 <AiPromptFields
                                     contexts={subscription.contexts}
+                                    contextsEnabled={Boolean(aiContextsEnabled)}
                                     prompt={subscription.prompt}
                                     windowMode={subscription.ai_prompt_config?.window?.mode}
                                     consentBanner={

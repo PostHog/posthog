@@ -2864,6 +2864,31 @@ class TestAISubscriptionAPI(APILicensedTest):
             .values_list("team_id", flat=True)
         ) == {self.team.id}
 
+    def test_read_omits_a_malformed_cross_team_context(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(send_test_now=False),
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        foreign_dashboard = Dashboard.objects.create(team=other_team, name="Foreign dashboard", created_by=self.user)
+        SubscriptionContext.objects.for_team(self.team.id).bulk_create(
+            [
+                SubscriptionContext(
+                    team_id=self.team.id,
+                    subscription_id=created.json()["id"],
+                    dashboard_id=foreign_dashboard.id,
+                )
+            ]
+        )
+
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}")
+
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        assert retrieved.json()["contexts"] == []
+        assert "Foreign dashboard" not in retrieved.content.decode()
+
     def test_patch_omitting_contexts_preserves_them(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
@@ -3699,6 +3724,20 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert listed.status_code == status.HTTP_200_OK, listed.json()
         assert subscription.id not in [row["id"] for row in listed.json()["results"]]
         assert retrieved.status_code == status.HTTP_403_FORBIDDEN, retrieved.json()
+
+    def test_ai_subscription_with_a_context_dashboard_containing_an_unreadable_tile_is_hidden(self):
+        dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+        subscription = self._ai_sub_with_contexts(dashboard)
+        self._delivery_for(subscription)
+
+        self._assert_visibility(subscription, sees_subscription=False, sees_deliveries=False)
+
+    def test_historical_delivery_keeps_context_authorization_after_contexts_are_cleared(self):
+        subscription = self._ai_sub_with_contexts(self.restricted_insight)
+        self._delivery_for(subscription, context_insight_ids=[self.restricted_insight.id])
+        SubscriptionContext.objects.for_team(self.team.id).filter(subscription=subscription).delete()
+
+        self._assert_visibility(subscription, sees_subscription=True, sees_deliveries=False)
 
     @parameterized.expand(
         [

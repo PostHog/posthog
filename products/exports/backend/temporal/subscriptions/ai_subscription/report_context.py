@@ -37,6 +37,8 @@ from ee.hogai.utils.query import validate_assistant_query
 MAX_REPORT_CONTEXTS = 3
 MAX_DASHBOARD_INSIGHTS = 6
 MAX_CONCURRENT_CONTEXT_QUERIES = 5
+CONTEXT_QUERY_TIMEOUT_SECONDS = 45
+CONTEXT_RESOLUTION_TIMEOUT_SECONDS = 240
 MAX_CONTEXT_EVENTS_PER_INSIGHT = 25
 MAX_CONTEXT_EVENT_NAME_LENGTH = 400
 CONTEXT_NAME_MAX_LENGTH = 120
@@ -116,6 +118,11 @@ class ReportContextEvidence:
         return "\n\n".join(contents)
 
     @property
+    def has_successful_evidence(self) -> bool:
+        dashboard_insights = (insight for dashboard in self.dashboards for insight in dashboard.insights)
+        return any(insight.status != "failed" for insight in (*dashboard_insights, *self.insights))
+
+    @property
     def event_names(self) -> tuple[str, ...]:
         names: list[str] = []
         seen: set[str] = set()
@@ -131,6 +138,13 @@ class ReportContextEvidence:
                     seen.add(event)
                     names.append(event)
         return tuple(names)
+
+
+@frozen
+class ReportContextSelection:
+    dashboard_ids: tuple[int, ...] = ()
+    insight_ids: tuple[int, ...] = ()
+    over_limit: bool = False
 
 
 @frozen
@@ -253,6 +267,37 @@ def _can_view(access_control: UserAccessControl, resource: Model) -> bool:
         return False
 
 
+def creator_can_access_report_context(
+    subscription: Subscription, *, dashboard_ids: Collection[int], insight_ids: Collection[int]
+) -> bool:
+    expected_dashboard_ids = set(dashboard_ids)
+    expected_insight_ids = set(insight_ids)
+    if subscription.created_by is None:
+        return False
+    try:
+        access_control = UserAccessControl(user=subscription.created_by, team=subscription.team)
+        if not access_control.check_access_level_for_resource("query", "viewer"):
+            return False
+    except Exception as err:
+        capture_exception(err)
+        return False
+    if not expected_dashboard_ids and not expected_insight_ids:
+        return True
+
+    dashboards = list(
+        Dashboard.objects_including_soft_deleted.filter(id__in=expected_dashboard_ids, team_id=subscription.team_id)
+    )
+    insights = list(
+        Insight.objects_including_soft_deleted.filter(id__in=expected_insight_ids, team_id=subscription.team_id)
+    )
+    return (
+        {dashboard.id for dashboard in dashboards if not dashboard.deleted} == expected_dashboard_ids
+        and {insight.id for insight in insights if not insight.deleted} == expected_insight_ids
+        and all(_can_view(access_control, dashboard) for dashboard in dashboards)
+        and all(_can_view(access_control, insight) for insight in insights)
+    )
+
+
 def _layout_coordinate(layouts: object, coordinate: Literal["x", "y"]) -> float:
     if not isinstance(layouts, dict):
         return 100
@@ -351,8 +396,12 @@ def _load_dashboard(
             _DashboardTile(
                 insight=_load_saved_insight(
                     insight,
-                    filters_override=cast(JsonObject, tile.filters_overrides) if tile.filters_overrides else None,
-                    variables_override=cast(JsonObject, dashboard.variables) if dashboard.variables else None,
+                    filters_override=(
+                        cast(JsonObject, tile.filters_overrides) if isinstance(tile.filters_overrides, dict) else None
+                    ),
+                    variables_override=(
+                        cast(JsonObject, dashboard.variables) if isinstance(dashboard.variables, dict) else None
+                    ),
                 ),
                 layout_y=_layout_coordinate(tile.layouts, "y"),
                 layout_x=_layout_coordinate(tile.layouts, "x"),
@@ -409,26 +458,33 @@ def _validate_project_event_names(context: _LoadedReportContext) -> _LoadedRepor
     )
 
 
-def _load_report_context(subscription_id: int, team_id: int) -> _LoadedReportContext:
+def _load_report_context(
+    subscription_id: int, team_id: int, selection: ReportContextSelection | None = None
+) -> _LoadedReportContext:
     subscription = Subscription.objects.select_related("team", "created_by").get(id=subscription_id, team_id=team_id)
-    context_rows = list(
-        SubscriptionContext.objects.for_team(team_id)
-        .filter(subscription_id=subscription.id)
-        .only("id", "created_at", "dashboard_id", "insight_id")
-        .order_by("created_at", "id")[: MAX_REPORT_CONTEXTS + 1]
-    )
-    selected_rows = sorted(
-        context_rows[:MAX_REPORT_CONTEXTS],
-        key=lambda row: (
-            f"dashboard:{row.dashboard_id}" if row.dashboard_id is not None else f"insight:{row.insight_id}"
-        ),
-    )
-    dashboard_ids = [row.dashboard_id for row in selected_rows if row.dashboard_id is not None]
-    insight_ids = [row.insight_id for row in selected_rows if row.insight_id is not None]
+    if selection is None:
+        context_rows = list(
+            SubscriptionContext.objects.for_team(team_id)
+            .filter(subscription_id=subscription.id)
+            .order_by("created_at", "id")
+            .values_list("dashboard_id", "insight_id")[: MAX_REPORT_CONTEXTS + 1]
+        )
+        selection = ReportContextSelection(
+            dashboard_ids=tuple(
+                sorted(
+                    dashboard_id for dashboard_id, _ in context_rows[:MAX_REPORT_CONTEXTS] if dashboard_id is not None
+                )
+            ),
+            insight_ids=tuple(
+                sorted(insight_id for _, insight_id in context_rows[:MAX_REPORT_CONTEXTS] if insight_id is not None)
+            ),
+            over_limit=len(context_rows) > MAX_REPORT_CONTEXTS,
+        )
+    dashboard_ids = list(selection.dashboard_ids)
+    insight_ids = list(selection.insight_ids)
     fingerprint = compute_report_context_fingerprint(dashboard_ids=dashboard_ids, insight_ids=insight_ids)
-    over_limit = len(context_rows) > MAX_REPORT_CONTEXTS
 
-    if over_limit:
+    if selection.over_limit:
         return _LoadedReportContext(
             team=subscription.team,
             user=subscription.created_by,
@@ -477,32 +533,31 @@ def _load_report_context(subscription_id: int, team_id: int) -> _LoadedReportCon
     dashboards: list[_SavedDashboard] = []
     insights: list[_SavedInsight] = []
     popularity_since = timezone.now() - timedelta(days=7)
-    for row in selected_rows:
-        if row.dashboard_id is not None:
-            dashboard = dashboards_by_id.get(row.dashboard_id)
-            if not query_access or access_control is None or dashboard is None:
-                dashboards.append(_unavailable_dashboard(row.dashboard_id))
-            else:
-                dashboards.append(
-                    _load_dashboard(
-                        dashboard,
-                        team=subscription.team,
-                        access_control=access_control,
-                        popularity_since=popularity_since,
-                    )
+    for dashboard_id in dashboard_ids:
+        dashboard = dashboards_by_id.get(dashboard_id)
+        if not query_access or access_control is None or dashboard is None:
+            dashboards.append(_unavailable_dashboard(dashboard_id))
+        else:
+            dashboards.append(
+                _load_dashboard(
+                    dashboard,
+                    team=subscription.team,
+                    access_control=access_control,
+                    popularity_since=popularity_since,
                 )
-        elif row.insight_id is not None:
-            insight = insights_by_id.get(row.insight_id)
-            if (
-                not query_access
-                or access_control is None
-                or insight is None
-                or insight.deleted
-                or not _can_view(access_control, insight)
-            ):
-                insights.append(_unavailable_insight(row.insight_id))
-            else:
-                insights.append(_load_saved_insight(insight))
+            )
+    for insight_id in insight_ids:
+        insight = insights_by_id.get(insight_id)
+        if (
+            not query_access
+            or access_control is None
+            or insight is None
+            or insight.deleted
+            or not _can_view(access_control, insight)
+        ):
+            insights.append(_unavailable_insight(insight_id))
+        else:
+            insights.append(_load_saved_insight(insight))
 
     loaded = _LoadedReportContext(
         team=subscription.team,
@@ -520,7 +575,9 @@ async def _execute_insight(pending: _PendingInsight, semaphore: asyncio.Semaphor
         return _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)
     try:
         async with semaphore:
-            content = await pending.context.execute_and_format()
+            content = await asyncio.wait_for(
+                pending.context.execute_and_format(), timeout=CONTEXT_QUERY_TIMEOUT_SECONDS
+            )
         safe_content = strip_llm_framing_markers(content, max_len=len(content))
         status: ReportContextStatus = "truncated" if TRUNCATED_MARKER in safe_content else "success"
         return _ExecutedInsight(saved=pending.saved, status=status, content=safe_content)
@@ -667,10 +724,12 @@ def _bound_evidence(
     return tuple(bounded_dashboards), tuple(bounded_insights)
 
 
-async def resolve_report_context(subscription: Subscription) -> ReportContextEvidence:
-    """Execute the subscription's current durable contexts as bounded report evidence."""
+async def resolve_report_context(
+    subscription: Subscription, selection: ReportContextSelection | None = None
+) -> ReportContextEvidence:
+    """Execute a bounded snapshot of the subscription's durable contexts as report evidence."""
     loaded = await database_sync_to_async(_load_report_context, thread_sensitive=True)(
-        subscription.id, subscription.team_id
+        subscription.id, subscription.team_id, selection
     )
     if loaded.over_limit:
         return ReportContextEvidence(
@@ -759,7 +818,20 @@ async def resolve_report_context(subscription: Subscription) -> ReportContextEvi
         standalone_pending.append(standalone_item)
         all_pending.append(standalone_item)
 
-    executed = await asyncio.gather(*(_execute_insight(item, semaphore) for item in all_pending))
+    tasks = [asyncio.create_task(_execute_insight(item, semaphore)) for item in all_pending]
+    executed: list[_ExecutedInsight] = []
+    if tasks:
+        done, unfinished = await asyncio.wait(tasks, timeout=CONTEXT_RESOLUTION_TIMEOUT_SECONDS)
+        for task in unfinished:
+            task.cancel()
+        if unfinished:
+            await asyncio.gather(*unfinished, return_exceptions=True)
+        executed = [
+            task.result()
+            if task in done and not task.cancelled() and task.exception() is None
+            else _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)
+            for pending, task in zip(all_pending, tasks, strict=True)
+        ]
     executed_by_pending = {id(pending): result for pending, result in zip(all_pending, executed, strict=True)}
 
     dashboard_evidence: list[_UnboundedDashboardEvidence] = []

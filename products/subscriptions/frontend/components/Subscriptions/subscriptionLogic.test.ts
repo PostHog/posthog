@@ -5,8 +5,10 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { getRecentSlackChannelIds } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -85,6 +87,8 @@ describe('subscriptionLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXTS]: true })
         userLogic.mount()
         userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
         newLogic = subscriptionLogic({
@@ -836,6 +840,35 @@ describe('subscriptionLogic', () => {
         expect(capturedBody).not.toHaveProperty('context_dashboards')
         expect(capturedBody).not.toHaveProperty('context_insights')
         expect(capturedBody).not.toHaveProperty('context_items')
+        contextLogic.unmount()
+    })
+
+    it('omits contexts while the rollout flag is disabled', async () => {
+        let capturedBody: Record<string, unknown> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 45, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_CONTEXTS]: false })
+        const contextLogic = subscriptionLogic({ id: 'new' })
+        contextLogic.mount()
+        contextLogic.actions.addContext(DASHBOARD_CONTEXT)
+        contextLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Summarize activation',
+            title: 'Activation report',
+            target_type: 'email',
+            target_value: 'reports@example.com',
+        })
+
+        contextLogic.actions.submitSubscription()
+        await expectLogic(contextLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody).not.toHaveProperty('contexts')
         contextLogic.unmount()
     })
 

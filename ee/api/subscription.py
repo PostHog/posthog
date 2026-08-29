@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Any, ClassVar, Optional
 
 from django.conf import settings
+from django.contrib.postgres.expressions import ArraySubquery
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Manager, Prefetch, Q, QuerySet
@@ -111,6 +112,8 @@ class _TargetLookups:
     dashboard: str
     context_insight_lookup: str
     context_dashboard_lookup: str
+    context_insight_array: str | None
+    context_dashboard_array: str | None
     exported_insights: str
     no_selection: str
     insights: Manager
@@ -123,6 +126,8 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
     dashboard="dashboard_id__in",
     context_insight_lookup="contexts__insight_id__in",
     context_dashboard_lookup="contexts__dashboard_id__in",
+    context_insight_array=None,
+    context_dashboard_array=None,
     exported_insights="dashboard_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
     insights=Insight.objects,
@@ -136,6 +141,8 @@ _DELIVERY_TARGETS = _TargetLookups(
     dashboard="subscription__dashboard_id__in",
     context_insight_lookup="subscription__contexts__insight_id__in",
     context_dashboard_lookup="subscription__contexts__dashboard_id__in",
+    context_insight_array="context_insight_ids",
+    context_dashboard_array="context_dashboard_ids",
     exported_insights="subscription__dashboard_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
     insights=Insight.objects_including_soft_deleted,
@@ -519,14 +526,26 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
 
         contexts: list[dict[str, str | int]] = []
         for context in cls._context_rows(obj):
-            if context.dashboard_id and context.dashboard is not None and not context.dashboard.deleted:
+            if context.team_id != obj.team_id:
+                continue
+            if (
+                context.dashboard_id
+                and context.dashboard is not None
+                and context.dashboard.team_id == obj.team_id
+                and not context.dashboard.deleted
+            ):
                 contexts.append(
                     {
                         "dashboard_id": context.dashboard_id,
                         "dashboard_name": context.dashboard.name or "Untitled dashboard",
                     }
                 )
-            elif context.insight_id and context.insight is not None and not context.insight.deleted:
+            elif (
+                context.insight_id
+                and context.insight is not None
+                and context.insight.team_id == obj.team_id
+                and not context.insight.deleted
+            ):
                 contexts.append(
                     {
                         "insight_id": context.insight_id,
@@ -1088,13 +1107,8 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         contexts_in_payload = "contexts" in validated_data
         contexts = validated_data.pop("contexts", [])
-        old_context_identifiers = self._stored_context_identifiers(instance) if contexts_in_payload else None
         new_context_identifiers = self._context_identifiers(contexts) if contexts_in_payload else None
-        contexts_changed = (
-            contexts_in_payload
-            and old_context_identifiers is not None
-            and old_context_identifiers != new_context_identifiers
-        )
+        contexts_changed = False
         analytics_props = get_request_analytics_properties(request)
 
         # Snapshot delivery-relevant values before the write so the inferred path can tell,
@@ -1123,6 +1137,9 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                 },
             ):
                 with transaction.atomic():
+                    if contexts_in_payload:
+                        instance = Subscription.objects.select_for_update().get(pk=instance.pk)
+                        contexts_changed = self._stored_context_identifiers(instance) != new_context_identifiers
                     with attribute_subscription_saves(analytics_props):
                         instance = super().update(instance, validated_data)
                     if contexts_changed:
@@ -1133,6 +1150,9 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             return instance
 
         with transaction.atomic():
+            if contexts_in_payload:
+                instance = Subscription.objects.select_for_update().get(pk=instance.pk)
+                contexts_changed = self._stored_context_identifiers(instance) != new_context_identifiers
             with attribute_subscription_saves(analytics_props):
                 instance = super().update(instance, validated_data)
             if contexts_changed:
@@ -1277,9 +1297,21 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
     targets_a_blocked_dashboard = Q(**{targets.dashboard: blocked_dashboards})
     exports_a_blocked_insight = Q(**{targets.exported_insights: blocked_insights})
     renders_a_blocked_tile = Q(**{targets.no_selection: True}) & Q(**{targets.dashboard: dashboards_with_blocked_tiles})
-    references_a_blocked_context = Q(**{targets.context_insight_lookup: blocked_insights}) | Q(
-        **{targets.context_dashboard_lookup: blocked_dashboards}
+    references_a_blocked_context = (
+        Q(**{targets.context_insight_lookup: blocked_insights})
+        | Q(**{targets.context_dashboard_lookup: blocked_dashboards})
+        | Q(**{targets.context_dashboard_lookup: dashboards_with_blocked_tiles})
     )
+    if targets.context_insight_array is not None and targets.context_dashboard_array is not None:
+        references_a_blocked_context |= Q(
+            **{f"{targets.context_insight_array}__overlap": ArraySubquery(blocked_insights)}
+        )
+        references_a_blocked_context |= Q(
+            **{f"{targets.context_dashboard_array}__overlap": ArraySubquery(blocked_dashboards)}
+        )
+        references_a_blocked_context |= Q(
+            **{f"{targets.context_dashboard_array}__overlap": ArraySubquery(dashboards_with_blocked_tiles)}
+        )
 
     return ~(
         targets_a_blocked_insight

@@ -41,9 +41,6 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         if (params.ai_prompt_config !== undefined) {
             body['ai_prompt_config'] = params.ai_prompt_config
         }
-        if (params.contexts !== undefined) {
-            body['contexts'] = params.contexts
-        }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
         }
@@ -246,9 +243,6 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         }
         if (params.ai_prompt_config !== undefined) {
             body['ai_prompt_config'] = params.ai_prompt_config
-        }
-        if (params.contexts !== undefined) {
-            body['contexts'] = params.contexts
         }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type

@@ -29,6 +29,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_cont
     _rank_dashboard_tiles,
     _SavedInsight,
     compute_report_context_fingerprint,
+    creator_can_access_report_context,
     extract_context_event_names,
     resolve_report_context,
 )
@@ -150,6 +151,24 @@ class TestReportContextPureFunctions(SimpleTestCase):
         ):
             ReportContextEvidence(fingerprint=fingerprint, dashboards=(), insights=insights)
 
+    def test_failed_markers_are_not_successful_computed_evidence(self) -> None:
+        evidence = ReportContextEvidence(
+            fingerprint=compute_report_context_fingerprint(dashboard_ids=[], insight_ids=[1]),
+            dashboards=(),
+            insights=(
+                InsightReportEvidence(
+                    id=1,
+                    name="Unavailable insight",
+                    events=(),
+                    status="failed",
+                    content="Insight context unavailable.",
+                ),
+            ),
+        )
+
+        assert evidence.formatted_evidence
+        assert evidence.has_successful_evidence is False
+
 
 class TestResolveReportContext(BaseTest):
     def _subscription(self) -> Subscription:
@@ -177,6 +196,13 @@ class TestResolveReportContext(BaseTest):
             subscription=subscription,
             dashboard=dashboard,
         )
+
+    def test_contextless_subscription_returns_empty_evidence(self) -> None:
+        evidence = async_to_sync(resolve_report_context)(self._subscription())
+
+        assert evidence.dashboards == ()
+        assert evidence.insights == ()
+        assert evidence.fingerprint == compute_report_context_fingerprint(dashboard_ids=[], insight_ids=[])
 
     def test_standalone_uses_current_saved_query_filters_variables_and_date_range(self) -> None:
         subscription = self._subscription()
@@ -220,6 +246,52 @@ class TestResolveReportContext(BaseTest):
         assert variable_query["variables"]["saved-variable"]["value"] == "current value"
         assert evidence.insights[0].events == ("current event",)
         assert evidence.insights[0].status == "success"
+
+    def test_context_resolution_timeout_degrades_the_slow_query(self) -> None:
+        subscription = self._subscription()
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Slow insight",
+            query=_trends_query("slow event"),
+        )
+        self._add_insight_context(subscription, insight)
+
+        async def slow_execute(*_args: object, **_kwargs: object) -> str:
+            await asyncio.sleep(0.1)
+            return "late result"
+
+        with (
+            patch(f"{_MODULE}.CONTEXT_QUERY_TIMEOUT_SECONDS", 1),
+            patch(f"{_MODULE}.CONTEXT_RESOLUTION_TIMEOUT_SECONDS", 0.01),
+            patch(_EXECUTOR, new_callable=AsyncMock, side_effect=slow_execute),
+        ):
+            evidence = async_to_sync(resolve_report_context)(subscription)
+
+        assert evidence.insights[0].status == "failed"
+
+    def test_dashboard_ignores_malformed_filter_and_variable_overrides(self) -> None:
+        subscription = self._subscription()
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Activation",
+            variables=[],
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Signups",
+            query=_trends_query("user signed up"),
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight, filters_overrides=[])
+        self._add_dashboard_context(subscription, dashboard)
+
+        with patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute:
+            evidence = async_to_sync(resolve_report_context)(subscription)
+
+        assert evidence.dashboards[0].insights[0].status == "success"
+        assert execute.await_count == 1
 
     def test_dashboard_selects_six_live_query_tiles_by_popularity_then_layout(self) -> None:
         subscription = self._subscription()
@@ -530,6 +602,24 @@ class TestResolveReportContext(BaseTest):
         execute.assert_not_called()
         assert evidence.insights[0].status == "failed"
 
+    def test_delivery_context_access_fails_closed_after_object_access_is_revoked(self) -> None:
+        subscription = self._subscription()
+        insight = Insight.objects.create(
+            team=self.team, created_by=self.user, name="Revoked", query=_trends_query("revoked event")
+        )
+
+        with (
+            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True),
+            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", return_value=False),
+        ):
+            allowed = creator_can_access_report_context(
+                subscription,
+                dashboard_ids=(),
+                insight_ids=(insight.id,),
+            )
+
+        assert allowed is False
+
     def test_cross_team_context_targets_fail_before_access_or_execution(self) -> None:
         subscription = self._subscription()
         other_team = Team.objects.create(organization=self.organization, name="Other team")
@@ -550,8 +640,20 @@ class TestResolveReportContext(BaseTest):
             name="Local insight",
             query=_trends_query("local event"),
         )
-        self._add_dashboard_context(subscription, foreign_dashboard)
-        self._add_insight_context(subscription, foreign_insight)
+        SubscriptionContext.objects.for_team(self.team.id).bulk_create(
+            [
+                SubscriptionContext(
+                    team_id=self.team.id,
+                    subscription=subscription,
+                    dashboard=foreign_dashboard,
+                ),
+                SubscriptionContext(
+                    team_id=self.team.id,
+                    subscription=subscription,
+                    insight=foreign_insight,
+                ),
+            ]
+        )
         self._add_insight_context(subscription, local_insight)
 
         with (

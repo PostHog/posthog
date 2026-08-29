@@ -50,8 +50,6 @@ export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
-export const subscriptionsCreateBodyContextsMax = 3
-
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
 export const subscriptionsCreateBodyBysetposMin = -2147483648
@@ -124,22 +122,6 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
-            ),
-        contexts: zod
-            .array(
-                zod.union([
-                    zod.object({
-                        dashboard_id: zod.number().min(1),
-                    }),
-                    zod.object({
-                        insight_id: zod.number().min(1),
-                    }),
-                ])
-            )
-            .max(subscriptionsCreateBodyContextsMax)
-            .optional()
-            .describe(
-                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
         target_type: zod
             .enum(['email', 'slack'])
@@ -251,8 +233,6 @@ export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAg
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
-export const subscriptionsPartialUpdateBodyContextsMax = 3
-
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
 export const subscriptionsPartialUpdateBodyBysetposMin = -2147483648
@@ -325,22 +305,6 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
-            ),
-        contexts: zod
-            .array(
-                zod.union([
-                    zod.object({
-                        dashboard_id: zod.number().min(1),
-                    }),
-                    zod.object({
-                        insight_id: zod.number().min(1),
-                    }),
-                ])
-            )
-            .max(subscriptionsPartialUpdateBodyContextsMax)
-            .optional()
-            .describe(
-                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
             ),
         target_type: zod
             .enum(['email', 'slack'])

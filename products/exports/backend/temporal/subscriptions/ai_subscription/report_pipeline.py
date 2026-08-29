@@ -312,6 +312,7 @@ class AiReportResult:
     diagnostics: tuple[QueryStepDiagnostic, ...]
     # The window's end as a UTC ISO instant — persisted so the next run can anchor exactly here.
     window_end_utc: str
+    prompt: str | None = None
     # Set only when the run planned from scratch; the caller freezes it onto the subscription.
     plan_to_persist: Optional[dict] = None
     charts: tuple[RenderedChart, ...] = ()
@@ -350,7 +351,8 @@ async def generate_ai_report(
     ) as slo:
         try:
             # A stored plan that no longer validates self-heals by re-planning live.
-            if ai_query_plan is not None:
+            has_selected_context = bool(context_provenance.dashboards or context_provenance.insights)
+            if ai_query_plan is not None and not has_selected_context:
                 try:
                     spec = await _spec_from_frozen_plan(
                         team=team,
@@ -458,7 +460,7 @@ async def generate_ai_report(
             report = _all_queries_failed_notice(total_steps) + report
         plan_to_persist = _plan_to_freeze(
             spec.plan,
-            freshly_planned=freshly_planned,
+            freshly_planned=freshly_planned and not has_selected_context,
             failed_count=failed_count,
             total_steps=total_steps,
             relevant_events=spec.relevant_events,
@@ -474,6 +476,7 @@ async def generate_ai_report(
             markdown=report,
             diagnostics=tuple(diagnostics),
             window_end_utc=window.end.astimezone(UTC).isoformat(),
+            prompt=prompt,
             plan_to_persist=plan_to_persist,
             charts=tuple(rendered_charts),
             context=AiReportContext(
