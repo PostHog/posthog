@@ -75,6 +75,35 @@
             ],
             "description": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
         },
+        "contexts": {
+            "description": "Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.",
+            "items": {
+                "anyOf": [
+                    {
+                        "properties": {
+                            "dashboard_id": {
+                                "minimum": 1,
+                                "type": "number"
+                            }
+                        },
+                        "required": ["dashboard_id"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "insight_id": {
+                                "minimum": 1,
+                                "type": "number"
+                            }
+                        },
+                        "required": ["insight_id"],
+                        "type": "object"
+                    }
+                ]
+            },
+            "maxItems": 3,
+            "type": "array"
+        },
         "count": {
             "anyOf": [
                 {

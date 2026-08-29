@@ -315,6 +315,16 @@ export interface PaginatedSubscriptionListApi {
     results: SubscriptionApi[]
 }
 
+export type SubscriptionWriteApiContextsItem =
+    | {
+          /** @minimum 1 */
+          dashboard_id: number
+      }
+    | {
+          /** @minimum 1 */
+          insight_id: number
+      }
+
 /**
  * * `monday` - Monday
  * * `tuesday` - Tuesday
@@ -336,19 +346,6 @@ export const SubscriptionWriteApiByweekdayItem = {
     Saturday: 'saturday',
     Sunday: 'sunday',
 } as const
-
-export interface SubscriptionContextWriteApi {
-    /**
-     * Dashboard ID to use as AI report context. Set either dashboard_id or insight_id, not both.
-     * @minimum 1
-     */
-    dashboard_id?: number
-    /**
-     * Insight ID to use as AI report context. Set either insight_id or dashboard_id, not both.
-     * @minimum 1
-     */
-    insight_id?: number
-}
 
 /**
  * Standard Subscription serializer.
@@ -384,8 +381,11 @@ export interface SubscriptionWriteApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
-    /** Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts. */
-    contexts?: SubscriptionContextWriteApi[]
+    /**
+     * Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.
+     * @maxItems 3
+     */
+    contexts?: SubscriptionWriteApiContextsItem[]
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -469,6 +469,16 @@ export interface SubscriptionWriteApi {
     summary_prompt_guide?: string
 }
 
+export type PatchedSubscriptionWriteApiContextsItem =
+    | {
+          /** @minimum 1 */
+          dashboard_id: number
+      }
+    | {
+          /** @minimum 1 */
+          insight_id: number
+      }
+
 /**
  * * `monday` - Monday
  * * `tuesday` - Tuesday
@@ -525,8 +535,11 @@ export interface PatchedSubscriptionWriteApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
-    /** Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts. */
-    contexts?: SubscriptionContextWriteApi[]
+    /**
+     * Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.
+     * @maxItems 3
+     */
+    contexts?: PatchedSubscriptionWriteApiContextsItem[]
     /** Delivery channel: email or slack.
      *
      * * `email` - Email

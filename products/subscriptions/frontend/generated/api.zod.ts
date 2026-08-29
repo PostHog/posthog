@@ -15,6 +15,8 @@ export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
+export const subscriptionsCreateBodyContextsMax = 3
+
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
 export const subscriptionsCreateBodyBysetposMin = -2147483648
@@ -90,23 +92,16 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             ),
         contexts: zod
             .array(
-                zod.object({
-                    dashboard_id: zod
-                        .number()
-                        .min(1)
-                        .optional()
-                        .describe(
-                            'Dashboard ID to use as AI report context. Set either dashboard_id or insight_id, not both.'
-                        ),
-                    insight_id: zod
-                        .number()
-                        .min(1)
-                        .optional()
-                        .describe(
-                            'Insight ID to use as AI report context. Set either insight_id or dashboard_id, not both.'
-                        ),
-                })
+                zod.union([
+                    zod.object({
+                        dashboard_id: zod.number().min(1),
+                    }),
+                    zod.object({
+                        insight_id: zod.number().min(1),
+                    }),
+                ])
             )
+            .max(subscriptionsCreateBodyContextsMax)
             .optional()
             .describe(
                 'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
@@ -208,6 +203,8 @@ export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
+export const subscriptionsUpdateBodyContextsMax = 3
+
 export const subscriptionsUpdateBodyIntervalMax = 2147483647
 
 export const subscriptionsUpdateBodyBysetposMin = -2147483648
@@ -283,23 +280,16 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             ),
         contexts: zod
             .array(
-                zod.object({
-                    dashboard_id: zod
-                        .number()
-                        .min(1)
-                        .optional()
-                        .describe(
-                            'Dashboard ID to use as AI report context. Set either dashboard_id or insight_id, not both.'
-                        ),
-                    insight_id: zod
-                        .number()
-                        .min(1)
-                        .optional()
-                        .describe(
-                            'Insight ID to use as AI report context. Set either insight_id or dashboard_id, not both.'
-                        ),
-                })
+                zod.union([
+                    zod.object({
+                        dashboard_id: zod.number().min(1),
+                    }),
+                    zod.object({
+                        insight_id: zod.number().min(1),
+                    }),
+                ])
             )
+            .max(subscriptionsUpdateBodyContextsMax)
             .optional()
             .describe(
                 'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
@@ -401,6 +391,8 @@ export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAg
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
+export const subscriptionsPartialUpdateBodyContextsMax = 3
+
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
 export const subscriptionsPartialUpdateBodyBysetposMin = -2147483648
@@ -476,23 +468,16 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         contexts: zod
             .array(
-                zod.object({
-                    dashboard_id: zod
-                        .number()
-                        .min(1)
-                        .optional()
-                        .describe(
-                            'Dashboard ID to use as AI report context. Set either dashboard_id or insight_id, not both.'
-                        ),
-                    insight_id: zod
-                        .number()
-                        .min(1)
-                        .optional()
-                        .describe(
-                            'Insight ID to use as AI report context. Set either insight_id or dashboard_id, not both.'
-                        ),
-                })
+                zod.union([
+                    zod.object({
+                        dashboard_id: zod.number().min(1),
+                    }),
+                    zod.object({
+                        insight_id: zod.number().min(1),
+                    }),
+                ])
             )
+            .max(subscriptionsPartialUpdateBodyContextsMax)
             .optional()
             .describe(
                 'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'

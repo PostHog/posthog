@@ -282,6 +282,32 @@ class SubscriptionContextWriteSerializer(serializers.Serializer):
         return attrs
 
 
+@extend_schema_field(
+    {
+        "type": "array",
+        "maxItems": MAX_AI_SUBSCRIPTION_CONTEXTS,
+        "items": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["dashboard_id"],
+                    "properties": {"dashboard_id": {"type": "integer", "minimum": 1}},
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["insight_id"],
+                    "properties": {"insight_id": {"type": "integer", "minimum": 1}},
+                },
+            ]
+        },
+    }
+)
+class SubscriptionContextsWriteField(serializers.ListField):
+    pass
+
+
 class SubscriptionDashboardContextSerializer(serializers.Serializer):
     dashboard_id = serializers.IntegerField(help_text="Dashboard ID used to open the context dashboard.")
     dashboard_name = serializers.CharField(help_text="Current display name of the context dashboard.")
@@ -347,8 +373,8 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
         ),
     )
-    contexts: serializers.Field = SubscriptionContextWriteSerializer(
-        many=True,
+    contexts: serializers.Field = SubscriptionContextsWriteField(
+        child=SubscriptionContextWriteSerializer(),
         required=False,
         write_only=True,
         help_text=(

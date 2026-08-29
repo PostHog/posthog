@@ -28,9 +28,9 @@ import type {
     AIWindowConfigModeEnumApi,
     SubscriptionApi,
     SubscriptionContextApi,
-    SubscriptionContextWriteApi,
     SubscriptionDeliveryApi,
     SubscriptionWriteApi,
+    SubscriptionWriteApiContextsItem,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import type { WeekdayType } from '../../../../../frontend/src/types'
@@ -190,7 +190,7 @@ function contextKey(context: SubscriptionContextApi): string {
     return 'dashboard_id' in context ? `dashboard:${context.dashboard_id}` : `insight:${context.insight_id}`
 }
 
-function contextForWrite(context: SubscriptionContextApi): SubscriptionContextWriteApi {
+function contextForWrite(context: SubscriptionContextApi): SubscriptionWriteApiContextsItem {
     return 'dashboard_id' in context ? { dashboard_id: context.dashboard_id } : { insight_id: context.insight_id }
 }
 

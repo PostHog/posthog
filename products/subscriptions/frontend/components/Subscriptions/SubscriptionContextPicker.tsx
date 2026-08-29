@@ -75,9 +75,9 @@ export function SubscriptionContextPicker({ contexts, onAdd, onRemove }: Subscri
                         .map((context) => context.dashboard_id),
                     [TaxonomicFilterGroupType.Insights]: contexts
                         .filter(isInsightContext)
-                        .map((context) => context.insight_id),
+                        .map((context) => context.insight_short_id),
                 }}
-                closeOnChange={false}
+                closeOnChange={contexts.length === MAX_CONTEXTS - 1}
                 placeholder="Add context"
                 size="small"
                 type="secondary"
