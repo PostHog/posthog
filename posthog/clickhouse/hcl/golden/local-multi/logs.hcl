@@ -670,6 +670,12 @@ database "posthog" {
       type  = "UInt64"
       codec = "DoubleDelta, ZSTD(1)"
     }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
