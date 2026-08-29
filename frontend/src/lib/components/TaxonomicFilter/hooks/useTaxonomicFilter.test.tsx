@@ -9,6 +9,7 @@ import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
+import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import { TaxonomicFilterGroupType } from '../types'
 import { useTaxonomicFilter } from './useTaxonomicFilter'
 import { __clearTaxonomicResourceCache } from './useTaxonomicResource'
@@ -478,5 +479,37 @@ describe('useTaxonomicFilter', () => {
         expect(input.searchQuery).toBe('')
         expect(input.showNumericalPropsOnly).toBe(true)
         expect(input.enableKeywordShortcuts).toBe(true)
+    })
+
+    // Pins are global, so a picker that offers only events would otherwise list a pinned cohort and
+    // hand back a value it cannot represent. The menu's shortcut rows already filter this way.
+    it('keeps the Pinned tab to groups this picker offers', () => {
+        const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
+        pinnedLogic.mount()
+        pinnedLogic.actions.setPinnedFilters([
+            {
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'signed up',
+                item: { name: 'signed up' },
+                timestamp: 0,
+            },
+            {
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 1,
+                item: { name: 'Power users' },
+                timestamp: 0,
+            },
+        ] as any)
+
+        const { result } = renderHook(
+            () => useTaxonomicFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] }),
+            { wrapper }
+        )
+
+        const pinnedGroup = result.current.groups.find((g) => g.type === TaxonomicFilterGroupType.PinnedFilters)!
+        const pinned = result.current.getGroupListInput(pinnedGroup).localOverride ?? []
+        expect(pinned.map((item: any) => item.name)).toEqual(['signed up'])
     })
 })

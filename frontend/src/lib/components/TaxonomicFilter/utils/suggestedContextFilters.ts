@@ -9,12 +9,11 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 
 /*
- * These mirror the legacy `infiniteListLogic` context-filter selectors
- * (`contextFilteredRecentItems` / `contextFilteredPinnedItems`). It's a
- * deliberate fork, not a shared util: the rebuild and the legacy kea picker
- * are independent code paths, and the legacy one is being retired with the
- * rest of `infiniteListLogic`. Until then, behaviour changes here that should
- * also apply to the legacy picker must be made in both places.
+ * The legacy `infiniteListLogic` picker and the rebuild both call
+ * `filterPinnedForContext`, so a change to pinned behaviour reaches both.
+ * `filterRecentsForContext` is not shared: `infiniteListLogic` holds its own
+ * copy of the same rule in `contextFilteredRecentItems`, so a change to recents
+ * behaviour must be made in both places until the legacy picker is retired.
  */
 
 /** Recents whose source group is one of the picker's groups, with operators the

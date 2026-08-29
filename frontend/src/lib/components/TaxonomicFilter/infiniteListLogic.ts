@@ -59,6 +59,7 @@ import {
 } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
 import { floatToFront } from 'lib/components/TaxonomicFilter/utils/floatToFront'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
+import { filterPinnedForContext } from 'lib/components/TaxonomicFilter/utils/suggestedContextFilters'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
@@ -1155,15 +1156,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (
                 pinnedFilterItems: TaxonomicDefinitionTypes[],
                 taxonomicGroupTypes: TaxonomicFilterGroupType[]
-            ): TaxonomicDefinitionTypes[] => {
-                if (!pinnedFilterItems?.length) {
-                    return []
-                }
-                const availableTypes = new Set(taxonomicGroupTypes)
-                return pinnedFilterItems.filter(
-                    (item) => hasPinnedContext(item) && availableTypes.has(item._pinnedContext.sourceGroupType)
-                )
-            },
+            ): TaxonomicDefinitionTypes[] => filterPinnedForContext(pinnedFilterItems, taxonomicGroupTypes),
         ],
         // This list is the filter's only substantive (non-meta) group. There are no separate
         // Recent/Pinned tabs leading the filter, so this list floats recent/pinned items to
