@@ -3,7 +3,7 @@
 Two agentic runs read a report's steering, and they read it differently.
 
 The **research** run judges the report itself, so it reads every origin, and it is the one reader of
-the `pipeline:report-research` audience (`scout_harness/tools/notes.PIPELINE_AUDIENCES`), the target
+the `pipeline:report-research` audience (`scout_harness/note_targets.PIPELINE_AUDIENCES`), the target
 a person uses for guidance about how reports get researched rather than about what a scout watches. A reviewer who dismissed an
 earlier report with "this is expected, it's the approval flow" is giving feedback on exactly the
 judgment this run is about to make, and until that reaches the research prompt it only ever reaches
@@ -29,6 +29,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.signals.backend.models import SignalScoutNote
 from products.signals.backend.scout_authorship import resolve_report_scout_skill
+from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH
 
 if TYPE_CHECKING:
     from products.signals.backend.scout_harness.tools.notes import ScoutNote
@@ -126,10 +127,7 @@ def _load_fleet_notes(
     """
     # Deferred because importing the scout tools package runs its `__init__`, which reaches the
     # signals Temporal module, which imports this one. A module-level import is circular.
-    from products.signals.backend.scout_harness.tools.notes import (  # noqa: PLC0415
-        PIPELINE_AUDIENCE_REPORT_RESEARCH,
-        list_notes,
-    )
+    from products.signals.backend.scout_harness.tools.notes import list_notes  # noqa: PLC0415
     from products.signals.backend.scout_harness.tools.scratchpad import search_scratchpad  # noqa: PLC0415
 
     try:

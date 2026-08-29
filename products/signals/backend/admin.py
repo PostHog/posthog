@@ -14,7 +14,7 @@ from .models import (
     SignalScratchpad,
     SignalTeamConfig,
 )
-from .scout_harness.tools.notes import InvalidNoteError, validate_note_target
+from .scout_harness.note_targets import InvalidNoteError, validate_note_target
 
 
 class SignalReportArtefactInline(admin.TabularInline):

@@ -2001,7 +2001,7 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     scout (`skill_name`) or the whole fleet (blank `skill_name`); each run lists the notes
     addressed to it as prior context and weighs them like any other input. A stage of the
     report pipeline can be addressed too, through a reserved `pipeline:*` audience that rides
-    the same column (see `PIPELINE_AUDIENCES` in `scout_harness/tools/notes.py`); no scout ever
+    the same column (see `PIPELINE_AUDIENCES` in `scout_harness/note_targets.py`); no scout ever
     reads one, because the run-time list matches `skill_name` exactly.
 
     Trust model: scouts read note content verbatim while holding privileged sandbox tools,

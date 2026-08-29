@@ -13,7 +13,7 @@ from products.signals.backend.models import (
     SignalScratchpad,
 )
 from products.signals.backend.report_steering import NO_STEERING, load_report_steering, load_research_steering
-from products.signals.backend.scout_harness.tools.notes import PIPELINE_AUDIENCE_REPORT_RESEARCH
+from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH
 from products.skills.backend.models.skills import LLMSkill
 
 SCOUT_SKILL = "signals-scout-error-tracking"

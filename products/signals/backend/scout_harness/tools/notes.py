@@ -28,8 +28,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from products.signals.backend.models import SignalScoutNote
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
-from products.skills.backend.models.skills import LLMSkill
+from products.signals.backend.scout_harness.note_targets import InvalidNoteError, validate_note_target
 
 # Defensive caps on the list surface. The default is sized for the scout cold-start read —
 # the newest handful of steering notes — not for archival browsing; callers page for more.
@@ -39,23 +38,6 @@ MAX_NOTES_LIST_LIMIT = 500
 # `content` is read verbatim into a run's context — cap it so one note can't dominate a
 # prompt. Deliberately tighter than the scratchpad cap: notes are pointers, not documents.
 MAX_NOTE_CONTENT_LENGTH = 10_000
-
-# Audiences that are a stage of the report pipeline rather than a scout. A stage is not an
-# `LLMSkill` row, so it cannot be named the way a scout is, but its notes want the same shape:
-# addressed to one reader, plus whatever the whole fleet was told. The pseudo-target therefore
-# rides the existing `skill_name` column under a `pipeline:` prefix that no scout name can
-# collide with (scouts are `signals-scout-*`), which needs no column and no migration. The read
-# side needs no change either: `list_notes` matches `skill_name` exactly, so a stage sees its own
-# notes plus the blank-target ones, and a scout never sees a pipeline note.
-PIPELINE_AUDIENCE_PREFIX = "pipeline:"
-PIPELINE_AUDIENCE_REPORT_RESEARCH = f"{PIPELINE_AUDIENCE_PREFIX}report-research"
-# Allowlisted, not free-form: an unrecognized `pipeline:*` target steers no one, which is the same
-# silent failure a typo'd scout name would cause. Add a stage here when it starts reading notes.
-PIPELINE_AUDIENCES: frozenset[str] = frozenset({PIPELINE_AUDIENCE_REPORT_RESEARCH})
-
-
-class InvalidNoteError(ValueError):
-    """The caller tried to leave a note with invalid shape (empty content, bad target)."""
 
 
 @dataclass(frozen=True)
@@ -162,35 +144,6 @@ def delete_note(*, team_id: int, note_id: str) -> bool:
             return False
         existing.delete()
     return True
-
-
-def validate_note_target(*, team_id: int, skill_name: str) -> None:
-    """Raise `InvalidNoteError` unless `skill_name` names an audience a note can reach.
-
-    Shared with the Django admin form so both write paths accept the same set of targets.
-    """
-    # A typo'd target silently steers no one — the list filter is an exact match — so a targeted
-    # note must name a reader that exists. Blank stays valid: it addresses the whole fleet.
-    if not skill_name:
-        return
-    if skill_name.startswith(PIPELINE_AUDIENCE_PREFIX):
-        if skill_name not in PIPELINE_AUDIENCES:
-            raise InvalidNoteError(
-                f"'{skill_name}' is not a pipeline audience — the reserved ones are "
-                f"{', '.join(sorted(PIPELINE_AUDIENCES))}"
-            )
-        return
-    if not skill_name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
-        raise InvalidNoteError(
-            f"skill_name must be blank (a note for every scout), a scout skill name starting with "
-            f"'{SIGNALS_SCOUT_SKILL_PREFIX}', or a pipeline audience "
-            f"({', '.join(sorted(PIPELINE_AUDIENCES))})"
-        )
-    if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, deleted=False).exists():
-        raise InvalidNoteError(
-            f"no scout skill named '{skill_name}' exists on this project — check `scout-config-list` "
-            "for the roster, or author the skill first"
-        )
 
 
 def _validate_note(*, team_id: int, skill_name: str, content: str) -> None:

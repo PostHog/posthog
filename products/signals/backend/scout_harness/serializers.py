@@ -35,6 +35,7 @@ from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
+from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import (
@@ -42,11 +43,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     MAX_TAG_LENGTH,
     MAX_TAGS_PER_FINDING,
 )
-from products.signals.backend.scout_harness.tools.notes import (
-    MAX_NOTE_CONTENT_LENGTH,
-    MAX_NOTES_LIST_LIMIT,
-    PIPELINE_AUDIENCES,
-)
+from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_FINDINGS_WINDOW_HOURS,
