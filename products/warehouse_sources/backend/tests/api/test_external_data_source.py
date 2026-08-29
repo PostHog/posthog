@@ -5582,6 +5582,28 @@ class TestExternalDataSource(APIBaseTest):
                 ExternalDataSource.objects.filter(team=self.team, source_type="Postgres").exists(),
             )
 
+    def test_list_last_run_at_is_newest_completed_job(self):
+        source = self._create_external_data_source()
+        schema = self._create_external_data_schema(source.pk)
+        never_completed = self._create_external_data_source()
+        for created_at, job_status in [
+            ("2024-07-01T12:00:00.000Z", ExternalDataJob.Status.COMPLETED),
+            ("2024-07-01T18:00:00.000Z", ExternalDataJob.Status.COMPLETED),
+            ("2024-07-02T06:00:00.000Z", ExternalDataJob.Status.FAILED),
+        ]:
+            with freeze_time(created_at):
+                ExternalDataJob.objects.create(team=self.team, pipeline=source, schema=schema, status=job_status)
+        with freeze_time("2024-07-02T06:00:00.000Z"):
+            ExternalDataJob.objects.create(
+                team=self.team, pipeline=never_completed, status=ExternalDataJob.Status.RUNNING
+            )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+
+        assert response.status_code == status.HTTP_200_OK
+        last_run_at = {row["id"]: row["last_run_at"] for row in response.json()["results"]}
+        assert last_run_at == {str(source.pk): "2024-07-01T18:00:00+00:00", str(never_completed.pk): None}
+
     def test_source_jobs(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)

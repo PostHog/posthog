@@ -1,4 +1,6 @@
 // sort-imports-ignore
+import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { DateTime, Duration } from 'luxon'
 
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
@@ -85,7 +87,7 @@ describe('Hogflow Executor', () => {
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
             },
             hub.integrationManager,
-            new TeamWorkflowsConfigService(hub.postgres),
+            new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
@@ -101,9 +103,14 @@ describe('Hogflow Executor', () => {
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,
+                internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
             },
             {
                 teamManager: hub.teamManager,
+                conversationsTicketsJwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.CONVERSATIONS_TICKETS,
+                    hub.CONVERSATIONS_TICKETS_JWT_SECRET
+                ),
                 hogInputsService,
                 emailService,
                 recipientTokensService,

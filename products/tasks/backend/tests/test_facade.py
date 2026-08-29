@@ -268,7 +268,11 @@ class TestFacadeReadsAndMappers(TestCase):
             task=task,
             team=self.team,
             status=TaskRun.Status.QUEUED,
-            state={"initial_prompt_override": "framed prompt", "sandbox_jwt_kid": "secret"},
+            state={
+                "initial_prompt_override": "framed prompt",
+                "end_run_when_done": True,
+                "sandbox_jwt_kid": "secret",
+            },
         )
 
         detail = facade.get_task_run_detail(run.id, task.id, self.team.id, include_agent_state=include_agent_state)
@@ -276,6 +280,9 @@ class TestFacadeReadsAndMappers(TestCase):
         assert detail is not None
         expected = "framed prompt" if include_agent_state else None
         assert detail.state.get("initial_prompt_override") == expected
+        # The finish-tool gate reads this key at agent boot; a filter that drops it makes
+        # every unbound workflow run idle out instead of ending itself.
+        assert detail.state.get("end_run_when_done") == (True if include_agent_state else None)
         assert "sandbox_jwt_kid" not in detail.state
 
     def test_get_task_run_maps_all_fields(self):
