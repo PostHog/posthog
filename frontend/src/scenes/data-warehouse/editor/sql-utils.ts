@@ -10,6 +10,12 @@ const queryUsesPlaceholder = (query: string | null, name: string): boolean => {
         return false
     }
 
+    // Built once because `name` is fixed for the whole scan. Inlining these as template literals in
+    // the loop allocates three strings for every scanned character.
+    const plain = `{${name}}`
+    const field = `{${name}.`
+    const columnBound = `{${name}(`
+
     let i = 0
     while (i < query.length) {
         const ch = query[i]
@@ -65,7 +71,7 @@ const queryUsesPlaceholder = (query: string | null, name: string): boolean => {
             continue
         }
 
-        if (query.startsWith(`{${name}}`, i) || query.startsWith(`{${name}.`, i) || query.startsWith(`{${name}(`, i)) {
+        if (query.startsWith(plain, i) || query.startsWith(field, i) || query.startsWith(columnBound, i)) {
             return true
         }
 
