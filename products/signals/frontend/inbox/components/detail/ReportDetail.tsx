@@ -46,6 +46,7 @@ import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
+import { ReportMetrics } from './ReportMetrics'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
@@ -306,6 +307,7 @@ export function InboxDetailFrame({
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
             {titleHeading}
+            <ReportMetrics reportId={report.id} metrics={report.metrics} />
 
             <div>
                 {report.summary ? (

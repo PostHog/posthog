@@ -117,6 +117,9 @@ from products.replay_vision.backend.temporal.vision_alerts.schedule import creat
 from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
+from products.signals.backend.temporal.report_metric_refresh.schedule import (
+    create_signals_report_metric_refresh_schedule,
+)
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
@@ -924,6 +927,7 @@ schedules = [
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
     create_signals_scout_coordinator_schedule,
+    create_signals_report_metric_refresh_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,
     create_account_track_rule_coordinator_schedule,

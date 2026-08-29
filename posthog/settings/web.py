@@ -575,6 +575,19 @@ SPECTACULAR_SETTINGS = {
         "ScoutConfigStatusEnum": "products.signals.backend.models.SignalScoutConfig.Status",
         "ScoutConfigPauseReasonEnum": "products.signals.backend.models.SignalScoutConfig.PauseReason",
         "ScoutConfigNetworkAccessEnum": "products.signals.backend.models.SignalScoutConfig.NetworkAccess",
+        # SignalReport and its list projection intentionally expose the same status choices.
+        "SignalReportStatusEnum": "products.signals.backend.models.SignalReport.Status",
+        # ReportMetric and its snapshot-only list projection intentionally share this inline set.
+        "ReportMetricKindEnum": [
+            "affected_users",
+            "affected_sessions",
+            "occurrences",
+            "conversion_rate",
+            "error_rate",
+            "duration",
+            "revenue",
+            "custom",
+        ],
         # `source_product` names the same choice set on several signals components, so pin one name.
         "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
         "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",

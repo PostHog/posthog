@@ -31,6 +31,11 @@ from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_charts import ReportChart
+from products.signals.backend.report_metrics import (
+    MAX_LIVE_METRIC_QUERY_POINTS,
+    MAX_LIVE_METRIC_QUERY_SERIES,
+    MAX_REPORT_METRICS,
+)
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
@@ -658,6 +663,7 @@ class TestPromptBuilder(BaseTest):
         assert "scout-emit-report" not in prompt
         assert "Suggested reviewers route the report" not in prompt
         assert "scratchpad entry is a pointer" not in prompt
+        assert "Measuring report impact" not in prompt
 
     def test_github_evidence_section_gated_on_token_grant(self) -> None:
         LLMSkill.objects.create(
@@ -819,6 +825,25 @@ class TestPromptBuilder(BaseTest):
         assert "include_all_statuses=true" in prompt
         assert "dismissal_note" in prompt
         assert "record the rationale in your own words" in prompt
+        # Report authors need the metric semantics the generated tool shape cannot express on its own:
+        # distinct people, a live bounded query, and whole-window rather than summed-bucket totals.
+        assert "Measuring report impact" in prompt
+        assert 'math: "dau"' in prompt
+        assert "stored Trends definition is executed as `BoldNumber`" in prompt
+        assert "as `ActionsBar` for the longitudinal buckets" in prompt
+        assert "bar or line response does not supply the whole-window total" in prompt
+        assert "Never sum distinct-user buckets" in prompt
+        assert "daily interval for typical 30–90 day report metrics" in prompt
+        assert f"at most {MAX_LIVE_METRIC_QUERY_POINTS} estimated interval points" in prompt
+        assert "Every source series must be an `EventsNode` or `ActionsNode`" in prompt
+        assert "Do not use a breakdown or compare mode on any report metric" in prompt
+        assert "exactly one output series per query" in prompt
+        assert f"up to {MAX_LIVE_METRIC_QUERY_SERIES} event/action source series as formula inputs" in prompt
+        assert "exactly one formula output" in prompt
+        assert "must set `aggregationAxisFormat` to exactly the same value" in prompt
+        assert f"at most {MAX_REPORT_METRICS} metrics" in prompt
+        assert "Omit it or send null" in prompt
+        assert "send `metrics: []` to clear" in prompt
         # Signal-only sections (weak-finding schema, tagging taxonomy) are dropped
         # for a report scout — it doesn't fire `emit_signal`.
         assert "scout-emit-signal" not in prompt
@@ -1012,6 +1037,7 @@ class TestPromptBuilder(BaseTest):
         # An emit-only scout can't edit, so a relapse of a CLOSED report must become a fresh report
         # rather than a skip — otherwise relapses on resolved/suppressed/failed reports are dropped.
         assert "relapse of a closed report" in prompt
+        assert "Measuring report impact" in prompt
 
     def test_edit_only_report_scout_never_references_emit_tool(self) -> None:
         # The mirror case: an edit_report-only scout must never be told to author via
@@ -1025,6 +1051,7 @@ class TestPromptBuilder(BaseTest):
         assert "Suggested reviewers route the report" not in prompt
         assert "Writing the report" not in prompt
         assert "suggested_reviewers" in prompt
+        assert "Measuring report impact" in prompt
         # An edit-only scout can still rescue an unrouted report's reviewers, so the editing guidance
         # carries the in-run member lookup too — even though the standalone author-time deep-dive drops.
         assert "scout-members-list" in prompt

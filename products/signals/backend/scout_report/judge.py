@@ -30,6 +30,7 @@ from django.utils import timezone
 from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice, SafetyJudgment
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_charts import ReportChart
+from products.signals.backend.report_metrics import ReportMetric
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report.persistence import ScoutReportSignal
 from products.signals.backend.temporal.report_safety_judge import judge_report_safety
@@ -125,6 +126,23 @@ def _suggested_prompts_signal(suggested_prompts: Sequence[str]) -> SignalData | 
     )
 
 
+def _metric_signal(metrics: Sequence[ReportMetric]) -> SignalData | None:
+    """Put every agent-authored metric label, caption, snapshot, and query before the safety judge."""
+    if not metrics:
+        return None
+    rendered = "\n\n".join(json.dumps(metric.model_dump(mode="json"), sort_keys=True) for metric in metrics)
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content=rendered,
+        source_product=SOURCE_PRODUCT,
+        source_type=SOURCE_TYPE,
+        source_id="report_metrics",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
+
+
 def _to_signal_data(signals: list[ScoutReportSignal]) -> list[SignalData]:
     """Adapt the authored-report signals into the `SignalData` shape the safety judge renders."""
     return [
@@ -150,6 +168,7 @@ async def judge_scout_report(
     signals: list[ScoutReportSignal],
     actionability: ActionabilityAssessment,
     charts: Sequence[ReportChart] = (),
+    metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
 ) -> ScoutReportJudgement:
     """Run the safety judge on the authored report and resolve the birth status.
@@ -161,10 +180,12 @@ async def judge_scout_report(
     whatever worker is authoring the report.
     """
     chart_signal = _chart_signal(charts)
+    metric_signal = _metric_signal(metrics)
     prompts_signal = _suggested_prompts_signal(suggested_prompts)
     safety_input = [
         _report_content_signal(title, summary),
         *([chart_signal] if chart_signal is not None else []),
+        *([metric_signal] if metric_signal is not None else []),
         *([prompts_signal] if prompts_signal is not None else []),
         *_to_signal_data(signals),
     ]

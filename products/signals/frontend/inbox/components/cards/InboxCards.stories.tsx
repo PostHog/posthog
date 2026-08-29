@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { makeReport, pullRequestReports, reportTabReports, runReportsMany } from '../../__mocks__/inboxMocks'
 import { SignalReportStatus } from '../../types'
 import { AgentRunCard } from './AgentRunCard'
@@ -27,6 +29,33 @@ export const ReportCards: Story = {
             {reportTabReports.map((r) => (
                 <ReportCard key={r.id} report={r} />
             ))}
+        </Stack>
+    ),
+}
+
+export const ReportCardWithImpact: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] },
+    render: () => (
+        <Stack>
+            <ReportCard
+                report={makeReport({
+                    title: 'Checkout errors rose after the payment form changed',
+                    summary: 'More people are abandoning checkout after card validation fails.',
+                    metrics: [
+                        {
+                            metric_id: 'affected-users',
+                            title: 'Users affected',
+                            kind: 'affected_users',
+                            role: 'primary',
+                            value: 1248,
+                            value_at: '2026-06-11T09:30:00Z',
+                            value_format: 'count',
+                            unit: 'users',
+                            caption: null,
+                        },
+                    ],
+                })}
+            />
         </Stack>
     ),
 }
