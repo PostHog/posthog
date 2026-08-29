@@ -550,10 +550,21 @@ def drifting_shards(ratios: dict[str, float], tolerance: float = SHARD_DRIFT_TOL
     return {name: ratio for name, ratio in ratios.items() if ratio > tolerance or ratio < 1 / tolerance}
 
 
-def shard_sets_match(timing_shards: list[ShardTimings], junit_shards: list[JUnitShard]) -> bool:
-    timing_ids = {shard.name.rsplit("-", 1)[-1] for shard in timing_shards}
+def shard_results_complete(
+    timing_shards: list[ShardTimings],
+    junit_shards: list[JUnitShard],
+    baseline_durations: dict[str, float] | None = None,
+) -> bool:
+    timing_by_id = {shard.name.rsplit("-", 1)[-1]: shard for shard in timing_shards}
+    timing_ids = set(timing_by_id)
     junit_ids = {shard.name.rsplit("-", 1)[-1] for shard in junit_shards}
-    return timing_ids == junit_ids
+    if not junit_ids.issubset(timing_ids):
+        return False
+    missing_junit = timing_ids - junit_ids
+    return not missing_junit or (
+        baseline_durations is not None
+        and all(timing_by_id[shard_id].durations == baseline_durations for shard_id in missing_junit)
+    )
 
 
 def collect_existing_tests(segment: str | None = None) -> set[str]:
@@ -787,6 +798,12 @@ def main():
         help="Directory containing JUnit XML artifacts. Enables precise migration tax correction.",
     )
     parser.add_argument(
+        "--baseline-plan",
+        type=Path,
+        default=None,
+        help="Input sharding plan. Allows timing shards with no JUnit only when they passed the plan through unchanged.",
+    )
+    parser.add_argument(
         "--shard-count",
         type=int,
         default=0,
@@ -861,6 +878,14 @@ def main():
     if args.artifacts_dir is None:
         parser.error("artifacts_dir is required unless --merge-files or --average-files is given")
 
+    baseline_durations = None
+    if args.baseline_plan:
+        try:
+            with open(args.baseline_plan) as f:
+                baseline_durations = json.load(f)
+        except (OSError, ValueError) as error:
+            logger.warning("Could not read baseline plan %s: %s", args.baseline_plan, error)
+
     # Load per-shard timing data
     logger.info("Loading timing artifacts from %s...", args.artifacts_dir)
     if args.segment:
@@ -925,13 +950,14 @@ def main():
         if not junit_shards:
             logger.error("--scope-to-junit requires --junit-dir with matching artifacts")
             sys.exit(1)
-        # A timing shard whose JUnit never uploaded, or uploaded truncated (the
-        # parser turns that into an empty shard), would read as "nothing ran" and
-        # lose every nodeid it owns, so scoping needs one readable JUnit per
-        # shard. The workflow retries unscoped on this exit.
+        # A timing shard whose JUnit never uploaded would read as "nothing ran"
+        # and lose every nodeid it owns. Only unchanged baseline passthroughs can
+        # prove that no tests ran and safely omit JUnit.
         unreadable = [shard.name for shard in junit_shards if shard.unreadable or not shard.call_times]
-        if not shard_sets_match(shards, junit_shards) or unreadable:
-            logger.error("--scope-to-junit needs a readable JUnit artifact for every timing shard: %s", unreadable)
+        if not shard_results_complete(shards, junit_shards, baseline_durations) or unreadable:
+            logger.error(
+                "--scope-to-junit needs JUnit for every timing shard that changed the baseline: %s", unreadable
+            )
             sys.exit(1)
         ran = set().union(*(s.call_times.keys() for s in junit_shards))
         before_count = len(durations)
@@ -942,11 +968,11 @@ def main():
             before_count - len(durations),
         )
 
-    if args.segment == "Core" and junit_shards and shard_sets_match(shards, junit_shards):
+    if args.segment == "Core" and junit_shards and shard_results_complete(shards, junit_shards, baseline_durations):
         durations = scale_shards_to_junit(durations, junit_shards)
 
     if args.segment == "Products" and junit_shards:
-        if shard_sets_match(shards, junit_shards):
+        if shard_results_complete(shards, junit_shards, baseline_durations):
             ran = set().union(*(shard.call_times.keys() for shard in junit_shards))
             before_count = len(durations)
             durations = scope_products_to_junit(durations, ran, Path("products"))
@@ -978,7 +1004,7 @@ def main():
     if args.fail_on_drift:
         # The check is only as good as its clock. A missing, partial, or
         # truncated JUnit set would pass vacuously and let an unchecked slice
-        # through, so a strict run needs one readable JUnit per timing shard.
+        # through. Only unchanged baseline passthroughs can omit JUnit.
         unreadable = [shard.name for shard in junit_shards or [] if shard.unreadable or not shard.call_times]
         if not junit_shards:
             logger.error("--fail-on-drift needs JUnit artifacts and none loaded")
@@ -988,9 +1014,9 @@ def main():
                 "--fail-on-drift needs a readable JUnit artifact for every timing shard; unreadable: %s", unreadable
             )
             sys.exit(1)
-        if not shard_sets_match(shards, junit_shards):
+        if not shard_results_complete(shards, junit_shards, baseline_durations):
             logger.error(
-                "--fail-on-drift needs the same shard set on both sides: %d timing shards, %d JUnit shards",
+                "--fail-on-drift needs JUnit for every timing shard that changed the baseline: %d timing shards, %d JUnit shards",
                 len(shards),
                 len(junit_shards),
             )

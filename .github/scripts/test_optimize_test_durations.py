@@ -25,7 +25,7 @@ from optimize_test_durations import (
     scope_products_to_junit,
     shard_clock_coverage,
     shard_map_clock_ratios,
-    shard_sets_match,
+    shard_results_complete,
 )
 
 # Minimal valid JUnit XML — one testcase with a CamelCase classname so
@@ -394,19 +394,23 @@ def test_merge_files_replaces_stale_segment_entries(tmp_path: Path) -> None:
     }
 
 
-def test_shard_sets_match_requires_every_junit_artifact() -> None:
+@pytest.mark.parametrize(
+    "timing_two, baseline, expected",
+    [
+        ({"test": 2.0}, {"test": 1.0}, False),
+        ({"test": 1.0}, {"test": 1.0}, True),
+    ],
+)
+def test_shard_results_complete_allows_only_unchanged_shards_without_junit(
+    timing_two: dict[str, float], baseline: dict[str, float], expected: bool
+) -> None:
     timings = [
-        ShardTimings(name="timing_data-Products-1", durations={}),
-        ShardTimings(name="timing_data-Products-2", durations={}),
-    ]
-    complete = [
-        JUnitShard(name="product-junit-results-1", call_times={}),
-        JUnitShard(name="product-junit-results-2", call_times={}),
+        ShardTimings(name="timing_data-Products-1", durations={"test": 2.0}),
+        ShardTimings(name="timing_data-Products-2", durations=timing_two),
     ]
     partial = [JUnitShard(name="product-junit-results-1", call_times={})]
 
-    assert shard_sets_match(timings, complete)
-    assert not shard_sets_match(timings, partial)
+    assert shard_results_complete(timings, partial, baseline) is expected
 
 
 if __name__ == "__main__":

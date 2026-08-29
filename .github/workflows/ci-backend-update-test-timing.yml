@@ -206,6 +206,11 @@ jobs:
                       --dir junit_artifacts || \
                       echo "::warning::No JUnit artifacts found — falling back to statistical carrier detection"
 
+                  gh run download "$BACKEND_RUN_ID" \
+                      --name test-durations-plan \
+                      --dir baseline_plan || \
+                      echo "::warning::No baseline sharding plan found — requiring JUnit from every timing shard"
+
                   # Multi-run: pull timing + JUnit for each run we average into the per-segment
                   # file-mode plan (Core/Temporal only). Each run is de-taxed + scoped on its own
                   # below, then averaged. The primary is also downloaded here (into its own dir) so
@@ -267,7 +272,8 @@ jobs:
                   # the previous slice and still refresh Core and Temporal.
                   set +e
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
-                      --segment Products --junit-dir junit_artifacts --fail-on-drift
+                      --segment Products --junit-dir junit_artifacts \
+                      --baseline-plan baseline_plan/.test_durations --fail-on-drift
                   products_status=$?
                   set -e
                   if [ "$products_status" -ne 0 ]; then
@@ -353,7 +359,7 @@ jobs:
 
                   # Also drop timing/JUnit download dirs (incl. the per-run runs/ tree) so the
                   # artifact upload below only sees the merged files.
-                  rm -rf timing_artifacts junit_artifacts runs /tmp/core_* /tmp/temporal_* /tmp/products_durations /tmp/dagster_durations
+                  rm -rf timing_artifacts junit_artifacts baseline_plan runs /tmp/core_* /tmp/temporal_* /tmp/products_durations /tmp/dagster_durations
 
             - name: Compute the cache key
               id: durations-meta
