@@ -149,7 +149,8 @@ export function MetricTile({
     /** Pre-formatted headline value; '—' for no data. */
     value: string
     delta?: TileDelta
-    /** Where the value lands against a published benchmark ladder, shown as a chip by the caption. */
+    /** Where the value lands against a published benchmark ladder, shown as a coloured edge on the
+     *  card plus the ladder detail in the label tooltip. */
     benchmark?: TileBenchmark | null
     /** Visible caption — only for an answer worth a glance (what's failing, why there's no value). */
     sub?: ReactNode

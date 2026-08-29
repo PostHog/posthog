@@ -1,7 +1,9 @@
 // DORA report performance bands for the four deploy metrics, so each Health tile can say
-// which band the current window lands in. Thresholds follow the DORA State of DevOps report
-// ladders (elite / high / medium / low); our change-failure and recovery figures are
-// deploy-status proxies, so the tile tooltips carry that caveat alongside the ladder.
+// which band the current window lands in. Thresholds are loosely modeled on the DORA State
+// of DevOps report ladders (elite / high / medium / low), not a literal reproduction: the
+// deployment-frequency and change-failure-rate bands are tuned tighter than the published
+// report. Our change-failure and recovery figures are also deploy-status proxies, so the
+// tile tooltips carry that caveat alongside the ladder.
 
 const DAY_SECONDS = 86400
 const WEEK_SECONDS = 7 * DAY_SECONDS
