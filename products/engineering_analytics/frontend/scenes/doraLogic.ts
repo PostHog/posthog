@@ -76,10 +76,13 @@ export interface doraLogicActions {
     }
     loadDoraSuccess: (
         dora: DoraOverviewApi,
-        payload?: any
+        payload?: void
     ) => {
         dora: DoraOverviewApi
-        payload?: any
+        payload?: void
+    }
+    resetGranularity: () => {
+        value: true
     }
     setEnvironments: (environments: string[]) => {
         environments: string[]
@@ -92,9 +95,6 @@ export interface doraLogicActions {
     }
     setGranularity: (granularity: DoraGranularity | null) => {
         granularity: DoraGranularity | null
-    }
-    resetGranularity: () => {
-        value: true
     }
     toggleLeadTimeStages: () => {
         value: true
