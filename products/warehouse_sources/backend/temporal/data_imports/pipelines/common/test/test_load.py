@@ -340,6 +340,40 @@ class TestCdcCompanionSeeding:
         assert seed.await_count == (1 if expect_seed else 0)
 
 
+class TestZeroRowRunFinalizesBookkeeping:
+    @pytest.mark.asyncio
+    async def test_no_delta_table_still_sets_initial_sync_complete(self) -> None:
+        # A clean run that wrote zero rows creates no delta table. Post-load used to bail before the
+        # bookkeeping, so initial_sync_complete never advanced and the schema stayed "completed but
+        # not initial-synced" forever. It must be finalized even with no table to register.
+        schema = _make_schema(is_cdc=False, initial_sync_complete=False)
+        job = MagicMock()
+        job.id = uuid.uuid4()
+        job.team_id = schema.team_id
+        logger = MagicMock(debug=MagicMock(), adebug=AsyncMock())
+        helper = MagicMock(get_delta_table=AsyncMock(return_value=None))
+
+        set_complete = AsyncMock()
+        with (
+            patch(f"{_LOAD_MODULE}.set_initial_sync_complete", set_complete),
+            patch(f"{_PIPELINE_SYNC_MODULE}.update_last_synced_at", AsyncMock()) as synced,
+        ):
+            result = await run_post_load_operations(
+                job=job,
+                schema=schema,
+                source=MagicMock(),
+                delta_table_ref=helper,
+                row_count=0,
+                table_schema_dict={},
+                resource_name="subscription_reports",
+                logger=logger,
+            )
+
+        assert result is None
+        set_complete.assert_awaited_once()
+        synced.assert_awaited_once()
+
+
 class TestGetIncrementalFieldValue:
     def _schema(self, incremental_field: str, sync_type: str = ExternalDataSchema.SyncType.INCREMENTAL) -> MagicMock:
         schema = MagicMock()
