@@ -67,6 +67,19 @@ class TestFormatGenerationTextRepr:
         assert "Provider:" not in result
         assert "Tokens:" not in result
 
+    def test_oversized_input_keeps_output_section(self):
+        generation_data = {
+            "model": "gpt-4",
+            "input": "x" * 5000,
+            "output": "DISTINCTIVE_OUTPUT_MARKER",
+        }
+
+        result = _format_generation_text_repr(generation_data, max_length=1000)
+
+        assert len(result) <= 1000
+        assert "--- Output ---" in result
+        assert "DISTINCTIVE_OUTPUT_MARKER" in result
+
 
 class TestFetchAndFormatTrace:
     @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.llm_trace_to_formatter_format")
