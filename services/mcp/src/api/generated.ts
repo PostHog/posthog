@@ -40107,14 +40107,14 @@ export namespace Schemas {
     }
 
     export interface FeatureFlagUsageDashboardError {
-      /** Whether a usage dashboard is available for the feature flag. */
+      /** Whether the usage dashboard operation completed successfully. */
       success: boolean;
       /** Why the usage dashboard operation failed. */
       error: string;
     }
 
     export interface FeatureFlagUsageDashboardSuccess {
-      /** Whether a usage dashboard is available for the feature flag. */
+      /** Whether the usage dashboard operation completed successfully. */
       success: boolean;
     }
 
