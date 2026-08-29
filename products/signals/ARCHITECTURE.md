@@ -1140,7 +1140,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 2. `record_implementation_task` writes the legacy `SignalReportTask` implementation gate row (in the same transaction) and appends an `implementation` `task_run` artefact
 3. Errors are caught and logged but do not fail the report workflow
 
-**Fleet steering in the task description** (`load_report_steering` in `backend/auto_start.py`).
+**Fleet steering in the task description** (`load_report_steering` in `backend/report_steering.py`).
 
 Scouts read the team's steering notes at the start of every run, and the implementation run that acts on their report did not, so guidance like "this area is frozen" reached the agent that filed the report but never the agent that wrote the code. The description now carries it: the `HUMAN`-origin notes addressed to the whole fleet plus those addressed to the report's authoring scout (`scout_authorship.resolve_report_scout_skill`, the same emit-time resolution the dismissal path uses), newest first, capped at 10 notes and 1,000 characters each.
 
@@ -1149,6 +1149,14 @@ The derived origins (`report_dismissal` / `report_discussion` / `report_feedback
 A report on a child environment gets no steering at all. Notes live on the canonical project, while the implementation task is created on the report's own team, where its description is readable with `task:read`. Canonicalizing the read would therefore show parent notes to people who cannot reach the parent project, which is the audience rule the dismissal path already applies. One gap stays open: `edit_report` calls autostart before it records the edit on the run, so a scout that edits a pipeline-authored report into eligibility resolves as no authoring scout and gets the fleet-wide notes only.
 
 A pointer at `scout-scratchpad-search` rides along only where the team's scratchpad holds at least one live entry, so a team with no fleet memory pays nothing for it. The whole read is best effort: a failure costs steering, never the run. `signals_autostart_steering_attached` fires for every implementation task with `notes_attached` and `scratchpad_available`, so the share of runs that carried steering is readable against the share that carried none.
+
+**Fleet steering in the research prompt** (`load_research_steering` in `backend/report_steering.py`).
+
+The research stage decides a report's findings, actionability, priority, and title, and it read no steering at all. So a reviewer who dismissed an earlier report with "this is expected, it's the approval flow" shaped every scheduled scout run and nothing else, while the stage that judges whether the same topic is worth surfacing again never saw it. The initial research prompt now carries a `## Steering from this team` section built from the same read as the implementation run, with the same caps, the same child-environment rule, and the same best-effort posture.
+
+It differs from the implementation run in one way: **every origin is included**, the derived ones especially. Those carry what a person said when they dismissed, discussed, or rated a report, which is the only feedback this stage has ever had. The run is read-only, its prompt already carries the report's own raw signals, and it writes back only to the report on the same team, so the report content a derived note quotes reaches nobody it could not already reach. The section states the untrusted-input rule the scout harness carries, and asks the run to name the note in the assessment explanation it changed, so a reviewer can see their feedback land. It also says that the notes are the team's newest rather than ones chosen for this report, so most will not apply, and that a note counts only when it speaks to the same behavior, entity, or area the signals describe. Without that, a stage whose notes can only push toward "do not file" would be invited to stretch a loosely related dismissal over a distinct finding.
+
+`signals_research_steering_attached` fires for every research run with `notes_attached`, `dismissal_notes_attached`, and `scratchpad_available`. Joining it to `signal_report_completed` on `report_id` is how "did steering change what the pipeline decided?" gets answered from outcomes rather than from the agent's own claim, which is why the run reports no self-assessed "I applied this" field.
 
 ### Priority Rank
 
