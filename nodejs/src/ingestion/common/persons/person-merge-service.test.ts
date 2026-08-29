@@ -93,14 +93,14 @@ describe('PersonMergeService store-owned merges', () => {
         outputs = { queueMessages: jest.fn().mockResolvedValue(undefined) }
     })
 
-    it('clamps a pre-epoch event timestamp so the person stays mergeable', async () => {
-        // Events stamped before 1970 exist, and the saga rejects a negative
-        // created_at; get-or-create accepts them, so without the clamp every
-        // merge for such a person fails forever.
+    it('passes a pre-epoch event timestamp through unchanged', async () => {
+        // Events stamped before 1970 exist. Clamping them here would rewrite
+        // the created_at Postgres records for a person a merge creates, so
+        // each backend applies its own storable range instead.
         const service = makeService()
         await service.merge('anon-1', 'd1', 1, DateTime.fromMillis(-86_400_000, { zone: 'utc' }))
 
-        expect(store.mergePersons).toHaveBeenCalledWith(expect.objectContaining({ createdAtMs: 0 }))
+        expect(store.mergePersons).toHaveBeenCalledWith(expect.objectContaining({ createdAtMs: -86_400_000 }))
     })
 
     it('sends the store one request carrying the event identity and policy', async () => {
