@@ -178,6 +178,26 @@ describe('projectTreeDataLogic', () => {
         expect(error).toHaveBeenCalledWith('Error moving item: Error: nope')
     })
 
+    it('builds viableItems without crashing when a moved path holds both a folder and a file', () => {
+        // A folder entry and a file entry can share one path. The folder branch deletes the path's map
+        // entry, so the file branch must not read length off the entry that is already gone.
+        jest.spyOn(api.fileSystem, 'move').mockResolvedValue({} as any)
+        logic.actions.createSavedItem({ id: 'folder-1', type: 'folder', path: 'Marketing/Docs' } as any)
+        logic.actions.createSavedItem({ id: 'file-1', type: 'dashboard', path: 'Marketing/Docs', ref: '1' } as any)
+
+        logic.actions.queueAction(
+            {
+                type: 'move',
+                item: { id: 'file-1', type: 'dashboard', path: 'Marketing/Docs', ref: '1' } as any,
+                path: 'Marketing/Docs',
+                newPath: 'Product/Docs',
+            },
+            'test'
+        )
+
+        expect(() => logic.values.viableItems).not.toThrow()
+    })
+
     it('deleteSavedItem does not crash when the parent folder is not loaded (lazy store)', () => {
         // Folders load lazily; deleting an item whose parent folder was never loaded must not throw on
         // state[folder].filter (previously "Cannot read properties of undefined (reading 'filter')").

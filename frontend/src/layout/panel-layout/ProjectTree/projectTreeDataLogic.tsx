@@ -1288,7 +1288,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                     ...itemsByPath[action.newPath],
                                     { ...item, path: action.newPath, _loading: true },
                                 ]
-                                if (itemsByPath[action.path].length > 1) {
+                                // A folder entry at the same path may have deleted this key earlier in the
+                                // loop, so read the length defensively and fall through to the delete no-op.
+                                if ((itemsByPath[action.path]?.length ?? 0) > 1) {
                                     itemsByPath[action.path] = itemsByPath[action.path].filter((i) => i.id !== item.id)
                                 } else {
                                     delete itemsByPath[action.path]
